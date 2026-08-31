@@ -6,6 +6,15 @@
 import Foundation
 import UIKit
 
+struct GalleryPendingQueueFailure: Error, LocalizedError {
+    let galleryToken: String
+    let underlyingError: Error
+
+    var errorDescription: String? {
+        underlyingError.localizedDescription
+    }
+}
+
 @MainActor
 final class GoogleDriveGalleryUploadService: GalleryUploadService {
     private let configurationProvider: () throws -> GoogleDriveGalleryConfiguration
@@ -114,10 +123,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
                 )
                 results.append(result)
             } catch {
-                if results.isEmpty {
-                    throw error
-                }
-                break
+                throw GalleryPendingQueueFailure(galleryToken: summary.galleryToken, underlyingError: error)
             }
         }
         return results

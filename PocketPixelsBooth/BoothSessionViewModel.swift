@@ -39,7 +39,7 @@ final class BoothSessionViewModel: ObservableObject {
     private let uploadService = GoogleDriveGalleryUploadService()
     private let credentialStore = DeviceCredentialStore()
     private var activeTask: Task<Void, Never>?
-    private var uploadTask: Task<Void, Never>?
+    private var galleryUploadTasks: [String: Task<Void, Never>] = [:]
     private var queueRetryTask: Task<Void, Never>?
     private var thankYouResetTask: Task<Void, Never>?
     private var isTransitionActive = false
@@ -416,9 +416,9 @@ final class BoothSessionViewModel: ObservableObject {
                 }
                 refreshPendingUploads()
             } catch {
-                if let token = galleryToken {
-                    applyUploadError(error, customerFacing: true, for: token)
-                } else {
+                if let queueFailure = error as? GalleryPendingQueueFailure {
+                    applyUploadError(queueFailure.underlyingError, customerFacing: true, for: queueFailure.galleryToken)
+                } else if galleryToken == nil {
                     applyUploadError(error, customerFacing: false)
                 }
                 refreshPendingUploads()
@@ -643,9 +643,17 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     private func startGalleryUpload(committedSession: CommittedGallerySession, receiptImage: UIImage) {
-        uploadTask?.cancel()
+        guard GalleryUploadSessionIsolationPolicy.canStartPreparation(
+            activeTaskTokens: Set(galleryUploadTasks.keys),
+            newGalleryToken: committedSession.galleryToken
+        ) else {
+            return
+        }
         setUploadPhase(.preparing, message: "Preparing your gallery...", for: committedSession.galleryToken)
-        uploadTask = Task {
+        galleryUploadTasks[committedSession.galleryToken] = Task {
+            defer {
+                galleryUploadTasks[committedSession.galleryToken] = nil
+            }
             do {
                 let payload = try await uploadService.prepareAndPersistGallery(
                     photos: committedSession.photos,
@@ -669,6 +677,9 @@ final class BoothSessionViewModel: ObservableObject {
                 let result = try await uploadService.uploadPendingGallery(galleryToken: payload.galleryToken, deviceToken: deviceToken)
                 setUploadPhase(.success(result.galleryURL), message: "Your photos are ready.", for: result.galleryToken)
                 refreshPendingUploads()
+                if !pendingUploadSummaries.isEmpty {
+                    retryQueuedGalleryUploads()
+                }
             } catch {
                 applyUploadError(error, customerFacing: true, for: committedSession.galleryToken)
                 refreshPendingUploads()
@@ -686,7 +697,7 @@ final class BoothSessionViewModel: ObservableObject {
             case .pendingNoInternet, .network, .deliveryUnknown, .timeout:
                 uploadPhase = uploadError == .deliveryUnknown ? .deliveryUnknown : .pendingNoInternet
                 uploadStatusMessage = customerFacing ? "Your gallery is queued. This QR will work once the connection is restored." : uploadError.localizedDescription
-            case .missingDeviceToken, .invalidDeviceToken:
+            case .missingDeviceToken, .invalidDeviceToken, .uploadAlreadyActive:
                 uploadPhase = .retryAvailable
                 uploadStatusMessage = customerFacing ? "Your gallery is queued. This QR will work once the connection is restored." : uploadError.localizedDescription
             case .configuration, .unauthorized, .server, .conflictManualInspection, .requestTooLarge:
@@ -715,7 +726,7 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     private func isCurrentGalleryToken(_ token: String) -> Bool {
-        galleryToken == token
+        GalleryUploadSessionIsolationPolicy.shouldApplyEvent(eventGalleryToken: token, currentGalleryToken: galleryToken)
     }
 
     private func setIdleTimerDisabled(_ disabled: Bool) {
@@ -729,6 +740,16 @@ private struct CommittedGallerySession {
     let galleryToken: String
     let galleryURL: URL
     let photos: [UIImage]
+}
+
+enum GalleryUploadSessionIsolationPolicy {
+    static func canStartPreparation(activeTaskTokens: Set<String>, newGalleryToken: String) -> Bool {
+        !activeTaskTokens.contains(newGalleryToken)
+    }
+
+    static func shouldApplyEvent(eventGalleryToken: String, currentGalleryToken: String?) -> Bool {
+        currentGalleryToken == eventGalleryToken
+    }
 }
 
 private extension UIImage {

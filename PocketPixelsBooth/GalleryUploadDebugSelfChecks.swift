@@ -282,6 +282,7 @@ enum GalleryUploadDebugSelfChecks {
 
         try runPendingPayloadSelfChecks(payload: payload)
         try runLegacyPendingSelfCheck(payload: payload)
+        try runSessionIsolationSelfChecks()
         try runSecretDiagnosticSelfChecks()
         debugLog("Gallery upload DEBUG self-checks passed.")
     }
@@ -488,6 +489,46 @@ enum GalleryUploadDebugSelfChecks {
 
         guard descriptions.allSatisfy({ !$0.contains(token) && !$0.contains(base64) }) else {
             throw GalleryUploadError.network("Secret diagnostic self-check failed.")
+        }
+    }
+
+    private static func runSessionIsolationSelfChecks() throws {
+        let tokenA = String(repeating: "a", count: 64)
+        let tokenB = String(repeating: "b", count: 64)
+
+        guard GalleryUploadSessionIsolationPolicy.canStartPreparation(
+            activeTaskTokens: [tokenA],
+            newGalleryToken: tokenB
+        ) else {
+            throw GalleryUploadError.uploadAlreadyActive
+        }
+
+        guard !GalleryUploadSessionIsolationPolicy.canStartPreparation(
+            activeTaskTokens: [tokenA],
+            newGalleryToken: tokenA
+        ) else {
+            throw GalleryUploadError.decoding("Duplicate same-token upload preparation was not suppressed.")
+        }
+
+        guard !GalleryUploadSessionIsolationPolicy.shouldApplyEvent(
+            eventGalleryToken: tokenA,
+            currentGalleryToken: tokenB
+        ) else {
+            throw GalleryUploadError.decoding("Older gallery failure could mutate the current customer.")
+        }
+
+        guard !GalleryUploadSessionIsolationPolicy.shouldApplyEvent(
+            eventGalleryToken: tokenA,
+            currentGalleryToken: tokenB
+        ) else {
+            throw GalleryUploadError.decoding("Older gallery success could mutate the current customer.")
+        }
+
+        guard GalleryUploadSessionIsolationPolicy.shouldApplyEvent(
+            eventGalleryToken: tokenB,
+            currentGalleryToken: tokenB
+        ) else {
+            throw GalleryUploadError.decoding("Current gallery event was incorrectly filtered.")
         }
     }
 
