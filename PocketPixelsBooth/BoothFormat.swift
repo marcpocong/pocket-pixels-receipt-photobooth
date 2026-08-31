@@ -8,9 +8,7 @@ import Foundation
 enum BoothFormat: String, CaseIterable, Identifiable, Sendable {
     case solo
     case duo
-    case trio
     case grid
-    case mosaic
     case strip
 
     nonisolated var id: String { rawValue }
@@ -21,12 +19,8 @@ enum BoothFormat: String, CaseIterable, Identifiable, Sendable {
             "Solo"
         case .duo:
             "Duo"
-        case .trio:
-            "Trio"
         case .grid:
             "Grid"
-        case .mosaic:
-            "Mosaic"
         case .strip:
             "Strip"
         }
@@ -38,14 +32,10 @@ enum BoothFormat: String, CaseIterable, Identifiable, Sendable {
             "One large portrait"
         case .duo:
             "Two stacked portraits"
-        case .trio:
-            "Three portraits in a keepsake layout"
         case .grid:
             "Classic four-photo grid"
-        case .mosaic:
-            "Feature portrait with three smaller moments"
         case .strip:
-            "Four-photo receipt strip"
+            "Three-photo classic strip"
         }
     }
 
@@ -55,10 +45,10 @@ enum BoothFormat: String, CaseIterable, Identifiable, Sendable {
             1
         case .duo:
             2
-        case .trio:
-            3
-        case .grid, .mosaic, .strip:
+        case .grid:
             4
+        case .strip:
+            3
         }
     }
 

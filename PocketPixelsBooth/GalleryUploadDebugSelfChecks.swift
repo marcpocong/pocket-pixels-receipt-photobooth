@@ -695,27 +695,11 @@ enum GalleryUploadDebugSelfChecks {
 
     private static func validateFormatSpecificReceiptPlan(_ plan: ReceiptLayoutPlan) throws {
         switch plan.format {
-        case .trio:
-            guard plan.photoFrames.map(\.photoIndex) == [0, 1, 2],
-                  plan.photoFrames[0].rect.width > plan.photoFrames[1].rect.width,
-                  plan.photoFrames[1].rect.minX > plan.photoFrames[0].rect.maxX,
-                  plan.photoFrames[2].rect.minX == plan.photoFrames[1].rect.minX,
-                  plan.photoFrames[2].rect.minY > plan.photoFrames[1].rect.maxY else {
-                throw GalleryUploadError.decoding("Trio mosaic geometry self-check failed.")
-            }
-        case .mosaic:
-            guard plan.photoFrames.map(\.photoIndex) == [0, 1, 2, 3],
-                  plan.photoFrames[0].rect.width > plan.photoFrames[1].rect.width,
-                  plan.photoFrames[1].rect.minX > plan.photoFrames[0].rect.maxX,
-                  plan.photoFrames[2].rect.minX == plan.photoFrames[1].rect.minX,
-                  plan.photoFrames[3].rect.minX == plan.photoFrames[1].rect.minX,
-                  plan.photoFrames[3].rect.minY > plan.photoFrames[2].rect.maxY else {
-                throw GalleryUploadError.decoding("Mosaic geometry self-check failed.")
-            }
         case .strip:
-            guard plan.photoFrames.map(\.photoIndex) == [0, 1, 2, 3],
-                  plan.photoFrames.allSatisfy({ Int($0.rect.width) == 222 }),
-                  plan.groupFrame != nil else {
+            guard plan.photoFrames.map(\.photoIndex) == [0, 1, 2],
+                  plan.photoFrames.allSatisfy({ Int($0.rect.width) == 240 && Int($0.rect.height) == 320 }),
+                  plan.groupFrame != nil,
+                  !plan.displayedPhotoIndexes.contains(3) else {
                 throw GalleryUploadError.decoding("Strip geometry self-check failed.")
             }
         case .solo, .duo, .grid:
@@ -786,12 +770,12 @@ enum GalleryUploadDebugSelfChecks {
     }
 
     private static func runBoothFormatSelfChecks() throws {
-        guard BoothFormat.solo.photoCount == 1,
+        guard BoothFormat.allCases.count == 4,
+              BoothFormat.allCases == [.solo, .duo, .grid, .strip],
+              BoothFormat.solo.photoCount == 1,
               BoothFormat.duo.photoCount == 2,
-              BoothFormat.trio.photoCount == 3,
               BoothFormat.grid.photoCount == 4,
-              BoothFormat.mosaic.photoCount == 4,
-              BoothFormat.strip.photoCount == 4 else {
+              BoothFormat.strip.photoCount == 3 else {
             throw GalleryUploadError.decoding("Booth format photo count self-check failed.")
         }
     }
@@ -825,13 +809,12 @@ enum GalleryUploadDebugSelfChecks {
         let expectedCounts: [BoothFormat: Int] = [
             .solo: 1,
             .duo: 2,
-            .trio: 3,
             .grid: 4,
-            .mosaic: 4,
-            .strip: 4
+            .strip: 3
         ]
 
-        guard previews.count == BoothFormat.allCases.count,
+        guard previews.map(\.format) == [.solo, .duo, .grid, .strip],
+              previews.count == BoothFormat.allCases.count,
               previews.allSatisfy({ $0.receipt.width == BoothConfiguration.receiptWidth }),
               previews.allSatisfy({ $0.receipt.format.photoCount == expectedCounts[$0.format] }),
               try store.summaries().isEmpty else {

@@ -90,11 +90,11 @@ enum ReceiptComposer {
             UIColor.white.setFill()
             cgContext.fill(CGRect(origin: .zero, size: size))
 
-            var y = 30
+            var y = 22
             drawCentered("POCKET PIXELS", y: y, width: width, font: .systemFont(ofSize: 34, weight: .bold))
-            y += 43
+            y += 38
             drawCentered("RECEIPT PHOTOBOOTH", y: y, width: width, font: .systemFont(ofSize: 18, weight: .semibold))
-            y += 53
+            y += 34
             drawDivider(y: y, margin: margin, width: width)
 
             if let groupFrame = plan.groupFrame {
@@ -107,27 +107,27 @@ enum ReceiptComposer {
                 drawPhoto(photos[frame.photoIndex], in: frame.rect, context: cgContext)
             }
 
-            y = Int((plan.photoFrames.map(\.rect.maxY).max() ?? CGFloat(y)) + 20)
+            y = Int((plan.photoFrames.map(\.rect.maxY).max() ?? CGFloat(y)) + 16)
 
             if let galleryURL {
                 drawDivider(y: y, margin: margin, width: width)
-                y += 20
+                y += 12
                 drawCentered("Scan to view & save your photos", y: y, width: width, font: .systemFont(ofSize: 17, weight: .semibold))
-                y += 28
+                y += 24
                 if let qrImage = try? GalleryQRCodeGenerator.makeQRCodeImage(for: galleryURL, pixelSize: plan.qrSize) {
                     let qrX = (width - plan.qrSize) / 2
                     cgContext.interpolationQuality = .none
                     qrImage.draw(in: CGRect(x: qrX, y: y, width: plan.qrSize, height: plan.qrSize))
                 }
-                y += plan.qrSize + 16
+                y += plan.qrSize + 12
             }
 
             drawCentered(receiptDateFormatter.string(from: date).uppercased(), y: y, width: width, font: .monospacedDigitSystemFont(ofSize: 15, weight: .regular))
-            y += 24
+            y += 20
             drawCentered(sessionIdentifier, y: y, width: width, font: .monospacedDigitSystemFont(ofSize: 13, weight: .regular))
-            y += 25
+            y += 18
             drawCentered("@pocketpixels.ceb", y: y, width: width, font: .systemFont(ofSize: 19, weight: .semibold))
-            y += 26
+            y += 24
             drawDivider(y: y, margin: margin, width: width)
         }
 
@@ -152,10 +152,9 @@ enum ReceiptComposer {
         includesGalleryQRCode: Bool = true
     ) throws -> ReceiptLayoutPlan {
         let width = BoothConfiguration.receiptWidth
-        let top = 146
+        let top = 110
         let photoFrames: [ReceiptPhotoFrame]
         let groupFrame: CGRect?
-        let extraPhotoSectionBottomPadding: Int
 
         switch format {
         case .solo:
@@ -163,40 +162,17 @@ enum ReceiptComposer {
             let rect = centeredPortraitRect(y: top, width: photoWidth, in: width)
             photoFrames = [ReceiptPhotoFrame(photoIndex: 0, rect: rect)]
             groupFrame = nil
-            extraPhotoSectionBottomPadding = 0
         case .duo:
             let photoWidth = 300
             let first = centeredPortraitRect(y: top, width: photoWidth, in: width)
-            let second = centeredPortraitRect(y: Int(first.maxY) + 18, width: photoWidth, in: width)
+            let second = centeredPortraitRect(y: Int(first.maxY) + 12, width: photoWidth, in: width)
             photoFrames = [
                 ReceiptPhotoFrame(photoIndex: 0, rect: first),
                 ReceiptPhotoFrame(photoIndex: 1, rect: second)
             ]
             groupFrame = nil
-            extraPhotoSectionBottomPadding = 0
-        case .trio:
-            let featureWidth = 300
-            let sideWidth = 210
-            let gap = 16
-            let sideGap = 10
-            let featureHeight = portraitHeight(for: featureWidth)
-            let sideHeight = portraitHeight(for: sideWidth)
-            let totalWidth = featureWidth + gap + sideWidth
-            let leftX = (width - totalWidth) / 2
-            let sideStackHeight = sideHeight * 2 + sideGap
-            let featureTop = top + (sideStackHeight - featureHeight) / 2
-            let feature = CGRect(x: leftX, y: featureTop, width: featureWidth, height: featureHeight)
-            let sideX = leftX + featureWidth + gap
-            let sideTop = top
-            photoFrames = [
-                ReceiptPhotoFrame(photoIndex: 0, rect: feature),
-                ReceiptPhotoFrame(photoIndex: 1, rect: CGRect(x: sideX, y: sideTop, width: sideWidth, height: sideHeight)),
-                ReceiptPhotoFrame(photoIndex: 2, rect: CGRect(x: sideX, y: sideTop + sideHeight + sideGap, width: sideWidth, height: sideHeight))
-            ]
-            groupFrame = nil
-            extraPhotoSectionBottomPadding = 154
         case .grid:
-            let gap = 16
+            let gap = 12
             let photoWidth = 264
             let photoHeight = portraitHeight(for: photoWidth)
             let totalWidth = photoWidth * 2 + gap
@@ -209,37 +185,14 @@ enum ReceiptComposer {
                 ReceiptPhotoFrame(photoIndex: 3, rect: CGRect(x: leftX + photoWidth + gap, y: row2Y, width: photoWidth, height: photoHeight))
             ]
             groupFrame = nil
-            extraPhotoSectionBottomPadding = 0
-        case .mosaic:
-            let featureWidth = 333
-            let sideWidth = 177
-            let gap = 16
-            let sideGap = 8
-            let featureHeight = portraitHeight(for: featureWidth)
-            let sideHeight = portraitHeight(for: sideWidth)
-            let totalWidth = featureWidth + gap + sideWidth
-            let leftX = (width - totalWidth) / 2
-            let sideStackHeight = sideHeight * 3 + sideGap * 2
-            let featureTop = top + (sideStackHeight - featureHeight) / 2
-            let feature = CGRect(x: leftX, y: featureTop, width: featureWidth, height: featureHeight)
-            let sideX = leftX + featureWidth + gap
-            let sideTop = top
-            photoFrames = [
-                ReceiptPhotoFrame(photoIndex: 0, rect: feature),
-                ReceiptPhotoFrame(photoIndex: 1, rect: CGRect(x: sideX, y: sideTop, width: sideWidth, height: sideHeight)),
-                ReceiptPhotoFrame(photoIndex: 2, rect: CGRect(x: sideX, y: sideTop + sideHeight + sideGap, width: sideWidth, height: sideHeight)),
-                ReceiptPhotoFrame(photoIndex: 3, rect: CGRect(x: sideX, y: sideTop + (sideHeight + sideGap) * 2, width: sideWidth, height: sideHeight))
-            ]
-            groupFrame = nil
-            extraPhotoSectionBottomPadding = 0
         case .strip:
-            let photoWidth = 222
+            let photoWidth = 240
             let gap = 8
             let padding = 10
             let x = (width - photoWidth) / 2
             var frames: [ReceiptPhotoFrame] = []
             var y = top
-            for index in 0..<4 {
+            for index in 0..<3 {
                 let rect = CGRect(x: x, y: y, width: photoWidth, height: portraitHeight(for: photoWidth))
                 frames.append(ReceiptPhotoFrame(photoIndex: index, rect: rect))
                 y = Int(rect.maxY) + gap
@@ -247,13 +200,12 @@ enum ReceiptComposer {
             photoFrames = frames
             let bottom = Int(frames.last?.rect.maxY ?? CGFloat(top))
             groupFrame = CGRect(x: x - padding, y: top - padding, width: photoWidth + padding * 2, height: bottom - top + padding * 2)
-            extraPhotoSectionBottomPadding = 0
         }
 
-        let qrSectionHeight = includesGalleryQRCode ? 1 + 20 + 28 + receiptQRCodeSize + 16 : 0
-        let footerHeight = 24 + 25 + 26 + 18
+        let qrSectionHeight = includesGalleryQRCode ? 1 + 12 + 24 + receiptQRCodeSize + 12 : 0
+        let footerHeight = 20 + 18 + 24 + 14
         let photoBottom = Int(photoFrames.map(\.rect.maxY).max() ?? CGFloat(top))
-        let height = photoBottom + extraPhotoSectionBottomPadding + 20 + qrSectionHeight + footerHeight
+        let height = photoBottom + 16 + qrSectionHeight + footerHeight
 
         return ReceiptLayoutPlan(
             format: format,

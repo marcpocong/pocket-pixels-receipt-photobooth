@@ -212,12 +212,12 @@ struct GalleryUploadTestView: View {
                 composedReceipt = nil
                 receiptImage = nil
                 preparedMetrics = nil
-                if selectedPhotos.count == selectedFormat.photoCount {
+                if selectedPhotos.count >= selectedFormat.photoCount {
                     buildReceipt()
                 }
             }
 
-            Text("Photos selected: \(selectedPhotos.count) of \(selectedFormat.photoCount) for \(selectedFormat.displayName)")
+            Text(samplePhotoUsageStatus)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 14) {
@@ -238,7 +238,7 @@ struct GalleryUploadTestView: View {
                     buildReceipt()
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(selectedPhotos.count != selectedFormat.photoCount || uploadPhase.isWorking)
+                .disabled(selectedPhotos.count < selectedFormat.photoCount || uploadPhase.isWorking)
 
                 if let composedReceipt {
                     Text("\(composedReceipt.width) x \(composedReceipt.height) px")
@@ -269,7 +269,7 @@ struct GalleryUploadTestView: View {
             }
 
             if selectedPhotos.count < BoothConfiguration.maximumPhotosPerSession {
-                Text("Select 4 sample photos to render Solo, Duo, Trio, Grid, Mosaic, and Strip together.")
+                Text("Select 4 sample photos to render Solo, Duo, Grid, and Strip together.")
                     .foregroundStyle(.secondary)
             }
 
@@ -453,7 +453,7 @@ struct GalleryUploadTestView: View {
     private var canUpload: Bool {
         isWebAppConfigured
             && credentialStore.hasDeviceToken()
-            && selectedPhotos.count == selectedFormat.photoCount
+            && selectedPhotos.count >= selectedFormat.photoCount
             && receiptImage != nil
             && !uploadPhase.isWorking
     }
@@ -471,6 +471,20 @@ struct GalleryUploadTestView: View {
 
     private var isWebAppConfigured: Bool {
         (try? GoogleDriveGalleryConfiguration.load()) != nil
+    }
+
+    private var selectedPhotosForCurrentFormat: [UIImage] {
+        Array(selectedPhotos.prefix(selectedFormat.photoCount))
+    }
+
+    private var samplePhotoUsageStatus: String {
+        let loaded = selectedPhotos.count
+        let needed = selectedFormat.photoCount
+        if loaded >= needed {
+            return "\(loaded) sample photos loaded · \(selectedFormat.displayName) preview uses first \(needed)"
+        }
+
+        return "Photos selected: \(loaded) of \(needed) for \(selectedFormat.displayName)"
     }
 
     private var statusColor: Color {
@@ -561,7 +575,7 @@ struct GalleryUploadTestView: View {
                 statusMessage = "Photo loaded."
                 selectedPhotoItem = nil
 
-                if selectedPhotos.count == selectedFormat.photoCount {
+                if selectedPhotos.count >= selectedFormat.photoCount {
                     buildReceipt()
                 }
             } catch {
@@ -601,7 +615,7 @@ struct GalleryUploadTestView: View {
     }
 
     private func buildReceipt() {
-        guard selectedPhotos.count == selectedFormat.photoCount else {
+        guard selectedPhotos.count >= selectedFormat.photoCount else {
             uploadPhase = .failed(GalleryUploadError.invalidPhotoCount.localizedDescription)
             statusMessage = GalleryUploadError.invalidPhotoCount.localizedDescription
             return
@@ -609,7 +623,7 @@ struct GalleryUploadTestView: View {
 
         uploadPhase = .preparing
         statusMessage = "Preparing receipt preview."
-        let photos = selectedPhotos
+        let photos = selectedPhotosForCurrentFormat
         let format = selectedFormat
         activeTask = Task {
             do {
@@ -693,7 +707,7 @@ struct GalleryUploadTestView: View {
         statusMessage = "Checking internet before upload."
         returnedGalleryURL = nil
         uploadResultStatus = nil
-        let photos = selectedPhotos
+        let photos = selectedPhotosForCurrentFormat
 
         activeTask = Task {
             do {
@@ -776,7 +790,7 @@ struct GalleryUploadTestView: View {
                     uploadPhase = .uploading
                     statusMessage = "Retrying same upload."
                     result = try await uploadService.uploadGallery(
-                        photos: selectedPhotos,
+                        photos: selectedPhotosForCurrentFormat,
                         composedReceipt: receiptImage,
                         sessionID: composedReceipt.sessionIdentifier,
                         createdAt: composedReceipt.createdAt,

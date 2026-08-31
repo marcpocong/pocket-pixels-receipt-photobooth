@@ -650,7 +650,7 @@ struct BoothSessionView: View {
     }
 
     private var formatSelectionColumns: [GridItem] {
-        Array(repeating: GridItem(.flexible(minimum: 230), spacing: 18), count: 3)
+        Array(repeating: GridItem(.flexible(minimum: 320), spacing: 18), count: 2)
     }
 
     private func testPrinterConnection() {
@@ -703,14 +703,6 @@ struct BoothSessionView: View {
                         previewFrame(width: 88, height: 117)
                         previewFrame(width: 88, height: 117)
                     }
-                case .trio:
-                    HStack(spacing: 10) {
-                        previewFrame(width: 112, height: 149)
-                        VStack(spacing: 7) {
-                            previewFrame(width: 52, height: 69)
-                            previewFrame(width: 52, height: 69)
-                        }
-                    }
                 case .grid:
                     VStack(spacing: 10) {
                         HStack(spacing: 10) {
@@ -722,19 +714,10 @@ struct BoothSessionView: View {
                             previewFrame(width: 72, height: 96)
                         }
                     }
-                case .mosaic:
-                    HStack(spacing: 10) {
-                        previewFrame(width: 102, height: 136)
-                        VStack(spacing: 5) {
-                            ForEach(0..<3, id: \.self) { _ in
-                                previewFrame(width: 42, height: 56)
-                            }
-                        }
-                    }
                 case .strip:
-                    VStack(spacing: 6) {
-                        ForEach(0..<4, id: \.self) { _ in
-                            previewFrame(width: 58, height: 77)
+                    VStack(spacing: 5) {
+                        ForEach(0..<3, id: \.self) { _ in
+                            previewFrame(width: 68, height: 91)
                         }
                     }
                 }

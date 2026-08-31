@@ -270,7 +270,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         _ response: GalleryUploadResponse,
         expectedGalleryToken: String? = nil,
         expectedGalleryURL: URL? = nil,
-        expectedPhotoCount: Int = BoothFormat.trio.photoCount
+        expectedPhotoCount: Int = BoothFormat.strip.photoCount
     ) -> Bool {
         guard response.ok,
               Self.isSupportedPhotoCount(expectedPhotoCount),

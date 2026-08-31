@@ -53,7 +53,7 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     var requiredPhotoCount: Int {
-        selectedBoothFormat?.photoCount ?? BoothFormat.trio.photoCount
+        selectedBoothFormat?.photoCount ?? BoothFormat.solo.photoCount
     }
 
     var canBeginPhotos: Bool {
