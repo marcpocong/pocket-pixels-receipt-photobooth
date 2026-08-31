@@ -38,7 +38,7 @@ enum ReceiptComposerError: Error, LocalizedError {
 }
 
 enum ReceiptComposer {
-    nonisolated static let sessionIdentifierTimeZone = TimeZone(secondsFromGMT: 0)!
+    nonisolated static let sessionIdentifierTimeZone = TimeZone(identifier: "Asia/Manila") ?? TimeZone(secondsFromGMT: 8 * 60 * 60)!
 
     nonisolated static func makeSessionIdentifier(date: Date = Date()) -> String {
         "PP-\(identifierFormatter.string(from: date))"

@@ -570,20 +570,24 @@ enum GalleryUploadDebugSelfChecks {
         let instant = makeUTCDate(year: 2026, month: 8, day: 30, hour: 17, minute: 44, second: 15)
         let sessionID = ReceiptComposer.makeSessionIdentifier(date: instant)
         let createdAt = GalleryUploadDateFormatter.string(from: instant)
-        guard sessionID == "PP-20260830-174415",
+        guard sessionID == "PP-20260831-014415",
               createdAt == "2026-08-30T17:44:15Z",
-              dateFromUTCSessionIdentifier(sessionID) == instant,
+              dateFromManilaSessionIdentifier(sessionID) == instant,
               GalleryUploadDateFormatter.date(from: createdAt) == instant else {
             throw GalleryUploadError.invalidDate
         }
 
-        let midnightBoundary = makeUTCDate(year: 2026, month: 8, day: 30, hour: 17, minute: 44, second: 15)
-        var manilaCalendar = Calendar(identifier: .gregorian)
-        manilaCalendar.timeZone = TimeZone(identifier: "Asia/Manila")!
-        let localDay = manilaCalendar.component(.day, from: midnightBoundary)
-        guard localDay == 31,
-              ReceiptComposer.makeSessionIdentifier(date: midnightBoundary) == "PP-20260830-174415",
-              GalleryUploadDateFormatter.string(from: midnightBoundary) == "2026-08-30T17:44:15Z" else {
+        let sameDateInstant = makeUTCDate(year: 2026, month: 8, day: 30, hour: 8, minute: 15, second: 30)
+        let sameDateSessionID = ReceiptComposer.makeSessionIdentifier(date: sameDateInstant)
+        let sameDateCreatedAt = GalleryUploadDateFormatter.string(from: sameDateInstant)
+        guard sameDateSessionID == "PP-20260830-161530",
+              sameDateCreatedAt == "2026-08-30T08:15:30Z",
+              dateFromManilaSessionIdentifier(sameDateSessionID) == sameDateInstant,
+              GalleryUploadDateFormatter.date(from: sameDateCreatedAt) == sameDateInstant,
+              !createdAt.contains("."),
+              !sameDateCreatedAt.contains("."),
+              sessionID.count == "PP-yyyyMMdd-HHmmss".count,
+              sameDateSessionID.count == "PP-yyyyMMdd-HHmmss".count else {
             throw GalleryUploadError.decoding("UTC/local midnight boundary self-check failed.")
         }
     }
@@ -601,7 +605,7 @@ enum GalleryUploadDebugSelfChecks {
         return components.date!
     }
 
-    private static func dateFromUTCSessionIdentifier(_ sessionID: String) -> Date? {
+    private static func dateFromManilaSessionIdentifier(_ sessionID: String) -> Date? {
         let prefix = "PP-"
         guard sessionID.hasPrefix(prefix) else {
             return nil
@@ -609,7 +613,7 @@ enum GalleryUploadDebugSelfChecks {
 
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.timeZone = TimeZone(identifier: "Asia/Manila") ?? TimeZone(secondsFromGMT: 8 * 60 * 60)
         formatter.dateFormat = "yyyyMMdd-HHmmss"
         return formatter.date(from: String(sessionID.dropFirst(prefix.count)))
     }
