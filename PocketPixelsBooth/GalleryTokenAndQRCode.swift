@@ -124,6 +124,7 @@ enum GalleryURLBuilder {
 enum GalleryQRCodeGenerator {
     nonisolated static let pixelSize = 384
     nonisolated static let correctionLevel = "M"
+    nonisolated static let quietZoneModules = 4
 
     nonisolated static func makeQRCodeImage(for galleryURL: URL, pixelSize: Int = Self.pixelSize) throws -> UIImage {
         guard galleryURL.scheme?.lowercased() == "https" else {
@@ -148,7 +149,8 @@ enum GalleryQRCodeGenerator {
         }
 
         let extent = coloredImage.extent.integral
-        let scale = max(1, ceil(CGFloat(pixelSize) / max(extent.width, extent.height)))
+        let modulesWithQuietZone = max(extent.width, extent.height) + CGFloat(quietZoneModules * 2)
+        let scale = max(1, floor(CGFloat(pixelSize) / modulesWithQuietZone))
         let transformedImage = coloredImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         let context = CIContext(options: [.workingColorSpace: CGColorSpaceCreateDeviceRGB()])
 
@@ -159,13 +161,23 @@ enum GalleryQRCodeGenerator {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
-        let size = CGSize(width: cgImage.width, height: cgImage.height)
+        let size = CGSize(width: pixelSize, height: pixelSize)
+        let scaledMatrixSize = CGSize(width: CGFloat(cgImage.width), height: CGFloat(cgImage.height))
+        let quietZoneOffset = CGFloat(quietZoneModules) * scale
+        let scaledTotalSize = CGSize(
+            width: scaledMatrixSize.width + quietZoneOffset * 2,
+            height: scaledMatrixSize.height + quietZoneOffset * 2
+        )
+        let totalOrigin = CGPoint(
+            x: floor((size.width - scaledTotalSize.width) / 2),
+            y: floor((size.height - scaledTotalSize.height) / 2)
+        )
         let renderer = UIGraphicsImageRenderer(size: size, format: format)
         return renderer.image { context in
             UIColor.white.setFill()
             context.fill(CGRect(origin: .zero, size: size))
             context.cgContext.interpolationQuality = .none
-            UIImage(cgImage: cgImage, scale: 1, orientation: .up).draw(in: CGRect(origin: .zero, size: size))
+            UIImage(cgImage: cgImage, scale: 1, orientation: .up).draw(in: CGRect(origin: CGPoint(x: totalOrigin.x + quietZoneOffset, y: totalOrigin.y + quietZoneOffset), size: scaledMatrixSize))
         }
     }
 }

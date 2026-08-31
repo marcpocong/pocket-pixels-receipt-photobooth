@@ -85,11 +85,24 @@ enum GalleryUploadDebugSelfChecks {
 
         let qrImage = try GalleryQRCodeGenerator.makeQRCodeImage(for: galleryURL)
         try validateQRCodeImage(qrImage)
-        try runReceiptLayoutSelfChecks(photos: [image, image, image], galleryURL: galleryURL)
+        try runBoothFormatSelfChecks()
+        try runPortraitProcessorSelfChecks()
+        try runReceiptLayoutSelfChecks(photos: [image, image, image, image], galleryURL: galleryURL)
 
-        try assertThrows("wrong photo count") {
+        try assertThrows("zero photo count") {
             _ = try GoogleDriveGalleryUploadService.makeRequestBody(
-                photos: [image, image],
+                photos: [],
+                composedReceipt: image,
+                sessionID: "PP-20260830-120000",
+                createdAt: Date(),
+                galleryToken: galleryToken,
+                deviceToken: "abcdefghijklmnopqrstuvwxyz123456"
+            )
+        }
+
+        try assertThrows("too many photos") {
+            _ = try GoogleDriveGalleryUploadService.makeRequestBody(
+                photos: [image, image, image, image, image],
                 composedReceipt: image,
                 sessionID: "PP-20260830-120000",
                 createdAt: Date(),
@@ -99,7 +112,7 @@ enum GalleryUploadDebugSelfChecks {
         }
 
         let request = try GoogleDriveGalleryUploadService.makeRequestBody(
-            photos: [image, image, image],
+            photos: [image, image, image, image],
             composedReceipt: image,
             sessionID: "PP-20260830-120000",
             createdAt: Date(),
@@ -107,9 +120,9 @@ enum GalleryUploadDebugSelfChecks {
             deviceToken: "abcdefghijklmnopqrstuvwxyz123456"
         )
 
-        guard request.photos.count == 3,
+        guard request.photos.count == 4,
               request.galleryToken == galleryToken,
-              request.photos.map(\.filename) == ["photo-01.jpg", "photo-02.jpg", "photo-03.jpg"],
+              request.photos.map(\.filename) == ["photo-01.jpg", "photo-02.jpg", "photo-03.jpg", "photo-04.jpg"],
               request.receipt.filename == "receipt-color.jpg",
               request.photos.allSatisfy({ $0.base64Data.data(using: .utf8)?.count ?? 0 > 0 }),
               GoogleDriveGalleryUploadService.validateNoDisallowedFields(in: request) else {
@@ -117,7 +130,7 @@ enum GalleryUploadDebugSelfChecks {
         }
 
         let payload = try GoogleDriveGalleryUploadService.preparePayload(
-            photos: [image, image, image],
+            photos: [image, image, image, image],
             composedReceipt: image,
             sessionID: "PP-20260830-120000",
             createdAt: Date(),
@@ -125,7 +138,7 @@ enum GalleryUploadDebugSelfChecks {
             customerGalleryBaseURL: customerGalleryBaseURL
         )
 
-        guard payload.metrics.files.count == 4,
+        guard payload.metrics.files.count == 5,
               payload.galleryToken == galleryToken,
               payload.galleryURL == galleryURL,
               payload.metrics.files.allSatisfy({ $0.decodedBytes <= GalleryPreparedUploadMetrics.maxFileDecodedBytes }),
@@ -147,7 +160,7 @@ enum GalleryUploadDebugSelfChecks {
               jsonGalleryToken.range(of: #"^[a-f0-9]{64}$"#, options: .regularExpression) != nil,
               jsonSessionID.range(of: #"^PP-[0-9]{8}-[0-9]{6}$"#, options: .regularExpression) != nil,
               GalleryUploadDateFormatter.isValidWireString(jsonCreatedAt),
-              jsonPhotos.count == 3,
+              jsonPhotos.count == 4,
               jsonPhotos.enumerated().allSatisfy({ index, photo in photo["filename"] as? String == String(format: "photo-%02d.jpg", index + 1) }),
               jsonReceipt["filename"] as? String == "receipt-color.jpg",
               !(jsonObject["createdAt"] is NSNumber) else {
@@ -167,8 +180,8 @@ enum GalleryUploadDebugSelfChecks {
         guard diagnostics.hasDeviceToken,
               diagnostics.galleryTokenCharacterCount == 64,
               diagnostics.galleryTokenMatchesLowercaseHex,
-              diagnostics.photoCount == 3,
-              diagnostics.photoFilenames == ["photo-01.jpg", "photo-02.jpg", "photo-03.jpg"],
+              diagnostics.photoCount == 4,
+              diagnostics.photoFilenames == ["photo-01.jpg", "photo-02.jpg", "photo-03.jpg", "photo-04.jpg"],
               !diagnostics.description.contains(request.deviceToken),
               !diagnostics.description.contains(request.galleryToken),
               !request.photos.contains(where: { diagnostics.description.contains($0.base64Data) }) else {
@@ -176,19 +189,44 @@ enum GalleryUploadDebugSelfChecks {
         }
 
         let responseJSON = """
-        {"ok":true,"schemaVersion":1,"galleryToken":"\(galleryToken)","galleryURL":"\(galleryURL.absoluteString)","fileCount":5,"status":"existingComplete"}
+        {"ok":true,"schemaVersion":1,"galleryToken":"\(galleryToken)","galleryURL":"\(galleryURL.absoluteString)","fileCount":6,"status":"existingComplete"}
         """
         let response = try JSONDecoder().decode(GalleryUploadResponse.self, from: Data(responseJSON.utf8))
         guard response.ok,
               response.galleryToken == galleryToken,
-              response.fileCount == 5,
+              response.fileCount == 6,
               GalleryUploadResultStatus(serverStatus: response.status) == .existingComplete,
               GoogleDriveGalleryUploadService.validateSuccessfulResponse(
                 response,
                 expectedGalleryToken: galleryToken,
-                expectedGalleryURL: galleryURL
-              ) else {
+                expectedGalleryURL: galleryURL,
+                expectedPhotoCount: 4
+        ) else {
             throw GalleryUploadError.decoding("Response self-check failed.")
+        }
+
+        for photoCount in BoothConfiguration.minimumPhotosPerSession...BoothConfiguration.maximumPhotosPerSession {
+            let completionResponse = GalleryUploadResponse(
+                ok: true,
+                schemaVersion: 1,
+                galleryToken: galleryToken,
+                galleryURL: galleryURL,
+                fileCount: photoCount + 2,
+                errorCode: nil,
+                error: nil,
+                status: "created",
+                field: nil,
+                stage: nil,
+                detail: nil
+            )
+            guard GoogleDriveGalleryUploadService.validateSuccessfulResponse(
+                completionResponse,
+                expectedGalleryToken: galleryToken,
+                expectedGalleryURL: galleryURL,
+                expectedPhotoCount: photoCount
+            ) else {
+                throw GalleryUploadError.decoding("Variable completion count self-check failed.")
+            }
         }
 
         let conflictResponseJSON = """
@@ -333,13 +371,13 @@ enum GalleryUploadDebugSelfChecks {
     }
 
     @MainActor
-    private static func makeImage() -> UIImage {
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 48))
+    private static func makeImage(size: CGSize = CGSize(width: 64, height: 48)) -> UIImage {
+        let renderer = UIGraphicsImageRenderer(size: size)
         return renderer.image { context in
             UIColor.white.setFill()
-            context.fill(CGRect(x: 0, y: 0, width: 64, height: 48))
+            context.fill(CGRect(origin: .zero, size: size))
             UIColor.black.setFill()
-            context.fill(CGRect(x: 8, y: 8, width: 48, height: 32))
+            context.fill(CGRect(x: size.width * 0.125, y: size.height * 0.167, width: size.width * 0.75, height: size.height * 0.667))
         }
     }
 
@@ -637,68 +675,37 @@ enum GalleryUploadDebugSelfChecks {
 
     @MainActor
     private static func runReceiptLayoutSelfChecks(photos: [UIImage], galleryURL: URL) throws {
-        let legacyReceiptHeight = 2_052
-        let expectedPlans: [(ReceiptLayoutStyle, Int, [Int], [Int])] = [
-            (.collage, 0, [0, 1, 2], [1, 2]),
-            (.collage, 1, [1, 0, 2], [0, 2]),
-            (.collage, 2, [2, 0, 1], [0, 1]),
-            (.single, 0, [0], []),
-            (.single, 1, [1], []),
-            (.single, 2, [2], [])
-        ]
-
-        for (style, favoriteIndex, displayedIndexes, secondaryIndexes) in expectedPlans {
-            let plan = try ReceiptComposer.makeLayoutPlan(style: style, favoritePhotoIndex: favoriteIndex)
+        for format in BoothFormat.allCases {
+            let plan = try ReceiptComposer.makeLayoutPlan(format: format)
             guard plan.width == BoothConfiguration.receiptWidth,
                   plan.height <= BoothConfiguration.receiptMaximumHeight,
-                  plan.heroPhotoIndex == favoriteIndex,
-                  plan.displayedPhotoIndexes == displayedIndexes,
-                  plan.secondaryPhotoIndexes == secondaryIndexes else {
-                throw GalleryUploadError.decoding("Receipt layout plan self-check failed.")
+                  plan.qrSize == ReceiptComposer.receiptQRCodeSize,
+                  plan.displayedPhotoIndexes == Array(0..<format.photoCount),
+                  plan.photoFrames.count == format.photoCount,
+                  plan.photoFrames.allSatisfy({ Int($0.rect.width) * 4 == Int($0.rect.height) * 3 }) else {
+                throw GalleryUploadError.decoding("Receipt layout plan self-check failed for \(format.displayName).")
             }
-        }
 
-        let collagePlan = try ReceiptComposer.makeLayoutPlan(style: .collage, favoritePhotoIndex: 0)
-        let singlePlan = try ReceiptComposer.makeLayoutPlan(style: .single, favoritePhotoIndex: 0)
-        guard collagePlan.height < legacyReceiptHeight,
-              singlePlan.height < collagePlan.height,
-              collagePlan.qrSize == 240,
-              singlePlan.qrSize == 240 else {
-            throw GalleryUploadError.decoding("Compact receipt height self-check failed.")
+            try runReceiptQRCodeSelfCheck(photos: Array(photos.prefix(format.photoCount)), galleryURL: galleryURL, format: format)
         }
-
-        let originalOrder = [0, 1, 2]
-        let retainedOrder = originalOrder
-        _ = try ReceiptComposer.makeLayoutPlan(style: .collage, favoritePhotoIndex: 2)
-        guard retainedOrder == originalOrder,
-              ReceiptSelectionPolicy.canChangeSelection(isCommitted: false),
-              !ReceiptSelectionPolicy.canChangeSelection(isCommitted: true) else {
-            throw GalleryUploadError.decoding("Receipt favorite selection mutation self-check failed.")
-        }
-
-        try runReceiptQRCodeSelfCheck(photos: photos, galleryURL: galleryURL, style: .collage, favoritePhotoIndex: 0)
-        try runReceiptQRCodeSelfCheck(photos: photos, galleryURL: galleryURL, style: .single, favoritePhotoIndex: 1)
     }
 
     @MainActor
     private static func runReceiptQRCodeSelfCheck(
         photos: [UIImage],
         galleryURL: URL,
-        style: ReceiptLayoutStyle,
-        favoritePhotoIndex: Int
+        format: BoothFormat
     ) throws {
         let receipt = try ReceiptComposer.compose(
             photos: photos,
             sessionIdentifier: "PP-20260830-120000",
             date: makeUTCDate(year: 2026, month: 8, day: 30, hour: 12, minute: 0, second: 0),
             galleryURL: galleryURL,
-            layoutStyle: style,
-            favoritePhotoIndex: favoritePhotoIndex
+            format: format
         )
         guard receipt.width == BoothConfiguration.receiptWidth,
               receipt.height <= BoothConfiguration.receiptMaximumHeight,
-              receipt.layoutStyle == style,
-              receipt.favoritePhotoIndex == favoritePhotoIndex,
+              receipt.format == format,
               let image = UIImage(data: receipt.imagePNGData) else {
             throw GalleryUploadError.qrGeneration("Receipt QR dimensions self-check failed.")
         }
@@ -727,14 +734,37 @@ enum GalleryUploadDebugSelfChecks {
             sessionIdentifier: receipt.sessionIdentifier,
             date: receipt.createdAt,
             galleryURL: galleryURL,
-            layoutStyle: receipt.layoutStyle,
-            favoritePhotoIndex: receipt.favoritePhotoIndex
+            format: receipt.format
         )
         guard rebuiltReceipt.width == receipt.width,
               rebuiltReceipt.height == receipt.height,
-              rebuiltReceipt.layoutStyle == receipt.layoutStyle,
-              rebuiltReceipt.favoritePhotoIndex == receipt.favoritePhotoIndex else {
+              rebuiltReceipt.format == receipt.format else {
             throw GalleryUploadError.decoding("Receipt rebuild layout self-check failed.")
+        }
+    }
+
+    private static func runBoothFormatSelfChecks() throws {
+        guard BoothFormat.solo.photoCount == 1,
+              BoothFormat.duo.photoCount == 2,
+              BoothFormat.trio.photoCount == 3,
+              BoothFormat.grid.photoCount == 4,
+              BoothFormat.strip.photoCount == 4 else {
+            throw GalleryUploadError.decoding("Booth format photo count self-check failed.")
+        }
+    }
+
+    private static func runPortraitProcessorSelfChecks() throws {
+        let sources = [
+            makeImage(size: CGSize(width: 160, height: 90)),
+            makeImage(size: CGSize(width: 90, height: 160)),
+            makeImage(size: CGSize(width: 120, height: 120))
+        ]
+
+        for source in sources {
+            let processed = BoothPhotoProcessor.normalizedPortraitPhoto(from: source)
+            guard Int(processed.size.width) * 4 == Int(processed.size.height) * 3 else {
+                throw GalleryUploadError.imageEncoding("Portrait crop self-check failed.")
+            }
         }
     }
 

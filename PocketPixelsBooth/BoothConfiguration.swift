@@ -8,7 +8,8 @@
 import Foundation
 
 enum BoothConfiguration {
-    nonisolated static let photosPerSession = 3
+    nonisolated static let minimumPhotosPerSession = 1
+    nonisolated static let maximumPhotosPerSession = 4
     nonisolated static let countdownSeconds = 3
     nonisolated static let interPhotoDelay: TimeInterval = 1.5
     nonisolated static let capturedPhotoDisplayDuration: TimeInterval = 0.8

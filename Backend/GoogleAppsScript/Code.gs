@@ -6,7 +6,9 @@ const DEVICE_TOKEN_PROPERTY = 'POCKET_PIXELS_DEVICE_TOKEN';
 
 const CUSTOMER_GALLERY_BASE_URL_PROPERTY = 'POCKET_PIXELS_CUSTOMER_GALLERY_BASE_URL';
 
-const REQUIRED_PHOTO_COUNT = 3;
+const MIN_PHOTO_COUNT = 1;
+
+const MAX_PHOTO_COUNT = 4;
 
 const MAX_IMAGE_DECODED_BYTES = 6 * 1024 * 1024;
 
@@ -15,8 +17,6 @@ const GALLERY_TOKEN_PATTERN = /^[a-f0-9]{64}$/;
 const SAFE_SESSION_ID_PATTERN = /^PP-[0-9]{8}-[0-9]{6}$/;
 
 const RFC3339_UTC_SECONDS_PATTERN = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/;
-
-const PHOTO_FILENAMES = ['photo-01.jpg', 'photo-02.jpg', 'photo-03.jpg'];
 
 const RECEIPT_FILENAME = 'receipt-color.jpg';
 
@@ -230,9 +230,9 @@ function renderRawGalleryResponse_(e) {
 
 function runPocketPixelsSelfTest() {
 
-  assert_(!validateUploadToken_(''), 'Missing token should fail.');
+  assert_(validateUploadToken_('').code === 'MISSING_DEVICE_TOKEN', 'Missing token should fail.');
 
-  assert_(!validateUploadToken_('wrong'), 'Incorrect token should fail when script property is configured.');
+  assert_(validateUploadToken_('wrong').code === 'INVALID_FIELD_TYPE', 'Incorrect token should fail when script property is configured.');
 
   assert_(!GALLERY_TOKEN_PATTERN.test('../bad'), 'Invalid token format should fail.');
 
@@ -250,7 +250,7 @@ function runPocketPixelsSelfTest() {
 
   const wrongCount = JSON.parse(JSON.stringify(validPayload));
 
-  wrongCount.photos = wrongCount.photos.slice(0, 2);
+  wrongCount.photos = [];
 
   assert_(!validateUploadPayload_(wrongCount).ok, 'Wrong photo count should fail.');
 
@@ -279,6 +279,12 @@ function runPocketPixelsSelfTest() {
   assert_(!validateUploadPayload_(badJpeg).ok, 'Invalid JPEG signature should fail.');
 
   assert_(validateUploadPayload_(validPayload).ok, 'Valid payload should pass validation.');
+
+  for (let count = MIN_PHOTO_COUNT; count <= MAX_PHOTO_COUNT; count++) {
+
+    assert_(validateUploadPayload_(makeSelfTestPayload_(count)).ok, count + '-photo payload should pass validation.');
+
+  }
 
   const manifest = makeCompleteManifest_(validPayload);
 
@@ -354,15 +360,25 @@ function runPhase6CBackendSelfChecks() {
 
   const badCount = JSON.parse(JSON.stringify(validPayload));
 
-  badCount.photos = badCount.photos.slice(0, 2);
+  badCount.photos = [];
 
   assertValidationCode_(badCount, 'INVALID_PHOTO_COUNT');
+
+  const tooMany = makeSelfTestPayload_(5);
+
+  assertValidationCode_(tooMany, 'INVALID_PHOTO_COUNT');
 
   const badFilename = JSON.parse(JSON.stringify(validPayload));
 
   badFilename.photos[0].filename = 'photo-99.jpg';
 
   assertValidationCode_(badFilename, 'INVALID_PHOTO_FILENAME');
+
+  const gapFilename = makeSelfTestPayload_(3);
+
+  gapFilename.photos[1].filename = 'photo-03.jpg';
+
+  assertValidationCode_(gapFilename, 'INVALID_PHOTO_FILENAME');
 
   const badMime = JSON.parse(JSON.stringify(validPayload));
 
@@ -464,7 +480,7 @@ function getGalleryImage(token, filename) {
 
   }
 
-  if (expectedFilenames_().indexOf(String(filename || '')) === -1) {
+  if (expectedFilenames_(MAX_PHOTO_COUNT).indexOf(String(filename || '')) === -1) {
 
     throw new Error('Image not found.');
 
@@ -610,17 +626,18 @@ function validateUploadPayload_(body) {
 
   }
 
-  if (!Array.isArray(body.photos) || body.photos.length !== REQUIRED_PHOTO_COUNT) {
+  if (!Array.isArray(body.photos) || body.photos.length < MIN_PHOTO_COUNT || body.photos.length > MAX_PHOTO_COUNT) {
 
-    return validationError_('INVALID_PHOTO_COUNT', 'Exactly three photos are required.', 'photos');
+    return validationError_('INVALID_PHOTO_COUNT', 'Upload requires 1 to 4 photos.', 'photos');
 
   }
 
   const validatedImages = [];
+  const photoFilenames = expectedPhotoFilenames_(body.photos.length);
 
-  for (let i = 0; i < REQUIRED_PHOTO_COUNT; i++) {
+  for (let i = 0; i < body.photos.length; i++) {
 
-    const error = validateImage_(body.photos[i], PHOTO_FILENAMES[i], 'photos[' + i + ']');
+    const error = validateImage_(body.photos[i], photoFilenames[i], 'photos[' + i + ']');
 
     if (!error.ok) {
 
@@ -645,6 +662,18 @@ function validateUploadPayload_(body) {
   Object.defineProperty(body, '_validatedImages', {
 
     value: validatedImages,
+
+    enumerable: false,
+
+    configurable: false,
+
+    writable: false
+
+  });
+
+  Object.defineProperty(body, '_expectedPhotoFilenames', {
+
+    value: photoFilenames,
 
     enumerable: false,
 
@@ -741,6 +770,8 @@ function validateImage_(image, expectedFilename, field) {
 function createOrReturnGallery_(root, body) {
 
   const folderName = 'gallery-' + body.galleryToken;
+  const expected = expectedFilenames_(body.photos.length);
+  const expectedFileCount = expected.length + 1;
 
   const folders = collectFoldersByName_(root, folderName);
 
@@ -758,9 +789,9 @@ function createOrReturnGallery_(root, body) {
 
     saveExpectedImages_(folder, body, {});
 
-    const inspection = inspectGalleryFolder_(folder);
+    const inspection = inspectGalleryFolder_(folder, expected);
 
-    if (!inspection.safe || !hasExactlyExpectedImages_(inspection)) {
+    if (!inspection.safe || !hasExactlyExpectedImages_(inspection, expected)) {
 
       throw publicError_(500, 'Gallery could not be completed. Manual inspection required.', 'manualInspectionRequired', 'MANUAL_INSPECTION_REQUIRED');
 
@@ -770,13 +801,13 @@ function createOrReturnGallery_(root, body) {
 
     console.log('Created Pocket Pixels gallery for session ' + body.sessionID + ' with token ' + redactToken_(body.galleryToken));
 
-    return { status: 'created', fileCount: 5 };
+    return { status: 'created', fileCount: expectedFileCount };
 
   }
 
   const folder = folders[0];
 
-  const inspection = inspectGalleryFolder_(folder);
+  const inspection = inspectGalleryFolder_(folder, expected);
 
   if (!inspection.safe) {
 
@@ -798,11 +829,11 @@ function createOrReturnGallery_(root, body) {
 
     if (manifest.status === 'complete') {
 
-      if (manifest.galleryToken === body.galleryToken && manifest.sessionID === body.sessionID && manifestHasExpectedFiles_(manifest) && hasExactlyExpectedImages_(inspection)) {
+      if (manifest.galleryToken === body.galleryToken && manifest.sessionID === body.sessionID && manifestHasExpectedFiles_(manifest, body.photos.length) && hasExactlyExpectedImages_(inspection, expected)) {
 
         console.log('Returned existing Pocket Pixels gallery for session ' + body.sessionID + ' with token ' + redactToken_(body.galleryToken));
 
-        return { status: 'existingComplete', fileCount: 5 };
+        return { status: 'existingComplete', fileCount: expectedFileCount };
 
       }
 
@@ -832,9 +863,9 @@ function createOrReturnGallery_(root, body) {
 
   saveExpectedImages_(folder, body, inspection.fileCounts);
 
-  const repairedInspection = inspectGalleryFolder_(folder);
+  const repairedInspection = inspectGalleryFolder_(folder, expected);
 
-  if (!repairedInspection.safe || !hasExactlyExpectedImages_(repairedInspection) || repairedInspection.manifests.length > 1) {
+  if (!repairedInspection.safe || !hasExactlyExpectedImages_(repairedInspection, expected) || repairedInspection.manifests.length > 1) {
 
     throw publicError_(409, 'Incomplete gallery requires manual inspection.', 'manualInspectionRequired', 'MANUAL_INSPECTION_REQUIRED');
 
@@ -858,7 +889,7 @@ function createOrReturnGallery_(root, body) {
 
   console.log('Completed pending Pocket Pixels gallery for session ' + body.sessionID + ' with token ' + redactToken_(body.galleryToken));
 
-  return { status: 'completedIncomplete', fileCount: 5 };
+  return { status: 'completedIncomplete', fileCount: expectedFileCount };
 
 }
 
@@ -934,9 +965,9 @@ function createManifestFile_(folder, body) {
 
 }
 
-function inspectGalleryFolder_(folder) {
+function inspectGalleryFolder_(folder, expected) {
 
-  const expected = expectedFilenames_();
+  expected = expected || expectedFilenames_(3);
 
   const fileCounts = {};
 
@@ -1000,9 +1031,9 @@ function inspectGalleryFolder_(folder) {
 
 }
 
-function hasExactlyExpectedImages_(inspection) {
+function hasExactlyExpectedImages_(inspection, expected) {
 
-  const expected = expectedFilenames_();
+  expected = expected || expectedFilenames_(3);
 
   for (let i = 0; i < expected.length; i++) {
 
@@ -1032,7 +1063,10 @@ function readManifest_(file) {
 
 }
 
-function manifestHasExpectedFiles_(manifest) {
+function manifestHasExpectedFiles_(manifest, expectedPhotoCount) {
+
+  const count = Number(expectedPhotoCount || (Array.isArray(manifest.photos) ? manifest.photos.length : 0));
+  const photoFilenames = expectedPhotoFilenames_(count);
 
   return manifest.schemaVersion === SCHEMA_VERSION &&
 
@@ -1044,7 +1078,13 @@ function manifestHasExpectedFiles_(manifest) {
 
     Array.isArray(manifest.photos) &&
 
-    manifest.photos.join('|') === PHOTO_FILENAMES.join('|') &&
+    count >= MIN_PHOTO_COUNT &&
+
+    count <= MAX_PHOTO_COUNT &&
+
+    photoFilenames.length === count &&
+
+    manifest.photos.join('|') === photoFilenames.join('|') &&
 
     manifest.receipt === RECEIPT_FILENAME &&
 
@@ -1090,7 +1130,7 @@ function findCompleteGalleryByToken_(token, timings) {
 
   const inspectionStartedAt = Date.now();
 
-  const inspection = inspectGalleryFolder_(folder);
+  const inspection = inspectGalleryFolder_(folder, expectedFilenames_(MAX_PHOTO_COUNT));
 
   if (timings) {
 
@@ -1098,7 +1138,7 @@ function findCompleteGalleryByToken_(token, timings) {
 
   }
 
-  if (!inspection.safe || !hasExactlyExpectedImages_(inspection) || inspection.manifests.length !== 1) {
+  if (!inspection.safe || inspection.manifests.length !== 1) {
 
     return null;
 
@@ -1120,7 +1160,16 @@ function findCompleteGalleryByToken_(token, timings) {
 
   }
 
-  return { folder: folder, manifest: manifest, filesByName: inspection.filesByName };
+  const expected = expectedFilenames_(manifest.photos.length);
+  const exactInspection = inspectGalleryFolder_(folder, expected);
+
+  if (!exactInspection.safe || !hasExactlyExpectedImages_(exactInspection, expected) || exactInspection.manifests.length !== 1) {
+
+    return null;
+
+  }
+
+  return { folder: folder, manifest: manifest, filesByName: exactInspection.filesByName };
 
 }
 
@@ -1194,7 +1243,7 @@ function renderGalleryPage_(gallery, timings, startedAt) {
 
   body += '<header><p class="brand">Pocket Pixels</p><h1>Your photos are ready</h1><p class="meta">' + escapeHTML(createdAt) + ' · Ref ' + escapeHTML(reference) + '</p></header>';
 
-  body += '<section class="actions"><button type="button" id="shareAll">Save All Photos</button><p id="allHint">Save your favorites before closing this page.</p><p id="message" role="status" aria-live="polite"></p></section>';
+  body += '<section class="actions"><button type="button" id="shareAll">Save All Photos</button><p id="allHint">Save your photos before closing this page.</p><p id="message" role="status" aria-live="polite"></p></section>';
 
   body += '<section class="photo-grid" aria-label="Photos">';
 
@@ -1472,7 +1521,7 @@ function makeCompleteManifest_(body) {
 
     createdAt: body.createdAt,
 
-    photos: PHOTO_FILENAMES,
+    photos: body._expectedPhotoFilenames || expectedPhotoFilenames_(body.photos.length),
 
     receipt: RECEIPT_FILENAME,
 
@@ -1623,9 +1672,23 @@ function collectFoldersByName_(root, folderName) {
 
 }
 
-function expectedFilenames_() {
+function expectedPhotoFilenames_(photoCount) {
 
-  return PHOTO_FILENAMES.concat([RECEIPT_FILENAME]);
+  const count = Number(photoCount || 0);
+  if (count < MIN_PHOTO_COUNT || count > MAX_PHOTO_COUNT) {
+    return [];
+  }
+  const filenames = [];
+  for (let i = 1; i <= count; i++) {
+    filenames.push('photo-' + String(i).padStart(2, '0') + '.jpg');
+  }
+  return filenames;
+
+}
+
+function expectedFilenames_(photoCount) {
+
+  return expectedPhotoFilenames_(photoCount).concat([RECEIPT_FILENAME]);
 
 }
 
@@ -1935,7 +1998,17 @@ function escapeHTML(value) {
 
 }
 
-function makeSelfTestPayload_() {
+function makeSelfTestPayload_(photoCount) {
+
+  const count = Number(photoCount || 3);
+  const photos = [];
+  for (let i = 1; i <= count; i++) {
+    photos.push({
+      filename: 'photo-' + String(i).padStart(2, '0') + '.jpg',
+      mimeType: 'image/jpeg',
+      base64Data: '/9j/4AAQSkZJRg=='
+    });
+  }
 
   return {
 
@@ -1949,15 +2022,7 @@ function makeSelfTestPayload_() {
 
     createdAt: '2026-08-30T12:00:00Z',
 
-    photos: [
-
-      { filename: 'photo-01.jpg', mimeType: 'image/jpeg', base64Data: '/9j/4AAQSkZJRg==' },
-
-      { filename: 'photo-02.jpg', mimeType: 'image/jpeg', base64Data: '/9j/4AAQSkZJRg==' },
-
-      { filename: 'photo-03.jpg', mimeType: 'image/jpeg', base64Data: '/9j/4AAQSkZJRg==' }
-
-    ],
+    photos: photos,
 
     receipt: { filename: 'receipt-color.jpg', mimeType: 'image/jpeg', base64Data: '/9j/4AAQSkZJRg==' }
 

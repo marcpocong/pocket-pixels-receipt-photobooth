@@ -32,8 +32,7 @@ final class BoothSessionViewModel: ObservableObject {
     @Published var isCameraUnavailable = false
     @Published var isCameraRunning = false
     @Published var samplePhotoCount = 0
-    @Published var selectedReceiptLayoutStyle = ReceiptLayoutStyle.collage
-    @Published var selectedFavoritePhotoIndex = 0
+    @Published var selectedBoothFormat: BoothFormat?
 
     let cameraService = CameraService()
 
@@ -50,7 +49,11 @@ final class BoothSessionViewModel: ObservableObject {
     private var committedGallerySession: CommittedGallerySession?
 
     var nextPhotoIndex: Int {
-        min(capturedPhotos.count, BoothConfiguration.photosPerSession - 1)
+        min(capturedPhotos.count, max(requiredPhotoCount - 1, 0))
+    }
+
+    var requiredPhotoCount: Int {
+        selectedBoothFormat?.photoCount ?? BoothFormat.trio.photoCount
     }
 
     var canBeginPhotos: Bool {
@@ -62,7 +65,7 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     var canContinueToReceipt: Bool {
-        capturedPhotos.count == BoothConfiguration.photosPerSession && !isTransitionActive && committedGallerySession == nil
+        selectedBoothFormat != nil && capturedPhotos.count == requiredPhotoCount && !isTransitionActive && committedGallerySession == nil
     }
 
     var canReturnToReview: Bool {
@@ -75,10 +78,10 @@ final class BoothSessionViewModel: ObservableObject {
 
     var receiptStyleSummary: String {
         guard let composedReceipt else {
-            return "\(selectedReceiptLayoutStyle.displayName) receipt"
+            return "\(selectedBoothFormat?.displayName ?? "Selected") receipt"
         }
 
-        return "\(composedReceipt.layoutStyle.displayName) receipt"
+        return "\(composedReceipt.format.displayName) receipt"
     }
 
     init() {
@@ -94,6 +97,18 @@ final class BoothSessionViewModel: ObservableObject {
 
         cancelTasks()
         clearCustomerData()
+        errorMessage = nil
+        statusMessage = "Choose your format."
+        state = .choosingFormat
+        setIdleTimerDisabled(true)
+    }
+
+    func selectBoothFormat(_ format: BoothFormat) {
+        guard case .choosingFormat = state, !isTransitionActive else {
+            return
+        }
+
+        selectedBoothFormat = format
         let sessionDate = Date()
         sessionCreatedAt = sessionDate
         sessionIdentifier = ReceiptComposer.makeSessionIdentifier(date: sessionDate)
@@ -145,7 +160,7 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     func beginPhotoSequence() {
-        guard canBeginPhotos, committedGallerySession == nil else {
+        guard canBeginPhotos, selectedBoothFormat != nil, committedGallerySession == nil else {
             return
         }
 
@@ -188,42 +203,20 @@ final class BoothSessionViewModel: ObservableObject {
         thermalReceiptPreview = nil
         receiptRasterizedImage = nil
         composedReceipt = nil
-        statusMessage = "Restarting the three-photo sequence."
+        statusMessage = "Restarting the photo sequence."
         startCameraForSequence()
     }
 
-    func selectReceiptLayoutStyle(_ style: ReceiptLayoutStyle) {
-        guard ReceiptSelectionPolicy.canChangeSelection(isCommitted: committedGallerySession != nil) else {
-            statusMessage = "Receipt choices are locked for this session."
-            return
-        }
-
-        selectedReceiptLayoutStyle = style
-    }
-
-    func selectFavoritePhoto(at index: Int) {
-        guard ReceiptSelectionPolicy.canChangeSelection(isCommitted: committedGallerySession != nil) else {
-            statusMessage = "Receipt choices are locked for this session."
-            return
-        }
-
-        guard capturedPhotos.indices.contains(index) else {
-            return
-        }
-
-        selectedFavoritePhotoIndex = index
-    }
-
     func addSamplePhoto(_ image: UIImage) {
-        guard isCameraUnavailable, capturedPhotos.count < BoothConfiguration.photosPerSession, !isTransitionActive, committedGallerySession == nil else {
+        guard isCameraUnavailable, selectedBoothFormat != nil, capturedPhotos.count < requiredPhotoCount, !isTransitionActive, committedGallerySession == nil else {
             return
         }
 
-        capturedPhotos.append(image.normalizedForBooth())
+        capturedPhotos.append(BoothPhotoProcessor.normalizedPortraitPhoto(from: image))
         samplePhotoCount = capturedPhotos.count
-        statusMessage = "Development sample photo \(samplePhotoCount) of \(BoothConfiguration.photosPerSession) loaded."
+        statusMessage = "Development sample photo \(samplePhotoCount) of \(requiredPhotoCount) loaded."
 
-        if capturedPhotos.count == BoothConfiguration.photosPerSession {
+        if capturedPhotos.count == requiredPhotoCount {
             state = .review
         } else {
             state = .cameraReady
@@ -232,6 +225,7 @@ final class BoothSessionViewModel: ObservableObject {
 
     func continueToReceipt() {
         guard canContinueToReceipt,
+              let selectedBoothFormat,
               let sessionIdentifier,
               let receiptDate = sessionCreatedAt,
               let galleryURL,
@@ -247,8 +241,7 @@ final class BoothSessionViewModel: ObservableObject {
             galleryToken: galleryToken,
             galleryURL: galleryURL,
             photos: capturedPhotos,
-            layoutStyle: selectedReceiptLayoutStyle,
-            favoritePhotoIndex: selectedFavoritePhotoIndex
+            format: selectedBoothFormat
         )
         committedGallerySession = committedSession
         composeReceipt(for: committedSession, enqueueUpload: true)
@@ -295,8 +288,7 @@ final class BoothSessionViewModel: ObservableObject {
                         sessionIdentifier: committedSession.sessionIdentifier,
                         date: committedSession.createdAt,
                         galleryURL: committedSession.galleryURL,
-                        layoutStyle: committedSession.layoutStyle,
-                        favoritePhotoIndex: committedSession.favoritePhotoIndex
+                        format: committedSession.format
                     )
                     guard let receiptImage = UIImage(data: receipt.imagePNGData) else {
                         throw ReceiptComposerError.renderFailed
@@ -528,7 +520,8 @@ final class BoothSessionViewModel: ObservableObject {
 
         isTransitionActive = true
         activeTask = Task {
-            for index in startIndex..<BoothConfiguration.photosPerSession {
+            let targetCount = requiredPhotoCount
+            for index in startIndex..<targetCount {
                 guard !Task.isCancelled else { return }
                 await countdownAndCapture(index: index, replacing: false)
                 if case .error = state {
@@ -536,7 +529,7 @@ final class BoothSessionViewModel: ObservableObject {
                 }
 
                 guard !Task.isCancelled else { return }
-                if index < BoothConfiguration.photosPerSession - 1 {
+                if index < targetCount - 1 {
                     state = .betweenPhotos(nextPhotoIndex: index + 1)
                     statusMessage = "Next photo in a moment."
                     try? await Task.sleep(for: .seconds(BoothConfiguration.interPhotoDelay))
@@ -582,7 +575,7 @@ final class BoothSessionViewModel: ObservableObject {
         for value in stride(from: BoothConfiguration.countdownSeconds, through: 1, by: -1) {
             guard !Task.isCancelled else { return }
             state = .countdown(photoIndex: index, value: value)
-            statusMessage = replacing ? "Retaking photo \(index + 1)." : "Photo \(index + 1) of \(BoothConfiguration.photosPerSession)."
+            statusMessage = replacing ? "Retaking photo \(index + 1)." : "Photo \(index + 1) of \(requiredPhotoCount)."
             try? await Task.sleep(for: .seconds(1))
         }
 
@@ -620,7 +613,7 @@ final class BoothSessionViewModel: ObservableObject {
             cameraService.capturePhoto { result in
                 switch result {
                 case .success(let image):
-                    continuation.resume(returning: image.normalizedForBooth())
+                    continuation.resume(returning: BoothPhotoProcessor.normalizedPortraitPhoto(from: image))
                 case .failure(let error):
                     continuation.resume(throwing: error)
                 }
@@ -669,8 +662,7 @@ final class BoothSessionViewModel: ObservableObject {
         uploadPhase = .idle
         uploadStatusMessage = "Gallery upload has not started."
         samplePhotoCount = 0
-        selectedReceiptLayoutStyle = .collage
-        selectedFavoritePhotoIndex = 0
+        selectedBoothFormat = nil
     }
 
     private func cancelTasks() {
@@ -778,8 +770,7 @@ private struct CommittedGallerySession {
     let galleryToken: String
     let galleryURL: URL
     let photos: [UIImage]
-    let layoutStyle: ReceiptLayoutStyle
-    let favoritePhotoIndex: Int
+    let format: BoothFormat
 }
 
 enum GalleryUploadSessionIsolationPolicy {
@@ -789,25 +780,6 @@ enum GalleryUploadSessionIsolationPolicy {
 
     static func shouldApplyEvent(eventGalleryToken: String, currentGalleryToken: String?) -> Bool {
         currentGalleryToken == eventGalleryToken
-    }
-}
-
-enum ReceiptSelectionPolicy {
-    static func canChangeSelection(isCommitted: Bool) -> Bool {
-        !isCommitted
-    }
-}
-
-private extension UIImage {
-    func normalizedForBooth() -> UIImage {
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = false
-
-        let renderer = UIGraphicsImageRenderer(size: size, format: format)
-        return renderer.image { _ in
-            draw(in: CGRect(origin: .zero, size: size))
-        }
     }
 }
 
