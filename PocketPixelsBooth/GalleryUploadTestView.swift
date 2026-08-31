@@ -351,7 +351,7 @@ struct GalleryUploadTestView: View {
     }
 
     private var canDiscardPending: Bool {
-        (pendingSummary != nil || hasLegacyPendingUpload) && !uploadPhase.isWorking
+        pendingSummary != nil && !uploadPhase.isWorking
     }
 
     private var isWebAppConfigured: Bool {
@@ -611,7 +611,11 @@ struct GalleryUploadTestView: View {
                 if pendingSummary != nil {
                     uploadPhase = .uploading
                     statusMessage = "Uploading pending gallery."
-                    result = try await uploadService.retryPendingUpload(deviceToken: token)
+                    let results = try await uploadService.retryPendingQueue(deviceToken: token)
+                    guard let firstResult = results.first else {
+                        throw GalleryUploadError.configuration("No pending gallery upload is available.")
+                    }
+                    result = firstResult
                 } else {
                     guard let composedReceipt, let receiptImage, let galleryToken else {
                         throw GalleryUploadError.invalidGalleryToken
@@ -689,11 +693,10 @@ struct GalleryUploadTestView: View {
     private func discardPendingTestUpload() {
         do {
             try uploadService.discardLocalPendingUpload()
-            pendingSummary = nil
-            hasLegacyPendingUpload = false
+            refreshPendingSummary()
             clearGalleryIdentifiers()
             uploadPhase = .idle
-            statusMessage = "Local pending test upload discarded. Build a fresh test gallery."
+            statusMessage = "Oldest local V3 pending test upload discarded. Legacy pending data is preserved."
         } catch {
             uploadPhase = .failed(error.localizedDescription)
             statusMessage = error.localizedDescription

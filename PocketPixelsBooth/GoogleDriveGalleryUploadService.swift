@@ -13,7 +13,8 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
     private let urlSession: URLSession
     private let connectivityTester: GalleryBackendConnectivityTester
     private let pendingStore: GalleryPendingUploadStore?
-    private var isUploading = false
+    private static var activeUploadToken: String?
+    private static var isQueueProcessing = false
 
     init(
         configurationProvider: @escaping () throws -> GoogleDriveGalleryConfiguration = { try GoogleDriveGalleryConfiguration.load() },
@@ -37,11 +38,23 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         galleryToken: String,
         deviceToken: String
     ) async throws -> GalleryUploadResult {
-        guard !isUploading else { throw GalleryUploadError.uploadAlreadyActive }
-        isUploading = true
-        defer { isUploading = false }
+        let payload = try await prepareAndPersistGallery(
+            photos: photos,
+            composedReceipt: composedReceipt,
+            sessionID: sessionID,
+            createdAt: createdAt,
+            galleryToken: galleryToken
+        )
+        return try await uploadPendingPayload(payload, deviceToken: deviceToken)
+    }
 
-        let configuration = try configurationProvider()
+    func prepareAndPersistGallery(
+        photos: [UIImage],
+        composedReceipt: UIImage,
+        sessionID: String,
+        createdAt: Date,
+        galleryToken: String
+    ) async throws -> GalleryPreparedUploadPayload {
         let customerGalleryConfiguration = try customerGalleryConfigurationProvider()
         let payload = try await Task.detached(priority: .userInitiated) {
             try Self.preparePayload(
@@ -55,6 +68,20 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         }.value
 
         try pendingStore?.save(payload)
+        return payload
+    }
+
+    func uploadPendingGallery(galleryToken: String, deviceToken: String) async throws -> GalleryUploadResult {
+        guard let pendingStore, let payload = try pendingStore.load(galleryToken: galleryToken) else {
+            throw GalleryUploadError.configuration("No pending gallery upload is available for this token.")
+        }
+        return try await uploadPendingPayload(payload, deviceToken: deviceToken)
+    }
+
+    private func uploadPendingPayload(_ payload: GalleryPreparedUploadPayload, deviceToken: String) async throws -> GalleryUploadResult {
+        try beginUpload(galleryToken: payload.galleryToken)
+        defer { endUpload(galleryToken: payload.galleryToken) }
+        let configuration = try configurationProvider()
         return try await postQueuedPayload(payload, deviceToken: deviceToken, configuration: configuration)
     }
 
@@ -63,16 +90,37 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
     }
 
     func retryNextPendingUpload(deviceToken: String) async throws -> GalleryUploadResult {
-        guard !isUploading else { throw GalleryUploadError.uploadAlreadyActive }
         guard let pendingStore, let payload = try pendingStore.load() else {
             throw GalleryUploadError.configuration("No pending gallery upload is available.")
         }
 
-        isUploading = true
-        defer { isUploading = false }
+        return try await uploadPendingPayload(payload, deviceToken: deviceToken)
+    }
 
-        let configuration = try configurationProvider()
-        return try await postQueuedPayload(payload, deviceToken: deviceToken, configuration: configuration)
+    func retryPendingQueue(deviceToken: String, maxAttemptsPerGallery: Int = 3) async throws -> [GalleryUploadResult] {
+        guard !Self.isQueueProcessing else {
+            throw GalleryUploadError.uploadAlreadyActive
+        }
+        Self.isQueueProcessing = true
+        defer { Self.isQueueProcessing = false }
+
+        var results: [GalleryUploadResult] = []
+        while let summary = pendingUploadSummaries().first {
+            do {
+                let result = try await retryPendingGalleryWithBackoff(
+                    galleryToken: summary.galleryToken,
+                    deviceToken: deviceToken,
+                    maxAttempts: maxAttemptsPerGallery
+                )
+                results.append(result)
+            } catch {
+                if results.isEmpty {
+                    throw error
+                }
+                break
+            }
+        }
+        return results
     }
 
     func testBackendConnectivity() async -> GalleryBackendConnectivityState {
@@ -102,7 +150,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
 #endif
 
     func cancel() {
-        isUploading = false
+        Self.activeUploadToken = nil
     }
 
     nonisolated static func makeRequestBody(
@@ -221,6 +269,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
               response.fileCount == 5,
               let galleryToken = response.galleryToken,
               let galleryURL = response.galleryURL,
+              Self.isConfirmedCompletionStatus(response.status),
               GalleryTokenGenerator.isValidGalleryToken(galleryToken),
               galleryURL.scheme?.lowercased() == "https",
               galleryURL.host() != nil else { return false }
@@ -309,14 +358,17 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         guard let httpResponse = response as? HTTPURLResponse else { throw GalleryUploadError.invalidResponse }
         guard (200...299).contains(httpResponse.statusCode) else {
             if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 { throw GalleryUploadError.unauthorized }
-            if httpResponse.statusCode == 408 || httpResponse.statusCode == 409 || httpResponse.statusCode == 429 || httpResponse.statusCode >= 500 {
-                if httpResponse.statusCode == 429 { throw GalleryUploadError.network("Upload service is busy. Try again later.") }
-            }
             if let serverResponse = try? JSONDecoder().decode(GalleryUploadResponse.self, from: responseData), let error = serverResponse.error {
+                if Self.isTemporaryServerResponse(serverResponse, httpStatus: httpResponse.statusCode) {
+                    throw GalleryUploadError.network(Self.safeServerMessage(response: serverResponse, fallback: "Upload service is temporarily unavailable."))
+                }
                 if serverResponse.status == "conflict" || serverResponse.status == "manualInspectionRequired" {
                     throw GalleryUploadError.conflictManualInspection(Self.safeServerMessage(response: serverResponse, fallback: error))
                 }
                 throw GalleryUploadError.server(Self.safeServerMessage(response: serverResponse, fallback: error))
+            }
+            if httpResponse.statusCode == 408 || httpResponse.statusCode == 429 || httpResponse.statusCode >= 500 {
+                throw GalleryUploadError.network("Upload service is temporarily unavailable. HTTP \(httpResponse.statusCode).")
             }
             throw GalleryUploadError.httpStatus(httpResponse.statusCode)
         }
@@ -329,6 +381,9 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         }
 
         guard uploadResponse.ok else {
+            if Self.isTemporaryServerResponse(uploadResponse) {
+                throw GalleryUploadError.network(Self.safeServerMessage(response: uploadResponse, fallback: "Upload service is temporarily unavailable."))
+            }
             if uploadResponse.status == "conflict" || uploadResponse.status == "manualInspectionRequired" {
                 throw GalleryUploadError.conflictManualInspection(Self.safeServerMessage(response: uploadResponse, fallback: "Gallery requires manual inspection."))
             }
@@ -346,6 +401,44 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         debugLog("Gallery upload succeeded. Gallery token: \(GalleryTokenGenerator.redacted(galleryToken)). URL host: \(galleryURL.host() ?? "unknown"). uploadNetwork=\(String(format: "%.3f", networkDuration))s total=\(String(format: "%.3f", totalDuration))s responseBytes=\(responseData.count)")
 #endif
         return GalleryUploadResult(galleryToken: galleryToken, galleryURL: galleryURL, status: GalleryUploadResultStatus(serverStatus: uploadResponse.status))
+    }
+
+    private func beginUpload(galleryToken: String) throws {
+        guard Self.activeUploadToken == nil else {
+            throw GalleryUploadError.uploadAlreadyActive
+        }
+        Self.activeUploadToken = galleryToken
+    }
+
+    private func endUpload(galleryToken: String) {
+        guard Self.activeUploadToken == galleryToken else {
+            return
+        }
+        Self.activeUploadToken = nil
+    }
+
+    private func retryPendingGalleryWithBackoff(
+        galleryToken: String,
+        deviceToken: String,
+        maxAttempts: Int
+    ) async throws -> GalleryUploadResult {
+        let delays: [Duration] = [.seconds(2), .seconds(5), .seconds(10)]
+        var lastError: Error?
+        for attempt in 1...max(1, maxAttempts) {
+            do {
+                return try await uploadPendingGallery(galleryToken: galleryToken, deviceToken: deviceToken)
+            } catch {
+                guard Self.isTemporaryRetryable(error) else {
+                    throw error
+                }
+                lastError = error
+                if attempt < maxAttempts {
+                    let delay = delays[min(attempt - 1, delays.count - 1)]
+                    try? await Task.sleep(for: delay)
+                }
+            }
+        }
+        throw lastError ?? GalleryUploadError.pendingNoInternet
     }
 
     nonisolated private static func makeUploadSession() -> URLSession {
@@ -437,6 +530,34 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         if let stage = response.stage, !stage.isEmpty { parts.append("Stage: \(stage)") }
         if let detail = response.detail, !detail.isEmpty { parts.append("Detail: \(detail)") }
         return parts.joined(separator: " | ")
+    }
+
+    private static func isTemporaryServerResponse(_ response: GalleryUploadResponse, httpStatus: Int? = nil) -> Bool {
+        if response.errorCode == "UPLOAD_SERVICE_BUSY" {
+            return true
+        }
+        if let httpStatus, httpStatus == 408 || httpStatus == 429 || httpStatus >= 500 {
+            return true
+        }
+        return false
+    }
+
+    nonisolated private static func isConfirmedCompletionStatus(_ status: String?) -> Bool {
+        status == "created" ||
+        status == "existingComplete" ||
+        status == "completedIncomplete"
+    }
+
+    private static func isTemporaryRetryable(_ error: Error) -> Bool {
+        guard let uploadError = error as? GalleryUploadError else {
+            return false
+        }
+        switch uploadError {
+        case .pendingNoInternet, .network, .timeout, .deliveryUnknown:
+            return true
+        default:
+            return false
+        }
     }
 }
 

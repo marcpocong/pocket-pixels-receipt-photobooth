@@ -281,7 +281,7 @@ enum GalleryUploadDebugSelfChecks {
         }
 
         try runPendingPayloadSelfChecks(payload: payload)
-        try runLegacyPendingSelfCheck()
+        try runLegacyPendingSelfCheck(payload: payload)
         try runSecretDiagnosticSelfChecks()
         debugLog("Gallery upload DEBUG self-checks passed.")
     }
@@ -351,6 +351,7 @@ enum GalleryUploadDebugSelfChecks {
 
         let store = try GalleryPendingUploadStore(directoryURL: rootURL.appendingPathComponent("PendingGalleryUpload", isDirectory: true))
         try store.save(payload)
+        try store.save(payload)
 
         guard let firstLoad = try store.load(),
               firstLoad == payload,
@@ -359,6 +360,29 @@ enum GalleryUploadDebugSelfChecks {
               firstSummary.galleryToken == payload.galleryToken,
               firstSummary.galleryURL == payload.galleryURL else {
             throw GalleryUploadError.decoding("Pending payload atomic persistence self-check failed.")
+        }
+
+        let conflictingPhoto = GalleryStoredUploadImage(
+            filename: payload.photos[0].filename,
+            mimeType: payload.photos[0].mimeType,
+            data: payload.photos[0].data + Data([0x01])
+        )
+        let conflictingPayload = GalleryPreparedUploadPayload(
+            schemaVersion: payload.schemaVersion,
+            galleryToken: payload.galleryToken,
+            galleryURL: payload.galleryURL,
+            sessionID: payload.sessionID,
+            createdAt: payload.createdAt,
+            photos: [conflictingPhoto] + Array(payload.photos.dropFirst()),
+            receipt: payload.receipt,
+            metrics: payload.metrics,
+            deliveryState: payload.deliveryState
+        )
+        try assertThrows("conflicting pending gallery save") {
+            try store.save(conflictingPayload)
+        }
+        guard let preservedPayload = try store.load(), preservedPayload == payload else {
+            throw GalleryUploadError.conflictManualInspection("Conflicting save did not preserve existing pending payload.")
         }
 
         let relaunchedStore = try GalleryPendingUploadStore(directoryURL: rootURL.appendingPathComponent("PendingGalleryUpload", isDirectory: true))
@@ -408,6 +432,24 @@ enum GalleryUploadDebugSelfChecks {
             throw GalleryUploadError.invalidResponse
         }
 
+        let unknownSuccessResponse = GalleryUploadResponse(
+            ok: true,
+            schemaVersion: 1,
+            galleryToken: payload.galleryToken,
+            galleryURL: payload.galleryURL,
+            fileCount: 5,
+            errorCode: nil,
+            error: nil,
+            status: "unexpectedSuccess",
+            field: nil,
+            stage: nil,
+            detail: nil
+        )
+        guard !GoogleDriveGalleryUploadService.validateSuccessfulResponse(unknownSuccessResponse),
+              (try relaunchedStore.load()) != nil else {
+            throw GalleryUploadError.invalidResponse
+        }
+
         let metadataURL = rootURL
             .appendingPathComponent("PendingGalleryUpload", isDirectory: true)
             .appendingPathComponent(payload.galleryToken, isDirectory: true)
@@ -454,7 +496,7 @@ enum GalleryUploadDebugSelfChecks {
         return keys.isSuperset(of: ["schemaVersion", "deviceToken", "galleryToken", "sessionID", "createdAt", "photos", "receipt"])
     }
 
-    private static func runLegacyPendingSelfCheck() throws {
+    private static func runLegacyPendingSelfCheck(payload: GalleryPreparedUploadPayload) throws {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("PocketPixelsGalleryLegacyPendingSelfCheck-\(UUID().uuidString)", isDirectory: true)
         let pendingURL = rootURL.appendingPathComponent("PendingGalleryUpload", isDirectory: true)
@@ -472,13 +514,14 @@ enum GalleryUploadDebugSelfChecks {
             throw GalleryUploadError.stalePendingUpload
         }
 
-        do {
-            _ = try store.load()
-        } catch GalleryUploadError.stalePendingUpload {
-            return
+        try store.save(payload)
+        guard let summary = try store.summary(),
+              summary.galleryToken == payload.galleryToken,
+              let loadedPayload = try store.load(),
+              loadedPayload == payload,
+              FileManager.default.fileExists(atPath: pendingURL.appendingPathComponent("metadata.json").path) else {
+            throw GalleryUploadError.decoding("Legacy pending data blocked valid V3 queue processing.")
         }
-
-        throw GalleryUploadError.decoding("Legacy pending payload was not blocked.")
     }
 
     @MainActor

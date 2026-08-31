@@ -47,6 +47,29 @@ struct GalleryPendingUploadStore: Sendable {
 
         try ensureQueueDirectory()
         let finalURL = payloadDirectoryURL(for: payload.galleryToken)
+        let metadata = GalleryPendingUploadMetadata(
+            schemaVersion: payload.schemaVersion,
+            galleryToken: payload.galleryToken,
+            galleryURL: payload.galleryURL,
+            sessionID: payload.sessionID,
+            createdAt: payload.createdAt,
+            photoFilenames: payload.photos.map(\.filename),
+            receiptFilename: payload.receipt.filename,
+            metrics: payload.metrics,
+            deliveryState: payload.deliveryState,
+            lastSafeError: lastSafeError
+        )
+
+        if fileManager.fileExists(atPath: finalURL.path) {
+            guard try storedPayload(at: finalURL, matches: payload) else {
+                throw GalleryUploadError.conflictManualInspection("A pending gallery with this token already exists and does not match this session.")
+            }
+            let metadataURL = finalURL.appendingPathComponent(Self.metadataFilename)
+            try JSONEncoder().encode(metadata).write(to: metadataURL, options: .atomic)
+            try applyStorageAttributes(to: finalURL)
+            return
+        }
+
         let stagingURL = directoryURL.appendingPathComponent("staging-\(payload.galleryToken)-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: stagingURL, withIntermediateDirectories: true)
         try applyStorageAttributes(to: stagingURL)
@@ -56,25 +79,10 @@ struct GalleryPendingUploadStore: Sendable {
                 try image.data.write(to: stagingURL.appendingPathComponent(image.filename), options: .atomic)
             }
 
-            let metadata = GalleryPendingUploadMetadata(
-                schemaVersion: payload.schemaVersion,
-                galleryToken: payload.galleryToken,
-                galleryURL: payload.galleryURL,
-                sessionID: payload.sessionID,
-                createdAt: payload.createdAt,
-                photoFilenames: payload.photos.map(\.filename),
-                receiptFilename: payload.receipt.filename,
-                metrics: payload.metrics,
-                deliveryState: payload.deliveryState,
-                lastSafeError: lastSafeError
-            )
             let metadataData = try JSONEncoder().encode(metadata)
             try metadataData.write(to: stagingURL.appendingPathComponent(Self.metadataFilename), options: .atomic)
             try applyStorageAttributes(to: stagingURL)
 
-            if fileManager.fileExists(atPath: finalURL.path) {
-                try fileManager.removeItem(at: finalURL)
-            }
             try fileManager.moveItem(at: stagingURL, to: finalURL)
             try applyStorageAttributes(to: finalURL)
         } catch {
@@ -122,10 +130,6 @@ struct GalleryPendingUploadStore: Sendable {
     }
 
     func summaries() throws -> [GalleryPendingUploadSummary] {
-        if hasLegacyPendingUpload() {
-            throw GalleryUploadError.stalePendingUpload
-        }
-
         return try queuedTokenDirectories().compactMap { directory in
             let metadataURL = directory.appendingPathComponent(Self.metadataFilename)
             guard fileManager.fileExists(atPath: metadataURL.path) else { return nil }
@@ -181,12 +185,10 @@ struct GalleryPendingUploadStore: Sendable {
 
 #if DEBUG
     func discardLocalPendingUpload() throws {
-        if fileManager.fileExists(atPath: directoryURL.path) {
-            try fileManager.removeItem(at: directoryURL)
+        guard let token = try oldestQueuedToken() else {
+            return
         }
-        if legacyDirectoryURL != directoryURL, fileManager.fileExists(atPath: legacyDirectoryURL.path) {
-            try fileManager.removeItem(at: legacyDirectoryURL)
-        }
+        try clear(galleryToken: token)
         try ensureQueueDirectory()
     }
 #endif
@@ -223,6 +225,34 @@ struct GalleryPendingUploadStore: Sendable {
     private func loadImage(filename: String, from baseURL: URL) throws -> GalleryStoredUploadImage {
         let data = try Data(contentsOf: baseURL.appendingPathComponent(filename))
         return GalleryStoredUploadImage(filename: filename, mimeType: "image/jpeg", data: data)
+    }
+
+    private func storedPayload(at directory: URL, matches payload: GalleryPreparedUploadPayload) throws -> Bool {
+        let metadataURL = directory.appendingPathComponent(Self.metadataFilename)
+        guard fileManager.fileExists(atPath: metadataURL.path),
+              !isLegacyMetadata(at: metadataURL) else {
+            return false
+        }
+
+        let decodedMetadata = try JSONDecoder().decode(GalleryPendingUploadMetadata.self, from: Data(contentsOf: metadataURL))
+        let metadata = try migrateDebugGalleryURLIfNeeded(decodedMetadata, metadataURL: metadataURL)
+        guard metadata.schemaVersion == payload.schemaVersion,
+              metadata.galleryToken == payload.galleryToken,
+              metadata.galleryURL == payload.galleryURL,
+              metadata.sessionID == payload.sessionID,
+              metadata.createdAt == payload.createdAt,
+              metadata.photoFilenames == payload.photos.map(\.filename),
+              metadata.receiptFilename == payload.receipt.filename else {
+            return false
+        }
+
+        for image in payload.photos + [payload.receipt] {
+            let storedData = try Data(contentsOf: directory.appendingPathComponent(image.filename))
+            guard storedData == image.data else {
+                return false
+            }
+        }
+        return true
     }
 
     private func payloadSize(at directory: URL) -> Int {

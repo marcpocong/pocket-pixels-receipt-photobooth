@@ -223,7 +223,7 @@ struct BoothSessionView: View {
                             viewModel.retakePhoto(at: index)
                         }
                         .buttonStyle(.bordered)
-                        .disabled(!viewModel.capturedPhotos.indices.contains(index))
+                        .disabled(!viewModel.capturedPhotos.indices.contains(index) || !viewModel.canReturnToReview)
                     }
                 }
             }
@@ -243,6 +243,7 @@ struct BoothSessionView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
+                .disabled(!viewModel.canReturnToReview)
 
                 Button("Cancel Session", role: .destructive) {
                     showingCancelConfirmation = true
@@ -310,7 +311,7 @@ struct BoothSessionView: View {
                         viewModel.backToReview()
                     }
                     .buttonStyle(.bordered)
-                    .disabled(viewModel.printerState.isWorking)
+                    .disabled(!viewModel.canReturnToReview)
 
                     Button("Rebuild Receipt") {
                         viewModel.rebuildReceipt()

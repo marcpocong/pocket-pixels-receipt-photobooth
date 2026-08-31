@@ -40,10 +40,12 @@ final class BoothSessionViewModel: ObservableObject {
     private let credentialStore = DeviceCredentialStore()
     private var activeTask: Task<Void, Never>?
     private var uploadTask: Task<Void, Never>?
+    private var queueRetryTask: Task<Void, Never>?
     private var thankYouResetTask: Task<Void, Never>?
     private var isTransitionActive = false
     private var retakeIndex: Int?
     private var sessionCreatedAt: Date?
+    private var committedGallerySession: CommittedGallerySession?
 
     var nextPhotoIndex: Int {
         min(capturedPhotos.count, BoothConfiguration.photosPerSession - 1)
@@ -58,7 +60,11 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     var canContinueToReceipt: Bool {
-        capturedPhotos.count == BoothConfiguration.photosPerSession && !isTransitionActive
+        capturedPhotos.count == BoothConfiguration.photosPerSession && !isTransitionActive && committedGallerySession == nil
+    }
+
+    var canReturnToReview: Bool {
+        committedGallerySession == nil && !printerState.isWorking
     }
 
     var estimatedReceiptLength: Double? {
@@ -129,7 +135,7 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     func beginPhotoSequence() {
-        guard canBeginPhotos else {
+        guard canBeginPhotos, committedGallerySession == nil else {
             return
         }
 
@@ -148,7 +154,7 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     func retakePhoto(at index: Int) {
-        guard capturedPhotos.indices.contains(index), !isTransitionActive else {
+        guard capturedPhotos.indices.contains(index), !isTransitionActive, committedGallerySession == nil else {
             return
         }
 
@@ -163,7 +169,7 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     func retakeAll() {
-        guard !isTransitionActive else {
+        guard !isTransitionActive, committedGallerySession == nil else {
             return
         }
 
@@ -177,7 +183,7 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     func addSamplePhoto(_ image: UIImage) {
-        guard isCameraUnavailable, capturedPhotos.count < BoothConfiguration.photosPerSession, !isTransitionActive else {
+        guard isCameraUnavailable, capturedPhotos.count < BoothConfiguration.photosPerSession, !isTransitionActive, committedGallerySession == nil else {
             return
         }
 
@@ -193,24 +199,69 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     func continueToReceipt() {
-        guard canContinueToReceipt, let sessionIdentifier, let galleryURL, let galleryToken else {
+        guard canContinueToReceipt,
+              let sessionIdentifier,
+              let receiptDate = sessionCreatedAt,
+              let galleryURL,
+              let galleryToken else {
             uploadPhase = .failed(GalleryUploadError.invalidGalleryURL.localizedDescription)
             uploadStatusMessage = "Gallery setup needs operator attention."
             return
         }
 
+        let committedSession = CommittedGallerySession(
+            sessionIdentifier: sessionIdentifier,
+            createdAt: receiptDate,
+            galleryToken: galleryToken,
+            galleryURL: galleryURL,
+            photos: capturedPhotos
+        )
+        committedGallerySession = committedSession
+        composeReceipt(for: committedSession, enqueueUpload: true)
+    }
+
+    func rebuildReceipt() {
+        guard let committedGallerySession else {
+            receiptImage = nil
+            thermalReceiptPreview = nil
+            receiptRasterizedImage = nil
+            composedReceipt = nil
+            continueToReceipt()
+            return
+        }
+
+        receiptImage = nil
+        thermalReceiptPreview = nil
+        receiptRasterizedImage = nil
+        composedReceipt = nil
+        composeReceipt(for: committedGallerySession, enqueueUpload: false)
+    }
+
+    func backToReview() {
+        guard canReturnToReview else {
+            statusMessage = "Photos are locked for this receipt."
+            return
+        }
+
+        state = .review
+    }
+
+    private func composeReceipt(for committedSession: CommittedGallerySession, enqueueUpload: Bool) {
         activeTask?.cancel()
         isTransitionActive = true
         state = .composingReceipt
         statusMessage = "Composing receipt..."
         errorMessage = nil
 
-        let photos = capturedPhotos
-        let receiptDate = sessionCreatedAt ?? Date()
         activeTask = Task {
             do {
                 let result = try await Task.detached(priority: .userInitiated) {
-                    let receipt = try ReceiptComposer.compose(photos: photos, sessionIdentifier: sessionIdentifier, date: receiptDate, galleryURL: galleryURL)
+                    let receipt = try ReceiptComposer.compose(
+                        photos: committedSession.photos,
+                        sessionIdentifier: committedSession.sessionIdentifier,
+                        date: committedSession.createdAt,
+                        galleryURL: committedSession.galleryURL
+                    )
                     guard let receiptImage = UIImage(data: receipt.imagePNGData) else {
                         throw ReceiptComposerError.renderFailed
                     }
@@ -229,8 +280,10 @@ final class BoothSessionViewModel: ObservableObject {
                 receiptRasterizedImage = result.3
                 state = .receiptPreview
                 statusMessage = "Receipt ready: \(result.0.width) x \(result.0.height) pixels."
-                startGalleryUpload(photos: photos, receiptImage: result.1, sessionID: sessionIdentifier, createdAt: receiptDate, galleryToken: galleryToken)
-                debugLog("Session \(sessionIdentifier) receipt ready. Raster bytes: \(result.3.rasterData.count). Sanitized EOT: \(result.3.sanitizationReport.dleEOTPatternCount). Sanitized DC4: \(result.3.sanitizationReport.dleDC4PatternCount).")
+                if enqueueUpload {
+                    startGalleryUpload(committedSession: committedSession, receiptImage: result.1)
+                }
+                debugLog("Session \(committedSession.sessionIdentifier) receipt ready. Raster bytes: \(result.3.rasterData.count). Sanitized EOT: \(result.3.sanitizationReport.dleEOTPatternCount). Sanitized DC4: \(result.3.sanitizationReport.dleDC4PatternCount).")
             } catch {
                 state = .error(error.localizedDescription)
                 errorMessage = error.localizedDescription
@@ -239,22 +292,6 @@ final class BoothSessionViewModel: ObservableObject {
 
             isTransitionActive = false
         }
-    }
-
-    func rebuildReceipt() {
-        receiptImage = nil
-        thermalReceiptPreview = nil
-        receiptRasterizedImage = nil
-        composedReceipt = nil
-        continueToReceipt()
-    }
-
-    func backToReview() {
-        guard !isTransitionActive, !printerState.isWorking else {
-            return
-        }
-
-        state = .review
     }
 
     func testPrinterConnection(host: String, port: UInt16?) {
@@ -357,32 +394,33 @@ final class BoothSessionViewModel: ObservableObject {
 
     func retryQueuedGalleryUploads() {
         refreshPendingUploads()
-        guard !uploadPhase.isWorking, !pendingUploadSummaries.isEmpty else {
+        guard queueRetryTask == nil, !uploadPhase.isWorking, !pendingUploadSummaries.isEmpty else {
             return
         }
 
-        guard (try? credentialStore.loadDeviceToken()) != nil else {
-            uploadStatusMessage = "Gallery retry needs the saved device token."
+        guard let deviceToken = try? credentialStore.loadDeviceToken() else {
+            if galleryToken == nil {
+                uploadStatusMessage = "Gallery retry needs the saved device token."
+            }
             return
         }
 
-        uploadTask?.cancel()
-        uploadPhase = .uploading
-        uploadStatusMessage = "Uploading queued gallery..."
-        uploadTask = Task {
+        queueRetryTask = Task {
+            defer {
+                queueRetryTask = nil
+            }
             do {
-                guard let deviceToken = try credentialStore.loadDeviceToken() else {
-                    throw GalleryUploadError.missingDeviceToken
+                let results = try await uploadService.retryPendingQueue(deviceToken: deviceToken)
+                for result in results where isCurrentGalleryToken(result.galleryToken) {
+                    setUploadPhase(.success(result.galleryURL), message: "Your photos are ready.", for: result.galleryToken)
                 }
-                let result = try await uploadService.retryNextPendingUpload(deviceToken: deviceToken)
-                uploadPhase = .success(result.galleryURL)
-                uploadStatusMessage = result.status.displayTitle
                 refreshPendingUploads()
-                if !pendingUploadSummaries.isEmpty {
-                    retryQueuedGalleryUploads()
-                }
             } catch {
-                applyUploadError(error, customerFacing: false)
+                if let token = galleryToken {
+                    applyUploadError(error, customerFacing: true, for: token)
+                } else {
+                    applyUploadError(error, customerFacing: false)
+                }
                 refreshPendingUploads()
             }
         }
@@ -591,6 +629,7 @@ final class BoothSessionViewModel: ObservableObject {
         galleryToken = nil
         galleryURL = nil
         galleryQRCodeImage = nil
+        committedGallerySession = nil
         uploadPhase = .idle
         uploadStatusMessage = "Gallery upload has not started."
         samplePhotoCount = 0
@@ -603,48 +642,54 @@ final class BoothSessionViewModel: ObservableObject {
         thankYouResetTask = nil
     }
 
-    private func startGalleryUpload(
-        photos: [UIImage],
-        receiptImage: UIImage,
-        sessionID: String,
-        createdAt: Date,
-        galleryToken: String
-    ) {
+    private func startGalleryUpload(committedSession: CommittedGallerySession, receiptImage: UIImage) {
         uploadTask?.cancel()
-        uploadPhase = .preparing
-        uploadStatusMessage = "Preparing your gallery..."
+        setUploadPhase(.preparing, message: "Preparing your gallery...", for: committedSession.galleryToken)
         uploadTask = Task {
             do {
-                guard let deviceToken = try credentialStore.loadDeviceToken() else {
-                    throw GalleryUploadError.missingDeviceToken
-                }
-                uploadPhase = .uploading
-                uploadStatusMessage = "Uploading your photos..."
-                let result = try await uploadService.uploadGallery(
-                    photos: photos,
+                let payload = try await uploadService.prepareAndPersistGallery(
+                    photos: committedSession.photos,
                     composedReceipt: receiptImage,
-                    sessionID: sessionID,
-                    createdAt: createdAt,
-                    galleryToken: galleryToken,
-                    deviceToken: deviceToken
+                    sessionID: committedSession.sessionIdentifier,
+                    createdAt: committedSession.createdAt,
+                    galleryToken: committedSession.galleryToken
                 )
-                uploadPhase = .success(result.galleryURL)
-                uploadStatusMessage = "Your photos are ready."
+                refreshPendingUploads()
+
+                guard let deviceToken = try credentialStore.loadDeviceToken() else {
+                    setUploadPhase(
+                        .retryAvailable,
+                        message: "Your gallery is queued. This QR will work once the connection is restored.",
+                        for: payload.galleryToken
+                    )
+                    return
+                }
+
+                setUploadPhase(.uploading, message: "Uploading your photos...", for: payload.galleryToken)
+                let result = try await uploadService.uploadPendingGallery(galleryToken: payload.galleryToken, deviceToken: deviceToken)
+                setUploadPhase(.success(result.galleryURL), message: "Your photos are ready.", for: result.galleryToken)
                 refreshPendingUploads()
             } catch {
-                applyUploadError(error, customerFacing: true)
+                applyUploadError(error, customerFacing: true, for: committedSession.galleryToken)
                 refreshPendingUploads()
             }
         }
     }
 
-    private func applyUploadError(_ error: Error, customerFacing: Bool) {
+    private func applyUploadError(_ error: Error, customerFacing: Bool, for galleryToken: String? = nil) {
+        if let galleryToken, !isCurrentGalleryToken(galleryToken) {
+            return
+        }
+
         if let uploadError = error as? GalleryUploadError {
             switch uploadError {
             case .pendingNoInternet, .network, .deliveryUnknown, .timeout:
                 uploadPhase = uploadError == .deliveryUnknown ? .deliveryUnknown : .pendingNoInternet
                 uploadStatusMessage = customerFacing ? "Your gallery is queued. This QR will work once the connection is restored." : uploadError.localizedDescription
-            case .missingDeviceToken, .invalidDeviceToken, .configuration, .unauthorized, .server, .conflictManualInspection, .requestTooLarge:
+            case .missingDeviceToken, .invalidDeviceToken:
+                uploadPhase = .retryAvailable
+                uploadStatusMessage = customerFacing ? "Your gallery is queued. This QR will work once the connection is restored." : uploadError.localizedDescription
+            case .configuration, .unauthorized, .server, .conflictManualInspection, .requestTooLarge:
                 uploadPhase = .failed(uploadError.localizedDescription)
                 uploadStatusMessage = customerFacing ? "Your gallery needs operator attention." : uploadError.localizedDescription
             default:
@@ -661,9 +706,29 @@ final class BoothSessionViewModel: ObservableObject {
         pendingUploadSummaries = uploadService.pendingUploadSummaries()
     }
 
+    private func setUploadPhase(_ phase: GalleryUploadPhase, message: String, for galleryToken: String) {
+        guard isCurrentGalleryToken(galleryToken) else {
+            return
+        }
+        uploadPhase = phase
+        uploadStatusMessage = message
+    }
+
+    private func isCurrentGalleryToken(_ token: String) -> Bool {
+        galleryToken == token
+    }
+
     private func setIdleTimerDisabled(_ disabled: Bool) {
         UIApplication.shared.isIdleTimerDisabled = disabled
     }
+}
+
+private struct CommittedGallerySession {
+    let sessionIdentifier: String
+    let createdAt: Date
+    let galleryToken: String
+    let galleryURL: URL
+    let photos: [UIImage]
 }
 
 private extension UIImage {
