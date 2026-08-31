@@ -88,6 +88,7 @@ enum GalleryUploadDebugSelfChecks {
         try runBoothFormatSelfChecks()
         try runPortraitProcessorSelfChecks()
         try runReceiptLayoutSelfChecks(photos: [image, image, image, image], galleryURL: galleryURL)
+        try runReceiptLayoutReviewBuilderSelfChecks(photos: [image, image, image, image], galleryURL: galleryURL)
 
         try assertThrows("zero photo count") {
             _ = try GoogleDriveGalleryUploadService.makeRequestBody(
@@ -774,6 +775,33 @@ enum GalleryUploadDebugSelfChecks {
             guard Int(processed.size.width) * 4 == Int(processed.size.height) * 3 else {
                 throw GalleryUploadError.imageEncoding("Portrait crop self-check failed.")
             }
+        }
+    }
+
+    @MainActor
+    private static func runReceiptLayoutReviewBuilderSelfChecks(photos: [UIImage], galleryURL: URL) throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PocketPixelsReceiptLayoutReviewSelfCheck-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let store = try GalleryPendingUploadStore(directoryURL: rootURL)
+        let previews = try DebugReceiptLayoutReviewBuilder.makePreviews(photos: photos, galleryURL: galleryURL)
+
+        let expectedCounts: [BoothFormat: Int] = [
+            .solo: 1,
+            .duo: 2,
+            .trio: 3,
+            .grid: 4,
+            .strip: 4
+        ]
+
+        guard previews.count == BoothFormat.allCases.count,
+              previews.allSatisfy({ $0.receipt.width == BoothConfiguration.receiptWidth }),
+              previews.allSatisfy({ $0.receipt.format.photoCount == expectedCounts[$0.format] }),
+              try store.summaries().isEmpty else {
+            throw GalleryUploadError.decoding("Receipt layout review builder self-check failed.")
         }
     }
 

@@ -13,6 +13,9 @@ struct BoothSessionView: View {
     @StateObject private var viewModel = BoothSessionViewModel()
     @State private var selectedSamplePhotoItem: PhotosPickerItem?
     @State private var showingCancelConfirmation = false
+#if DEBUG
+    @State private var showingEndNoPrintConfirmation = false
+#endif
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("printerIP") private var printerIP = BoothConfiguration.defaultPrinterIP
     @AppStorage("printerPort") private var printerPort = BoothConfiguration.defaultPrinterPort
@@ -33,6 +36,16 @@ struct BoothSessionView: View {
             } message: {
                 Text("All captured photos and the current receipt preview will be cleared.")
             }
+#if DEBUG
+            .confirmationDialog("End this test session without printing?", isPresented: $showingEndNoPrintConfirmation, titleVisibility: .visible) {
+                Button("End Session (No Print)", role: .destructive) {
+                    viewModel.resetAfterDone()
+                }
+                Button("Keep Session", role: .cancel) { }
+            } message: {
+                Text("This clears only the current booth screen state. Pending gallery uploads remain queued.")
+            }
+#endif
             .onChange(of: selectedSamplePhotoItem) { _, newItem in
                 loadSamplePhoto(from: newItem)
             }
@@ -357,6 +370,14 @@ struct BoothSessionView: View {
                     }
                     .buttonStyle(.bordered)
                     .disabled(viewModel.printerState.isWorking)
+
+#if DEBUG
+                    Button("End Session (No Print)", role: .destructive) {
+                        showingEndNoPrintConfirmation = true
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(viewModel.printerState.isWorking)
+#endif
 
                     galleryStatusPanel(compact: true)
                 }

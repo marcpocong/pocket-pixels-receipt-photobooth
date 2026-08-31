@@ -10,6 +10,43 @@ import PhotosUI
 import SwiftUI
 import UIKit
 
+struct DebugReceiptLayoutPreview: Identifiable {
+    let format: BoothFormat
+    let receipt: ComposedReceipt
+    let image: UIImage
+
+    var id: BoothFormat { format }
+}
+
+enum DebugReceiptLayoutReviewBuilder {
+    @MainActor
+    static func makePreviews(
+        photos: [UIImage],
+        galleryURL: URL,
+        date: Date = Date()
+    ) throws -> [DebugReceiptLayoutPreview] {
+        guard photos.count >= BoothConfiguration.maximumPhotosPerSession else {
+            throw GalleryUploadError.invalidPhotoCount
+        }
+
+        return try BoothFormat.allCases.map { format in
+            let formatPhotos = Array(photos.prefix(format.photoCount))
+            let receipt = try ReceiptComposer.compose(
+                photos: formatPhotos,
+                sessionIdentifier: ReceiptComposer.makeSessionIdentifier(date: date),
+                date: date,
+                galleryURL: galleryURL,
+                format: format
+            )
+            guard let image = UIImage(data: receipt.imagePNGData) else {
+                throw ReceiptComposerError.renderFailed
+            }
+
+            return DebugReceiptLayoutPreview(format: format, receipt: receipt, image: image)
+        }
+    }
+}
+
 struct GalleryUploadTestView: View {
     @Environment(\.openURL) private var openURL
 
@@ -33,6 +70,7 @@ struct GalleryUploadTestView: View {
     @State private var qrImage: UIImage?
     @State private var uploadResultStatus: GalleryUploadResultStatus?
     @State private var activeTask: Task<Void, Never>?
+    @State private var layoutReviewPreviews: [DebugReceiptLayoutPreview] = []
 
     private let credentialStore = DeviceCredentialStore()
     private let uploadService = GoogleDriveGalleryUploadService()
@@ -46,6 +84,7 @@ struct GalleryUploadTestView: View {
                     tokenSection
                     photoPickerSection
                     receiptSection
+                    receiptLayoutReviewSection
                     uploadSection
                 }
                 .padding(28)
@@ -152,6 +191,7 @@ struct GalleryUploadTestView: View {
                     selectedPhotos.removeAll()
                     composedReceipt = nil
                     receiptImage = nil
+                    layoutReviewPreviews = []
                     returnedGalleryURL = nil
                     clearGalleryIdentifiers()
                     uploadPhase = .idle
@@ -210,6 +250,64 @@ struct GalleryUploadTestView: View {
         }
         .padding(16)
         .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var receiptLayoutReviewSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("Receipt Layout Review")
+                    .font(.headline)
+
+                Spacer()
+
+                Button("Build All Receipt Previews") {
+                    buildAllReceiptPreviews()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(selectedPhotos.count < BoothConfiguration.maximumPhotosPerSession || uploadPhase.isWorking)
+            }
+
+            if selectedPhotos.count < BoothConfiguration.maximumPhotosPerSession {
+                Text("Select 4 sample photos to render Solo, Duo, Trio, Grid, and Strip together.")
+                    .foregroundStyle(.secondary)
+            }
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 360), spacing: 18)], spacing: 18) {
+                ForEach(layoutReviewPreviews) { preview in
+                    receiptLayoutReviewCard(preview)
+                }
+            }
+        }
+        .padding(16)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func receiptLayoutReviewCard(_ preview: DebugReceiptLayoutPreview) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(preview.format.displayName.uppercased())
+                .font(.title3.weight(.bold))
+
+            Text("\(preview.receipt.width) x \(preview.receipt.height) px")
+                .font(.subheadline.monospaced())
+                .foregroundStyle(.secondary)
+
+            Text(String(format: "%.1f mm", preview.receipt.estimatedLengthMillimeters))
+                .font(.subheadline.monospaced())
+                .foregroundStyle(.secondary)
+
+            Image(uiImage: preview.image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 420, maxHeight: 760)
+                .padding(8)
+                .background(Color(.systemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .padding(14)
+        .background(Color(.systemBackground).opacity(0.72))
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
@@ -454,6 +552,7 @@ struct GalleryUploadTestView: View {
                 selectedPhotos.append(BoothPhotoProcessor.normalizedPortraitPhoto(from: image))
                 composedReceipt = nil
                 receiptImage = nil
+                layoutReviewPreviews = []
                 returnedGalleryURL = nil
                 preparedMetrics = nil
                 uploadResultStatus = nil
@@ -472,6 +571,35 @@ struct GalleryUploadTestView: View {
         }
     }
 
+    private func buildAllReceiptPreviews() {
+        guard selectedPhotos.count >= BoothConfiguration.maximumPhotosPerSession else {
+            uploadPhase = .failed(GalleryUploadError.invalidPhotoCount.localizedDescription)
+            statusMessage = GalleryUploadError.invalidPhotoCount.localizedDescription
+            return
+        }
+
+        uploadPhase = .preparing
+        statusMessage = "Building all receipt previews."
+        let photos = selectedPhotos
+        activeTask = Task {
+            do {
+                let token = try GalleryTokenGenerator.makeGalleryToken()
+                let galleryURL = try GalleryURLBuilder.makeGalleryURL(
+                    customerGalleryBaseURL: CustomerGalleryConfiguration.load().baseURL,
+                    galleryToken: token
+                )
+                let previews = try DebugReceiptLayoutReviewBuilder.makePreviews(photos: photos, galleryURL: galleryURL)
+
+                layoutReviewPreviews = previews
+                uploadPhase = .idle
+                statusMessage = "All receipt previews ready. No upload was started."
+            } catch {
+                uploadPhase = .failed(error.localizedDescription)
+                statusMessage = error.localizedDescription
+            }
+        }
+    }
+
     private func buildReceipt() {
         guard selectedPhotos.count == selectedFormat.photoCount else {
             uploadPhase = .failed(GalleryUploadError.invalidPhotoCount.localizedDescription)
@@ -482,6 +610,7 @@ struct GalleryUploadTestView: View {
         uploadPhase = .preparing
         statusMessage = "Preparing receipt preview."
         let photos = selectedPhotos
+        let format = selectedFormat
         activeTask = Task {
             do {
                 let sessionDate = Date()
@@ -496,7 +625,7 @@ struct GalleryUploadTestView: View {
                         sessionIdentifier: sessionID,
                         date: sessionDate,
                         galleryURL: galleryURL,
-                        format: selectedFormat
+                        format: format
                     )
                 }.value
 
