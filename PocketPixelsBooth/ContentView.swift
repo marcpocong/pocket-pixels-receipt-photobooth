@@ -9,16 +9,28 @@ import SwiftUI
 
 struct ContentView: View {
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
-    }
-}
+        TabView {
+            BoothSessionView()
+                .tabItem {
+                    Label("Booth Session", systemImage: "rectangle.stack.person.crop")
+                }
 
-#Preview {
-    ContentView()
+            CameraTestView()
+                .tabItem {
+                    Label("Camera Test", systemImage: "camera")
+                }
+
+            PrinterTestView()
+                .tabItem {
+                    Label("Printer Test", systemImage: "printer")
+                }
+
+#if DEBUG
+            GalleryUploadTestView()
+                .tabItem {
+                    Label("Cloud Test", systemImage: "icloud.and.arrow.up")
+                }
+#endif
+        }
+    }
 }

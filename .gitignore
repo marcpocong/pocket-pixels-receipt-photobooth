@@ -1,0 +1,55 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode user state
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+
+# Xcode build output
+DerivedData/
+build/
+Build/
+Products/
+*.ipa
+*.dSYM
+*.dSYM.zip
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Local caches and temporary files
+.cache/
+.tmp/
+tmp/
+temp/
+*.tmp
+*.temp
+*.log
+
+# Local environment and secrets
+.env
+.env.*
+*.local
+*.secret
+*.secrets
+secrets/
+Secrets/
+
+# Signing credentials and private keys
+*.mobileprovision
+*.provisionprofile
+*.cer
+*.p12
+*.pem
+*.key
+*.private
+id_rsa
+id_ed25519
+
+# Dependency folders for auxiliary tooling
+node_modules/
