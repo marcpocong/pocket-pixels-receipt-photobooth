@@ -148,7 +148,7 @@ struct BoothSessionView: View {
                 .controlSize(.large)
             }
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 250), spacing: 18)], spacing: 18) {
+            LazyVGrid(columns: formatSelectionColumns, spacing: 18) {
                 ForEach(BoothFormat.allCases) { format in
                     formatCard(format)
                 }
@@ -649,6 +649,10 @@ struct BoothSessionView: View {
         return viewModel.printerState.requiresPrinterRestart
     }
 
+    private var formatSelectionColumns: [GridItem] {
+        Array(repeating: GridItem(.flexible(minimum: 230), spacing: 18), count: 3)
+    }
+
     private func testPrinterConnection() {
         viewModel.testPrinterConnection(host: printerIP, port: parsedPort)
     }
@@ -700,12 +704,12 @@ struct BoothSessionView: View {
                         previewFrame(width: 88, height: 117)
                     }
                 case .trio:
-                    VStack(spacing: 10) {
-                        HStack(spacing: 10) {
-                            previewFrame(width: 76, height: 101)
-                            previewFrame(width: 76, height: 101)
+                    HStack(spacing: 10) {
+                        previewFrame(width: 112, height: 149)
+                        VStack(spacing: 7) {
+                            previewFrame(width: 52, height: 69)
+                            previewFrame(width: 52, height: 69)
                         }
-                        previewFrame(width: 76, height: 101)
                     }
                 case .grid:
                     VStack(spacing: 10) {
@@ -716,6 +720,15 @@ struct BoothSessionView: View {
                         HStack(spacing: 10) {
                             previewFrame(width: 72, height: 96)
                             previewFrame(width: 72, height: 96)
+                        }
+                    }
+                case .mosaic:
+                    HStack(spacing: 10) {
+                        previewFrame(width: 102, height: 136)
+                        VStack(spacing: 5) {
+                            ForEach(0..<3, id: \.self) { _ in
+                                previewFrame(width: 42, height: 56)
+                            }
                         }
                     }
                 case .strip:

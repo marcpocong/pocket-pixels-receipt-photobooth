@@ -269,7 +269,7 @@ struct GalleryUploadTestView: View {
             }
 
             if selectedPhotos.count < BoothConfiguration.maximumPhotosPerSession {
-                Text("Select 4 sample photos to render Solo, Duo, Trio, Grid, and Strip together.")
+                Text("Select 4 sample photos to render Solo, Duo, Trio, Grid, Mosaic, and Strip together.")
                     .foregroundStyle(.secondary)
             }
 
