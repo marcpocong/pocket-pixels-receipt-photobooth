@@ -85,7 +85,7 @@ enum GalleryUploadDebugSelfChecks {
 
         let qrImage = try GalleryQRCodeGenerator.makeQRCodeImage(for: galleryURL)
         try validateQRCodeImage(qrImage)
-        try runReceiptQRCodeSelfCheck(photos: [image, image, image], galleryURL: galleryURL)
+        try runReceiptLayoutSelfChecks(photos: [image, image, image], galleryURL: galleryURL)
 
         try assertThrows("wrong photo count") {
             _ = try GoogleDriveGalleryUploadService.makeRequestBody(
@@ -210,11 +210,11 @@ enum GalleryUploadDebugSelfChecks {
         }
 
         let diagnosticResponseJSON = """
-        {"ok":true,"schemaVersion":1,"backendVersion":"phase6c-chrome-canonical-fast-gallery-20260831","galleryTokenPattern":"lowercase-hex-64","canonicalURLPolicy":true,"accountScopedPathAllowed":false,"status":"diagnostic"}
+        {"ok":true,"schemaVersion":1,"backendVersion":"phase6c-worker-raw-html-proxy-20260831","galleryTokenPattern":"lowercase-hex-64","canonicalURLPolicy":true,"accountScopedPathAllowed":false,"status":"diagnostic"}
         """
         let diagnosticResponse = try JSONDecoder().decode(GalleryBackendDiagnosticResponse.self, from: Data(diagnosticResponseJSON.utf8))
         guard diagnosticResponse.ok,
-              diagnosticResponse.backendVersion == "phase6c-chrome-canonical-fast-gallery-20260831" else {
+              diagnosticResponse.backendVersion == "phase6c-worker-raw-html-proxy-20260831" else {
             throw GalleryUploadError.decoding("Backend diagnostic response self-check failed.")
         }
 
@@ -636,15 +636,69 @@ enum GalleryUploadDebugSelfChecks {
     }
 
     @MainActor
-    private static func runReceiptQRCodeSelfCheck(photos: [UIImage], galleryURL: URL) throws {
+    private static func runReceiptLayoutSelfChecks(photos: [UIImage], galleryURL: URL) throws {
+        let legacyReceiptHeight = 2_052
+        let expectedPlans: [(ReceiptLayoutStyle, Int, [Int], [Int])] = [
+            (.collage, 0, [0, 1, 2], [1, 2]),
+            (.collage, 1, [1, 0, 2], [0, 2]),
+            (.collage, 2, [2, 0, 1], [0, 1]),
+            (.single, 0, [0], []),
+            (.single, 1, [1], []),
+            (.single, 2, [2], [])
+        ]
+
+        for (style, favoriteIndex, displayedIndexes, secondaryIndexes) in expectedPlans {
+            let plan = try ReceiptComposer.makeLayoutPlan(style: style, favoritePhotoIndex: favoriteIndex)
+            guard plan.width == BoothConfiguration.receiptWidth,
+                  plan.height <= BoothConfiguration.receiptMaximumHeight,
+                  plan.heroPhotoIndex == favoriteIndex,
+                  plan.displayedPhotoIndexes == displayedIndexes,
+                  plan.secondaryPhotoIndexes == secondaryIndexes else {
+                throw GalleryUploadError.decoding("Receipt layout plan self-check failed.")
+            }
+        }
+
+        let collagePlan = try ReceiptComposer.makeLayoutPlan(style: .collage, favoritePhotoIndex: 0)
+        let singlePlan = try ReceiptComposer.makeLayoutPlan(style: .single, favoritePhotoIndex: 0)
+        guard collagePlan.height < legacyReceiptHeight,
+              singlePlan.height < collagePlan.height,
+              collagePlan.qrSize == 240,
+              singlePlan.qrSize == 240 else {
+            throw GalleryUploadError.decoding("Compact receipt height self-check failed.")
+        }
+
+        let originalOrder = [0, 1, 2]
+        let retainedOrder = originalOrder
+        _ = try ReceiptComposer.makeLayoutPlan(style: .collage, favoritePhotoIndex: 2)
+        guard retainedOrder == originalOrder,
+              ReceiptSelectionPolicy.canChangeSelection(isCommitted: false),
+              !ReceiptSelectionPolicy.canChangeSelection(isCommitted: true) else {
+            throw GalleryUploadError.decoding("Receipt favorite selection mutation self-check failed.")
+        }
+
+        try runReceiptQRCodeSelfCheck(photos: photos, galleryURL: galleryURL, style: .collage, favoritePhotoIndex: 0)
+        try runReceiptQRCodeSelfCheck(photos: photos, galleryURL: galleryURL, style: .single, favoritePhotoIndex: 1)
+    }
+
+    @MainActor
+    private static func runReceiptQRCodeSelfCheck(
+        photos: [UIImage],
+        galleryURL: URL,
+        style: ReceiptLayoutStyle,
+        favoritePhotoIndex: Int
+    ) throws {
         let receipt = try ReceiptComposer.compose(
             photos: photos,
             sessionIdentifier: "PP-20260830-120000",
             date: makeUTCDate(year: 2026, month: 8, day: 30, hour: 12, minute: 0, second: 0),
-            galleryURL: galleryURL
+            galleryURL: galleryURL,
+            layoutStyle: style,
+            favoritePhotoIndex: favoritePhotoIndex
         )
         guard receipt.width == BoothConfiguration.receiptWidth,
               receipt.height <= BoothConfiguration.receiptMaximumHeight,
+              receipt.layoutStyle == style,
+              receipt.favoritePhotoIndex == favoritePhotoIndex,
               let image = UIImage(data: receipt.imagePNGData) else {
             throw GalleryUploadError.qrGeneration("Receipt QR dimensions self-check failed.")
         }
@@ -666,6 +720,21 @@ enum GalleryUploadDebugSelfChecks {
         let messages = detector?.features(in: ciImage).compactMap { ($0 as? CIQRCodeFeature)?.messageString } ?? []
         guard messages.contains(galleryURL.absoluteString) else {
             throw GalleryUploadError.qrGeneration("Receipt QR did not decode to the expected gallery URL.")
+        }
+
+        let rebuiltReceipt = try ReceiptComposer.compose(
+            photos: photos,
+            sessionIdentifier: receipt.sessionIdentifier,
+            date: receipt.createdAt,
+            galleryURL: galleryURL,
+            layoutStyle: receipt.layoutStyle,
+            favoritePhotoIndex: receipt.favoritePhotoIndex
+        )
+        guard rebuiltReceipt.width == receipt.width,
+              rebuiltReceipt.height == receipt.height,
+              rebuiltReceipt.layoutStyle == receipt.layoutStyle,
+              rebuiltReceipt.favoritePhotoIndex == receipt.favoritePhotoIndex else {
+            throw GalleryUploadError.decoding("Receipt rebuild layout self-check failed.")
         }
     }
 

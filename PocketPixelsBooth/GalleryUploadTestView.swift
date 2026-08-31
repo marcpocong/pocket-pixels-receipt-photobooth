@@ -474,7 +474,14 @@ struct GalleryUploadTestView: View {
                     throw GalleryUploadError.invalidGalleryURL
                 }
                 let receipt = try await Task.detached(priority: .userInitiated) {
-                    try ReceiptComposer.compose(photos: photos, sessionIdentifier: sessionID, date: sessionDate, galleryURL: galleryURL)
+                    try ReceiptComposer.compose(
+                        photos: photos,
+                        sessionIdentifier: sessionID,
+                        date: sessionDate,
+                        galleryURL: galleryURL,
+                        layoutStyle: .collage,
+                        favoritePhotoIndex: 0
+                    )
                 }.value
 
                 guard let image = UIImage(data: receipt.imagePNGData) else {

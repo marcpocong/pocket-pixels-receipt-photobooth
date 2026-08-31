@@ -14,14 +14,53 @@ struct ComposedReceipt: Sendable {
     let height: Int
     let sessionIdentifier: String
     let createdAt: Date
+    let layoutStyle: ReceiptLayoutStyle
+    let favoritePhotoIndex: Int
 
     var estimatedLengthMillimeters: Double {
         Double(height) / 8.0
     }
 }
 
+enum ReceiptLayoutStyle: String, CaseIterable, Identifiable, Sendable {
+    case collage
+    case single
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .collage:
+            "Collage"
+        case .single:
+            "Single"
+        }
+    }
+
+    var detailText: String {
+        switch self {
+        case .collage:
+            "All 3 photos"
+        case .single:
+            "Your favorite photo"
+        }
+    }
+}
+
+struct ReceiptLayoutPlan: Sendable {
+    let style: ReceiptLayoutStyle
+    let favoritePhotoIndex: Int
+    let displayedPhotoIndexes: [Int]
+    let heroPhotoIndex: Int
+    let secondaryPhotoIndexes: [Int]
+    let width: Int
+    let height: Int
+    let qrSize: Int
+}
+
 enum ReceiptComposerError: Error, LocalizedError {
     case missingPhotos(expected: Int, actual: Int)
+    case invalidFavoritePhotoIndex(Int)
     case renderFailed
     case heightExceeded(Int)
 
@@ -29,6 +68,8 @@ enum ReceiptComposerError: Error, LocalizedError {
         switch self {
         case .missingPhotos(let expected, let actual):
             "Receipt requires \(expected) photos, but only \(actual) are available."
+        case .invalidFavoritePhotoIndex(let index):
+            "Favorite photo \(index + 1) is not available."
         case .renderFailed:
             "The receipt could not be rendered."
         case .heightExceeded(let height):
@@ -48,23 +89,24 @@ enum ReceiptComposer {
         photos: [UIImage],
         sessionIdentifier: String,
         date: Date = Date(),
-        galleryURL: URL? = nil
+        galleryURL: URL? = nil,
+        layoutStyle: ReceiptLayoutStyle = .collage,
+        favoritePhotoIndex: Int = 0
     ) throws -> ComposedReceipt {
         guard photos.count == BoothConfiguration.photosPerSession else {
             throw ReceiptComposerError.missingPhotos(expected: BoothConfiguration.photosPerSession, actual: photos.count)
         }
 
+        let plan = try makeLayoutPlan(
+            style: layoutStyle,
+            favoritePhotoIndex: favoritePhotoIndex,
+            photoCount: photos.count,
+            includesGalleryQRCode: galleryURL != nil
+        )
         let width = BoothConfiguration.receiptWidth
         let margin = BoothConfiguration.receiptHorizontalMargin
         let contentWidth = width - (margin * 2)
-        let photoHeight = Int(round(Double(contentWidth) * 3.0 / 4.0))
-        let headerHeight = 150
-        let labelHeight = 24
-        let photoGap = 18
-        let qrSize = galleryURL == nil ? 0 : 240
-        let qrSectionHeight = galleryURL == nil ? 0 : 330
-        let footerHeight = 258 + qrSectionHeight
-        let height = headerHeight + (photos.count * (labelHeight + photoHeight + photoGap)) + footerHeight
+        let height = plan.height
 
         guard height <= BoothConfiguration.receiptMaximumHeight else {
             throw ReceiptComposerError.heightExceeded(height)
@@ -85,51 +127,50 @@ enum ReceiptComposer {
             drawCentered("POCKET PIXELS", y: y, width: width, font: .systemFont(ofSize: 34, weight: .bold))
             y += 43
             drawCentered("RECEIPT PHOTOBOOTH", y: y, width: width, font: .systemFont(ofSize: 18, weight: .semibold))
-            y += 44
+            y += 34
             drawDivider(y: y, margin: margin, width: width)
-            y += 28
+            y += 20
 
-            for (index, photo) in photos.enumerated() {
-                drawText(String(format: "%02d", index + 1), x: margin, y: y, font: .monospacedDigitSystemFont(ofSize: 16, weight: .semibold), alignment: .left, width: contentWidth)
-                y += labelHeight
+            switch layoutStyle {
+            case .collage:
+                let heroRect = CGRect(x: margin, y: y, width: contentWidth, height: 300)
+                drawPhoto(photos[plan.heroPhotoIndex], in: heroRect, context: cgContext)
+                y += 312
 
-                let rect = CGRect(x: margin, y: y, width: contentWidth, height: photoHeight)
-                drawAspectFill(photo, in: rect, context: cgContext)
-                UIColor.black.setStroke()
-                cgContext.setLineWidth(2)
-                cgContext.stroke(rect.insetBy(dx: 1, dy: 1))
-                y += photoHeight + photoGap
+                let gap = 12
+                let secondaryWidth = (contentWidth - gap) / 2
+                let secondaryHeight = 194
+                for (offset, index) in plan.secondaryPhotoIndexes.enumerated() {
+                    let x = margin + (offset * (secondaryWidth + gap))
+                    let rect = CGRect(x: x, y: y, width: secondaryWidth, height: secondaryHeight)
+                    drawPhoto(photos[index], in: rect, context: cgContext)
+                }
+                y += secondaryHeight + 18
+            case .single:
+                let heroRect = CGRect(x: margin, y: y, width: contentWidth, height: 360)
+                drawPhoto(photos[plan.heroPhotoIndex], in: heroRect, context: cgContext)
+                y += 378
             }
 
             if let galleryURL {
-                y += 8
                 drawDivider(y: y, margin: margin, width: width)
-                y += 24
+                y += 20
                 drawCentered("Scan to view and save your photos", y: y, width: width, font: .systemFont(ofSize: 18, weight: .semibold))
-                y += 34
-                if let qrImage = try? GalleryQRCodeGenerator.makeQRCodeImage(for: galleryURL, pixelSize: qrSize) {
-                    let qrX = (width - qrSize) / 2
+                y += 30
+                if let qrImage = try? GalleryQRCodeGenerator.makeQRCodeImage(for: galleryURL, pixelSize: plan.qrSize) {
+                    let qrX = (width - plan.qrSize) / 2
                     cgContext.interpolationQuality = .none
-                    qrImage.draw(in: CGRect(x: qrX, y: y, width: qrSize, height: qrSize))
+                    qrImage.draw(in: CGRect(x: qrX, y: y, width: plan.qrSize, height: plan.qrSize))
                 }
-                y += qrSize + 18
-                drawCentered("Pocket Pixels Cebu", y: y, width: width, font: .systemFont(ofSize: 16, weight: .medium))
-                y += 36
+                y += plan.qrSize + 16
             }
 
-            y += 10
-            drawDivider(y: y, margin: margin, width: width)
-            y += 26
             drawCentered(receiptDateFormatter.string(from: date), y: y, width: width, font: .monospacedDigitSystemFont(ofSize: 16, weight: .regular))
-            y += 28
+            y += 25
             drawCentered(sessionIdentifier, y: y, width: width, font: .monospacedDigitSystemFont(ofSize: 18, weight: .medium))
-            y += 34
+            y += 29
             drawCentered("@pocketpixels.ceb", y: y, width: width, font: .systemFont(ofSize: 20, weight: .semibold))
-            y += 30
-            drawCentered("Cebu", y: y, width: width, font: .systemFont(ofSize: 18, weight: .regular))
-            y += 34
-            drawCentered("thanks for collecting moments with us.", y: y, width: width, font: .systemFont(ofSize: 16, weight: .regular))
-            y += 38
+            y += 27
             drawDivider(y: y, margin: margin, width: width)
         }
 
@@ -137,15 +178,73 @@ enum ReceiptComposer {
             throw ReceiptComposerError.renderFailed
         }
 
-        debugLog("Composed receipt \(sessionIdentifier). Dimensions: \(width)x\(height). Estimated length: \(String(format: "%.1f", Double(height) / 8.0)) mm.")
+        debugLog("Composed \(layoutStyle.rawValue) receipt \(sessionIdentifier). Dimensions: \(width)x\(height). Estimated length: \(String(format: "%.1f", Double(height) / 8.0)) mm.")
 
         return ComposedReceipt(
             imagePNGData: data,
             width: width,
             height: height,
             sessionIdentifier: sessionIdentifier,
-            createdAt: date
+            createdAt: date,
+            layoutStyle: layoutStyle,
+            favoritePhotoIndex: favoritePhotoIndex
         )
+    }
+
+    nonisolated static func makeLayoutPlan(
+        style: ReceiptLayoutStyle,
+        favoritePhotoIndex: Int,
+        photoCount: Int = BoothConfiguration.photosPerSession,
+        includesGalleryQRCode: Bool = true
+    ) throws -> ReceiptLayoutPlan {
+        guard photoCount == BoothConfiguration.photosPerSession else {
+            throw ReceiptComposerError.missingPhotos(expected: BoothConfiguration.photosPerSession, actual: photoCount)
+        }
+
+        guard 0..<photoCount ~= favoritePhotoIndex else {
+            throw ReceiptComposerError.invalidFavoritePhotoIndex(favoritePhotoIndex)
+        }
+
+        let displayedIndexes: [Int]
+        let secondaryIndexes: [Int]
+        switch style {
+        case .collage:
+            secondaryIndexes = (0..<photoCount).filter { $0 != favoritePhotoIndex }
+            displayedIndexes = [favoritePhotoIndex] + secondaryIndexes
+        case .single:
+            secondaryIndexes = []
+            displayedIndexes = [favoritePhotoIndex]
+        }
+
+        let headerHeight = 128
+        let photoSectionHeight: Int
+        switch style {
+        case .collage:
+            photoSectionHeight = 300 + 12 + 194 + 18
+        case .single:
+            photoSectionHeight = 360 + 18
+        }
+        let qrSectionHeight = includesGalleryQRCode ? 1 + 20 + 30 + 240 + 16 : 0
+        let footerHeight = 25 + 29 + 27 + 17
+        let height = headerHeight + photoSectionHeight + qrSectionHeight + footerHeight
+
+        return ReceiptLayoutPlan(
+            style: style,
+            favoritePhotoIndex: favoritePhotoIndex,
+            displayedPhotoIndexes: displayedIndexes,
+            heroPhotoIndex: favoritePhotoIndex,
+            secondaryPhotoIndexes: secondaryIndexes,
+            width: BoothConfiguration.receiptWidth,
+            height: height,
+            qrSize: includesGalleryQRCode ? 240 : 0
+        )
+    }
+
+    nonisolated private static func drawPhoto(_ image: UIImage, in rect: CGRect, context: CGContext) {
+        drawAspectFill(image, in: rect, context: context)
+        UIColor.black.setStroke()
+        context.setLineWidth(2)
+        context.stroke(rect.insetBy(dx: 1, dy: 1))
     }
 
     nonisolated private static func drawAspectFill(_ image: UIImage, in rect: CGRect, context: CGContext) {

@@ -228,6 +228,34 @@ struct BoothSessionView: View {
                 }
             }
 
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Choose your receipt style")
+                        .font(.title3.bold())
+                        .foregroundStyle(.white)
+
+                    HStack(spacing: 12) {
+                        ForEach(ReceiptLayoutStyle.allCases) { style in
+                            receiptStyleButton(style)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Choose your favorite")
+                        .font(.title3.bold())
+                        .foregroundStyle(.white)
+
+                    HStack(spacing: 10) {
+                        ForEach(0..<BoothConfiguration.photosPerSession, id: \.self) { index in
+                            favoritePhotoButton(index)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             HStack(spacing: 14) {
                 Button {
                     viewModel.continueToReceipt()
@@ -546,7 +574,7 @@ struct BoothSessionView: View {
         }
 
         let length = String(format: "%.1f", receipt.estimatedLengthMillimeters)
-        return "\(receipt.width) x \(receipt.height) pixels\nEstimated length: \(length) mm\nPrinter: \(printerIP):\(printerPort)"
+        return "\(receipt.layoutStyle.displayName) receipt\n\(receipt.width) x \(receipt.height) pixels\nEstimated length: \(length) mm\nPrinter: \(printerIP):\(printerPort)"
     }
 
     private var printerStatusColor: Color {
@@ -591,6 +619,89 @@ struct BoothSessionView: View {
 
     private func testPrinterConnection() {
         viewModel.testPrinterConnection(host: printerIP, port: parsedPort)
+    }
+
+    private func receiptStyleButton(_ style: ReceiptLayoutStyle) -> some View {
+        let isSelected = viewModel.selectedReceiptLayoutStyle == style
+        return Button {
+            viewModel.selectReceiptLayoutStyle(style)
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Image(systemName: style == .collage ? "rectangle.grid.2x2.fill" : "rectangle.fill")
+                        .font(.title3)
+                    Text(style.displayName.uppercased())
+                        .font(.headline.weight(.bold))
+                    if style == .collage {
+                        Text("Recommended")
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color.white.opacity(isSelected ? 0.22 : 0.12))
+                            .clipShape(Capsule())
+                    }
+                }
+
+                Text(style.detailText)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.72))
+            }
+            .frame(maxWidth: .infinity, minHeight: 78, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(isSelected ? Color(red: 0.55, green: 0.12, blue: 0.18) : Color.white.opacity(0.08))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isSelected ? Color.white.opacity(0.9) : Color.white.opacity(0.18), lineWidth: isSelected ? 2 : 1)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .disabled(!viewModel.canReturnToReview)
+    }
+
+    private func favoritePhotoButton(_ index: Int) -> some View {
+        let isSelected = viewModel.selectedFavoritePhotoIndex == index
+        return Button {
+            viewModel.selectFavoritePhoto(at: index)
+        } label: {
+            VStack(spacing: 7) {
+                ZStack(alignment: .topTrailing) {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.white.opacity(0.08))
+
+                    if viewModel.capturedPhotos.indices.contains(index) {
+                        Image(uiImage: viewModel.capturedPhotos[index])
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 88, height: 66)
+                            .clipped()
+                    }
+
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(.white)
+                            .padding(5)
+                    }
+                }
+                .frame(width: 88, height: 66)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(isSelected ? Color.white.opacity(0.95) : Color.white.opacity(0.18), lineWidth: isSelected ? 2 : 1)
+                }
+
+                Text("Photo \(index + 1)")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 106, height: 112)
+            .background(isSelected ? Color(red: 0.55, green: 0.12, blue: 0.18) : Color.white.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .disabled(!viewModel.capturedPhotos.indices.contains(index) || !viewModel.canReturnToReview)
     }
 
     private func loadSamplePhoto(from item: PhotosPickerItem?) {

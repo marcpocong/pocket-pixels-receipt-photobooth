@@ -32,6 +32,8 @@ final class BoothSessionViewModel: ObservableObject {
     @Published var isCameraUnavailable = false
     @Published var isCameraRunning = false
     @Published var samplePhotoCount = 0
+    @Published var selectedReceiptLayoutStyle = ReceiptLayoutStyle.collage
+    @Published var selectedFavoritePhotoIndex = 0
 
     let cameraService = CameraService()
 
@@ -69,6 +71,14 @@ final class BoothSessionViewModel: ObservableObject {
 
     var estimatedReceiptLength: Double? {
         composedReceipt?.estimatedLengthMillimeters
+    }
+
+    var receiptStyleSummary: String {
+        guard let composedReceipt else {
+            return "\(selectedReceiptLayoutStyle.displayName) receipt"
+        }
+
+        return "\(composedReceipt.layoutStyle.displayName) receipt"
     }
 
     init() {
@@ -182,6 +192,28 @@ final class BoothSessionViewModel: ObservableObject {
         startCameraForSequence()
     }
 
+    func selectReceiptLayoutStyle(_ style: ReceiptLayoutStyle) {
+        guard ReceiptSelectionPolicy.canChangeSelection(isCommitted: committedGallerySession != nil) else {
+            statusMessage = "Receipt choices are locked for this session."
+            return
+        }
+
+        selectedReceiptLayoutStyle = style
+    }
+
+    func selectFavoritePhoto(at index: Int) {
+        guard ReceiptSelectionPolicy.canChangeSelection(isCommitted: committedGallerySession != nil) else {
+            statusMessage = "Receipt choices are locked for this session."
+            return
+        }
+
+        guard capturedPhotos.indices.contains(index) else {
+            return
+        }
+
+        selectedFavoritePhotoIndex = index
+    }
+
     func addSamplePhoto(_ image: UIImage) {
         guard isCameraUnavailable, capturedPhotos.count < BoothConfiguration.photosPerSession, !isTransitionActive, committedGallerySession == nil else {
             return
@@ -214,7 +246,9 @@ final class BoothSessionViewModel: ObservableObject {
             createdAt: receiptDate,
             galleryToken: galleryToken,
             galleryURL: galleryURL,
-            photos: capturedPhotos
+            photos: capturedPhotos,
+            layoutStyle: selectedReceiptLayoutStyle,
+            favoritePhotoIndex: selectedFavoritePhotoIndex
         )
         committedGallerySession = committedSession
         composeReceipt(for: committedSession, enqueueUpload: true)
@@ -260,7 +294,9 @@ final class BoothSessionViewModel: ObservableObject {
                         photos: committedSession.photos,
                         sessionIdentifier: committedSession.sessionIdentifier,
                         date: committedSession.createdAt,
-                        galleryURL: committedSession.galleryURL
+                        galleryURL: committedSession.galleryURL,
+                        layoutStyle: committedSession.layoutStyle,
+                        favoritePhotoIndex: committedSession.favoritePhotoIndex
                     )
                     guard let receiptImage = UIImage(data: receipt.imagePNGData) else {
                         throw ReceiptComposerError.renderFailed
@@ -633,6 +669,8 @@ final class BoothSessionViewModel: ObservableObject {
         uploadPhase = .idle
         uploadStatusMessage = "Gallery upload has not started."
         samplePhotoCount = 0
+        selectedReceiptLayoutStyle = .collage
+        selectedFavoritePhotoIndex = 0
     }
 
     private func cancelTasks() {
@@ -740,6 +778,8 @@ private struct CommittedGallerySession {
     let galleryToken: String
     let galleryURL: URL
     let photos: [UIImage]
+    let layoutStyle: ReceiptLayoutStyle
+    let favoritePhotoIndex: Int
 }
 
 enum GalleryUploadSessionIsolationPolicy {
@@ -749,6 +789,12 @@ enum GalleryUploadSessionIsolationPolicy {
 
     static func shouldApplyEvent(eventGalleryToken: String, currentGalleryToken: String?) -> Bool {
         currentGalleryToken == eventGalleryToken
+    }
+}
+
+enum ReceiptSelectionPolicy {
+    static func canChangeSelection(isCommitted: Bool) -> Bool {
+        !isCommitted
     }
 }
 
