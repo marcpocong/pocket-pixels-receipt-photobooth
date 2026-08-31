@@ -1,119 +1,353 @@
 const TOKEN_PATTERN = /^[a-f0-9]{64}$/;
-
-const SECURITY_HEADERS = {
-  "Cache-Control": "no-store, private",
-  "X-Content-Type-Options": "nosniff",
-  "Referrer-Policy": "no-referrer",
-  "X-Robots-Tag": "noindex, nofollow"
-};
+const ALLOWED_UPSTREAM_HOSTS = new Set([
+  "script.google.com",
+  "script.googleusercontent.com",
+]);
 
 export default {
   async fetch(request, env) {
-    return handleRequest(request, env);
-  }
-};
+    const requestURL = new URL(request.url);
 
-export async function handleRequest(request, env) {
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    return textResponse("Method not allowed.", 405, "text/plain; charset=utf-8", request.method);
-  }
-
-  const requestURL = new URL(request.url);
-  const token = requestURL.searchParams.get("g") || "";
-  if (!TOKEN_PATTERN.test(token)) {
-    return htmlResponse(unavailablePage("Gallery unavailable.", ""), 200, request.method);
-  }
-
-  let upstreamURL;
-  try {
-    upstreamURL = makeUpstreamURL(env.APPS_SCRIPT_GALLERY_ORIGIN, token);
-  } catch (error) {
-    console.error(`Pocket Pixels proxy configuration error for token ${redactToken(token)}.`);
-    return htmlResponse(temporaryErrorPage(), 502, request.method);
-  }
-
-  try {
-    const upstreamResponse = await fetch(upstreamURL, {
-      method: "GET",
-      redirect: "follow",
-      headers: {
-        "Accept": "text/html"
-      }
-    });
-
-    if (!upstreamResponse.ok) {
-      console.error(`Pocket Pixels upstream returned ${upstreamResponse.status} for token ${redactToken(token)}.`);
-      return htmlResponse(temporaryErrorPage(), 502, request.method);
+    // Safe proxy health check. Does not require or expose a gallery token.
+    if (request.method === "GET" && requestURL.searchParams.get("diagnostic") === "proxy") {
+      return proxyDiagnostic(env);
     }
 
-    const html = await upstreamResponse.text();
-    return htmlResponse(html, 200, request.method);
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      return errorResponse(
+        "Gallery unavailable.",
+        "This request cannot be opened.",
+        405,
+        request.method,
+        "METHOD_NOT_ALLOWED"
+      );
+    }
+
+    const token = requestURL.searchParams.get("g") || "";
+    if (!TOKEN_PATTERN.test(token)) {
+      return errorResponse(
+        "Gallery unavailable.",
+        "This gallery link cannot be opened.",
+        404,
+        request.method,
+        "INVALID_GALLERY_TOKEN"
+      );
+    }
+
+    const originCheck = validateOrigin(env.APPS_SCRIPT_GALLERY_ORIGIN);
+    if (!originCheck.ok) {
+      return temporaryError(request.method, originCheck.code);
+    }
+
+    const upstreamURL = new URL(originCheck.url);
+    upstreamURL.search = "";
+    upstreamURL.hash = "";
+
+    // IMPORTANT: request Apps Script's raw proxy representation.
+    // A normal HtmlService web-app response is an iframe sandbox wrapper;
+    // proxying that wrapper through workers.dev leaves a blank iframe.
+    upstreamURL.searchParams.set("proxy", "raw");
+    upstreamURL.searchParams.set("g", token);
+
+    let fetched;
+    try {
+      fetched = await fetchGoogleWithSafeRedirects(upstreamURL.toString());
+    } catch (error) {
+      console.log("Pocket Pixels proxy: upstream fetch failed.");
+      return temporaryError(request.method, "UPSTREAM_FETCH_FAILED");
+    }
+
+    if (!fetched.ok) {
+      console.log(
+        "Pocket Pixels proxy: upstream failed code=" +
+          fetched.code +
+          " status=" +
+          fetched.status
+      );
+      return temporaryError(request.method, fetched.code);
+    }
+
+    let html;
+    try {
+      html = await fetched.response.text();
+    } catch (error) {
+      return temporaryError(request.method, "UPSTREAM_BODY_READ_FAILED");
+    }
+
+    // Do not proxy a Google login/error page as if it were the gallery.
+    if (
+      !html.includes("Pocket Pixels Gallery") &&
+      !html.includes("Pocket Pixels")
+    ) {
+      console.log(
+        "Pocket Pixels proxy: unexpected upstream HTML host=" +
+          fetched.finalHost +
+          " status=" +
+          fetched.status
+      );
+      return temporaryError(request.method, "UNEXPECTED_UPSTREAM_PAGE");
+    }
+
+    const headers = securityHeaders();
+    headers.set("Content-Type", "text/html; charset=utf-8");
+    headers.set("X-Pocket-Pixels-Proxy", "ok");
+
+    return new Response(request.method === "HEAD" ? null : html, {
+      status: 200,
+      headers,
+    });
+  },
+};
+
+function validateOrigin(rawValue) {
+  const raw = String(rawValue || "").trim();
+  if (!raw) {
+    return { ok: false, code: "CONFIG_MISSING" };
+  }
+
+  let url;
+  try {
+    url = new URL(raw);
   } catch (error) {
-    console.error(`Pocket Pixels upstream unavailable for token ${redactToken(token)}.`);
-    return htmlResponse(temporaryErrorPage(), 502, request.method);
-  }
-}
-
-export function makeUpstreamURL(origin, token) {
-  if (!TOKEN_PATTERN.test(token)) {
-    throw new Error("Invalid gallery token.");
+    return { ok: false, code: "CONFIG_INVALID_URL" };
   }
 
-  const parsed = new URL(String(origin || "").trim());
-  if (
-    parsed.protocol !== "https:" ||
-    parsed.hostname !== "script.google.com" ||
-    !/^\/macros\/s\/[^/]+\/exec$/.test(parsed.pathname) ||
-    parsed.pathname.includes("/macros/u/") ||
-    parsed.search !== "" ||
-    parsed.hash !== ""
-  ) {
-    throw new Error("APPS_SCRIPT_GALLERY_ORIGIN must be the canonical Apps Script /macros/s/.../exec URL.");
+  const valid =
+    url.protocol === "https:" &&
+    url.hostname === "script.google.com" &&
+    /^\/macros\/s\/[^/]+\/exec\/?$/.test(url.pathname) &&
+    !url.search &&
+    !url.hash;
+
+  if (!valid) {
+    return { ok: false, code: "CONFIG_INVALID_ORIGIN" };
   }
 
-  parsed.searchParams.set("g", token);
-  return parsed.toString();
+  // Normalize a harmless trailing slash.
+  url.pathname = url.pathname.replace(/\/+$/, "");
+  return { ok: true, url: url.toString() };
 }
 
-export function redactToken(token) {
-  const value = String(token || "");
-  if (value.length <= 12) {
-    return "<redacted>";
+async function fetchGoogleWithSafeRedirects(initialURL) {
+  let currentURL = initialURL;
+
+  for (let hop = 0; hop < 6; hop++) {
+    const parsed = new URL(currentURL);
+    if (
+      parsed.protocol !== "https:" ||
+      !ALLOWED_UPSTREAM_HOSTS.has(parsed.hostname)
+    ) {
+      return {
+        ok: false,
+        code: "UNSAFE_REDIRECT_HOST",
+        status: 0,
+        finalHost: parsed.hostname || "",
+      };
+    }
+
+    let response;
+    try {
+      response = await fetch(currentURL, {
+        method: "GET",
+        redirect: "manual",
+        headers: {
+          Accept: "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+          "User-Agent":
+            "Mozilla/5.0 (compatible; PocketPixelsGalleryProxy/1.0)",
+        },
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        code: "UPSTREAM_FETCH_FAILED",
+        status: 0,
+        finalHost: parsed.hostname,
+      };
+    }
+
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) {
+        return {
+          ok: false,
+          code: "REDIRECT_WITHOUT_LOCATION",
+          status: response.status,
+          finalHost: parsed.hostname,
+        };
+      }
+
+      let next;
+      try {
+        next = new URL(location, currentURL);
+      } catch (error) {
+        return {
+          ok: false,
+          code: "INVALID_REDIRECT_LOCATION",
+          status: response.status,
+          finalHost: parsed.hostname,
+        };
+      }
+
+      if (
+        next.protocol !== "https:" ||
+        !ALLOWED_UPSTREAM_HOSTS.has(next.hostname)
+      ) {
+        return {
+          ok: false,
+          code: "UNSAFE_REDIRECT_HOST",
+          status: response.status,
+          finalHost: next.hostname || "",
+        };
+      }
+
+      currentURL = next.toString();
+      continue;
+    }
+
+    return {
+      ok: response.ok,
+      code: response.ok ? "OK" : "UPSTREAM_STATUS_" + response.status,
+      status: response.status,
+      finalHost: parsed.hostname,
+      contentType: response.headers.get("content-type") || "",
+      response,
+    };
   }
 
-  return `${value.slice(0, 6)}...${value.slice(-6)}`;
+  return {
+    ok: false,
+    code: "TOO_MANY_REDIRECTS",
+    status: 0,
+    finalHost: "",
+  };
 }
 
-function htmlResponse(html, status, method) {
-  return textResponse(html, status, "text/html; charset=utf-8", method);
-}
+async function proxyDiagnostic(env) {
+  const originCheck = validateOrigin(env.APPS_SCRIPT_GALLERY_ORIGIN);
 
-function textResponse(body, status, contentType, method) {
-  const headers = new Headers({
-    ...SECURITY_HEADERS,
-    "Content-Type": contentType
+  if (!originCheck.ok) {
+    return jsonResponse({
+      ok: false,
+      proxyVersion: "phase6c-worker-raw-html-20260831",
+      configPresent: !!String(env.APPS_SCRIPT_GALLERY_ORIGIN || "").trim(),
+      configValid: false,
+      stage: originCheck.code,
+    });
+  }
+
+  const diagnosticURL = new URL(originCheck.url);
+  diagnosticURL.searchParams.set("diagnostic", "phase6b");
+
+  const result = await fetchGoogleWithSafeRedirects(diagnosticURL.toString());
+
+  let bodyLooksLikeBackendDiagnostic = false;
+  let backendVersion = "";
+
+  if (result.ok) {
+    try {
+      const text = await result.response.text();
+      const parsed = JSON.parse(text);
+      bodyLooksLikeBackendDiagnostic =
+        parsed &&
+        parsed.ok === true &&
+        parsed.status === "diagnostic";
+      backendVersion =
+        typeof parsed.backendVersion === "string"
+          ? parsed.backendVersion
+          : "";
+    } catch (error) {
+      bodyLooksLikeBackendDiagnostic = false;
+    }
+  }
+
+  return jsonResponse({
+    ok: result.ok && bodyLooksLikeBackendDiagnostic,
+    proxyVersion: "phase6c-worker-raw-html-20260831",
+    configPresent: true,
+    configValid: true,
+    upstreamStatus: result.status || 0,
+    upstreamResult: result.code || "",
+    finalHost: result.finalHost || "",
+    contentType: result.contentType || "",
+    backendDiagnosticRecognized: bodyLooksLikeBackendDiagnostic,
+    backendVersion: backendVersion,
+    rawProxyExpected: true,
   });
-  return new Response(method === "HEAD" ? null : body, { status, headers });
 }
 
-function unavailablePage(title, message) {
-  return pageShell(title, message, "");
+function securityHeaders() {
+  const headers = new Headers();
+  headers.set("Cache-Control", "no-store, max-age=0");
+  headers.set("Pragma", "no-cache");
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("Referrer-Policy", "no-referrer");
+  headers.set("X-Robots-Tag", "noindex, nofollow");
+  return headers;
 }
 
-function temporaryErrorPage() {
-  return pageShell(
-    "We couldn't load your gallery right now. Please try again.",
-    "",
-    '<button type="button" onclick="window.location.reload()">Retry</button>'
+function errorResponse(title, message, status, method, reference) {
+  const headers = securityHeaders();
+  headers.set("Content-Type", "text/html; charset=utf-8");
+  headers.set("X-Pocket-Pixels-Proxy-Error", reference);
+
+  return new Response(
+    method === "HEAD" ? null : errorPage(title, message, reference),
+    { status, headers }
   );
 }
 
-function pageShell(title, message, actionHTML) {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><title>Pocket Pixels Gallery</title><style>:root{color-scheme:light;--ink:#27191b;--muted:#6d5b5e;--paper:#fffdf9;--line:#eadcda;--accent:#8b1e2d;--focus:#0f62fe;}*{box-sizing:border-box;}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:var(--paper);color:var(--ink);}.center-page{min-height:100vh;display:grid;place-items:center;padding:32px 20px;}.notice{width:min(100%,460px);text-align:center;background:white;border:1px solid var(--line);border-radius:8px;padding:28px 20px;box-shadow:0 1px 12px rgba(39,25,27,.06);}.brand{text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:900;margin:0 0 4px;}h1{font-size:32px;line-height:1.08;margin:4px 0 10px;letter-spacing:0;}p{color:var(--muted);margin:0;}button{min-height:44px;border-radius:8px;border:1px solid var(--accent);padding:11px 16px;background:var(--accent);color:white;font:inherit;font-weight:700;cursor:pointer;margin-top:18px;}button:focus-visible{outline:3px solid var(--focus);outline-offset:3px;}</style></head><body><main class="center-page"><section class="notice"><p class="brand">Pocket Pixels</p><h1>${escapeHTML(title)}</h1>${message ? `<p>${escapeHTML(message)}</p>` : ""}${actionHTML}</section></main></body></html>`;
+function temporaryError(method, reference) {
+  return errorResponse(
+    "We couldn't load your gallery right now.",
+    "Please try again in a moment.",
+    503,
+    method,
+    reference || "TEMPORARY_ERROR"
+  );
+}
+
+function jsonResponse(value) {
+  const headers = securityHeaders();
+  headers.set("Content-Type", "application/json; charset=utf-8");
+  return new Response(JSON.stringify(value, null, 2), {
+    status: 200,
+    headers,
+  });
+}
+
+function errorPage(title, message, reference) {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Pocket Pixels Gallery</title>
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#fffdf9;color:#27191b;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
+    main{width:min(100%,440px);text-align:center;padding:32px 24px;background:#fff;border:1px solid #eadcda;border-radius:12px}
+    .brand{margin:0 0 10px;color:#8b1e2d;font-weight:800;text-transform:uppercase;letter-spacing:.08em}
+    h1{margin:0 0 12px;font-size:30px;line-height:1.1}
+    p{margin:0;color:#6d5b5e;line-height:1.5}
+    button{margin-top:24px;min-height:44px;padding:11px 18px;border:0;border-radius:8px;background:#8b1e2d;color:#fff;font:inherit;font-weight:700;cursor:pointer}
+    .ref{margin-top:16px;font-size:11px;opacity:.55}
+  </style>
+</head>
+<body>
+  <main>
+    <p class="brand">Pocket Pixels</p>
+    <h1>${escapeHTML(title)}</h1>
+    <p>${escapeHTML(message)}</p>
+    <button onclick="window.location.reload()">Try Again</button>
+    <p class="ref">Reference: ${escapeHTML(reference || "TEMPORARY_ERROR")}</p>
+  </main>
+</body>
+</html>`;
 }
 
 function escapeHTML(value) {
-  return String(value || "")
+  return String(value)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
