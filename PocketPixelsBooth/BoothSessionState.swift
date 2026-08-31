@@ -9,6 +9,7 @@ import Foundation
 
 enum BoothSessionState: Equatable {
     case welcome
+    case choosingFormat
     case preparingCamera
     case cameraReady
     case countdown(photoIndex: Int, value: Int)
@@ -26,7 +27,7 @@ enum BoothSessionState: Equatable {
 
     var isActiveSession: Bool {
         switch self {
-        case .welcome, .thankYou:
+        case .welcome, .choosingFormat, .thankYou:
             false
         case .preparingCamera, .cameraReady, .countdown, .capturing, .betweenPhotos, .review, .retaking, .composingReceipt, .receiptPreview, .connectingToPrinter, .printing, .recoveryRequired, .error:
             true
@@ -35,7 +36,7 @@ enum BoothSessionState: Equatable {
 
     var allowsCancellation: Bool {
         switch self {
-        case .welcome, .thankYou:
+        case .welcome, .choosingFormat, .thankYou:
             false
         case .preparingCamera, .cameraReady, .countdown, .capturing, .betweenPhotos, .review, .retaking, .composingReceipt, .receiptPreview, .connectingToPrinter, .printing, .recoveryRequired, .error:
             true
@@ -46,12 +47,14 @@ enum BoothSessionState: Equatable {
         switch self {
         case .welcome:
             "Welcome"
+        case .choosingFormat:
+            "Choose Format"
         case .preparingCamera:
             "Preparing Camera"
         case .cameraReady:
             "Camera Ready"
         case .countdown(let index, _):
-            "Photo \(index + 1) of \(BoothConfiguration.photosPerSession)"
+            "Photo \(index + 1)"
         case .capturing(let index):
             "Capturing Photo \(index + 1)"
         case .betweenPhotos(let nextIndex):

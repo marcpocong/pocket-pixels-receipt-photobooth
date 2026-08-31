@@ -52,6 +52,8 @@ struct BoothSessionView: View {
         switch viewModel.state {
         case .welcome:
             welcomeScreen
+        case .choosingFormat:
+            formatSelectionScreen
         case .preparingCamera, .cameraReady, .countdown, .capturing, .betweenPhotos, .retaking:
             cameraScreen
         case .review:
@@ -103,12 +105,45 @@ struct BoothSessionView: View {
             .tint(Color(red: 0.55, green: 0.12, blue: 0.18))
             .disabled(viewModel.state.isActiveSession)
 
-            Text("This session will take \(BoothConfiguration.photosPerSession) photos.")
+            Text("Choose your receipt format before photos are taken.")
                 .foregroundStyle(.white.opacity(0.62))
 
             Spacer()
         }
         .padding(40)
+    }
+
+    private var formatSelectionScreen: some View {
+        VStack(alignment: .leading, spacing: 26) {
+            HStack {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Choose your format")
+                        .font(.system(size: 48, weight: .bold))
+                        .foregroundStyle(.white)
+
+                    Text("Pick the receipt layout before photos begin.")
+                        .font(.title3)
+                        .foregroundStyle(.white.opacity(0.68))
+                }
+
+                Spacer()
+
+                Button("Back") {
+                    viewModel.cancelSession()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+            }
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 250), spacing: 18)], spacing: 18) {
+                ForEach(BoothFormat.allCases) { format in
+                    formatCard(format)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(34)
     }
 
     private var cameraScreen: some View {
@@ -132,7 +167,6 @@ struct BoothSessionView: View {
 
                     RoundedRectangle(cornerRadius: 8)
                         .stroke(.white.opacity(0.82), lineWidth: 2)
-                        .padding(38)
 
                     if let countdownValue {
                         Text("\(countdownValue)")
@@ -141,8 +175,8 @@ struct BoothSessionView: View {
                             .shadow(color: .black.opacity(0.5), radius: 16, x: 0, y: 7)
                     }
                 }
-                .aspectRatio(4.0 / 3.0, contentMode: .fit)
-                .frame(maxWidth: 790)
+                .aspectRatio(3.0 / 4.0, contentMode: .fit)
+                .frame(maxWidth: 560, maxHeight: 720)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
                 VStack(alignment: .leading, spacing: 18) {
@@ -195,8 +229,12 @@ struct BoothSessionView: View {
                 .font(.system(size: 42, weight: .bold))
                 .foregroundStyle(.white)
 
+            Text(viewModel.selectedBoothFormat?.reviewSummary ?? "")
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(Color(red: 0.86, green: 0.44, blue: 0.50))
+
             HStack(spacing: 16) {
-                ForEach(0..<BoothConfiguration.photosPerSession, id: \.self) { index in
+                ForEach(0..<viewModel.requiredPhotoCount, id: \.self) { index in
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Photo \(index + 1)")
                             .font(.headline)
@@ -209,8 +247,9 @@ struct BoothSessionView: View {
                             if viewModel.capturedPhotos.indices.contains(index) {
                                 Image(uiImage: viewModel.capturedPhotos[index])
                                     .resizable()
-                                    .scaledToFit()
-                                    .padding(8)
+                                    .scaledToFill()
+                                    .frame(width: 150, height: 200)
+                                    .clipped()
                             } else {
                                 Text("Missing")
                                     .foregroundStyle(.white.opacity(0.55))
@@ -226,34 +265,6 @@ struct BoothSessionView: View {
                         .disabled(!viewModel.capturedPhotos.indices.contains(index) || !viewModel.canReturnToReview)
                     }
                 }
-            }
-
-            HStack(alignment: .top, spacing: 18) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Choose your receipt style")
-                        .font(.title3.bold())
-                        .foregroundStyle(.white)
-
-                    HStack(spacing: 12) {
-                        ForEach(ReceiptLayoutStyle.allCases) { style in
-                            receiptStyleButton(style)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Choose your favorite")
-                        .font(.title3.bold())
-                        .foregroundStyle(.white)
-
-                    HStack(spacing: 10) {
-                        ForEach(0..<BoothConfiguration.photosPerSession, id: \.self) { index in
-                            favoritePhotoButton(index)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             HStack(spacing: 14) {
@@ -379,7 +390,7 @@ struct BoothSessionView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
 
-            Text("Your three photos and receipt preview are still kept for retry after Test Connection succeeds.")
+            Text("Your photos and receipt preview are still kept for retry after Test Connection succeeds.")
                 .foregroundStyle(.white.opacity(0.6))
 
             Spacer()
@@ -502,7 +513,7 @@ struct BoothSessionView: View {
                 .font(.title2.bold())
                 .foregroundStyle(.white)
 
-            Text("The iPad camera must be tested on a physical device. Select exactly \(BoothConfiguration.photosPerSession) sample photos to continue.")
+            Text("The iPad camera must be tested on a physical device. Select sample photos to continue.")
                 .foregroundStyle(.white.opacity(0.68))
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 520)
@@ -519,7 +530,7 @@ struct BoothSessionView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
 
-            Text("Sample photos selected: \(viewModel.samplePhotoCount) of \(BoothConfiguration.photosPerSession)")
+            Text("Sample photos selected: \(viewModel.samplePhotoCount) of \(viewModel.requiredPhotoCount)")
                 .foregroundStyle(.white.opacity(0.7))
         }
     }
@@ -560,11 +571,11 @@ struct BoothSessionView: View {
     private var photoCounterText: String {
         switch viewModel.state {
         case .countdown(let index, _), .capturing(let index), .retaking(let index):
-            "Photo \(index + 1) of \(BoothConfiguration.photosPerSession)"
+            "Photo \(index + 1) of \(viewModel.requiredPhotoCount)"
         case .betweenPhotos(let nextIndex):
             "Next: Photo \(nextIndex + 1)"
         default:
-            "Photo \(min(viewModel.capturedPhotos.count + 1, BoothConfiguration.photosPerSession)) of \(BoothConfiguration.photosPerSession)"
+            "Photo \(min(viewModel.capturedPhotos.count + 1, viewModel.requiredPhotoCount)) of \(viewModel.requiredPhotoCount)"
         }
     }
 
@@ -574,7 +585,7 @@ struct BoothSessionView: View {
         }
 
         let length = String(format: "%.1f", receipt.estimatedLengthMillimeters)
-        return "\(receipt.layoutStyle.displayName) receipt\n\(receipt.width) x \(receipt.height) pixels\nEstimated length: \(length) mm\nPrinter: \(printerIP):\(printerPort)"
+        return "\(receipt.format.displayName) receipt\n\(receipt.width) x \(receipt.height) pixels\nEstimated length: \(length) mm\nPrinter: \(printerIP):\(printerPort)"
     }
 
     private var printerStatusColor: Color {
@@ -621,87 +632,88 @@ struct BoothSessionView: View {
         viewModel.testPrinterConnection(host: printerIP, port: parsedPort)
     }
 
-    private func receiptStyleButton(_ style: ReceiptLayoutStyle) -> some View {
-        let isSelected = viewModel.selectedReceiptLayoutStyle == style
+    private func formatCard(_ format: BoothFormat) -> some View {
         return Button {
-            viewModel.selectReceiptLayoutStyle(style)
+            viewModel.selectBoothFormat(format)
         } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Image(systemName: style == .collage ? "rectangle.grid.2x2.fill" : "rectangle.fill")
-                        .font(.title3)
-                    Text(style.displayName.uppercased())
-                        .font(.headline.weight(.bold))
-                    if style == .collage {
-                        Text("Recommended")
-                            .font(.caption.weight(.semibold))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(Color.white.opacity(isSelected ? 0.22 : 0.12))
-                            .clipShape(Capsule())
-                    }
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(format.displayName.uppercased())
+                        .font(.title2.weight(.black))
+                    Spacer()
+                    Text(format.photoCountLabel.uppercased())
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.white.opacity(0.72))
                 }
 
-                Text(style.detailText)
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.72))
+                formatPreview(format)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 190)
+
+                Text(format.shortDescription)
+                    .font(.headline)
+                    .foregroundStyle(.white.opacity(0.74))
             }
-            .frame(maxWidth: .infinity, minHeight: 78, alignment: .leading)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(isSelected ? Color(red: 0.55, green: 0.12, blue: 0.18) : Color.white.opacity(0.08))
+            .foregroundStyle(.white)
+            .padding(20)
+            .frame(minHeight: 300, alignment: .topLeading)
+            .background(Color.white.opacity(0.08))
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(isSelected ? Color.white.opacity(0.9) : Color.white.opacity(0.18), lineWidth: isSelected ? 2 : 1)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
             }
             .clipShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
-        .disabled(!viewModel.canReturnToReview)
     }
 
-    private func favoritePhotoButton(_ index: Int) -> some View {
-        let isSelected = viewModel.selectedFavoritePhotoIndex == index
-        return Button {
-            viewModel.selectFavoritePhoto(at: index)
-        } label: {
-            VStack(spacing: 7) {
-                ZStack(alignment: .topTrailing) {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.white.opacity(0.08))
-
-                    if viewModel.capturedPhotos.indices.contains(index) {
-                        Image(uiImage: viewModel.capturedPhotos[index])
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: 88, height: 66)
-                            .clipped()
+    private func formatPreview(_ format: BoothFormat) -> some View {
+        GeometryReader { proxy in
+            ZStack {
+                switch format {
+                case .solo:
+                    previewFrame(width: 108, height: 144)
+                case .duo:
+                    VStack(spacing: 10) {
+                        previewFrame(width: 88, height: 117)
+                        previewFrame(width: 88, height: 117)
                     }
-
-                    if isSelected {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.title3)
-                            .foregroundStyle(.white)
-                            .padding(5)
+                case .trio:
+                    VStack(spacing: 10) {
+                        HStack(spacing: 10) {
+                            previewFrame(width: 76, height: 101)
+                            previewFrame(width: 76, height: 101)
+                        }
+                        previewFrame(width: 76, height: 101)
+                    }
+                case .grid:
+                    VStack(spacing: 10) {
+                        HStack(spacing: 10) {
+                            previewFrame(width: 72, height: 96)
+                            previewFrame(width: 72, height: 96)
+                        }
+                        HStack(spacing: 10) {
+                            previewFrame(width: 72, height: 96)
+                            previewFrame(width: 72, height: 96)
+                        }
+                    }
+                case .strip:
+                    VStack(spacing: 6) {
+                        ForEach(0..<4, id: \.self) { _ in
+                            previewFrame(width: 58, height: 77)
+                        }
                     }
                 }
-                .frame(width: 88, height: 66)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(isSelected ? Color.white.opacity(0.95) : Color.white.opacity(0.18), lineWidth: isSelected ? 2 : 1)
-                }
-
-                Text("Photo \(index + 1)")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
             }
-            .frame(width: 106, height: 112)
-            .background(isSelected ? Color(red: 0.55, green: 0.12, blue: 0.18) : Color.white.opacity(0.08))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
-        .buttonStyle(.plain)
-        .disabled(!viewModel.capturedPhotos.indices.contains(index) || !viewModel.canReturnToReview)
+    }
+
+    private func previewFrame(width: CGFloat, height: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 4)
+            .stroke(Color.white.opacity(0.82), lineWidth: 2)
+            .background(Color.white.opacity(0.08))
+            .frame(width: width, height: height)
     }
 
     private func loadSamplePhoto(from item: PhotosPickerItem?) {

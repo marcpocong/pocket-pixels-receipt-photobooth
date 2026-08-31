@@ -2,8 +2,6 @@
 //  ReceiptComposer.swift
 //  PocketPixelsBooth
 //
-//  Created by marc on 8/30/26.
-//
 
 import Foundation
 import UIKit
@@ -14,45 +12,22 @@ struct ComposedReceipt: Sendable {
     let height: Int
     let sessionIdentifier: String
     let createdAt: Date
-    let layoutStyle: ReceiptLayoutStyle
-    let favoritePhotoIndex: Int
+    let format: BoothFormat
 
     var estimatedLengthMillimeters: Double {
         Double(height) / 8.0
     }
 }
 
-enum ReceiptLayoutStyle: String, CaseIterable, Identifiable, Sendable {
-    case collage
-    case single
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .collage:
-            "Collage"
-        case .single:
-            "Single"
-        }
-    }
-
-    var detailText: String {
-        switch self {
-        case .collage:
-            "All 3 photos"
-        case .single:
-            "Your favorite photo"
-        }
-    }
+struct ReceiptPhotoFrame: Sendable {
+    let photoIndex: Int
+    let rect: CGRect
 }
 
 struct ReceiptLayoutPlan: Sendable {
-    let style: ReceiptLayoutStyle
-    let favoritePhotoIndex: Int
+    let format: BoothFormat
     let displayedPhotoIndexes: [Int]
-    let heroPhotoIndex: Int
-    let secondaryPhotoIndexes: [Int]
+    let photoFrames: [ReceiptPhotoFrame]
     let width: Int
     let height: Int
     let qrSize: Int
@@ -60,16 +35,13 @@ struct ReceiptLayoutPlan: Sendable {
 
 enum ReceiptComposerError: Error, LocalizedError {
     case missingPhotos(expected: Int, actual: Int)
-    case invalidFavoritePhotoIndex(Int)
     case renderFailed
     case heightExceeded(Int)
 
     var errorDescription: String? {
         switch self {
         case .missingPhotos(let expected, let actual):
-            "Receipt requires \(expected) photos, but only \(actual) are available."
-        case .invalidFavoritePhotoIndex(let index):
-            "Favorite photo \(index + 1) is not available."
+            "Receipt requires \(expected) photos, but \(actual) are available."
         case .renderFailed:
             "The receipt could not be rendered."
         case .heightExceeded(let height):
@@ -80,6 +52,7 @@ enum ReceiptComposerError: Error, LocalizedError {
 
 enum ReceiptComposer {
     nonisolated static let sessionIdentifierTimeZone = TimeZone(identifier: "Asia/Manila") ?? TimeZone(secondsFromGMT: 8 * 60 * 60)!
+    nonisolated static let receiptQRCodeSize = 192
 
     nonisolated static func makeSessionIdentifier(date: Date = Date()) -> String {
         "PP-\(identifierFormatter.string(from: date))"
@@ -90,34 +63,27 @@ enum ReceiptComposer {
         sessionIdentifier: String,
         date: Date = Date(),
         galleryURL: URL? = nil,
-        layoutStyle: ReceiptLayoutStyle = .collage,
-        favoritePhotoIndex: Int = 0
+        format: BoothFormat
     ) throws -> ComposedReceipt {
-        guard photos.count == BoothConfiguration.photosPerSession else {
-            throw ReceiptComposerError.missingPhotos(expected: BoothConfiguration.photosPerSession, actual: photos.count)
+        guard photos.count == format.photoCount else {
+            throw ReceiptComposerError.missingPhotos(expected: format.photoCount, actual: photos.count)
         }
 
-        let plan = try makeLayoutPlan(
-            style: layoutStyle,
-            favoritePhotoIndex: favoritePhotoIndex,
-            photoCount: photos.count,
-            includesGalleryQRCode: galleryURL != nil
-        )
+        let plan = try makeLayoutPlan(format: format, includesGalleryQRCode: galleryURL != nil)
         let width = BoothConfiguration.receiptWidth
         let margin = BoothConfiguration.receiptHorizontalMargin
-        let contentWidth = width - (margin * 2)
         let height = plan.height
 
         guard height <= BoothConfiguration.receiptMaximumHeight else {
             throw ReceiptComposerError.heightExceeded(height)
         }
 
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = true
+        let rendererFormat = UIGraphicsImageRendererFormat()
+        rendererFormat.scale = 1
+        rendererFormat.opaque = true
 
         let size = CGSize(width: width, height: height)
-        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        let renderer = UIGraphicsImageRenderer(size: size, format: rendererFormat)
         let image = renderer.image { context in
             let cgContext = context.cgContext
             UIColor.white.setFill()
@@ -127,36 +93,22 @@ enum ReceiptComposer {
             drawCentered("POCKET PIXELS", y: y, width: width, font: .systemFont(ofSize: 34, weight: .bold))
             y += 43
             drawCentered("RECEIPT PHOTOBOOTH", y: y, width: width, font: .systemFont(ofSize: 18, weight: .semibold))
-            y += 34
+            y += 26
+            drawCentered(format.displayName.uppercased(), y: y, width: width, font: .monospacedDigitSystemFont(ofSize: 14, weight: .medium))
+            y += 27
             drawDivider(y: y, margin: margin, width: width)
-            y += 20
 
-            switch layoutStyle {
-            case .collage:
-                let heroRect = CGRect(x: margin, y: y, width: contentWidth, height: 300)
-                drawPhoto(photos[plan.heroPhotoIndex], in: heroRect, context: cgContext)
-                y += 312
-
-                let gap = 12
-                let secondaryWidth = (contentWidth - gap) / 2
-                let secondaryHeight = 194
-                for (offset, index) in plan.secondaryPhotoIndexes.enumerated() {
-                    let x = margin + (offset * (secondaryWidth + gap))
-                    let rect = CGRect(x: x, y: y, width: secondaryWidth, height: secondaryHeight)
-                    drawPhoto(photos[index], in: rect, context: cgContext)
-                }
-                y += secondaryHeight + 18
-            case .single:
-                let heroRect = CGRect(x: margin, y: y, width: contentWidth, height: 360)
-                drawPhoto(photos[plan.heroPhotoIndex], in: heroRect, context: cgContext)
-                y += 378
+            for frame in plan.photoFrames {
+                drawPhoto(photos[frame.photoIndex], in: frame.rect, context: cgContext)
             }
+
+            y = Int((plan.photoFrames.map(\.rect.maxY).max() ?? CGFloat(y)) + 20)
 
             if let galleryURL {
                 drawDivider(y: y, margin: margin, width: width)
                 y += 20
-                drawCentered("Scan to view and save your photos", y: y, width: width, font: .systemFont(ofSize: 18, weight: .semibold))
-                y += 30
+                drawCentered("Scan to view & save your photos", y: y, width: width, font: .systemFont(ofSize: 17, weight: .semibold))
+                y += 28
                 if let qrImage = try? GalleryQRCodeGenerator.makeQRCodeImage(for: galleryURL, pixelSize: plan.qrSize) {
                     let qrX = (width - plan.qrSize) / 2
                     cgContext.interpolationQuality = .none
@@ -167,10 +119,10 @@ enum ReceiptComposer {
 
             drawCentered(receiptDateFormatter.string(from: date), y: y, width: width, font: .monospacedDigitSystemFont(ofSize: 16, weight: .regular))
             y += 25
-            drawCentered(sessionIdentifier, y: y, width: width, font: .monospacedDigitSystemFont(ofSize: 18, weight: .medium))
-            y += 29
-            drawCentered("@pocketpixels.ceb", y: y, width: width, font: .systemFont(ofSize: 20, weight: .semibold))
-            y += 27
+            drawCentered(sessionIdentifier, y: y, width: width, font: .monospacedDigitSystemFont(ofSize: 17, weight: .medium))
+            y += 28
+            drawCentered("@pocketpixels.ceb", y: y, width: width, font: .systemFont(ofSize: 19, weight: .semibold))
+            y += 26
             drawDivider(y: y, margin: margin, width: width)
         }
 
@@ -178,7 +130,7 @@ enum ReceiptComposer {
             throw ReceiptComposerError.renderFailed
         }
 
-        debugLog("Composed \(layoutStyle.rawValue) receipt \(sessionIdentifier). Dimensions: \(width)x\(height). Estimated length: \(String(format: "%.1f", Double(height) / 8.0)) mm.")
+        debugLog("Composed \(format.rawValue) receipt \(sessionIdentifier). Dimensions: \(width)x\(height). Estimated length: \(String(format: "%.1f", Double(height) / 8.0)) mm.")
 
         return ComposedReceipt(
             imagePNGData: data,
@@ -186,58 +138,96 @@ enum ReceiptComposer {
             height: height,
             sessionIdentifier: sessionIdentifier,
             createdAt: date,
-            layoutStyle: layoutStyle,
-            favoritePhotoIndex: favoritePhotoIndex
+            format: format
         )
     }
 
     nonisolated static func makeLayoutPlan(
-        style: ReceiptLayoutStyle,
-        favoritePhotoIndex: Int,
-        photoCount: Int = BoothConfiguration.photosPerSession,
+        format: BoothFormat,
         includesGalleryQRCode: Bool = true
     ) throws -> ReceiptLayoutPlan {
-        guard photoCount == BoothConfiguration.photosPerSession else {
-            throw ReceiptComposerError.missingPhotos(expected: BoothConfiguration.photosPerSession, actual: photoCount)
+        let width = BoothConfiguration.receiptWidth
+        let top = 146
+        let photoFrames: [ReceiptPhotoFrame]
+
+        switch format {
+        case .solo:
+            let photoWidth = 450
+            let rect = centeredPortraitRect(y: top, width: photoWidth, in: width)
+            photoFrames = [ReceiptPhotoFrame(photoIndex: 0, rect: rect)]
+        case .duo:
+            let photoWidth = 300
+            let first = centeredPortraitRect(y: top, width: photoWidth, in: width)
+            let second = centeredPortraitRect(y: Int(first.maxY) + 18, width: photoWidth, in: width)
+            photoFrames = [
+                ReceiptPhotoFrame(photoIndex: 0, rect: first),
+                ReceiptPhotoFrame(photoIndex: 1, rect: second)
+            ]
+        case .trio:
+            let gap = 16
+            let photoWidth = 264
+            let photoHeight = portraitHeight(for: photoWidth)
+            let totalWidth = photoWidth * 2 + gap
+            let leftX = (width - totalWidth) / 2
+            let topLeft = CGRect(x: leftX, y: top, width: photoWidth, height: photoHeight)
+            let topRight = CGRect(x: leftX + photoWidth + gap, y: top, width: photoWidth, height: photoHeight)
+            let bottom = centeredPortraitRect(y: Int(topLeft.maxY) + 16, width: photoWidth, in: width)
+            photoFrames = [
+                ReceiptPhotoFrame(photoIndex: 0, rect: topLeft),
+                ReceiptPhotoFrame(photoIndex: 1, rect: topRight),
+                ReceiptPhotoFrame(photoIndex: 2, rect: bottom)
+            ]
+        case .grid:
+            let gap = 16
+            let photoWidth = 264
+            let photoHeight = portraitHeight(for: photoWidth)
+            let totalWidth = photoWidth * 2 + gap
+            let leftX = (width - totalWidth) / 2
+            let row2Y = top + photoHeight + gap
+            photoFrames = [
+                ReceiptPhotoFrame(photoIndex: 0, rect: CGRect(x: leftX, y: top, width: photoWidth, height: photoHeight)),
+                ReceiptPhotoFrame(photoIndex: 1, rect: CGRect(x: leftX + photoWidth + gap, y: top, width: photoWidth, height: photoHeight)),
+                ReceiptPhotoFrame(photoIndex: 2, rect: CGRect(x: leftX, y: row2Y, width: photoWidth, height: photoHeight)),
+                ReceiptPhotoFrame(photoIndex: 3, rect: CGRect(x: leftX + photoWidth + gap, y: row2Y, width: photoWidth, height: photoHeight))
+            ]
+        case .strip:
+            let photoWidth = 183
+            var frames: [ReceiptPhotoFrame] = []
+            var y = top
+            for index in 0..<4 {
+                let rect = centeredPortraitRect(y: y, width: photoWidth, in: width)
+                frames.append(ReceiptPhotoFrame(photoIndex: index, rect: rect))
+                y = Int(rect.maxY) + 10
+            }
+            photoFrames = frames
         }
 
-        guard 0..<photoCount ~= favoritePhotoIndex else {
-            throw ReceiptComposerError.invalidFavoritePhotoIndex(favoritePhotoIndex)
-        }
-
-        let displayedIndexes: [Int]
-        let secondaryIndexes: [Int]
-        switch style {
-        case .collage:
-            secondaryIndexes = (0..<photoCount).filter { $0 != favoritePhotoIndex }
-            displayedIndexes = [favoritePhotoIndex] + secondaryIndexes
-        case .single:
-            secondaryIndexes = []
-            displayedIndexes = [favoritePhotoIndex]
-        }
-
-        let headerHeight = 128
-        let photoSectionHeight: Int
-        switch style {
-        case .collage:
-            photoSectionHeight = 300 + 12 + 194 + 18
-        case .single:
-            photoSectionHeight = 360 + 18
-        }
-        let qrSectionHeight = includesGalleryQRCode ? 1 + 20 + 30 + 240 + 16 : 0
-        let footerHeight = 25 + 29 + 27 + 17
-        let height = headerHeight + photoSectionHeight + qrSectionHeight + footerHeight
+        let qrSectionHeight = includesGalleryQRCode ? 1 + 20 + 28 + receiptQRCodeSize + 16 : 0
+        let footerHeight = 25 + 28 + 26 + 18
+        let photoBottom = Int(photoFrames.map(\.rect.maxY).max() ?? CGFloat(top))
+        let height = photoBottom + 20 + qrSectionHeight + footerHeight
 
         return ReceiptLayoutPlan(
-            style: style,
-            favoritePhotoIndex: favoritePhotoIndex,
-            displayedPhotoIndexes: displayedIndexes,
-            heroPhotoIndex: favoritePhotoIndex,
-            secondaryPhotoIndexes: secondaryIndexes,
-            width: BoothConfiguration.receiptWidth,
+            format: format,
+            displayedPhotoIndexes: Array(0..<format.photoCount),
+            photoFrames: photoFrames,
+            width: width,
             height: height,
-            qrSize: includesGalleryQRCode ? 240 : 0
+            qrSize: includesGalleryQRCode ? receiptQRCodeSize : 0
         )
+    }
+
+    nonisolated private static func centeredPortraitRect(y: Int, width photoWidth: Int, in receiptWidth: Int) -> CGRect {
+        CGRect(
+            x: (receiptWidth - photoWidth) / 2,
+            y: y,
+            width: photoWidth,
+            height: portraitHeight(for: photoWidth)
+        )
+    }
+
+    nonisolated private static func portraitHeight(for width: Int) -> Int {
+        width * 4 / 3
     }
 
     nonisolated private static func drawPhoto(_ image: UIImage, in rect: CGRect, context: CGContext) {
@@ -304,6 +294,8 @@ enum ReceiptComposer {
 
     nonisolated private static let receiptDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = sessionIdentifierTimeZone
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter

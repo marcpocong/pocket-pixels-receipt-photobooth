@@ -21,7 +21,8 @@ struct GalleryUploadTestView: View {
     @State private var tokenEntry = ""
     @State private var uploadPhase = GalleryUploadPhase.idle
     @State private var returnedGalleryURL: URL?
-    @State private var statusMessage = "Select exactly three photos to prepare a test gallery."
+    @State private var statusMessage = "Select photos to prepare a test gallery."
+    @State private var selectedFormat = BoothFormat.grid
     @State private var connectivityState: GalleryBackendConnectivityState?
     @State private var backendDiagnosticState: GalleryBackendConnectivityState?
     @State private var pendingSummary: GalleryPendingUploadSummary?
@@ -145,7 +146,7 @@ struct GalleryUploadTestView: View {
                     Label("Select Photo", systemImage: "photo")
                 }
                 .buttonStyle(.bordered)
-                .disabled(uploadPhase.isWorking || selectedPhotos.count >= BoothConfiguration.photosPerSession)
+                .disabled(uploadPhase.isWorking || selectedPhotos.count >= BoothConfiguration.maximumPhotosPerSession)
 
                 Button("Clear Photos") {
                     selectedPhotos.removeAll()
@@ -154,17 +155,33 @@ struct GalleryUploadTestView: View {
                     returnedGalleryURL = nil
                     clearGalleryIdentifiers()
                     uploadPhase = .idle
-                    statusMessage = "Select exactly three photos to prepare a test gallery."
+                    statusMessage = "Select photos to prepare a test gallery."
                 }
                 .buttonStyle(.bordered)
                 .disabled(uploadPhase.isWorking || selectedPhotos.isEmpty)
             }
 
-            Text("Photos selected: \(selectedPhotos.count) of \(BoothConfiguration.photosPerSession)")
+            Picker("Preview Format", selection: $selectedFormat) {
+                ForEach(BoothFormat.allCases) { format in
+                    Text("\(format.displayName) · \(format.photoCountLabel)").tag(format)
+                }
+            }
+            .pickerStyle(.segmented)
+            .disabled(uploadPhase.isWorking)
+            .onChange(of: selectedFormat) { _, _ in
+                composedReceipt = nil
+                receiptImage = nil
+                preparedMetrics = nil
+                if selectedPhotos.count == selectedFormat.photoCount {
+                    buildReceipt()
+                }
+            }
+
+            Text("Photos selected: \(selectedPhotos.count) of \(selectedFormat.photoCount) for \(selectedFormat.displayName)")
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 14) {
-                ForEach(0..<BoothConfiguration.photosPerSession, id: \.self) { index in
+                ForEach(0..<BoothConfiguration.maximumPhotosPerSession, id: \.self) { index in
                     previewTile(title: "Photo \(index + 1)", image: selectedPhotos.indices.contains(index) ? selectedPhotos[index] : nil)
                 }
             }
@@ -181,7 +198,7 @@ struct GalleryUploadTestView: View {
                     buildReceipt()
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(selectedPhotos.count != BoothConfiguration.photosPerSession || uploadPhase.isWorking)
+                .disabled(selectedPhotos.count != selectedFormat.photoCount || uploadPhase.isWorking)
 
                 if let composedReceipt {
                     Text("\(composedReceipt.width) x \(composedReceipt.height) px")
@@ -338,7 +355,7 @@ struct GalleryUploadTestView: View {
     private var canUpload: Bool {
         isWebAppConfigured
             && credentialStore.hasDeviceToken()
-            && selectedPhotos.count == BoothConfiguration.photosPerSession
+            && selectedPhotos.count == selectedFormat.photoCount
             && receiptImage != nil
             && !uploadPhase.isWorking
     }
@@ -430,11 +447,11 @@ struct GalleryUploadTestView: View {
                     throw ThermalImageRasterizerError.invalidImage
                 }
 
-                guard selectedPhotos.count < BoothConfiguration.photosPerSession else {
+                guard selectedPhotos.count < BoothConfiguration.maximumPhotosPerSession else {
                     return
                 }
 
-                selectedPhotos.append(image)
+                selectedPhotos.append(BoothPhotoProcessor.normalizedPortraitPhoto(from: image))
                 composedReceipt = nil
                 receiptImage = nil
                 returnedGalleryURL = nil
@@ -445,7 +462,7 @@ struct GalleryUploadTestView: View {
                 statusMessage = "Photo loaded."
                 selectedPhotoItem = nil
 
-                if selectedPhotos.count == BoothConfiguration.photosPerSession {
+                if selectedPhotos.count == selectedFormat.photoCount {
                     buildReceipt()
                 }
             } catch {
@@ -456,7 +473,7 @@ struct GalleryUploadTestView: View {
     }
 
     private func buildReceipt() {
-        guard selectedPhotos.count == BoothConfiguration.photosPerSession else {
+        guard selectedPhotos.count == selectedFormat.photoCount else {
             uploadPhase = .failed(GalleryUploadError.invalidPhotoCount.localizedDescription)
             statusMessage = GalleryUploadError.invalidPhotoCount.localizedDescription
             return
@@ -479,8 +496,7 @@ struct GalleryUploadTestView: View {
                         sessionIdentifier: sessionID,
                         date: sessionDate,
                         galleryURL: galleryURL,
-                        layoutStyle: .collage,
-                        favoritePhotoIndex: 0
+                        format: selectedFormat
                     )
                 }.value
 

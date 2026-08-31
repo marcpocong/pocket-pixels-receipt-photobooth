@@ -190,7 +190,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         customerGalleryBaseURL: URL
     ) throws -> GalleryPreparedUploadPayload {
         let preparationStart = Date()
-        guard photos.count == BoothConfiguration.photosPerSession else { throw GalleryUploadError.invalidPhotoCount }
+        guard Self.isSupportedPhotoCount(photos.count) else { throw GalleryUploadError.invalidPhotoCount }
         guard sessionID.count <= 32, sessionID.hasPrefix("PP-") else { throw GalleryUploadError.invalidSessionID }
 
         let createdAtString = makeWireCreatedAtString(from: createdAt)
@@ -269,10 +269,12 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
     nonisolated static func validateSuccessfulResponse(
         _ response: GalleryUploadResponse,
         expectedGalleryToken: String? = nil,
-        expectedGalleryURL: URL? = nil
+        expectedGalleryURL: URL? = nil,
+        expectedPhotoCount: Int = BoothFormat.trio.photoCount
     ) -> Bool {
         guard response.ok,
-              response.fileCount == 5,
+              Self.isSupportedPhotoCount(expectedPhotoCount),
+              response.fileCount == expectedPhotoCount + 2,
               let galleryToken = response.galleryToken,
               let galleryURL = response.galleryURL,
               Self.isConfirmedCompletionStatus(response.status),
@@ -396,7 +398,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             throw GalleryUploadError.server(Self.safeServerMessage(response: uploadResponse, fallback: "Gallery upload failed."))
         }
 
-        guard Self.validateSuccessfulResponse(uploadResponse, expectedGalleryToken: payload.galleryToken, expectedGalleryURL: payload.galleryURL),
+        guard Self.validateSuccessfulResponse(uploadResponse, expectedGalleryToken: payload.galleryToken, expectedGalleryURL: payload.galleryURL, expectedPhotoCount: payload.photos.count),
               let galleryToken = uploadResponse.galleryToken,
               let galleryURL = uploadResponse.galleryURL else {
             throw GalleryUploadError.invalidResponse
@@ -552,6 +554,10 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         status == "created" ||
         status == "existingComplete" ||
         status == "completedIncomplete"
+    }
+
+    nonisolated static func isSupportedPhotoCount(_ count: Int) -> Bool {
+        BoothConfiguration.minimumPhotosPerSession...BoothConfiguration.maximumPhotosPerSession ~= count
     }
 
     private static func isTemporaryRetryable(_ error: Error) -> Bool {
