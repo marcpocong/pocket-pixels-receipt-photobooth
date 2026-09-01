@@ -22,9 +22,9 @@ enum PocketPixelsTheme {
     }
 
     enum Spacing {
-        static let screenPadding: CGFloat = 48
-        static let section: CGFloat = 34
-        static let card: CGFloat = 22
+        static let screenPadding: CGFloat = 42
+        static let section: CGFloat = 26
+        static let card: CGFloat = 20
     }
 
     enum Radius {
@@ -34,10 +34,11 @@ enum PocketPixelsTheme {
     }
 
     enum Layout {
-        static let maxContentWidth: CGFloat = 980
-        static let startButtonWidth: CGFloat = 300
-        static let buttonHeight: CGFloat = 72
-        static let formatCardHeight: CGFloat = 296
+        static let maxContentWidth: CGFloat = 1010
+        static let startButtonWidth: CGFloat = 282
+        static let buttonHeight: CGFloat = 66
+        static let formatCardHeight: CGFloat = 244
+        static let formatPreviewHeight: CGFloat = 112
     }
 }
 
@@ -48,7 +49,7 @@ struct PocketPixelsPrimaryButtonStyle: ButtonStyle {
         configuration.label
             .font(.system(size: 26, weight: .black))
             .foregroundStyle(PocketPixelsTheme.ColorPalette.lightText)
-            .frame(minHeight: PocketPixelsTheme.Layout.buttonHeight)
+            .frame(height: PocketPixelsTheme.Layout.buttonHeight)
             .padding(.horizontal, 34)
             .background(
                 RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.button)
@@ -88,10 +89,10 @@ struct FormatCardButtonStyle: ButtonStyle {
             .opacity(configuration.isPressed ? 0.88 : 1)
             .scaleEffect(configuration.isPressed ? 0.985 : 1)
             .shadow(
-                color: PocketPixelsTheme.ColorPalette.charcoal.opacity(configuration.isPressed ? 0.06 : 0.12),
-                radius: configuration.isPressed ? 6 : 14,
+                color: PocketPixelsTheme.ColorPalette.charcoal.opacity(configuration.isPressed ? 0.04 : 0.07),
+                radius: configuration.isPressed ? 4 : 8,
                 x: 0,
-                y: configuration.isPressed ? 3 : 8
+                y: configuration.isPressed ? 2 : 5
             )
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }

@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ContentView: View {
     var body: some View {
+#if DEBUG
         TabView {
             BoothSessionView()
                 .tabItem {
@@ -25,12 +26,13 @@ struct ContentView: View {
                     Label("Printer Test", systemImage: "printer")
                 }
 
-#if DEBUG
             GalleryUploadTestView()
                 .tabItem {
                     Label("Cloud Test", systemImage: "icloud.and.arrow.up")
                 }
-#endif
         }
+#else
+        BoothSessionView()
+#endif
     }
 }
