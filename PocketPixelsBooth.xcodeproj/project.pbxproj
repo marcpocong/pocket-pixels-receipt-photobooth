@@ -6,8 +6,13 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		498E48F23046934500FB5DDE /* PocketPixelsTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 498E48F13046934400FB5DDE /* PocketPixelsTheme.swift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		49010BBE30435BC500D6BB84 /* PocketPixelsBooth.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PocketPixelsBooth.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		498E48F13046934400FB5DDE /* PocketPixelsTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketPixelsTheme.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -47,6 +52,7 @@
 			children = (
 				49010BC030435BC500D6BB84 /* PocketPixelsBooth */,
 				49010BBF30435BC500D6BB84 /* Products */,
+				498E48F13046934400FB5DDE /* PocketPixelsTheme.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -132,6 +138,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				498E48F23046934500FB5DDE /* PocketPixelsTheme.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

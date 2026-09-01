@@ -23,11 +23,12 @@ struct BoothSessionView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.black.ignoresSafeArea()
+                boothBackground
                 boothContent
             }
-            .navigationTitle("Booth Session")
+            .navigationTitle(usesCustomerEntryStyle ? "" : "Booth Session")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(usesCustomerEntryStyle ? .hidden : .visible, for: .navigationBar)
             .confirmationDialog("Cancel this session?", isPresented: $showingCancelConfirmation, titleVisibility: .visible) {
                 Button("Cancel Session", role: .destructive) {
                     viewModel.cancelSession()
@@ -61,6 +62,22 @@ struct BoothSessionView: View {
     }
 
     @ViewBuilder
+    private var boothBackground: some View {
+        switch viewModel.state {
+        case .welcome, .choosingFormat:
+            PocketPixelsTheme.ColorPalette.paper
+                .ignoresSafeArea()
+        default:
+            Color.black
+                .ignoresSafeArea()
+        }
+    }
+
+    private var usesCustomerEntryStyle: Bool {
+        viewModel.state == .welcome || viewModel.state == .choosingFormat
+    }
+
+    @ViewBuilder
     private var boothContent: some View {
         switch viewModel.state {
         case .welcome:
@@ -85,67 +102,71 @@ struct BoothSessionView: View {
     }
 
     private var welcomeScreen: some View {
-        VStack(spacing: 26) {
-            Spacer()
+        HStack(alignment: .center, spacing: 52) {
+            VStack(alignment: .leading, spacing: 28) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("POCKET PIXELS")
+                        .font(.system(size: 70, weight: .black))
+                        .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
 
-            VStack(spacing: 12) {
-                Text("POCKET PIXELS")
-                    .font(.system(size: 62, weight: .black))
-                    .foregroundStyle(.white)
+                    Text("Receipt Photobooth")
+                        .font(.system(size: 34, weight: .semibold))
+                        .foregroundStyle(PocketPixelsTheme.ColorPalette.maroon)
 
-                Text("Receipt Photobooth")
-                    .font(.system(size: 34, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.62, green: 0.20, blue: 0.25))
+                    Text("Pick a format. Pose. Print your moment.")
+                        .font(.system(size: 25, weight: .medium))
+                        .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                        .padding(.top, 8)
+                }
 
-                Text("Create your receipt")
-                    .font(.title2)
-                    .foregroundStyle(.white.opacity(0.76))
+                if isPrinterKnownUnavailable {
+                    printerWarning
+                }
+
+                Button {
+                    viewModel.startSession()
+                } label: {
+                    Text("START")
+                        .frame(width: PocketPixelsTheme.Layout.startButtonWidth)
+                }
+                .buttonStyle(PocketPixelsPrimaryButtonStyle())
+                .disabled(viewModel.state.isActiveSession)
+
+                Text("Your photos will also be available by QR.")
+                    .font(.system(size: 19, weight: .medium))
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
             }
+            .frame(maxWidth: 520, alignment: .leading)
 
-            if isPrinterKnownUnavailable {
-                Text("Printer needs attention before receipt printing.")
-                    .foregroundStyle(.red.opacity(0.9))
-            }
-
-            Button {
-                viewModel.startSession()
-            } label: {
-                Text("Start")
-                    .font(.title.bold())
-                    .frame(width: 260, height: 72)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(Color(red: 0.55, green: 0.12, blue: 0.18))
-            .disabled(viewModel.state.isActiveSession)
-
-            Text("Choose your receipt format before photos are taken.")
-                .foregroundStyle(.white.opacity(0.62))
-
-            Spacer()
+            welcomeReceiptMotif
+                .frame(maxWidth: 360)
         }
-        .padding(40)
+        .frame(maxWidth: PocketPixelsTheme.Layout.maxContentWidth)
+        .padding(PocketPixelsTheme.Spacing.screenPadding)
+        .transition(.opacity)
     }
 
     private var formatSelectionScreen: some View {
-        VStack(alignment: .leading, spacing: 26) {
+        VStack(alignment: .leading, spacing: 28) {
             HStack {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Choose your format")
-                        .font(.system(size: 48, weight: .bold))
-                        .foregroundStyle(.white)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Choose Format")
+                        .font(.system(size: 52, weight: .black))
+                        .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
 
                     Text("Pick the receipt layout before photos begin.")
-                        .font(.title3)
-                        .foregroundStyle(.white.opacity(0.68))
+                        .font(.system(size: 23, weight: .medium))
+                        .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
                 }
 
                 Spacer()
 
-                Button("Back") {
+                Button {
                     viewModel.cancelSession()
+                } label: {
+                    Label("Back", systemImage: "chevron.left")
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
+                .buttonStyle(PocketPixelsSecondaryButtonStyle())
             }
 
             LazyVGrid(columns: formatSelectionColumns, spacing: 18) {
@@ -156,7 +177,9 @@ struct BoothSessionView: View {
 
             Spacer(minLength: 0)
         }
-        .padding(34)
+        .frame(maxWidth: PocketPixelsTheme.Layout.maxContentWidth)
+        .padding(PocketPixelsTheme.Spacing.screenPadding)
+        .transition(.opacity)
     }
 
     private var cameraScreen: some View {
@@ -650,46 +673,109 @@ struct BoothSessionView: View {
     }
 
     private var formatSelectionColumns: [GridItem] {
-        Array(repeating: GridItem(.flexible(minimum: 320), spacing: 18), count: 2)
+        Array(repeating: GridItem(.flexible(minimum: 320, maximum: 481), spacing: 18), count: 2)
     }
 
     private func testPrinterConnection() {
         viewModel.testPrinterConnection(host: printerIP, port: parsedPort)
     }
 
+    private var printerWarning: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "printer.fill")
+                .font(.system(size: 18, weight: .bold))
+
+            Text("Printer needs attention before receipt printing.")
+                .font(.system(size: 17, weight: .semibold))
+        }
+        .foregroundStyle(PocketPixelsTheme.ColorPalette.warningText)
+        .padding(.vertical, 14)
+        .padding(.horizontal, 16)
+        .background(PocketPixelsTheme.ColorPalette.warningSurface)
+        .overlay {
+            RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card)
+                .stroke(PocketPixelsTheme.ColorPalette.warningText.opacity(0.18), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card))
+    }
+
+    private var welcomeReceiptMotif: some View {
+        ZStack(alignment: .top) {
+            RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card)
+                .fill(PocketPixelsTheme.ColorPalette.surface)
+                .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.10), radius: 18, x: 0, y: 12)
+
+            VStack(spacing: 18) {
+                Capsule()
+                    .fill(PocketPixelsTheme.ColorPalette.maroon)
+                    .frame(width: 120, height: 9)
+                    .padding(.top, 30)
+
+                previewFrame(width: 172, height: 222)
+                    .padding(.top, 4)
+
+                VStack(spacing: 9) {
+                    Rectangle()
+                        .fill(PocketPixelsTheme.ColorPalette.charcoal.opacity(0.18))
+                        .frame(width: 190, height: 7)
+                    Rectangle()
+                        .fill(PocketPixelsTheme.ColorPalette.charcoal.opacity(0.12))
+                        .frame(width: 150, height: 7)
+                    Rectangle()
+                        .fill(PocketPixelsTheme.ColorPalette.maroonMuted.opacity(0.46))
+                        .frame(width: 96, height: 7)
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            VStack(spacing: 5) {
+                ForEach(0..<18, id: \.self) { _ in
+                    Rectangle()
+                        .fill(PocketPixelsTheme.ColorPalette.paper)
+                        .frame(width: 12, height: 7)
+                }
+            }
+            .rotationEffect(.degrees(90))
+            .offset(y: 423)
+        }
+        .frame(width: 318, height: 440)
+    }
+
     private func formatCard(_ format: BoothFormat) -> some View {
         return Button {
             viewModel.selectBoothFormat(format)
         } label: {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(format.displayName.uppercased())
-                        .font(.title2.weight(.black))
-                    Spacer()
-                    Text(format.photoCountLabel.uppercased())
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(.white.opacity(0.72))
-                }
-
+            VStack(alignment: .leading, spacing: 14) {
                 formatPreview(format)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 190)
+                    .frame(height: 152)
 
-                Text(format.shortDescription)
-                    .font(.headline)
-                    .foregroundStyle(.white.opacity(0.74))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(format.displayName.uppercased())
+                        .font(.system(size: 28, weight: .black))
+                        .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+
+                    Text(format.photoCountLabel)
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(PocketPixelsTheme.ColorPalette.maroon)
+
+                    Text(customerFormatDescription(for: format))
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                        .padding(.top, 2)
+                }
             }
-            .foregroundStyle(.white)
-            .padding(20)
-            .frame(minHeight: 300, alignment: .topLeading)
-            .background(Color.white.opacity(0.08))
+            .padding(PocketPixelsTheme.Spacing.card)
+            .frame(maxWidth: .infinity, minHeight: PocketPixelsTheme.Layout.formatCardHeight, alignment: .topLeading)
+            .background(PocketPixelsTheme.ColorPalette.surface)
             .overlay {
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card)
+                    .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.62), lineWidth: 1)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(FormatCardButtonStyle())
     }
 
     private func formatPreview(_ format: BoothFormat) -> some View {
@@ -728,9 +814,32 @@ struct BoothSessionView: View {
 
     private func previewFrame(width: CGFloat, height: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: 4)
-            .stroke(Color.white.opacity(0.82), lineWidth: 2)
-            .background(Color.white.opacity(0.08))
+            .fill(Color.white)
+            .overlay {
+                RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.receipt)
+                    .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.7), lineWidth: 1.5)
+            }
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(PocketPixelsTheme.ColorPalette.maroonMuted.opacity(0.22))
+                    .frame(height: max(6, height * 0.08))
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 10)
+            }
             .frame(width: width, height: height)
+    }
+
+    private func customerFormatDescription(for format: BoothFormat) -> String {
+        switch format {
+        case .solo:
+            "One portrait"
+        case .duo:
+            "Two moments"
+        case .grid:
+            "Four-photo collage"
+        case .strip:
+            "Classic photo strip"
+        }
     }
 
     private func loadSamplePhoto(from item: PhotosPickerItem?) {
