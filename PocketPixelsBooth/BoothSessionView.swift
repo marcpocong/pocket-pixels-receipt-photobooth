@@ -103,8 +103,13 @@ struct BoothSessionView: View {
 
     private var welcomeScreen: some View {
         GeometryReader { proxy in
-            HStack(alignment: .center, spacing: 36) {
-                VStack(alignment: .leading, spacing: 22) {
+            let contentWidth = min(proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2), 560)
+            let receiptHeight = min(max(proxy.size.height * 0.35, 370), 440)
+
+            VStack(spacing: 14) {
+                Spacer(minLength: max(proxy.size.height * 0.07, 52))
+
+                VStack(spacing: 12) {
                     Text("POCKET PIXELS")
                         .font(.system(size: 34, weight: .heavy))
                         .tracking(1.8)
@@ -117,42 +122,48 @@ struct BoothSessionView: View {
                         .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
                         .lineLimit(2)
                         .minimumScaleFactor(0.86)
+                        .multilineTextAlignment(.center)
 
                     Text("Choose your format, then take your photos.")
                         .font(.system(size: 23, weight: .medium))
                         .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                        .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
-
-                    ZStack(alignment: .topLeading) {
-                        Color.clear
-                            .frame(height: 54)
-
-                        if isPrinterKnownUnavailable {
-                            printerWarning
-                        }
-                    }
-
-                    Button {
-                        viewModel.startSession()
-                    } label: {
-                        Text("Start")
-                            .frame(width: PocketPixelsTheme.Layout.startButtonWidth)
-                    }
-                    .buttonStyle(PocketPixelsPrimaryButtonStyle())
-                    .disabled(viewModel.state.isActiveSession)
-
-                    Text("Your photos will also be available by QR.")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
                 }
-                .frame(width: min(proxy.size.width * 0.51, 520), alignment: .leading)
+                .frame(width: contentWidth)
+
+                ZStack {
+                    Color.clear
+                        .frame(height: 42)
+
+                    if isPrinterKnownUnavailable {
+                        printerWarning
+                    }
+                }
+                .frame(width: contentWidth)
 
                 welcomeReceiptMotif
-                    .frame(width: min(proxy.size.width * 0.40, 340), height: 390)
+                    .frame(width: contentWidth * 0.72, height: receiptHeight)
+
+                Button {
+                    viewModel.startSession()
+                } label: {
+                    Text("Start")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PocketPixelsPrimaryButtonStyle())
+                .frame(width: contentWidth * 0.76)
+                .disabled(viewModel.state.isActiveSession)
+
+                Text("Your photos will also be available by QR.")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                    .multilineTextAlignment(.center)
+
+                Spacer(minLength: max(proxy.size.height * 0.07, 52))
             }
-            .frame(maxWidth: PocketPixelsTheme.Layout.maxContentWidth)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .offset(y: -18)
+            .offset(y: -42)
         }
         .padding(PocketPixelsTheme.Spacing.screenPadding)
         .transition(.opacity)
@@ -177,6 +188,7 @@ struct BoothSessionView: View {
                     viewModel.cancelSession()
                 } label: {
                     Label("Back", systemImage: "chevron.left")
+                        .labelStyle(.titleAndIcon)
                 }
                 .buttonStyle(PocketPixelsSecondaryButtonStyle())
             }
@@ -712,16 +724,22 @@ struct BoothSessionView: View {
     }
 
     private var welcomeReceiptMotif: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card)
-                .fill(PocketPixelsTheme.ColorPalette.paperWarm)
-                .frame(width: 216, height: 318)
-                .rotationEffect(.degrees(-5))
-                .offset(x: -26, y: 12)
+        GeometryReader { proxy in
+            let scale = min(proxy.size.width / 260, proxy.size.height / 380)
 
-            receiptIllustration
-                .frame(width: 230, height: 348)
-                .rotationEffect(.degrees(3))
+            ZStack {
+                RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card)
+                    .fill(PocketPixelsTheme.ColorPalette.paperWarm)
+                    .frame(width: 216, height: 318)
+                    .rotationEffect(.degrees(-5))
+                    .offset(x: -26, y: 12)
+
+                receiptIllustration
+                    .frame(width: 230, height: 348)
+                    .rotationEffect(.degrees(3))
+            }
+            .scaleEffect(scale)
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
     }
 
@@ -830,8 +848,8 @@ struct BoothSessionView: View {
     private func formatPreview(_ format: BoothFormat) -> some View {
         GeometryReader { proxy in
             let canvasHeight = proxy.size.height
-            let receiptWidth = min(proxy.size.width * 0.36, 96)
-            let receiptHeight = min(canvasHeight - 2, 108)
+            let receiptWidth = formatPreviewReceiptWidth(for: format, availableWidth: proxy.size.width)
+            let receiptHeight = min(canvasHeight - 2, 148)
 
             ZStack(alignment: .top) {
                 RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.receipt)
@@ -858,27 +876,27 @@ struct BoothSessionView: View {
     private func previewFrames(for format: BoothFormat, receiptWidth: CGFloat, receiptHeight: CGFloat) -> some View {
         switch format {
         case .solo:
-            previewPhoto(width: receiptWidth * 0.58, height: receiptHeight * 0.68)
+            previewPhoto(width: receiptWidth * 0.62, height: receiptHeight * 0.70)
         case .duo:
-            VStack(spacing: 6) {
-                previewPhoto(width: receiptWidth * 0.52, height: 46)
-                previewPhoto(width: receiptWidth * 0.52, height: 46)
+            VStack(spacing: receiptHeight * 0.055) {
+                previewPhoto(width: receiptWidth * 0.58, height: receiptHeight * 0.38)
+                previewPhoto(width: receiptWidth * 0.58, height: receiptHeight * 0.38)
             }
         case .grid:
-            VStack(spacing: 6) {
-                HStack(spacing: 6) {
-                    previewPhoto(width: 30, height: 38)
-                    previewPhoto(width: 30, height: 38)
+            VStack(spacing: receiptHeight * 0.047) {
+                HStack(spacing: receiptWidth * 0.06) {
+                    previewPhoto(width: receiptWidth * 0.30, height: receiptHeight * 0.30)
+                    previewPhoto(width: receiptWidth * 0.30, height: receiptHeight * 0.30)
                 }
-                HStack(spacing: 6) {
-                    previewPhoto(width: 30, height: 38)
-                    previewPhoto(width: 30, height: 38)
+                HStack(spacing: receiptWidth * 0.06) {
+                    previewPhoto(width: receiptWidth * 0.30, height: receiptHeight * 0.30)
+                    previewPhoto(width: receiptWidth * 0.30, height: receiptHeight * 0.30)
                 }
             }
         case .strip:
-            VStack(spacing: 5) {
+            VStack(spacing: receiptHeight * 0.04) {
                 ForEach(0..<3, id: \.self) { _ in
-                    previewPhoto(width: receiptWidth * 0.42, height: 27)
+                    previewPhoto(width: receiptWidth * 0.54, height: receiptHeight * 0.24)
                 }
             }
         }
@@ -896,6 +914,19 @@ struct BoothSessionView: View {
 
     private func qrPlaceholderIsFilled(row: Int, column: Int) -> Bool {
         row == 0 || column == 0 || row == 4 || column == 4 || row == column || (row == 3 && column == 1)
+    }
+
+    private func formatPreviewReceiptWidth(for format: BoothFormat, availableWidth: CGFloat) -> CGFloat {
+        switch format {
+        case .solo:
+            min(availableWidth * 0.40, 124)
+        case .duo:
+            min(availableWidth * 0.38, 118)
+        case .grid:
+            min(availableWidth * 0.48, 144)
+        case .strip:
+            min(availableWidth * 0.28, 86)
+        }
     }
 
     private func customerFormatDescription(for format: BoothFormat) -> String {

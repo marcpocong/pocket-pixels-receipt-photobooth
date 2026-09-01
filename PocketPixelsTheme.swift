@@ -37,8 +37,8 @@ enum PocketPixelsTheme {
         static let maxContentWidth: CGFloat = 1010
         static let startButtonWidth: CGFloat = 282
         static let buttonHeight: CGFloat = 66
-        static let formatCardHeight: CGFloat = 244
-        static let formatPreviewHeight: CGFloat = 112
+        static let formatCardHeight: CGFloat = 292
+        static let formatPreviewHeight: CGFloat = 152
     }
 }
 
@@ -68,15 +68,15 @@ struct PocketPixelsSecondaryButtonStyle: ButtonStyle {
         configuration.label
             .font(.system(size: 20, weight: .bold))
             .foregroundStyle(isEnabled ? PocketPixelsTheme.ColorPalette.charcoal : PocketPixelsTheme.ColorPalette.secondaryText)
-            .frame(minHeight: 56)
-            .padding(.horizontal, 24)
+            .frame(minHeight: 48)
+            .padding(.horizontal, 18)
             .background(
                 RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.button)
-                    .fill(PocketPixelsTheme.ColorPalette.surface.opacity(configuration.isPressed ? 0.75 : 1))
+                    .fill(PocketPixelsTheme.ColorPalette.surface.opacity(configuration.isPressed ? 0.40 : 0.55))
             )
             .overlay {
                 RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.button)
-                    .stroke(PocketPixelsTheme.ColorPalette.border.opacity(isEnabled ? 0.85 : 0.45), lineWidth: 1)
+                    .stroke(PocketPixelsTheme.ColorPalette.border.opacity(isEnabled ? 0.46 : 0.28), lineWidth: 1)
             }
             .scaleEffect(configuration.isPressed ? 0.985 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
