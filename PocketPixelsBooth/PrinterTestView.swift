@@ -19,8 +19,11 @@ struct PrinterTestView: View {
     @State private var previewImage: UIImage?
     @State private var rasterizedImage: ThermalRasterizedImage?
     @State private var isProcessingPhoto = false
+    @State private var discoveryState = PrinterDiscoveryState.idle
+    @State private var discoveryTask: Task<Void, Never>?
 
     private let printerService = PrinterNetworkService()
+    private let discoveryService = PrinterDiscoveryService()
 
     var body: some View {
         NavigationStack {
@@ -29,6 +32,7 @@ struct PrinterTestView: View {
                     header
                     printerFields
                     actionButtons
+                    discoveryStatusView
                     statusView
                     photoSection
                 }
@@ -38,6 +42,9 @@ struct PrinterTestView: View {
             .navigationTitle("Pocket Pixels Printer Test")
             .onChange(of: selectedPhotoItem) { _, newItem in
                 loadPhoto(from: newItem)
+            }
+            .onDisappear {
+                cancelPrinterDiscovery()
             }
         }
     }
@@ -83,17 +90,115 @@ struct PrinterTestView: View {
 
     private var actionButtons: some View {
         HStack(spacing: 16) {
+            Button {
+                findPrinter()
+            } label: {
+                Label("Find Printer", systemImage: "magnifyingglass")
+            }
+            .buttonStyle(.bordered)
+            .disabled(connectionState.isWorking || connectionState.requiresPrinterRestart || discoveryState.isSearching)
+
+            if discoveryState.isSearching {
+                Button("Cancel Search") {
+                    cancelPrinterDiscovery()
+                }
+                .buttonStyle(.bordered)
+            }
+
             Button("Test Connection") {
                 testConnection()
             }
             .buttonStyle(.borderedProminent)
-            .disabled(connectionState.isWorking)
+            .disabled(connectionState.isWorking || discoveryState.isSearching)
 
             Button("Print Test Receipt") {
                 printTestReceipt()
             }
             .buttonStyle(.bordered)
-            .disabled(connectionState.isWorking || connectionState.requiresPrinterRestart)
+            .disabled(connectionState.isWorking || connectionState.requiresPrinterRestart || discoveryState.isSearching)
+        }
+    }
+
+    private var discoveryStatusView: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            switch discoveryState {
+            case .idle:
+                discoveryMessage("Ready to find a printer on the current network.", systemImage: "network", color: .secondary)
+            case .checkingSavedPrinter:
+                discoveryProgress("Checking saved printer...")
+            case .determiningNetwork:
+                discoveryProgress("Determining current local network...")
+            case .scanning(let completed, let total, let network):
+                VStack(alignment: .leading, spacing: 8) {
+                    discoveryProgress("Searching local network... \(completed) / \(total)")
+                    Text("iPad network: \(network.address) via \(network.interfaceName)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            case .found(let candidates):
+                VStack(alignment: .leading, spacing: 12) {
+                    discoveryMessage(discoveryFoundTitle(for: candidates), systemImage: "checkmark.circle.fill", color: .green)
+
+                    ForEach(candidates) { candidate in
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("\(candidate.host):\(candidate.port)")
+                                    .font(.headline.monospacedDigit())
+                                if candidate.isSavedPrinter {
+                                    Text("Saved printer found")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+
+                            Spacer()
+
+                            Button("Test") {
+                                testCandidate(candidate)
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(connectionState.isWorking)
+
+                            Button("Use") {
+                                useCandidate(candidate)
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                        .padding(12)
+                        .background(Color(.tertiarySystemBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                }
+            case .notFound(let message):
+                discoveryMessage(message, systemImage: "exclamationmark.magnifyingglass", color: .orange)
+            case .failed(let message):
+                discoveryMessage(message, systemImage: "exclamationmark.triangle.fill", color: .red)
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func discoveryProgress(_ message: String) -> some View {
+        HStack(spacing: 12) {
+            ProgressView()
+            Text(message)
+                .font(.headline)
+        }
+    }
+
+    private func discoveryMessage(_ message: String, systemImage: String, color: Color) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.title3)
+                .foregroundStyle(color)
+                .frame(width: 24)
+
+            Text(message)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -231,6 +336,58 @@ struct PrinterTestView: View {
         }
 
         return value
+    }
+
+    private func discoveryFoundTitle(for candidates: [PrinterCandidate]) -> String {
+        if candidates.count == 1 {
+            candidates[0].isSavedPrinter ? "Saved printer found" : "Printer found"
+        } else {
+            "Devices found on printer port"
+        }
+    }
+
+    private func findPrinter() {
+        guard let port = parsedPort else {
+            discoveryState = .failed("Enter a valid TCP port from 1 to 65535 before searching.")
+            return
+        }
+
+        guard !connectionState.isWorking, !connectionState.requiresPrinterRestart else {
+            discoveryState = .failed("Wait until the current printer operation finishes before searching.")
+            return
+        }
+
+        discoveryTask?.cancel()
+        discoveryService.cancel()
+        discoveryTask = Task {
+            _ = await discoveryService.discover(savedHost: printerIP, port: port) { state in
+                discoveryState = state
+            }
+            discoveryTask = nil
+        }
+    }
+
+    private func cancelPrinterDiscovery() {
+        discoveryTask?.cancel()
+        discoveryTask = nil
+        discoveryService.cancel()
+        if discoveryState.isSearching {
+            discoveryState = .idle
+        }
+    }
+
+    private func useCandidate(_ candidate: PrinterCandidate) {
+        printerIP = candidate.host
+        printerPort = "\(candidate.port)"
+        discoveryState = .found([
+            PrinterCandidate(host: candidate.host, port: candidate.port, isSavedPrinter: true)
+        ])
+    }
+
+    private func testCandidate(_ candidate: PrinterCandidate) {
+        printerIP = candidate.host
+        printerPort = "\(candidate.port)"
+        testConnection()
     }
 
     private func testConnection() {
