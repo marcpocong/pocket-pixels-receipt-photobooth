@@ -87,7 +87,15 @@ struct BoothSessionView: View {
 
     @ViewBuilder
     private var boothBackground: some View {
-        PocketPixelsTheme.ColorPalette.paper
+        LinearGradient(
+            colors: [
+                PocketPixelsTheme.ColorPalette.paper,
+                PocketPixelsTheme.ColorPalette.brandBlush.opacity(0.34),
+                PocketPixelsTheme.ColorPalette.paperWarm.opacity(0.72)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
             .ignoresSafeArea()
     }
 
@@ -166,19 +174,8 @@ struct BoothSessionView: View {
                 Spacer(minLength: max(proxy.size.height * 0.07, 52))
 
                 VStack(spacing: 12) {
-                    Text("POCKET PIXELS")
-                        .font(.system(size: 34, weight: .heavy))
-                        .tracking(1.8)
-                        .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
-
-                    Text("Receipt Photobooth")
-                        .font(.system(size: 60, weight: .black))
-                        .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.86)
-                        .multilineTextAlignment(.center)
+                    PocketPixelsLightboxLockup(scale: .hero, showGlow: true)
+                        .frame(maxWidth: contentWidth * 0.92)
 
                     Text("Choose your format, then take your photos.")
                         .font(.system(size: 23, weight: .medium))
@@ -248,9 +245,12 @@ struct BoothSessionView: View {
         VStack(alignment: .leading, spacing: 28) {
             HStack {
                 VStack(alignment: .leading, spacing: 6) {
+                    PocketPixelsLightboxLockup(scale: .compact)
+                        .padding(.bottom, 6)
+
                     Text("Choose your format")
                         .font(.system(size: 46, weight: .black))
-                        .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                        .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
 
                     Text("Pick how your photos will print.")
                         .font(.system(size: 20, weight: .medium))
@@ -341,11 +341,8 @@ struct BoothSessionView: View {
 
     private var cameraTopBar: some View {
         HStack(alignment: .center) {
-            Text("POCKET PIXELS")
-                .font(.system(size: 20, weight: .heavy))
-                .tracking(1.1)
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
-                .lineLimit(1)
+            PocketPixelsLightboxLockup(scale: .compact)
+                .frame(width: 160, alignment: .leading)
 
             Spacer()
 
@@ -385,7 +382,7 @@ struct BoothSessionView: View {
             }
 
             RoundedRectangle(cornerRadius: 18)
-                .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.62), lineWidth: 1.5)
+                .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.50), lineWidth: 1.5)
 
             if viewModel.selectedBoothFormat == .strip {
                 stripCompositionGuide
@@ -413,7 +410,8 @@ struct BoothSessionView: View {
         .animation(PocketPixelsTheme.Motion.quickAnimation, value: viewModel.selectedBoothFormat == .strip)
         .animation(PocketPixelsTheme.Motion.quickAnimation, value: shutterFlashActive)
         .clipShape(RoundedRectangle(cornerRadius: 18))
-        .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.16), radius: 18, x: 0, y: 10)
+        .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.16), radius: 20, x: 0, y: 8)
+        .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.10), radius: 14, x: 0, y: 8)
     }
 
     private var stripCompositionGuide: some View {
@@ -476,14 +474,11 @@ struct BoothSessionView: View {
 
     private var reviewHeader: some View {
         VStack(spacing: 0) {
-            Text("POCKET PIXELS")
-                .font(.system(size: 20, weight: .heavy))
-                .tracking(1.1)
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+            PocketPixelsLightboxLockup(scale: .compact)
 
             Text("Love these?")
                 .font(.system(size: 50, weight: .black))
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
                 .multilineTextAlignment(.center)
                 .padding(.top, 14)
 
@@ -596,7 +591,7 @@ struct BoothSessionView: View {
     private func reviewPhoto(index: Int) -> some View {
         ZStack {
             RoundedRectangle(cornerRadius: 14)
-                .fill(PocketPixelsTheme.ColorPalette.surface)
+                .fill(PocketPixelsTheme.ColorPalette.acrylic)
 
             if viewModel.capturedPhotos.indices.contains(index) {
                 Image(uiImage: viewModel.capturedPhotos[index])
@@ -617,7 +612,8 @@ struct BoothSessionView: View {
             RoundedRectangle(cornerRadius: 14)
                 .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.58), lineWidth: 1)
         }
-        .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.10), radius: 10, x: 0, y: 6)
+        .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.10), radius: 12, x: 0, y: 5)
+        .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.08), radius: 9, x: 0, y: 5)
         .accessibilityLabel("Photo \(index + 1)")
         .animation(PocketPixelsTheme.Motion.standardAnimation, value: reviewPhotoIdentifier(at: index))
     }
@@ -699,14 +695,11 @@ struct BoothSessionView: View {
 
     private var receiptCustomerHeader: some View {
         VStack(spacing: 12) {
-            Text("POCKET PIXELS")
-                .font(.system(size: 20, weight: .heavy))
-                .tracking(1.1)
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+            PocketPixelsLightboxLockup(scale: .compact)
 
             Text("Your receipt is ready")
                 .font(.system(size: 48, weight: .black))
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
                 .multilineTextAlignment(.center)
 
             Text("Take a quick look, then print your copy.")
@@ -737,7 +730,8 @@ struct BoothSessionView: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.58), lineWidth: 1)
         }
-        .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.13), radius: 16, x: 0, y: 9)
+        .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.12), radius: 18, x: 0, y: 8)
+        .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.10), radius: 14, x: 0, y: 7)
         .accessibilityLabel("Receipt preview")
     }
 
@@ -803,12 +797,13 @@ struct BoothSessionView: View {
         }
         .padding(.vertical, 20)
         .padding(.horizontal, 24)
-        .background(PocketPixelsTheme.ColorPalette.surface.opacity(0.58))
+        .background(PocketPixelsTheme.ColorPalette.acrylic.opacity(0.82))
         .overlay {
             RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card)
-                .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.36), lineWidth: 1)
+                .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.18), lineWidth: 1)
         }
         .clipShape(RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card))
+        .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.10), radius: 12, x: 0, y: 5)
         .animation(PocketPixelsTheme.Motion.standardAnimation, value: receiptGalleryStatusText)
     }
 
@@ -913,14 +908,11 @@ struct BoothSessionView: View {
             VStack(spacing: 18) {
                 Spacer()
 
-                Text("POCKET PIXELS")
-                    .font(.system(size: 20, weight: .heavy))
-                    .tracking(1.1)
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                PocketPixelsLightboxLockup(scale: .compact)
 
                 Text("Printer needs attention")
                     .font(.system(size: 46, weight: .black))
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
                     .multilineTextAlignment(.center)
 
                 Text("Please ask the booth operator for help. Your photos are still saved for this session.")
@@ -963,14 +955,11 @@ struct BoothSessionView: View {
                 Spacer(minLength: 48)
 
                 VStack(spacing: 12) {
-                    Text("POCKET PIXELS")
-                        .font(.system(size: 20, weight: .heavy))
-                        .tracking(1.1)
-                        .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                    PocketPixelsLightboxLockup(scale: .medium)
 
                     Text("You're all set!")
                         .font(.system(size: 52, weight: .black))
-                        .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                        .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
                         .multilineTextAlignment(.center)
                 }
                 .pocketPixelsEntrance(active: thankYouMotionActive, reduceMotion: reduceMotion, delay: 0, offset: 0, scale: 0.985)
@@ -1043,7 +1032,8 @@ struct BoothSessionView: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.52), lineWidth: 1)
         }
-        .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.12), radius: 16, x: 0, y: 8)
+        .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.14), radius: 18, x: 0, y: 8)
+        .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.09), radius: 12, x: 0, y: 7)
     }
 
     private var thankYouGalleryStatus: some View {
@@ -1054,10 +1044,10 @@ struct BoothSessionView: View {
             .fixedSize(horizontal: false, vertical: true)
             .padding(.vertical, 12)
             .padding(.horizontal, 18)
-            .background(PocketPixelsTheme.ColorPalette.surface.opacity(0.58))
+            .background(PocketPixelsTheme.ColorPalette.acrylic.opacity(0.82))
             .overlay {
                 RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card)
-                    .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.34), lineWidth: 1)
+                    .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.16), lineWidth: 1)
             }
             .clipShape(RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card))
     }
@@ -1069,6 +1059,8 @@ struct BoothSessionView: View {
             VStack(spacing: 18) {
                 Spacer()
 
+                PocketPixelsLightboxLockup(scale: .compact)
+
                 ProgressView()
                     .tint(PocketPixelsTheme.ColorPalette.maroon)
                     .scaleEffect(1.35)
@@ -1077,7 +1069,7 @@ struct BoothSessionView: View {
 
                 Text(title)
                     .font(.system(size: 44, weight: .black))
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
                     .multilineTextAlignment(.center)
 
                 Text(message)
@@ -1113,14 +1105,11 @@ struct BoothSessionView: View {
             VStack(spacing: 18) {
                 Spacer()
 
-                Text("POCKET PIXELS")
-                    .font(.system(size: 20, weight: .heavy))
-                    .tracking(1.1)
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                PocketPixelsLightboxLockup(scale: .compact)
 
                 Text("Something needs attention")
                     .font(.system(size: 46, weight: .black))
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
                     .multilineTextAlignment(.center)
 
                 Text("Please ask the booth operator for help.")
@@ -1155,18 +1144,16 @@ struct BoothSessionView: View {
     private var sessionTopBar: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text("POCKET PIXELS")
-                    .font(.title2.bold())
-                    .foregroundStyle(.white)
+                PocketPixelsLightboxLockup(scale: .compact)
                 Text(viewModel.sessionIdentifier ?? viewModel.state.title)
-                    .foregroundStyle(.white.opacity(0.62))
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
             }
 
             Spacer()
 
             Text(viewModel.state.title)
                 .font(.headline)
-                .foregroundStyle(Color(red: 0.86, green: 0.44, blue: 0.50))
+                .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
         }
     }
 
@@ -1490,10 +1477,10 @@ struct BoothSessionView: View {
         .foregroundStyle(PocketPixelsTheme.ColorPalette.warningText)
         .padding(.vertical, 11)
         .padding(.horizontal, 14)
-        .background(PocketPixelsTheme.ColorPalette.warningSurface)
+        .background(PocketPixelsTheme.ColorPalette.warningSurface.opacity(0.92))
         .overlay {
             RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card)
-                .stroke(PocketPixelsTheme.ColorPalette.warningText.opacity(0.18), lineWidth: 1)
+                .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.18), lineWidth: 1)
         }
         .clipShape(RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card))
     }
@@ -1504,10 +1491,11 @@ struct BoothSessionView: View {
 
             ZStack {
                 RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card)
-                    .fill(PocketPixelsTheme.ColorPalette.paperWarm)
+                    .fill(PocketPixelsTheme.ColorPalette.brandBlush.opacity(0.45))
                     .frame(width: 216, height: 318)
                     .rotationEffect(.degrees(-5))
                     .offset(x: -26, y: 12)
+                    .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.14), radius: 12, x: 0, y: 6)
 
                 receiptIllustration
                     .frame(width: 230, height: 348)
@@ -1521,15 +1509,15 @@ struct BoothSessionView: View {
     private var receiptIllustration: some View {
         VStack(spacing: 15) {
             RoundedRectangle(cornerRadius: 3)
-                .fill(PocketPixelsTheme.ColorPalette.maroon)
+                .fill(PocketPixelsTheme.ColorPalette.brandMaroon)
                 .frame(width: 54, height: 5)
                 .padding(.top, 20)
 
             RoundedRectangle(cornerRadius: 5)
-                .fill(PocketPixelsTheme.ColorPalette.paperWarm.opacity(0.55))
+                .fill(PocketPixelsTheme.ColorPalette.brandBlush.opacity(0.28))
                 .overlay {
                     RoundedRectangle(cornerRadius: 5)
-                        .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.55), lineWidth: 1)
+                        .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.22), lineWidth: 1)
                 }
                 .frame(width: 132, height: 166)
 
@@ -1550,13 +1538,14 @@ struct BoothSessionView: View {
                 .frame(height: 12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.white)
+        .background(PocketPixelsTheme.ColorPalette.acrylic)
         .overlay {
             RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card)
-                .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.55), lineWidth: 1)
+                .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.18), lineWidth: 1)
         }
         .clipShape(RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card))
-        .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.08), radius: 10, x: 0, y: 6)
+        .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.16), radius: 14, x: 0, y: 8)
+        .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.07), radius: 8, x: 0, y: 5)
     }
 
     private var qrPlaceholder: some View {
@@ -1597,7 +1586,7 @@ struct BoothSessionView: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(format.displayName.uppercased())
                         .font(.system(size: 27, weight: .black))
-                        .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                        .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
 
                     Text(format.photoCountLabel)
                         .font(.system(size: 18, weight: .semibold))
@@ -1610,10 +1599,10 @@ struct BoothSessionView: View {
             }
             .padding(PocketPixelsTheme.Spacing.card)
             .frame(maxWidth: .infinity, minHeight: PocketPixelsTheme.Layout.formatCardHeight, alignment: .topLeading)
-            .background(PocketPixelsTheme.ColorPalette.surface)
+            .background(PocketPixelsTheme.ColorPalette.acrylic.opacity(0.94))
             .overlay {
                 RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card)
-                    .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.62), lineWidth: 1)
+                    .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.22), lineWidth: 1)
             }
             .clipShape(RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card))
         }
@@ -1628,10 +1617,10 @@ struct BoothSessionView: View {
 
             ZStack(alignment: .top) {
                 RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.receipt)
-                    .fill(Color.white)
+                    .fill(PocketPixelsTheme.ColorPalette.acrylic)
                     .overlay {
                         RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.receipt)
-                            .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.58), lineWidth: 1)
+                            .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.20), lineWidth: 1)
                     }
                     .frame(width: receiptWidth, height: receiptHeight)
 
@@ -1639,7 +1628,7 @@ struct BoothSessionView: View {
                     .padding(.top, 10)
 
                 Rectangle()
-                    .fill(PocketPixelsTheme.ColorPalette.maroonMuted.opacity(0.22))
+                    .fill(PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.28))
                     .frame(width: receiptWidth * 0.62, height: 4)
                     .offset(y: receiptHeight - 12)
             }
@@ -1679,10 +1668,10 @@ struct BoothSessionView: View {
 
     private func previewPhoto(width: CGFloat, height: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: 3)
-            .fill(PocketPixelsTheme.ColorPalette.paperWarm.opacity(0.62))
+            .fill(PocketPixelsTheme.ColorPalette.brandBlush.opacity(0.38))
             .overlay {
                 RoundedRectangle(cornerRadius: 3)
-                    .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.65), lineWidth: 1)
+                    .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.22), lineWidth: 1)
             }
             .frame(width: width, height: height)
     }

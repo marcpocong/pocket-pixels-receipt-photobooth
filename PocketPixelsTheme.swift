@@ -7,18 +7,23 @@ import SwiftUI
 
 enum PocketPixelsTheme {
     enum ColorPalette {
-        static let paper = Color(red: 0.98, green: 0.955, blue: 0.91)
-        static let paperWarm = Color(red: 0.94, green: 0.90, blue: 0.84)
-        static let surface = Color(red: 1.0, green: 0.985, blue: 0.95)
-        static let surfacePressed = Color(red: 0.91, green: 0.86, blue: 0.80)
-        static let charcoal = Color(red: 0.12, green: 0.105, blue: 0.095)
-        static let secondaryText = Color(red: 0.43, green: 0.37, blue: 0.33)
-        static let maroon = Color(red: 0.55, green: 0.12, blue: 0.18)
-        static let maroonMuted = Color(red: 0.70, green: 0.36, blue: 0.40)
-        static let border = Color(red: 0.73, green: 0.65, blue: 0.58)
-        static let lightText = Color(red: 1.0, green: 0.97, blue: 0.92)
-        static let warningSurface = Color(red: 0.99, green: 0.91, blue: 0.84)
-        static let warningText = Color(red: 0.53, green: 0.25, blue: 0.16)
+        static let brandMaroon = Color(red: 0.467, green: 0.129, blue: 0.188)
+        static let brandBlush = Color(red: 0.976, green: 0.851, blue: 0.780)
+        static let paper = Color(red: 1.0, green: 0.973, blue: 0.949)
+        static let paperWarm = Color(red: 1.0, green: 0.941, blue: 0.902)
+        static let acrylic = Color(red: 1.0, green: 0.992, blue: 0.976)
+        static let surface = Color(red: 1.0, green: 0.992, blue: 0.976)
+        static let surfacePressed = Color(red: 0.976, green: 0.851, blue: 0.780)
+        static let amberGlow = Color(red: 0.898, green: 0.627, blue: 0.353)
+        static let charcoal = Color(red: 0.165, green: 0.129, blue: 0.118)
+        static let secondaryText = Color(red: 0.439, green: 0.361, blue: 0.329)
+        static let border = Color(red: 0.835, green: 0.706, blue: 0.639)
+        static let lightText = Color(red: 1.0, green: 0.973, blue: 0.949)
+        static let warningSurface = Color(red: 1.0, green: 0.921, blue: 0.866)
+        static let warningText = Color(red: 0.467, green: 0.129, blue: 0.188)
+
+        static let maroon = brandMaroon
+        static let maroonMuted = Color(red: 0.62, green: 0.30, blue: 0.34)
     }
 
     enum Spacing {
@@ -74,7 +79,8 @@ struct PocketPixelsPrimaryButtonStyle: ButtonStyle {
             .padding(.horizontal, 34)
             .background(
                 RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.button)
-                    .fill(isEnabled ? PocketPixelsTheme.ColorPalette.maroon : PocketPixelsTheme.ColorPalette.border)
+                    .fill(isEnabled ? PocketPixelsTheme.ColorPalette.brandMaroon : PocketPixelsTheme.ColorPalette.border)
+                    .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(isEnabled ? 0.16 : 0), radius: 12, x: 0, y: 5)
             )
             .opacity(configuration.isPressed ? 0.86 : 1)
             .scaleEffect(configuration.isPressed ? PocketPixelsTheme.Motion.pressedScale : 1)
@@ -88,16 +94,16 @@ struct PocketPixelsSecondaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 20, weight: .bold))
-            .foregroundStyle(isEnabled ? PocketPixelsTheme.ColorPalette.charcoal : PocketPixelsTheme.ColorPalette.secondaryText)
+            .foregroundStyle(isEnabled ? PocketPixelsTheme.ColorPalette.brandMaroon : PocketPixelsTheme.ColorPalette.secondaryText)
             .frame(minHeight: 48)
             .padding(.horizontal, 18)
             .background(
                 RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.button)
-                    .fill(PocketPixelsTheme.ColorPalette.surface.opacity(configuration.isPressed ? 0.40 : 0.55))
+                    .fill(PocketPixelsTheme.ColorPalette.brandBlush.opacity(configuration.isPressed ? 0.45 : 0.24))
             )
             .overlay {
                 RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.button)
-                    .stroke(PocketPixelsTheme.ColorPalette.border.opacity(isEnabled ? 0.46 : 0.28), lineWidth: 1)
+                    .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(isEnabled ? 0.28 : 0.16), lineWidth: 1)
             }
             .scaleEffect(configuration.isPressed ? PocketPixelsTheme.Motion.pressedScale : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
