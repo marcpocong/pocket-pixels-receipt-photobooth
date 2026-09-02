@@ -10,5 +10,7 @@
 	<string>Pocket Pixels uses the iPad camera to take your photobooth photo.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Pocket Pixels connects to the thermal printer on your local Wi-Fi network.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Pocket Pixels uses Bluetooth to connect to the receipt printer.</string>
 </dict>
 </plist>

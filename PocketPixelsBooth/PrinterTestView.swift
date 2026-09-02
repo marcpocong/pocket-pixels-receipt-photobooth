@@ -30,10 +30,14 @@ struct PrinterTestView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
                     header
+                    wifiPrinterTitle
                     printerFields
                     actionButtons
                     discoveryStatusView
                     statusView
+#if DEBUG
+                    PrinterBluetoothDiagnosticView()
+#endif
                     photoSection
                 }
                 .padding(40)
@@ -55,10 +59,16 @@ struct PrinterTestView: View {
                 .font(.largeTitle)
                 .fontWeight(.semibold)
 
-            Text("VOZY G80 Wi-Fi ESC/POS connection")
+            Text("VOZY G80 Wi-Fi ESC/POS connection with Bluetooth compatibility diagnostics")
                 .font(.title3)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private var wifiPrinterTitle: some View {
+        Text("Wi-Fi Printer")
+            .font(.title2)
+            .fontWeight(.semibold)
     }
 
     private var printerFields: some View {
