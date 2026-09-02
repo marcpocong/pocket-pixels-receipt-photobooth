@@ -13,11 +13,20 @@ struct BoothSessionView: View {
     @StateObject private var viewModel = BoothSessionViewModel()
     @State private var selectedSamplePhotoItem: PhotosPickerItem?
     @State private var showingCancelConfirmation = false
+    @State private var welcomeMotionActive = false
+    @State private var welcomeReceiptFloatActive = false
+    @State private var formatMotionActive = false
+    @State private var reviewMotionActive = false
+    @State private var receiptMotionActive = false
+    @State private var progressMotionActive = false
+    @State private var thankYouMotionActive = false
+    @State private var shutterFlashActive = false
 #if DEBUG
     @State private var showingEndNoPrintConfirmation = false
     @State private var showingReceiptDebugTools = false
 #endif
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("printerIP") private var printerIP = BoothConfiguration.defaultPrinterIP
     @AppStorage("printerPort") private var printerPort = BoothConfiguration.defaultPrinterPort
 
@@ -26,7 +35,10 @@ struct BoothSessionView: View {
             ZStack {
                 boothBackground
                 boothContent
+                    .id(customerScreenTransitionKey)
+                    .transition(customerScreenTransition)
             }
+            .animation(customerScreenAnimation, value: customerScreenTransitionKey)
             .navigationTitle(usesCustomerChromeHidden ? "" : "Booth Session")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(usesCustomerChromeHidden ? .hidden : .visible, for: .navigationBar)
@@ -56,6 +68,9 @@ struct BoothSessionView: View {
                     viewModel.retryQueuedGalleryUploads()
                 }
             }
+            .onChange(of: viewModel.state) { oldState, newState in
+                handleCustomerStateChange(from: oldState, to: newState)
+            }
 #if DEBUG
             .onChange(of: viewModel.state) { _, newState in
                 if case .receiptPreview = newState {
@@ -64,6 +79,7 @@ struct BoothSessionView: View {
             }
 #endif
             .task {
+                handleCustomerStateChange(from: nil, to: viewModel.state)
                 viewModel.retryQueuedGalleryUploads()
             }
         }
@@ -77,6 +93,44 @@ struct BoothSessionView: View {
 
     private var usesCustomerChromeHidden: Bool {
         true
+    }
+
+    private var customerScreenTransitionKey: String {
+        switch viewModel.state {
+        case .welcome:
+            "welcome"
+        case .choosingFormat:
+            "choosingFormat"
+        case .preparingCamera, .cameraReady, .countdown, .capturing, .betweenPhotos, .retaking:
+            "camera"
+        case .review:
+            "review"
+        case .composingReceipt:
+            "composingReceipt"
+        case .receiptPreview, .connectingToPrinter, .printing:
+            "receipt"
+        case .thankYou:
+            "thankYou"
+        case .recoveryRequired:
+            "recovery"
+        case .error:
+            "error"
+        }
+    }
+
+    private var customerScreenTransition: AnyTransition {
+        if reduceMotion {
+            return .opacity
+        }
+
+        return .asymmetric(
+            insertion: .opacity.combined(with: .offset(y: PocketPixelsTheme.Motion.entranceOffset)),
+            removal: .opacity
+        )
+    }
+
+    private var customerScreenAnimation: Animation {
+        reduceMotion ? .easeOut(duration: PocketPixelsTheme.Motion.quick) : PocketPixelsTheme.Motion.screenTransitionAnimation
     }
 
     @ViewBuilder
@@ -133,6 +187,7 @@ struct BoothSessionView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(width: contentWidth)
+                .pocketPixelsEntrance(active: welcomeMotionActive, reduceMotion: reduceMotion)
 
                 ZStack {
                     Color.clear
@@ -146,6 +201,15 @@ struct BoothSessionView: View {
 
                 welcomeReceiptMotif
                     .frame(width: contentWidth * 0.72, height: receiptHeight)
+                    .offset(y: reduceMotion || !welcomeReceiptFloatActive ? 0 : -PocketPixelsTheme.Motion.idleFloatDistance)
+                    .animation(reduceMotion ? nil : PocketPixelsTheme.Motion.idleFloatAnimation, value: welcomeReceiptFloatActive)
+                    .pocketPixelsEntrance(
+                        active: welcomeMotionActive,
+                        reduceMotion: reduceMotion,
+                        delay: 0.10,
+                        offset: 0,
+                        scale: 0.97
+                    )
 
                 Button {
                     viewModel.startSession()
@@ -156,11 +220,13 @@ struct BoothSessionView: View {
                 .buttonStyle(PocketPixelsPrimaryButtonStyle())
                 .frame(width: contentWidth * 0.76)
                 .disabled(viewModel.state.isActiveSession)
+                .pocketPixelsEntrance(active: welcomeMotionActive, reduceMotion: reduceMotion, delay: 0.20, offset: 8)
 
                 Text("Your photos will also be available by QR.")
                     .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
                     .multilineTextAlignment(.center)
+                    .pocketPixelsEntrance(active: welcomeMotionActive, reduceMotion: reduceMotion, delay: 0.24, offset: 6)
 
                 Spacer(minLength: max(proxy.size.height * 0.07, 52))
             }
@@ -169,6 +235,13 @@ struct BoothSessionView: View {
         }
         .padding(PocketPixelsTheme.Spacing.screenPadding)
         .transition(.opacity)
+        .onAppear {
+            startWelcomeMotion()
+        }
+        .onDisappear {
+            welcomeMotionActive = false
+            welcomeReceiptFloatActive = false
+        }
     }
 
     private var formatSelectionScreen: some View {
@@ -196,8 +269,15 @@ struct BoothSessionView: View {
             }
 
             LazyVGrid(columns: formatSelectionColumns, spacing: 18) {
-                ForEach(BoothFormat.allCases) { format in
+                ForEach(Array(BoothFormat.allCases.enumerated()), id: \.element) { index, format in
                     formatCard(format)
+                        .pocketPixelsEntrance(
+                            active: formatMotionActive,
+                            reduceMotion: reduceMotion,
+                            delay: Double(index) * PocketPixelsTheme.Motion.stagger,
+                            offset: 10,
+                            scale: PocketPixelsTheme.Motion.subtleScale
+                        )
                 }
             }
 
@@ -206,6 +286,9 @@ struct BoothSessionView: View {
         .frame(maxWidth: PocketPixelsTheme.Layout.maxContentWidth)
         .padding(PocketPixelsTheme.Spacing.screenPadding)
         .transition(.opacity)
+        .onAppear {
+            startFormatMotion()
+        }
     }
 
     private var cameraScreen: some View {
@@ -270,6 +353,9 @@ struct BoothSessionView: View {
                 .font(.system(size: 23, weight: .bold))
                 .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
                 .lineLimit(1)
+                .id(photoCounterText)
+                .transition(.opacity)
+                .animation(PocketPixelsTheme.Motion.quickAnimation, value: photoCounterText)
 
             Spacer()
 
@@ -291,6 +377,7 @@ struct BoothSessionView: View {
                 Image(uiImage: transient)
                     .resizable()
                     .scaledToFill()
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 1.015)))
             } else if viewModel.isCameraUnavailable {
                 simulatorFallback
             } else {
@@ -302,6 +389,7 @@ struct BoothSessionView: View {
 
             if viewModel.selectedBoothFormat == .strip {
                 stripCompositionGuide
+                    .transition(.opacity)
             }
 
             if let countdownValue {
@@ -312,8 +400,18 @@ struct BoothSessionView: View {
                     .transition(.scale(scale: 0.86).combined(with: .opacity))
                     .id(countdownValue)
             }
+
+            if shutterFlashActive {
+                Color.white
+                    .opacity(PocketPixelsTheme.Motion.shutterFlashOpacity)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
         }
         .animation(.easeOut(duration: 0.18), value: countdownValue)
+        .animation(PocketPixelsTheme.Motion.quickAnimation, value: viewModel.transientCapturedPhoto != nil)
+        .animation(PocketPixelsTheme.Motion.quickAnimation, value: viewModel.selectedBoothFormat == .strip)
+        .animation(PocketPixelsTheme.Motion.quickAnimation, value: shutterFlashActive)
         .clipShape(RoundedRectangle(cornerRadius: 18))
         .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.16), radius: 18, x: 0, y: 10)
     }
@@ -371,6 +469,9 @@ struct BoothSessionView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(PocketPixelsTheme.Spacing.screenPadding)
+        .onAppear {
+            startReviewMotion()
+        }
     }
 
     private var reviewHeader: some View {
@@ -423,6 +524,7 @@ struct BoothSessionView: View {
         return HStack {
             Spacer(minLength: 0)
             reviewPhotoItem(index: 0, photoWidth: photoWidth)
+                .reviewPhotoEntrance(index: 0, active: reviewMotionActive, reduceMotion: reduceMotion)
             Spacer(minLength: 0)
         }
         .frame(width: width)
@@ -434,7 +536,9 @@ struct BoothSessionView: View {
 
         return HStack(alignment: .top, spacing: spacing) {
             reviewPhotoItem(index: 0, photoWidth: photoWidth)
+                .reviewPhotoEntrance(index: 0, active: reviewMotionActive, reduceMotion: reduceMotion)
             reviewPhotoItem(index: 1, photoWidth: photoWidth)
+                .reviewPhotoEntrance(index: 1, active: reviewMotionActive, reduceMotion: reduceMotion)
         }
         .frame(width: width)
     }
@@ -446,11 +550,15 @@ struct BoothSessionView: View {
         return VStack(spacing: spacing) {
             HStack(alignment: .top, spacing: spacing) {
                 reviewPhotoItem(index: 0, photoWidth: photoWidth)
+                    .reviewPhotoEntrance(index: 0, active: reviewMotionActive, reduceMotion: reduceMotion)
                 reviewPhotoItem(index: 1, photoWidth: photoWidth)
+                    .reviewPhotoEntrance(index: 1, active: reviewMotionActive, reduceMotion: reduceMotion)
             }
             HStack(alignment: .top, spacing: spacing) {
                 reviewPhotoItem(index: 2, photoWidth: photoWidth)
+                    .reviewPhotoEntrance(index: 2, active: reviewMotionActive, reduceMotion: reduceMotion)
                 reviewPhotoItem(index: 3, photoWidth: photoWidth)
+                    .reviewPhotoEntrance(index: 3, active: reviewMotionActive, reduceMotion: reduceMotion)
             }
         }
         .frame(width: width)
@@ -462,8 +570,11 @@ struct BoothSessionView: View {
 
         return HStack(alignment: .top, spacing: spacing) {
             reviewPhotoItem(index: 0, photoWidth: photoWidth)
+                .reviewPhotoEntrance(index: 0, active: reviewMotionActive, reduceMotion: reduceMotion)
             reviewPhotoItem(index: 1, photoWidth: photoWidth)
+                .reviewPhotoEntrance(index: 1, active: reviewMotionActive, reduceMotion: reduceMotion)
             reviewPhotoItem(index: 2, photoWidth: photoWidth)
+                .reviewPhotoEntrance(index: 2, active: reviewMotionActive, reduceMotion: reduceMotion)
         }
         .frame(width: width)
     }
@@ -492,6 +603,8 @@ struct BoothSessionView: View {
                     .resizable()
                     .scaledToFill()
                     .aspectRatio(3.0 / 4.0, contentMode: .fill)
+                    .id(reviewPhotoIdentifier(at: index))
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.975)))
             } else {
                 Text("Missing")
                     .font(.system(size: 18, weight: .semibold))
@@ -506,6 +619,7 @@ struct BoothSessionView: View {
         }
         .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.10), radius: 10, x: 0, y: 6)
         .accessibilityLabel("Photo \(index + 1)")
+        .animation(PocketPixelsTheme.Motion.standardAnimation, value: reviewPhotoIdentifier(at: index))
     }
 
     private func reviewActionArea(width: CGFloat) -> some View {
@@ -553,11 +667,20 @@ struct BoothSessionView: View {
                         .frame(width: contentWidth)
 
                     customerReceiptPreview(width: receiptWidth, maxHeight: receiptMaxHeight)
+                        .pocketPixelsEntrance(
+                            active: receiptMotionActive,
+                            reduceMotion: reduceMotion,
+                            delay: 0,
+                            offset: PocketPixelsTheme.Motion.receiptOffset,
+                            scale: PocketPixelsTheme.Motion.subtleScale
+                        )
 
                     receiptCustomerActions(width: contentWidth)
+                        .pocketPixelsEntrance(active: receiptMotionActive, reduceMotion: reduceMotion, delay: 0.08, offset: 8)
 
                     receiptGalleryStatus(qrSize: statusQRSize)
                         .frame(width: statusCardWidth)
+                        .pocketPixelsEntrance(active: receiptMotionActive, reduceMotion: reduceMotion, delay: 0.12, offset: 8)
 
 #if DEBUG
                     receiptDebugSection(width: contentWidth)
@@ -569,6 +692,9 @@ struct BoothSessionView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(PocketPixelsTheme.Spacing.screenPadding)
+        .onAppear {
+            startReceiptMotion()
+        }
     }
 
     private var receiptCustomerHeader: some View {
@@ -635,6 +761,7 @@ struct BoothSessionView: View {
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
                 }
+                .transition(.opacity)
             }
 
             Button {
@@ -648,6 +775,7 @@ struct BoothSessionView: View {
             .disabled(viewModel.receiptRasterizedImage == nil || viewModel.printerState.isWorking || viewModel.printerState.requiresPrinterRestart)
         }
         .frame(width: width)
+        .animation(PocketPixelsTheme.Motion.quickAnimation, value: viewModel.printerState.isWorking)
     }
 
     private func receiptGalleryStatus(qrSize: CGFloat) -> some View {
@@ -670,6 +798,8 @@ struct BoothSessionView: View {
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .id(receiptGalleryStatusText)
+                .transition(.opacity)
         }
         .padding(.vertical, 20)
         .padding(.horizontal, 24)
@@ -679,6 +809,7 @@ struct BoothSessionView: View {
                 .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.36), lineWidth: 1)
         }
         .clipShape(RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card))
+        .animation(PocketPixelsTheme.Motion.standardAnimation, value: receiptGalleryStatusText)
     }
 
 #if DEBUG
@@ -842,9 +973,11 @@ struct BoothSessionView: View {
                         .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
                         .multilineTextAlignment(.center)
                 }
+                .pocketPixelsEntrance(active: thankYouMotionActive, reduceMotion: reduceMotion, delay: 0, offset: 0, scale: 0.985)
 
                 thankYouQRCode(size: qrSize)
                     .padding(.top, 34)
+                    .pocketPixelsEntrance(active: thankYouMotionActive, reduceMotion: reduceMotion, delay: 0.08, offset: 0, scale: 0.97)
 
                 VStack(spacing: 10) {
                     Text("Scan to view and save your photos.")
@@ -858,9 +991,11 @@ struct BoothSessionView: View {
                         .multilineTextAlignment(.center)
                 }
                 .padding(.top, 22)
+                .pocketPixelsEntrance(active: thankYouMotionActive, reduceMotion: reduceMotion, delay: 0.16, offset: 8)
 
                 thankYouGalleryStatus
                     .padding(.top, 14)
+                    .pocketPixelsEntrance(active: thankYouMotionActive, reduceMotion: reduceMotion, delay: 0.22, offset: 8)
 
                 Button {
                     viewModel.resetAfterDone()
@@ -871,6 +1006,7 @@ struct BoothSessionView: View {
                 .buttonStyle(PocketPixelsPrimaryButtonStyle())
                 .frame(width: contentWidth * 0.74)
                 .padding(.top, 40)
+                .pocketPixelsEntrance(active: thankYouMotionActive, reduceMotion: reduceMotion, delay: 0.28, offset: 8)
 
                 Spacer(minLength: 64)
             }
@@ -879,6 +1015,9 @@ struct BoothSessionView: View {
         }
         .padding(PocketPixelsTheme.Spacing.screenPadding)
         .transition(.opacity)
+        .onAppear {
+            startThankYouMotion()
+        }
     }
 
     private func thankYouQRCode(size: CGFloat) -> some View {
@@ -933,6 +1072,8 @@ struct BoothSessionView: View {
                 ProgressView()
                     .tint(PocketPixelsTheme.ColorPalette.maroon)
                     .scaleEffect(1.35)
+                    .opacity(reduceMotion || !progressMotionActive ? 1 : 0.64)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 1.15).repeatForever(autoreverses: true), value: progressMotionActive)
 
                 Text(title)
                     .font(.system(size: 44, weight: .black))
@@ -952,6 +1093,17 @@ struct BoothSessionView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(PocketPixelsTheme.Spacing.screenPadding)
+        .onAppear {
+            progressMotionActive = false
+            guard !reduceMotion else {
+                progressMotionActive = true
+                return
+            }
+
+            DispatchQueue.main.async {
+                progressMotionActive = true
+            }
+        }
     }
 
     private func errorScreen(message: String) -> some View {
@@ -1211,6 +1363,116 @@ struct BoothSessionView: View {
 
     private var formatSelectionColumns: [GridItem] {
         Array(repeating: GridItem(.flexible(minimum: 320, maximum: 481), spacing: 18), count: 2)
+    }
+
+    private func handleCustomerStateChange(from oldState: BoothSessionState?, to newState: BoothSessionState) {
+        if case .capturing = newState {
+            triggerShutterFlash()
+        }
+
+        if case .welcome = newState {
+            formatMotionActive = false
+            reviewMotionActive = false
+            receiptMotionActive = false
+            thankYouMotionActive = false
+        }
+
+        if case .choosingFormat = newState {
+            reviewMotionActive = false
+            receiptMotionActive = false
+            thankYouMotionActive = false
+        }
+
+        if case .preparingCamera = newState {
+            reviewMotionActive = false
+        }
+
+        if case .review = newState, oldState == nil {
+            reviewMotionActive = false
+            startReviewMotion()
+        }
+    }
+
+    private func startWelcomeMotion() {
+        welcomeMotionActive = false
+        welcomeReceiptFloatActive = false
+
+        DispatchQueue.main.async {
+            welcomeMotionActive = true
+            guard !reduceMotion else {
+                return
+            }
+
+            welcomeReceiptFloatActive = true
+        }
+    }
+
+    private func startFormatMotion() {
+        guard !formatMotionActive else {
+            return
+        }
+
+        formatMotionActive = false
+        DispatchQueue.main.async {
+            formatMotionActive = true
+        }
+    }
+
+    private func startReviewMotion() {
+        guard !reviewMotionActive else {
+            return
+        }
+
+        reviewMotionActive = false
+        DispatchQueue.main.async {
+            reviewMotionActive = true
+        }
+    }
+
+    private func startReceiptMotion() {
+        guard !receiptMotionActive else {
+            return
+        }
+
+        receiptMotionActive = false
+        DispatchQueue.main.async {
+            receiptMotionActive = true
+        }
+    }
+
+    private func startThankYouMotion() {
+        guard !thankYouMotionActive else {
+            return
+        }
+
+        thankYouMotionActive = false
+        DispatchQueue.main.async {
+            thankYouMotionActive = true
+        }
+    }
+
+    private func triggerShutterFlash() {
+        guard !reduceMotion else {
+            return
+        }
+
+        withAnimation(.easeOut(duration: 0.04)) {
+            shutterFlashActive = true
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + PocketPixelsTheme.Motion.shutterFlashDuration) {
+            withAnimation(.easeOut(duration: 0.10)) {
+                shutterFlashActive = false
+            }
+        }
+    }
+
+    private func reviewPhotoIdentifier(at index: Int) -> String {
+        guard viewModel.capturedPhotos.indices.contains(index) else {
+            return "missing-\(index)"
+        }
+
+        return "\(index)-\(ObjectIdentifier(viewModel.capturedPhotos[index]).hashValue)"
     }
 
     private func testPrinterConnection() {
@@ -1475,5 +1737,34 @@ struct BoothSessionView: View {
                 viewModel.statusMessage = error.localizedDescription
             }
         }
+    }
+}
+
+private extension View {
+    func pocketPixelsEntrance(
+        active: Bool,
+        reduceMotion: Bool,
+        delay: TimeInterval = 0,
+        offset: CGFloat = PocketPixelsTheme.Motion.entranceOffset,
+        scale: CGFloat = 1
+    ) -> some View {
+        opacity(active ? 1 : 0)
+            .offset(y: reduceMotion ? 0 : (active ? 0 : offset))
+            .scaleEffect(reduceMotion ? 1 : (active ? 1 : scale))
+            .animation(
+                (reduceMotion ? Animation.easeOut(duration: PocketPixelsTheme.Motion.quick) : PocketPixelsTheme.Motion.entranceAnimation)
+                    .delay(delay),
+                value: active
+            )
+    }
+
+    func reviewPhotoEntrance(index: Int, active: Bool, reduceMotion: Bool) -> some View {
+        pocketPixelsEntrance(
+            active: active,
+            reduceMotion: reduceMotion,
+            delay: Double(index) * PocketPixelsTheme.Motion.stagger,
+            offset: 8,
+            scale: 0.975
+        )
     }
 }

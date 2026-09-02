@@ -40,6 +40,27 @@ enum PocketPixelsTheme {
         static let formatCardHeight: CGFloat = 292
         static let formatPreviewHeight: CGFloat = 152
     }
+
+    enum Motion {
+        static let quick: TimeInterval = 0.15
+        static let standard: TimeInterval = 0.25
+        static let entrance: TimeInterval = 0.32
+        static let stagger: TimeInterval = 0.055
+        static let pressedScale: CGFloat = 0.98
+        static let subtleScale: CGFloat = 0.985
+        static let entranceOffset: CGFloat = 10
+        static let receiptOffset: CGFloat = -14
+        static let shutterFlashOpacity: CGFloat = 0.56
+        static let shutterFlashDuration: TimeInterval = 0.14
+        static let idleFloatDistance: CGFloat = 3
+        static let idleFloatDuration: TimeInterval = 3.4
+
+        static let quickAnimation = Animation.easeOut(duration: quick)
+        static let standardAnimation = Animation.easeOut(duration: standard)
+        static let entranceAnimation = Animation.easeOut(duration: entrance)
+        static let screenTransitionAnimation = Animation.easeInOut(duration: 0.28)
+        static let idleFloatAnimation = Animation.easeInOut(duration: idleFloatDuration).repeatForever(autoreverses: true)
+    }
 }
 
 struct PocketPixelsPrimaryButtonStyle: ButtonStyle {
@@ -56,7 +77,7 @@ struct PocketPixelsPrimaryButtonStyle: ButtonStyle {
                     .fill(isEnabled ? PocketPixelsTheme.ColorPalette.maroon : PocketPixelsTheme.ColorPalette.border)
             )
             .opacity(configuration.isPressed ? 0.86 : 1)
-            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .scaleEffect(configuration.isPressed ? PocketPixelsTheme.Motion.pressedScale : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
@@ -78,7 +99,7 @@ struct PocketPixelsSecondaryButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.button)
                     .stroke(PocketPixelsTheme.ColorPalette.border.opacity(isEnabled ? 0.46 : 0.28), lineWidth: 1)
             }
-            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .scaleEffect(configuration.isPressed ? PocketPixelsTheme.Motion.pressedScale : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
@@ -87,7 +108,7 @@ struct FormatCardButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .opacity(configuration.isPressed ? 0.88 : 1)
-            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .scaleEffect(configuration.isPressed ? 0.975 : 1)
             .shadow(
                 color: PocketPixelsTheme.ColorPalette.charcoal.opacity(configuration.isPressed ? 0.04 : 0.07),
                 radius: configuration.isPressed ? 4 : 8,
