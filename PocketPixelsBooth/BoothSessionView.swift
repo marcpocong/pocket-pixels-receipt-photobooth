@@ -15,6 +15,7 @@ struct BoothSessionView: View {
     @State private var showingCancelConfirmation = false
 #if DEBUG
     @State private var showingEndNoPrintConfirmation = false
+    @State private var showingReceiptDebugTools = false
 #endif
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("printerIP") private var printerIP = BoothConfiguration.defaultPrinterIP
@@ -55,6 +56,13 @@ struct BoothSessionView: View {
                     viewModel.retryQueuedGalleryUploads()
                 }
             }
+#if DEBUG
+            .onChange(of: viewModel.state) { _, newState in
+                if case .receiptPreview = newState {
+                    showingReceiptDebugTools = false
+                }
+            }
+#endif
             .task {
                 viewModel.retryQueuedGalleryUploads()
             }
@@ -292,6 +300,10 @@ struct BoothSessionView: View {
             RoundedRectangle(cornerRadius: 18)
                 .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.62), lineWidth: 1.5)
 
+            if viewModel.selectedBoothFormat == .strip {
+                stripCompositionGuide
+            }
+
             if let countdownValue {
                 Text("\(countdownValue)")
                     .font(.system(size: 142, weight: .black, design: .rounded))
@@ -304,6 +316,40 @@ struct BoothSessionView: View {
         .animation(.easeOut(duration: 0.18), value: countdownValue)
         .clipShape(RoundedRectangle(cornerRadius: 18))
         .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.16), radius: 18, x: 0, y: 10)
+    }
+
+    private var stripCompositionGuide: some View {
+        GeometryReader { proxy in
+            let guideWidth = proxy.size.width
+            let guideHeight = min(proxy.size.height, guideWidth * 3.0 / 4.0)
+            let guideY = (proxy.size.height - guideHeight) / 2
+            let guideRect = CGRect(x: 0, y: guideY, width: guideWidth, height: guideHeight)
+
+            ZStack {
+                VStack(spacing: 0) {
+                    Color.black.opacity(0.28)
+                        .frame(height: guideRect.minY)
+                    Color.clear
+                        .frame(height: guideRect.height)
+                    Color.black.opacity(0.28)
+                }
+
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.white.opacity(0.92), lineWidth: 2)
+                    .frame(width: guideRect.width - 2, height: guideRect.height - 2)
+                    .position(x: guideRect.midX, y: guideRect.midY)
+
+                Text("Keep yourself inside the frame")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.84))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(Color.black.opacity(0.28))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .position(x: guideRect.midX, y: guideRect.maxY - 24)
+            }
+        }
+        .allowsHitTesting(false)
     }
 
     private var reviewScreen: some View {
@@ -494,12 +540,15 @@ struct BoothSessionView: View {
 
     private var receiptScreen: some View {
         GeometryReader { proxy in
-            let contentWidth = min(proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2), 680)
-            let receiptWidth = min(contentWidth * 0.52, 360)
-            let receiptMaxHeight = proxy.size.height * 0.47
+            let usableHeight = max(1, proxy.size.height - (PocketPixelsTheme.Spacing.screenPadding * 2))
+            let contentWidth = min(proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2), 760)
+            let receiptWidth = min(contentWidth * 0.55, 420)
+            let receiptMaxHeight = usableHeight * 0.52
+            let statusCardWidth = contentWidth * 0.74
+            let statusQRSize = min(max(contentWidth * 0.18, 130), 150)
 
             ScrollView(.vertical) {
-                VStack(spacing: 22) {
+                VStack(spacing: 24) {
                     receiptCustomerHeader
                         .frame(width: contentWidth)
 
@@ -507,11 +556,11 @@ struct BoothSessionView: View {
 
                     receiptCustomerActions(width: contentWidth)
 
-                    receiptGalleryStatus
-                        .frame(width: contentWidth)
+                    receiptGalleryStatus(qrSize: statusQRSize)
+                        .frame(width: statusCardWidth)
 
 #if DEBUG
-                    receiptDebugTools(width: contentWidth)
+                    receiptDebugSection(width: contentWidth)
 #endif
                 }
                 .frame(maxWidth: .infinity)
@@ -523,7 +572,7 @@ struct BoothSessionView: View {
     }
 
     private var receiptCustomerHeader: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
             Text("POCKET PIXELS")
                 .font(.system(size: 20, weight: .heavy))
                 .tracking(1.1)
@@ -544,11 +593,11 @@ struct BoothSessionView: View {
     private func customerReceiptPreview(width: CGFloat, maxHeight: CGFloat) -> some View {
         Group {
             if let receiptImage = viewModel.receiptImage {
+                let previewSize = receiptPreviewDisplaySize(for: receiptImage, maxWidth: width, maxHeight: maxHeight)
                 Image(uiImage: receiptImage)
                     .resizable()
                     .scaledToFit()
-                    .frame(maxWidth: width, maxHeight: maxHeight)
-                    .background(Color.white)
+                    .frame(width: previewSize.width, height: previewSize.height)
             } else {
                 Text("Receipt preview is getting ready.")
                     .font(.system(size: 19, weight: .semibold))
@@ -564,6 +613,15 @@ struct BoothSessionView: View {
         }
         .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.13), radius: 16, x: 0, y: 9)
         .accessibilityLabel("Receipt preview")
+    }
+
+    private func receiptPreviewDisplaySize(for image: UIImage, maxWidth: CGFloat, maxHeight: CGFloat) -> CGSize {
+        guard image.size.width > 0, image.size.height > 0 else {
+            return CGSize(width: maxWidth, height: maxHeight)
+        }
+
+        let scale = min(maxWidth / image.size.width, maxHeight / image.size.height)
+        return CGSize(width: image.size.width * scale, height: image.size.height * scale)
     }
 
     private func receiptCustomerActions(width: CGFloat) -> some View {
@@ -592,28 +650,29 @@ struct BoothSessionView: View {
         .frame(width: width)
     }
 
-    private var receiptGalleryStatus: some View {
-        HStack(spacing: 12) {
+    private func receiptGalleryStatus(qrSize: CGFloat) -> some View {
+        HStack(spacing: 26) {
             if let qrImage = viewModel.galleryQRCodeImage {
                 Image(uiImage: qrImage)
                     .interpolation(.none)
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 58, height: 58)
-                    .padding(6)
+                    .frame(width: qrSize, height: qrSize)
+                    .padding(8)
                     .background(Color.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
                     .accessibilityLabel("Gallery QR code")
             }
 
             Text(receiptGalleryStatusText)
-                .font(.system(size: 17, weight: .medium))
+                .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 14)
+        .padding(.vertical, 20)
+        .padding(.horizontal, 24)
         .background(PocketPixelsTheme.ColorPalette.surface.opacity(0.58))
         .overlay {
             RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card)
@@ -623,6 +682,35 @@ struct BoothSessionView: View {
     }
 
 #if DEBUG
+    private func receiptDebugSection(width: CGFloat) -> some View {
+        VStack(spacing: 12) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    showingReceiptDebugTools.toggle()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Text("Show Debug Tools")
+                    Image(systemName: showingReceiptDebugTools ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(showingReceiptDebugTools ? "Hide Debug Tools" : "Show Debug Tools")
+
+            if showingReceiptDebugTools {
+                receiptDebugTools(width: width)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .frame(width: width)
+    }
+
     private func receiptDebugTools(width: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Debug Tools")

@@ -54,6 +54,7 @@ enum ReceiptComposerError: Error, LocalizedError {
 enum ReceiptComposer {
     nonisolated static let sessionIdentifierTimeZone = TimeZone(identifier: "Asia/Manila") ?? TimeZone(secondsFromGMT: 8 * 60 * 60)!
     nonisolated static let receiptQRCodeSize = 192
+    nonisolated static let stripPresentationCropAspectRatio = CGSize(width: 4, height: 3)
 
     nonisolated static func makeSessionIdentifier(date: Date = Date()) -> String {
         "PP-\(identifierFormatter.string(from: date))"
@@ -104,7 +105,12 @@ enum ReceiptComposer {
             }
 
             for frame in plan.photoFrames {
-                drawPhoto(photos[frame.photoIndex], in: frame.rect, context: cgContext)
+                drawPhoto(
+                    photos[frame.photoIndex],
+                    in: frame.rect,
+                    context: cgContext,
+                    usesStripPresentationCrop: format == .strip
+                )
             }
 
             y = Int((plan.photoFrames.map(\.rect.maxY).max() ?? CGFloat(y)) + 16)
@@ -186,14 +192,15 @@ enum ReceiptComposer {
             ]
             groupFrame = nil
         case .strip:
-            let photoWidth = 240
-            let gap = 8
+            let photoWidth = 400
+            let photoHeight = stripPresentationHeight(for: photoWidth)
+            let gap = 10
             let padding = 10
             let x = (width - photoWidth) / 2
             var frames: [ReceiptPhotoFrame] = []
             var y = top
             for index in 0..<3 {
-                let rect = CGRect(x: x, y: y, width: photoWidth, height: portraitHeight(for: photoWidth))
+                let rect = CGRect(x: x, y: y, width: photoWidth, height: photoHeight)
                 frames.append(ReceiptPhotoFrame(photoIndex: index, rect: rect))
                 y = Int(rect.maxY) + gap
             }
@@ -231,8 +238,34 @@ enum ReceiptComposer {
         width * 4 / 3
     }
 
-    nonisolated private static func drawPhoto(_ image: UIImage, in rect: CGRect, context: CGContext) {
-        drawAspectFill(image, in: rect, context: context)
+    nonisolated private static func stripPresentationHeight(for width: Int) -> Int {
+        width * Int(stripPresentationCropAspectRatio.height) / Int(stripPresentationCropAspectRatio.width)
+    }
+
+    nonisolated static func makeStripPresentationPhoto(from image: UIImage) -> UIImage {
+        let normalized = normalizedUpImage(from: image)
+        guard normalized.size.width > 0,
+              normalized.size.height > 0,
+              let cgImage = normalized.cgImage else {
+            return normalized
+        }
+
+        let cropRect = centeredCropRect(
+            fitting: stripPresentationCropAspectRatio,
+            in: CGSize(width: cgImage.width, height: cgImage.height)
+        )
+
+        guard let cropped = cgImage.cropping(to: cropRect) else {
+            return normalized
+        }
+
+        return UIImage(cgImage: cropped, scale: 1, orientation: .up)
+    }
+
+    nonisolated private static func drawPhoto(_ image: UIImage, in rect: CGRect, context: CGContext, usesStripPresentationCrop: Bool) {
+        context.interpolationQuality = .high
+        let displayImage = usesStripPresentationCrop ? makeStripPresentationPhoto(from: image) : image
+        drawAspectFill(displayImage, in: rect, context: context)
         UIColor.black.setStroke()
         context.setLineWidth(2)
         context.stroke(rect.insetBy(dx: 1, dy: 1))
@@ -254,6 +287,51 @@ enum ReceiptComposer {
         image.draw(in: CGRect(origin: origin, size: drawSize))
 
         context.restoreGState()
+    }
+
+    nonisolated private static func normalizedUpImage(from image: UIImage) -> UIImage {
+        let pixelSize = CGSize(
+            width: max(1, floor(image.size.width * image.scale)),
+            height: max(1, floor(image.size.height * image.scale))
+        )
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+
+        let renderer = UIGraphicsImageRenderer(size: pixelSize, format: format)
+        return renderer.image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(origin: .zero, size: pixelSize))
+            image.draw(in: CGRect(origin: .zero, size: pixelSize))
+        }
+    }
+
+    nonisolated private static func centeredCropRect(fitting targetAspectRatio: CGSize, in sourceSize: CGSize) -> CGRect {
+        guard sourceSize.width > 0,
+              sourceSize.height > 0,
+              targetAspectRatio.width > 0,
+              targetAspectRatio.height > 0 else {
+            return .zero
+        }
+
+        let targetRatio = targetAspectRatio.width / targetAspectRatio.height
+        let sourceRatio = sourceSize.width / sourceSize.height
+        let cropSize: CGSize
+
+        if sourceRatio > targetRatio {
+            let cropWidth = floor(sourceSize.height * targetRatio)
+            cropSize = CGSize(width: cropWidth, height: sourceSize.height)
+        } else {
+            let cropHeight = floor(sourceSize.width / targetRatio)
+            cropSize = CGSize(width: sourceSize.width, height: cropHeight)
+        }
+
+        return CGRect(
+            x: floor((sourceSize.width - cropSize.width) / 2),
+            y: floor((sourceSize.height - cropSize.height) / 2),
+            width: cropSize.width,
+            height: cropSize.height
+        )
     }
 
     nonisolated private static func drawCentered(_ text: String, y: Int, width: Int, font: UIFont) {
