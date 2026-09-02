@@ -26,9 +26,9 @@ struct BoothSessionView: View {
                 boothBackground
                 boothContent
             }
-            .navigationTitle(usesCustomerEntryStyle ? "" : "Booth Session")
+            .navigationTitle(usesCustomerChromeHidden ? "" : "Booth Session")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar(usesCustomerEntryStyle ? .hidden : .visible, for: .navigationBar)
+            .toolbar(usesCustomerChromeHidden ? .hidden : .visible, for: .navigationBar)
             .confirmationDialog("Cancel this session?", isPresented: $showingCancelConfirmation, titleVisibility: .visible) {
                 Button("Cancel Session", role: .destructive) {
                     viewModel.cancelSession()
@@ -63,18 +63,12 @@ struct BoothSessionView: View {
 
     @ViewBuilder
     private var boothBackground: some View {
-        switch viewModel.state {
-        case .welcome, .choosingFormat:
-            PocketPixelsTheme.ColorPalette.paper
-                .ignoresSafeArea()
-        default:
-            Color.black
-                .ignoresSafeArea()
-        }
+        PocketPixelsTheme.ColorPalette.paper
+            .ignoresSafeArea()
     }
 
-    private var usesCustomerEntryStyle: Bool {
-        viewModel.state == .welcome || viewModel.state == .choosingFormat
+    private var usesCustomerChromeHidden: Bool {
+        true
     }
 
     @ViewBuilder
@@ -89,7 +83,7 @@ struct BoothSessionView: View {
         case .review:
             reviewScreen
         case .composingReceipt:
-            progressScreen(title: "Building Receipt", message: viewModel.statusMessage)
+            progressScreen(title: "Preparing your receipt", message: "This will just take a moment.")
         case .receiptPreview, .connectingToPrinter, .printing:
             receiptScreen
         case .thankYou:
@@ -207,166 +201,439 @@ struct BoothSessionView: View {
     }
 
     private var cameraScreen: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            sessionTopBar
+        GeometryReader { proxy in
+            let contentWidth = min(proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2), 620)
+            let previewWidth = min(contentWidth, 600)
 
-            HStack(alignment: .top, spacing: 24) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.black)
+            VStack(spacing: 18) {
+                cameraTopBar
+                    .frame(width: contentWidth)
 
-                    if let transient = viewModel.transientCapturedPhoto {
-                        Image(uiImage: transient)
-                            .resizable()
-                            .scaledToFill()
-                    } else if viewModel.isCameraUnavailable {
-                        simulatorFallback
-                    } else {
-                        CameraPreview(session: viewModel.cameraService.session, cameraService: viewModel.cameraService)
-                    }
+                cameraPreviewSurface
+                    .aspectRatio(3.0 / 4.0, contentMode: .fit)
+                    .frame(width: previewWidth)
 
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(.white.opacity(0.82), lineWidth: 2)
-
-                    if let countdownValue {
-                        Text("\(countdownValue)")
-                            .font(.system(size: 156, weight: .black, design: .rounded))
-                            .foregroundStyle(.white)
-                            .shadow(color: .black.opacity(0.5), radius: 16, x: 0, y: 7)
-                    }
-                }
-                .aspectRatio(3.0 / 4.0, contentMode: .fit)
-                .frame(maxWidth: 560, maxHeight: 720)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                VStack(alignment: .leading, spacing: 18) {
-                    Text(photoCounterText)
-                        .font(.system(size: 34, weight: .bold))
-                        .foregroundStyle(.white)
-
-                    Text(viewModel.statusMessage)
-                        .foregroundStyle(.white.opacity(0.7))
+                VStack(spacing: 16) {
+                    Text(cameraCustomerStatusText)
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                        .multilineTextAlignment(.center)
+                        .frame(width: contentWidth)
                         .fixedSize(horizontal: false, vertical: true)
 
                     if case .cameraReady = viewModel.state, !viewModel.isCameraUnavailable {
                         Button {
                             viewModel.beginPhotoSequence()
                         } label: {
-                            Label("Begin Photos", systemImage: "camera.fill")
-                                .font(.title2.weight(.semibold))
+                            Text("Start Photos")
                                 .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
+                        .buttonStyle(PocketPixelsPrimaryButtonStyle())
+                        .frame(width: contentWidth * 0.74)
                         .disabled(!viewModel.canBeginPhotos)
                     }
 
+                    #if DEBUG
                     if viewModel.isCameraUnavailable {
                         samplePhotoPicker
+                            .frame(width: contentWidth * 0.74)
                     }
-
-                    if viewModel.state.allowsCancellation {
-                        Button("Cancel Session", role: .destructive) {
-                            showingCancelConfirmation = true
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.large)
-                    }
+                    #endif
                 }
-                .frame(width: 310, alignment: .topLeading)
+
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .padding(PocketPixelsTheme.Spacing.screenPadding)
+    }
+
+    private var cameraTopBar: some View {
+        HStack(alignment: .center) {
+            Text("POCKET PIXELS")
+                .font(.system(size: 20, weight: .heavy))
+                .tracking(1.1)
+                .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                .lineLimit(1)
+
+            Spacer()
+
+            Text(photoCounterText)
+                .font(.system(size: 23, weight: .bold))
+                .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                .lineLimit(1)
+
+            Spacer()
+
+            if viewModel.state.allowsCancellation {
+                Button("Cancel") {
+                    showingCancelConfirmation = true
+                }
+                .buttonStyle(PocketPixelsSecondaryButtonStyle())
+            }
+        }
+    }
+
+    private var cameraPreviewSurface: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 18)
+                .fill(Color.black)
+
+            if let transient = viewModel.transientCapturedPhoto {
+                Image(uiImage: transient)
+                    .resizable()
+                    .scaledToFill()
+            } else if viewModel.isCameraUnavailable {
+                simulatorFallback
+            } else {
+                CameraPreview(session: viewModel.cameraService.session, cameraService: viewModel.cameraService)
             }
 
-            Spacer(minLength: 0)
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.62), lineWidth: 1.5)
+
+            if let countdownValue {
+                Text("\(countdownValue)")
+                    .font(.system(size: 142, weight: .black, design: .rounded))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.68), radius: 18, x: 0, y: 8)
+                    .transition(.scale(scale: 0.86).combined(with: .opacity))
+                    .id(countdownValue)
+            }
         }
-        .padding(28)
+        .animation(.easeOut(duration: 0.18), value: countdownValue)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.16), radius: 18, x: 0, y: 10)
     }
 
     private var reviewScreen: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            sessionTopBar
+        GeometryReader { proxy in
+            let contentWidth = min(proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2), 700)
 
-            Text("Review your photos")
-                .font(.system(size: 42, weight: .bold))
-                .foregroundStyle(.white)
+            VStack(spacing: 0) {
+                reviewHeader
+                    .frame(width: contentWidth)
 
-            Text(viewModel.selectedBoothFormat?.reviewSummary ?? "")
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(Color(red: 0.86, green: 0.44, blue: 0.50))
+                reviewPhotoArea(width: contentWidth)
+                    .padding(.top, 24)
 
-            HStack(spacing: 16) {
-                ForEach(0..<viewModel.requiredPhotoCount, id: \.self) { index in
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Photo \(index + 1)")
-                            .font(.headline)
-                            .foregroundStyle(.white.opacity(0.8))
+                reviewActionArea(width: contentWidth)
+                    .padding(.top, reviewPhotoToActionSpacing)
 
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.white.opacity(0.08))
-
-                            if viewModel.capturedPhotos.indices.contains(index) {
-                                Image(uiImage: viewModel.capturedPhotos[index])
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: 150, height: 200)
-                                    .clipped()
-                            } else {
-                                Text("Missing")
-                                    .foregroundStyle(.white.opacity(0.55))
-                            }
-                        }
-                        .frame(height: 230)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                        Button("Retake Photo \(index + 1)") {
-                            viewModel.retakePhoto(at: index)
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(!viewModel.capturedPhotos.indices.contains(index) || !viewModel.canReturnToReview)
-                    }
-                }
+                Spacer(minLength: 0)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .padding(PocketPixelsTheme.Spacing.screenPadding)
+    }
 
-            HStack(spacing: 14) {
-                Button {
-                    viewModel.continueToReceipt()
-                } label: {
-                    Label("Continue", systemImage: "arrow.right.circle.fill")
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(!viewModel.canContinueToReceipt)
+    private var reviewHeader: some View {
+        VStack(spacing: 0) {
+            Text("POCKET PIXELS")
+                .font(.system(size: 20, weight: .heavy))
+                .tracking(1.1)
+                .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
 
-                Button("Retake All") {
-                    viewModel.retakeAll()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .disabled(!viewModel.canReturnToReview)
+            Text("Love these?")
+                .font(.system(size: 50, weight: .black))
+                .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                .multilineTextAlignment(.center)
+                .padding(.top, 14)
 
-                Button("Cancel Session", role: .destructive) {
-                    showingCancelConfirmation = true
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
+            Text("Retake any photo, or continue when you're ready.")
+                .font(.system(size: 20, weight: .medium))
+                .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                .multilineTextAlignment(.center)
+                .padding(.top, 12)
+
+            if let selectedBoothFormat = viewModel.selectedBoothFormat {
+                Text(selectedBoothFormat.photoCountLabel)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.maroon)
+                    .padding(.top, 9)
             }
         }
-        .padding(28)
+    }
+
+    @ViewBuilder
+    private func reviewPhotoArea(width: CGFloat) -> some View {
+        switch viewModel.selectedBoothFormat {
+        case .solo:
+            reviewSoloLayout(width: width)
+        case .duo:
+            reviewDuoLayout(width: width)
+        case .grid:
+            reviewGridLayout(width: width)
+        case .strip:
+            reviewStripLayout(width: width)
+        case nil:
+            reviewGridLayout(width: width)
+        }
+    }
+
+    private func reviewSoloLayout(width: CGFloat) -> some View {
+        let photoWidth = min(width * 0.60, 430)
+
+        return HStack {
+            Spacer(minLength: 0)
+            reviewPhotoItem(index: 0, photoWidth: photoWidth)
+            Spacer(minLength: 0)
+        }
+        .frame(width: width)
+    }
+
+    private func reviewDuoLayout(width: CGFloat) -> some View {
+        let spacing: CGFloat = 22
+        let photoWidth = min((width - spacing) / 2, 320)
+
+        return HStack(alignment: .top, spacing: spacing) {
+            reviewPhotoItem(index: 0, photoWidth: photoWidth)
+            reviewPhotoItem(index: 1, photoWidth: photoWidth)
+        }
+        .frame(width: width)
+    }
+
+    private func reviewGridLayout(width: CGFloat) -> some View {
+        let spacing: CGFloat = 16
+        let photoWidth = min((width - spacing) / 2, 212)
+
+        return VStack(spacing: spacing) {
+            HStack(alignment: .top, spacing: spacing) {
+                reviewPhotoItem(index: 0, photoWidth: photoWidth)
+                reviewPhotoItem(index: 1, photoWidth: photoWidth)
+            }
+            HStack(alignment: .top, spacing: spacing) {
+                reviewPhotoItem(index: 2, photoWidth: photoWidth)
+                reviewPhotoItem(index: 3, photoWidth: photoWidth)
+            }
+        }
+        .frame(width: width)
+    }
+
+    private func reviewStripLayout(width: CGFloat) -> some View {
+        let spacing: CGFloat = 16
+        let photoWidth = min((width - (spacing * 2)) / 3, 210)
+
+        return HStack(alignment: .top, spacing: spacing) {
+            reviewPhotoItem(index: 0, photoWidth: photoWidth)
+            reviewPhotoItem(index: 1, photoWidth: photoWidth)
+            reviewPhotoItem(index: 2, photoWidth: photoWidth)
+        }
+        .frame(width: width)
+    }
+
+    private func reviewPhotoItem(index: Int, photoWidth: CGFloat) -> some View {
+        VStack(spacing: 10) {
+            reviewPhoto(index: index)
+                .frame(width: photoWidth)
+
+            Button("Retake") {
+                viewModel.retakePhoto(at: index)
+            }
+            .buttonStyle(PocketPixelsSecondaryButtonStyle())
+            .disabled(!viewModel.capturedPhotos.indices.contains(index) || !viewModel.canReturnToReview)
+            .accessibilityLabel("Retake photo \(index + 1)")
+        }
+    }
+
+    private func reviewPhoto(index: Int) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 14)
+                .fill(PocketPixelsTheme.ColorPalette.surface)
+
+            if viewModel.capturedPhotos.indices.contains(index) {
+                Image(uiImage: viewModel.capturedPhotos[index])
+                    .resizable()
+                    .scaledToFill()
+                    .aspectRatio(3.0 / 4.0, contentMode: .fill)
+            } else {
+                Text("Missing")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+            }
+        }
+        .aspectRatio(3.0 / 4.0, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.58), lineWidth: 1)
+        }
+        .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.10), radius: 10, x: 0, y: 6)
+        .accessibilityLabel("Photo \(index + 1)")
+    }
+
+    private func reviewActionArea(width: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            Button {
+                viewModel.continueToReceipt()
+            } label: {
+                Text("Continue")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(PocketPixelsPrimaryButtonStyle())
+            .frame(width: width * 0.74)
+            .disabled(!viewModel.canContinueToReceipt)
+
+            Button("Retake All") {
+                viewModel.retakeAll()
+            }
+            .buttonStyle(PocketPixelsSecondaryButtonStyle())
+            .disabled(!viewModel.canReturnToReview)
+            .padding(.top, 16)
+
+            Button("Cancel") {
+                showingCancelConfirmation = true
+            }
+            .font(.system(size: 18, weight: .semibold))
+            .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+            .frame(minHeight: 48)
+            .padding(.top, 20)
+        }
+        .frame(width: width)
     }
 
     private var receiptScreen: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            sessionTopBar
+        GeometryReader { proxy in
+            let contentWidth = min(proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2), 680)
+            let receiptWidth = min(contentWidth * 0.52, 360)
+            let receiptMaxHeight = proxy.size.height * 0.47
 
-            HStack(alignment: .top, spacing: 20) {
-                ReceiptPreviewView(title: "Composed Receipt", image: viewModel.receiptImage)
+            ScrollView(.vertical) {
+                VStack(spacing: 22) {
+                    receiptCustomerHeader
+                        .frame(width: contentWidth)
+
+                    customerReceiptPreview(width: receiptWidth, maxHeight: receiptMaxHeight)
+
+                    receiptCustomerActions(width: contentWidth)
+
+                    receiptGalleryStatus
+                        .frame(width: contentWidth)
+
+#if DEBUG
+                    receiptDebugTools(width: contentWidth)
+#endif
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .padding(PocketPixelsTheme.Spacing.screenPadding)
+    }
+
+    private var receiptCustomerHeader: some View {
+        VStack(spacing: 10) {
+            Text("POCKET PIXELS")
+                .font(.system(size: 20, weight: .heavy))
+                .tracking(1.1)
+                .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+
+            Text("Your receipt is ready")
+                .font(.system(size: 48, weight: .black))
+                .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                .multilineTextAlignment(.center)
+
+            Text("Take a quick look, then print your copy.")
+                .font(.system(size: 20, weight: .medium))
+                .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                .multilineTextAlignment(.center)
+        }
+    }
+
+    private func customerReceiptPreview(width: CGFloat, maxHeight: CGFloat) -> some View {
+        Group {
+            if let receiptImage = viewModel.receiptImage {
+                Image(uiImage: receiptImage)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: width, maxHeight: maxHeight)
+                    .background(Color.white)
+            } else {
+                Text("Receipt preview is getting ready.")
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                    .frame(width: width, height: min(maxHeight, 360))
+                    .background(PocketPixelsTheme.ColorPalette.surface)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.58), lineWidth: 1)
+        }
+        .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.13), radius: 16, x: 0, y: 9)
+        .accessibilityLabel("Receipt preview")
+    }
+
+    private func receiptCustomerActions(width: CGFloat) -> some View {
+        VStack(spacing: 12) {
+            if viewModel.printerState.isWorking {
+                HStack(spacing: 10) {
+                    ProgressView()
+                        .tint(PocketPixelsTheme.ColorPalette.maroon)
+
+                    Text("Printing your receipt...")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                }
+            }
+
+            Button {
+                viewModel.printReceipt(host: printerIP, port: parsedPort)
+            } label: {
+                Text("Print Receipt")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(PocketPixelsPrimaryButtonStyle())
+            .frame(width: width * 0.74)
+            .disabled(viewModel.receiptRasterizedImage == nil || viewModel.printerState.isWorking || viewModel.printerState.requiresPrinterRestart)
+        }
+        .frame(width: width)
+    }
+
+    private var receiptGalleryStatus: some View {
+        HStack(spacing: 12) {
+            if let qrImage = viewModel.galleryQRCodeImage {
+                Image(uiImage: qrImage)
+                    .interpolation(.none)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 58, height: 58)
+                    .padding(6)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .accessibilityLabel("Gallery QR code")
+            }
+
+            Text(receiptGalleryStatusText)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+        .background(PocketPixelsTheme.ColorPalette.surface.opacity(0.58))
+        .overlay {
+            RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card)
+                .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.36), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card))
+    }
+
+#if DEBUG
+    private func receiptDebugTools(width: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Debug Tools")
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(.white)
+
+            HStack(alignment: .top, spacing: 16) {
                 ReceiptPreviewView(title: "Thermal Receipt Preview", image: viewModel.thermalReceiptPreview)
+                    .frame(maxWidth: 300)
 
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Receipt")
-                        .font(.title.bold())
-                        .foregroundStyle(.white)
-
+                VStack(alignment: .leading, spacing: 14) {
                     Text(receiptDetailsText)
                         .foregroundStyle(.white.opacity(0.72))
                         .fixedSize(horizontal: false, vertical: true)
@@ -393,24 +660,7 @@ struct BoothSessionView: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
-                    .controlSize(.large)
                     .disabled(viewModel.printerState.isWorking || viewModel.printerState.requiresPrinterRestart)
-
-                    Button {
-                        viewModel.printReceipt(host: printerIP, port: parsedPort)
-                    } label: {
-                        Label("Print Receipt", systemImage: "printer.fill")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(viewModel.receiptRasterizedImage == nil || viewModel.printerState.isWorking || viewModel.printerState.requiresPrinterRestart)
-
-                    Button("Back to Review") {
-                        viewModel.backToReview()
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(!viewModel.canReturnToReview)
 
                     Button("Rebuild Receipt") {
                         viewModel.rebuildReceipt()
@@ -418,139 +668,248 @@ struct BoothSessionView: View {
                     .buttonStyle(.bordered)
                     .disabled(viewModel.printerState.isWorking)
 
-#if DEBUG
                     Button("End Session (No Print)", role: .destructive) {
                         showingEndNoPrintConfirmation = true
                     }
                     .buttonStyle(.bordered)
                     .disabled(viewModel.printerState.isWorking)
-#endif
-
-                    galleryStatusPanel(compact: true)
                 }
-                .frame(width: 330)
             }
         }
-        .padding(28)
+        .padding(18)
+        .frame(width: width, alignment: .leading)
+        .background(Color.black.opacity(0.82))
+        .clipShape(RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card))
     }
+#endif
 
     private var recoveryScreen: some View {
         recoveryScreen(message: viewModel.printerState.message)
     }
 
     private func recoveryScreen(message: String) -> some View {
-        VStack(spacing: 22) {
-            Spacer()
+        GeometryReader { proxy in
+            let contentWidth = min(proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2), 620)
 
-            Text("Printer Restart Required")
-                .font(.system(size: 44, weight: .bold))
-                .foregroundStyle(.white)
+            VStack(spacing: 18) {
+                Spacer()
 
-            Text(message)
-                .font(.title3)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.white.opacity(0.76))
-                .frame(maxWidth: 680)
+                Text("POCKET PIXELS")
+                    .font(.system(size: 20, weight: .heavy))
+                    .tracking(1.1)
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
 
-            Button("I Restarted the Printer") {
-                viewModel.confirmPrinterRestarted()
+                Text("Printer needs attention")
+                    .font(.system(size: 46, weight: .black))
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                    .multilineTextAlignment(.center)
+
+                Text("Please ask the booth operator for help. Your photos are still saved for this session.")
+                    .font(.system(size: 20, weight: .medium))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: contentWidth)
+
+                Button("I Restarted the Printer") {
+                    viewModel.confirmPrinterRestarted()
+                }
+                .buttonStyle(PocketPixelsPrimaryButtonStyle())
+                .padding(.top, 18)
+
+#if DEBUG
+                Text(message)
+                    .font(.system(size: 15, weight: .medium))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: contentWidth)
+                    .padding(.top, 8)
+#endif
+
+                Spacer()
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-
-            Text("Your photos and receipt preview are still kept for retry after Test Connection succeeds.")
-                .foregroundStyle(.white.opacity(0.6))
-
-            Spacer()
+            .frame(width: contentWidth)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(40)
+        .padding(PocketPixelsTheme.Spacing.screenPadding)
     }
 
     private var thankYouScreen: some View {
-        VStack(spacing: 24) {
-            Spacer()
+        GeometryReader { proxy in
+            let contentWidth = min(proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2), 620)
+            let qrSize = min(max(contentWidth * 0.52, 280), 340)
 
-            Text("Your photos are ready")
-                .font(.system(size: 46, weight: .bold))
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.white)
+            VStack(spacing: 0) {
+                Spacer(minLength: 48)
 
-            galleryStatusPanel(compact: false)
+                VStack(spacing: 12) {
+                    Text("POCKET PIXELS")
+                        .font(.system(size: 20, weight: .heavy))
+                        .tracking(1.1)
+                        .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
 
-            Button("Done") {
-                viewModel.resetAfterDone()
+                    Text("You're all set!")
+                        .font(.system(size: 52, weight: .black))
+                        .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                        .multilineTextAlignment(.center)
+                }
+
+                thankYouQRCode(size: qrSize)
+                    .padding(.top, 34)
+
+                VStack(spacing: 10) {
+                    Text("Scan to view and save your photos.")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                        .multilineTextAlignment(.center)
+
+                    Text("The same QR is on your receipt.")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.top, 22)
+
+                thankYouGalleryStatus
+                    .padding(.top, 14)
+
+                Button {
+                    viewModel.resetAfterDone()
+                } label: {
+                    Text("Done")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PocketPixelsPrimaryButtonStyle())
+                .frame(width: contentWidth * 0.74)
+                .padding(.top, 40)
+
+                Spacer(minLength: 64)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-
-            Spacer()
+            .frame(width: contentWidth)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(40)
+        .padding(PocketPixelsTheme.Spacing.screenPadding)
+        .transition(.opacity)
     }
 
-    private func galleryStatusPanel(compact: Bool) -> some View {
-        VStack(spacing: compact ? 10 : 16) {
+    private func thankYouQRCode(size: CGFloat) -> some View {
+        Group {
             if let qrImage = viewModel.galleryQRCodeImage {
                 Image(uiImage: qrImage)
                     .interpolation(.none)
                     .resizable()
                     .scaledToFit()
-                    .frame(width: compact ? 150 : 280, height: compact ? 150 : 280)
-                    .padding(compact ? 8 : 14)
-                    .background(Color.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .frame(width: size, height: size)
                     .accessibilityLabel("Gallery QR code")
+            } else {
+                Text("QR is getting ready.")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                    .frame(width: size, height: size)
             }
-
-            Text("Scan to view and save your photos")
-                .font(compact ? .headline : .title2.bold())
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.white)
-
-            Text(customerUploadStatusText)
-                .font(compact ? .footnote : .body)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.white.opacity(0.72))
-                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(compact ? 12 : 22)
-        .frame(maxWidth: compact ? .infinity : 460)
-        .background(Color.white.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(16)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.52), lineWidth: 1)
+        }
+        .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.12), radius: 16, x: 0, y: 8)
+    }
+
+    private var thankYouGalleryStatus: some View {
+        Text(thankYouGalleryStatusText)
+            .font(.system(size: 18, weight: .medium))
+            .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.vertical, 12)
+            .padding(.horizontal, 18)
+            .background(PocketPixelsTheme.ColorPalette.surface.opacity(0.58))
+            .overlay {
+                RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card)
+                    .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.34), lineWidth: 1)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card))
     }
 
     private func progressScreen(title: String, message: String) -> some View {
-        VStack(spacing: 18) {
-            Spacer()
-            ProgressView()
-                .tint(.white)
-                .scaleEffect(1.4)
-            Text(title)
-                .font(.title.bold())
-                .foregroundStyle(.white)
-            Text(message)
-                .foregroundStyle(.white.opacity(0.7))
-            Spacer()
+        GeometryReader { proxy in
+            let contentWidth = min(proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2), 560)
+
+            VStack(spacing: 18) {
+                Spacer()
+
+                ProgressView()
+                    .tint(PocketPixelsTheme.ColorPalette.maroon)
+                    .scaleEffect(1.35)
+
+                Text(title)
+                    .font(.system(size: 44, weight: .black))
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                    .multilineTextAlignment(.center)
+
+                Text(message)
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: contentWidth)
+
+                Spacer()
+            }
+            .frame(width: contentWidth)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .padding(PocketPixelsTheme.Spacing.screenPadding)
     }
 
     private func errorScreen(message: String) -> some View {
-        VStack(spacing: 18) {
-            Spacer()
-            Text("Something needs attention")
-                .font(.title.bold())
-                .foregroundStyle(.white)
-            Text(message)
-                .foregroundStyle(.red.opacity(0.9))
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 700)
-            Button("Cancel Session") {
-                showingCancelConfirmation = true
+        GeometryReader { proxy in
+            let contentWidth = min(proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2), 620)
+
+            VStack(spacing: 18) {
+                Spacer()
+
+                Text("POCKET PIXELS")
+                    .font(.system(size: 20, weight: .heavy))
+                    .tracking(1.1)
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+
+                Text("Something needs attention")
+                    .font(.system(size: 46, weight: .black))
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                    .multilineTextAlignment(.center)
+
+                Text("Please ask the booth operator for help.")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                    .multilineTextAlignment(.center)
+
+#if DEBUG
+                Text(message)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: contentWidth)
+                    .padding(.top, 4)
+#endif
+
+                Button("Cancel") {
+                    showingCancelConfirmation = true
+                }
+                .buttonStyle(PocketPixelsSecondaryButtonStyle())
+                .padding(.top, 16)
+
+                Spacer()
             }
-            .buttonStyle(.borderedProminent)
-            Spacer()
+            .frame(width: contentWidth)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(40)
+        .padding(PocketPixelsTheme.Spacing.screenPadding)
     }
 
     private var sessionTopBar: some View {
@@ -577,6 +936,7 @@ struct BoothSessionView: View {
                 .font(.system(size: 58))
                 .foregroundStyle(.white.opacity(0.75))
 
+            #if DEBUG
             Text("Development-only sample photo fallback")
                 .font(.title2.bold())
                 .foregroundStyle(.white)
@@ -585,6 +945,16 @@ struct BoothSessionView: View {
                 .foregroundStyle(.white.opacity(0.68))
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 520)
+            #else
+            Text("Camera needs attention")
+                .font(.title2.bold())
+                .foregroundStyle(.white)
+
+            Text("Please ask the booth operator for help.")
+                .foregroundStyle(.white.opacity(0.68))
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 520)
+            #endif
         }
         .padding(32)
     }
@@ -595,11 +965,12 @@ struct BoothSessionView: View {
                 Label("Use Sample Photo", systemImage: "photo")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            .buttonStyle(PocketPixelsPrimaryButtonStyle())
 
             Text("Sample photos selected: \(viewModel.samplePhotoCount) of \(viewModel.requiredPhotoCount)")
-                .foregroundStyle(.white.opacity(0.7))
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 
@@ -647,6 +1018,36 @@ struct BoothSessionView: View {
         }
     }
 
+    private var reviewPhotoToActionSpacing: CGFloat {
+        switch viewModel.selectedBoothFormat {
+        case .grid:
+            36
+        case .strip:
+            42
+        case .solo, .duo, nil:
+            44
+        }
+    }
+
+    private var cameraCustomerStatusText: String {
+        switch viewModel.state {
+        case .preparingCamera:
+            "Getting camera ready."
+        case .cameraReady:
+            viewModel.isCameraUnavailable ? "Select sample photos to continue." : "Ready when you are."
+        case .countdown:
+            "Look at the camera."
+        case .capturing:
+            "Hold still."
+        case .betweenPhotos:
+            "Nice. Next photo..."
+        case .retaking:
+            "Retaking photo."
+        default:
+            viewModel.statusMessage
+        }
+    }
+
     private var receiptDetailsText: String {
         guard let receipt = viewModel.composedReceipt else {
             return "Receipt is not ready."
@@ -681,6 +1082,30 @@ struct BoothSessionView: View {
             "Your gallery is queued. This QR will work once the connection is restored."
         case .unauthorized, .serverRejected, .failed:
             "Your gallery needs operator attention."
+        }
+    }
+
+    private var receiptGalleryStatusText: String {
+        switch viewModel.uploadPhase {
+        case .success:
+            "Your photos are ready by QR."
+        case .pendingNoInternet, .deliveryUnknown, .retryAvailable:
+            "Your photos are still uploading. Your QR will stay the same."
+        case .unauthorized, .serverRejected, .failed:
+            "Your gallery needs operator attention."
+        case .idle, .preparing, .checkingInternet, .uploading:
+            "Your photos are still uploading. Your QR will stay the same."
+        }
+    }
+
+    private var thankYouGalleryStatusText: String {
+        switch viewModel.uploadPhase {
+        case .success:
+            "Your gallery is ready."
+        case .idle, .preparing, .checkingInternet, .uploading, .pendingNoInternet, .deliveryUnknown, .retryAvailable:
+            "Your photos are still uploading. This QR will stay the same."
+        case .unauthorized, .serverRejected, .failed:
+            "Your gallery needs a little more time."
         }
     }
 
