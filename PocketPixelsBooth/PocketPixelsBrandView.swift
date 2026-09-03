@@ -84,6 +84,14 @@ struct PocketPixelsLightboxLockup: View {
     var showGlow = false
 
     var body: some View {
+        if scale == .hero {
+            heroLightbox
+        } else {
+            standardLockup
+        }
+    }
+
+    private var standardLockup: some View {
         HStack(spacing: scale.spacing) {
             PocketPixelsBrandMark(size: scale.markSize)
 
@@ -105,6 +113,44 @@ struct PocketPixelsLightboxLockup: View {
                     .fill(PocketPixelsTheme.ColorPalette.acrylic.opacity(0.82))
                     .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.30), radius: 34, x: 0, y: 13)
                     .shadow(color: PocketPixelsTheme.ColorPalette.brandBlush.opacity(0.32), radius: 18, x: 0, y: 5)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var heroLightbox: some View {
+        HStack(spacing: 22) {
+            PocketPixelsBrandMark(size: 116)
+                .frame(width: 166, alignment: .center)
+
+            VStack(alignment: .leading, spacing: -5) {
+                Text("receipt")
+                Text("photobooth")
+            }
+            .font(.system(size: 47, weight: .regular, design: .serif))
+            .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
+            .lineLimit(1)
+            .minimumScaleFactor(0.82)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 22)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+            if showGlow {
+                RoundedRectangle(cornerRadius: 9)
+                    .fill(PocketPixelsTheme.ColorPalette.acrylic.opacity(0.66))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 9)
+                            .fill(PocketPixelsTheme.ColorPalette.paper.opacity(0.12))
+                    }
+                    .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.09), radius: 18, x: 0, y: 6)
+                    .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.04), radius: 10, x: 0, y: 5)
+            }
+        }
+        .overlay {
+            if showGlow {
+                RoundedRectangle(cornerRadius: 9)
+                    .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.055), lineWidth: 1)
             }
         }
         .accessibilityElement(children: .combine)
