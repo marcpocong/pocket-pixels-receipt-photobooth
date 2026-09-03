@@ -37,6 +37,7 @@ final class BoothSessionViewModel: ObservableObject {
     let cameraService = CameraService()
 
     private let printerService = PrinterNetworkService()
+    private let printerCoordinator = PrinterCoordinator.shared
     private let uploadService = GoogleDriveGalleryUploadService()
     private let credentialStore = DeviceCredentialStore()
     private var activeTask: Task<Void, Never>?
@@ -88,6 +89,10 @@ final class BoothSessionViewModel: ObservableObject {
         cameraService.onSessionMessage = { [weak self] message in
             self?.statusMessage = message
         }
+    }
+
+    func preparePrinter() {
+        printerCoordinator.prepare()
     }
 
     func startSession() {
@@ -358,20 +363,12 @@ final class BoothSessionViewModel: ObservableObject {
         }
 
         state = .connectingToPrinter
-        statusMessage = "Connecting to printer..."
+        statusMessage = "Preparing printer..."
 
-        printerService.printPhoto(
-            heading: ThermalImageRasterizer.receiptPrintHeading(),
-            rasterCommand: rasterized.rasterCommand,
-            finishing: ThermalImageRasterizer.photoTestFinishing(),
-            imageWidth: rasterized.width,
-            imageHeight: rasterized.height,
-            rasterDataByteCount: rasterized.rasterData.count,
-            sanitizationReport: rasterized.sanitizationReport,
-            yL: rasterized.yL,
-            yH: rasterized.yH,
-            host: host,
-            port: port
+        printerCoordinator.printReceipt(
+            rasterizedImage: rasterized,
+            wifiHost: host,
+            wifiPort: port
         ) { [weak self] printerState in
             guard let self else { return }
             self.printerState = printerState
@@ -379,8 +376,10 @@ final class BoothSessionViewModel: ObservableObject {
             switch printerState {
             case .connecting, .connected:
                 self.state = .connectingToPrinter
+                self.statusMessage = "Preparing printer..."
             case .printing, .sendingHeading, .sendingPhotograph, .finalizingAndCutting, .printerProcessing, .coolingDown:
                 self.state = .printing
+                self.statusMessage = "Printing your receipt..."
             case .recoveryRequired(let message):
                 self.state = .recoveryRequired(message)
                 self.statusMessage = message
@@ -409,11 +408,10 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     func confirmPrinterRestarted() {
-        printerService.confirmPrinterRestarted { [weak self] state in
-            self?.printerState = state
-            self?.state = .receiptPreview
-            self?.statusMessage = "Run Test Connection before printing again."
-        }
+        printerCoordinator.confirmPrinterRestarted()
+        printerState = .disconnected
+        state = .receiptPreview
+        statusMessage = "Ask the operator to reconnect and test the printer before printing again."
     }
 
     func resetAfterDone() {

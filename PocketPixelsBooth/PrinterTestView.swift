@@ -22,7 +22,7 @@ struct PrinterTestView: View {
     @State private var discoveryState = PrinterDiscoveryState.idle
     @State private var discoveryTask: Task<Void, Never>?
 #if DEBUG
-    @StateObject private var bluetoothPrinterService = PrinterBluetoothService()
+    @StateObject private var bluetoothPrinterService = PrinterBluetoothService.shared
     @State private var bluetoothRasterMode = BluetoothPrinterRasterMode.reliable
     @State private var balancedBluetoothProfile = BalancedBluetoothPrinterProfile.medium
     @State private var thermalPhotoCalibrationProfile = ThermalPhotoCalibrationProfile.original
@@ -42,11 +42,17 @@ struct PrinterTestView: View {
                     header
                     wifiPrinterTitle
                     printerFields
+#if DEBUG
+                    PrinterSetupView()
+#endif
                     actionButtons
                     discoveryStatusView
                     statusView
 #if DEBUG
-                    PrinterBluetoothDiagnosticView()
+                    DisclosureGroup("Advanced Bluetooth Diagnostics") {
+                        PrinterBluetoothDiagnosticView()
+                            .padding(.top, 12)
+                    }
 #endif
                     photoSection
 #if DEBUG
@@ -67,9 +73,6 @@ struct PrinterTestView: View {
 #endif
             .onDisappear {
                 cancelPrinterDiscovery()
-#if DEBUG
-                bluetoothPrinterService.disconnect()
-#endif
             }
         }
     }

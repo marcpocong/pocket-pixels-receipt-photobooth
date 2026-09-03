@@ -80,6 +80,7 @@ struct BoothSessionView: View {
 #endif
             .task {
                 handleCustomerStateChange(from: nil, to: viewModel.state)
+                viewModel.preparePrinter()
                 viewModel.retryQueuedGalleryUploads()
             }
         }

@@ -3,7 +3,6 @@
 //  PocketPixelsBooth
 //
 
-#if DEBUG
 import CoreBluetooth
 import Combine
 import Foundation
@@ -215,6 +214,8 @@ enum BluetoothPrinterServiceError: Error, LocalizedError {
 
 @MainActor
 final class PrinterBluetoothService: NSObject, ObservableObject {
+    typealias CompletionHandler = (Result<Void, BluetoothPrinterServiceError>, Bool) -> Void
+
     private struct PendingJob {
         let label: String
         let mode: BluetoothPrinterRasterMode
@@ -233,12 +234,16 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
 
     static let vozyServiceUUID = CBUUID(string: "18F0")
     static let vozyWriteCharacteristicUUID = CBUUID(string: "2AF1")
+    static let shared = PrinterBluetoothService()
     private static let reliableChunkLimit = 182
     private static let fastInitialChunkLimit = 512
+    private static let knownPrinterIdentifierKey = "knownBluetoothPrinterIdentifier"
+    private static let knownPrinterNameKey = "knownBluetoothPrinterName"
 
     @Published private(set) var bluetoothState = "Unknown"
     @Published private(set) var candidates: [BluetoothPrinterCandidate] = []
     @Published private(set) var connectedPrinterName: String?
+    @Published private(set) var savedPrinterName: String?
     @Published private(set) var jobState = BluetoothPrinterJobState.idle
     @Published private(set) var metrics: BluetoothPrinterMetrics?
     @Published private(set) var diagnosticLog: [String] = []
@@ -251,10 +256,12 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
     private var peripheralsByID: [UUID: CBPeripheral] = [:]
     private var connectedPeripheral: CBPeripheral?
     private var writeCharacteristic: CBCharacteristic?
+    private var pendingCompletion: CompletionHandler?
     private var pendingJob: PendingJob?
     private var pendingChunkIndex = 0
     private var transferredBytes = 0
     private var rasterTransmissionBegan = false
+    private var printBytesStarted = false
     private var isJobActive = false
     private var recoveryLockoutActive = false
     private var requiresTextTestBeforeRasterPrint = false
@@ -267,8 +274,13 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
     private var burstCount = 0
     private var intentionalPacingPauseCount = 0
     private var pacingPauseTask: Task<Void, Never>?
+    private var shouldPrepareWhenPoweredOn = false
+    private var scanShouldConnectFirstCandidate = false
+    private var reconnectAttemptsRemaining = 0
+    private var idleReconnectBudget = 2
 
     override init() {
+        savedPrinterName = UserDefaults.standard.string(forKey: Self.knownPrinterNameKey)
         super.init()
         centralManager = CBCentralManager(delegate: self, queue: nil)
     }
@@ -297,6 +309,78 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
             && !requiresTextTestBeforeRasterPrint
     }
 
+    var isConnectedAndReady: Bool {
+        connectedPeripheral?.state == .connected && writeCharacteristic != nil
+    }
+
+    var hasSavedPrinter: Bool {
+        knownPrinterIdentifier != nil
+    }
+
+    func prepareSavedPrinter() {
+        guard let centralManager else {
+            return
+        }
+
+        guard centralManager.state == .poweredOn else {
+            shouldPrepareWhenPoweredOn = true
+            bluetoothState = centralManager.state.displayName
+            if centralManager.state == .poweredOff {
+                jobState = .failure("Bluetooth is off on this iPad.")
+            }
+            return
+        }
+
+        shouldPrepareWhenPoweredOn = false
+
+        if isConnectedAndReady {
+            jobState = .connected(connectedPrinterName ?? savedPrinterName ?? "VOZY G80")
+            return
+        }
+
+        stopScan()
+
+        if let identifier = knownPrinterIdentifier {
+            let peripherals = centralManager.retrievePeripherals(withIdentifiers: [identifier])
+            if let peripheral = peripherals.first {
+                connectForProduction(to: peripheral, reason: "saved identifier")
+                return
+            }
+        }
+
+        let connectedPeripherals = centralManager.retrieveConnectedPeripherals(withServices: [Self.vozyServiceUUID])
+        if let peripheral = connectedPeripherals.first {
+            connectForProduction(to: peripheral, reason: "connected 18F0 peripheral")
+            return
+        }
+
+        startTargetedReconnectScan()
+    }
+
+    func reconnectSavedPrinter() {
+        if isJobActive {
+            jobState = .failure("Wait for the current Bluetooth printer job to finish before reconnecting.")
+            return
+        }
+
+        if let connectedPeripheral {
+            centralManager?.cancelPeripheralConnection(connectedPeripheral)
+            clearConnection()
+        }
+
+        reconnectAttemptsRemaining = 1
+        prepareSavedPrinter()
+    }
+
+    func forgetKnownPrinter() {
+        disconnect()
+        UserDefaults.standard.removeObject(forKey: Self.knownPrinterIdentifierKey)
+        UserDefaults.standard.removeObject(forKey: Self.knownPrinterNameKey)
+        savedPrinterName = nil
+        candidates = []
+        appendLog("Forgot saved Bluetooth printer.")
+    }
+
     func startScan() {
         guard centralManager?.state == .poweredOn else {
             jobState = .failure("Bluetooth must be powered on before scanning.")
@@ -311,6 +395,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         stopScan()
         candidates = []
         peripheralsByID = [:]
+        scanShouldConnectFirstCandidate = false
         jobState = .scanning
         appendLog("BT2 scan started for \(Int(scanDuration)) seconds.")
 
@@ -328,6 +413,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         scanStopTask?.cancel()
         scanStopTask = nil
         centralManager?.stopScan()
+        scanShouldConnectFirstCandidate = false
 
         if case .scanning = jobState {
             jobState = candidates.isEmpty ? .idle : .failure("Scan stopped. Select a discovered printer or scan again.")
@@ -402,7 +488,8 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         rasterizedImage: ThermalRasterizedImage,
         mode: BluetoothPrinterRasterMode,
         balancedProfile: BalancedBluetoothPrinterProfile,
-        calibrationProfileName: String
+        calibrationProfileName: String,
+        completion: CompletionHandler? = nil
     ) {
         let heading = ThermalImageRasterizer.photoTestHeading()
         let finishing = ThermalImageRasterizer.photoTestFinishing()
@@ -419,14 +506,16 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
             rasterDataByteCount: rasterizedImage.rasterData.count,
             sanitizationReport: rasterizedImage.sanitizationReport,
             yL: rasterizedImage.yL,
-            yH: rasterizedImage.yH
+            yH: rasterizedImage.yH,
+            completion: completion
         )
     }
 
     func printReceipt(
         _ receipt: ComposedReceipt,
         mode: BluetoothPrinterRasterMode,
-        balancedProfile: BalancedBluetoothPrinterProfile
+        balancedProfile: BalancedBluetoothPrinterProfile,
+        completion: CompletionHandler? = nil
     ) {
         guard let image = UIImage(data: receipt.imagePNGData) else {
             jobState = .failure("The composed receipt image could not be loaded for Bluetooth rasterization.")
@@ -445,12 +534,29 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
                     receipt: receipt,
                     rasterizedImage: rasterized,
                     mode: mode,
-                    balancedProfile: balancedProfile
+                    balancedProfile: balancedProfile,
+                    completion: completion
                 )
             } catch {
+                completion?(.failure(.sendFailed(error.localizedDescription)), false)
                 jobState = .failure(error.localizedDescription)
             }
         }
+    }
+
+    func printRasterizedReceipt(
+        rasterizedImage: ThermalRasterizedImage,
+        mode: BluetoothPrinterRasterMode,
+        balancedProfile: BalancedBluetoothPrinterProfile,
+        completion: CompletionHandler? = nil
+    ) {
+        startReceiptRasterJob(
+            receiptLabel: "Customer Receipt",
+            rasterizedImage: rasterizedImage,
+            mode: mode,
+            balancedProfile: balancedProfile,
+            completion: completion
+        )
     }
 
     func markPaperComplete() {
@@ -481,16 +587,112 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         appendLog("Operator marked physical paper complete after \(String(format: "%.2f", self.metrics?.physicalPrintDuration ?? 0)) seconds.")
     }
 
+    func printQuickText(completion: CompletionHandler? = nil) {
+        guard beginJob() else {
+            completion?(.failure(.jobAlreadyActive), false)
+            return
+        }
+
+        pendingCompletion = completion
+
+        guard let peripheral = connectedPeripheral, peripheral.state == .connected else {
+            finishJob(.failure(.printerNotConnected))
+            return
+        }
+
+        guard let writeCharacteristic else {
+            finishJob(.failure(.knownCharacteristicUnavailable))
+            return
+        }
+
+        guard writeCharacteristic.properties.contains(.writeWithoutResponse) else {
+            finishJob(.failure(.sendFailed("Characteristic 2AF1 does not support writeWithoutResponse.")))
+            return
+        }
+
+        let payload = Data([0x1B, 0x40])
+            + Data("POCKET PIXELS\nBT OK\n\n\n".utf8)
+        let maximumLength = max(1, peripheral.maximumWriteValueLength(for: .withoutResponse))
+        let chunkSize = max(1, min(Self.fastInitialChunkLimit, maximumLength))
+        let chunks = payload.chunked(maximumLength: chunkSize)
+
+        pendingJob = PendingJob(
+            label: "Quick Bluetooth Text Test",
+            mode: .fast,
+            balancedProfile: nil,
+            photoCalibrationProfileName: nil,
+            chunks: chunks,
+            totalBytes: payload.count,
+            rasterByteCount: 0,
+            maximumWriteLength: maximumLength,
+            chunkSize: chunkSize,
+            chunkCount: chunks.count,
+            startedAt: Date(),
+            rasterStartChunkIndex: 0,
+            finishingStartChunkIndex: chunks.count
+        )
+        pendingChunkIndex = 0
+        transferredBytes = 0
+        rasterTransmissionBegan = false
+        printBytesStarted = false
+        flowControlPauseCount = 0
+        currentFlowControlPauseStartedAt = nil
+        longestFlowControlPause = nil
+        lastJobStartedAt = Date()
+        chunksSentInCurrentBurst = 0
+        burstCount = chunks.isEmpty ? 0 : 1
+        intentionalPacingPauseCount = 0
+        metrics = BluetoothPrinterMetrics(
+            mode: .fast,
+            balancedProfileName: nil,
+            photoCalibrationProfileName: nil,
+            payloadByteCount: payload.count,
+            rasterByteCount: 0,
+            maximumWriteLength: maximumLength,
+            chunkSize: chunkSize,
+            chunkCount: chunks.count,
+            burstChunkCount: nil,
+            interBurstDelayMilliseconds: nil,
+            burstCount: burstCount,
+            transferredBytes: 0,
+            duration: nil,
+            throughputBytesPerSecond: nil,
+            flowControlPauseCount: 0,
+            longestFlowControlPause: nil,
+            intentionalPacingPauseCount: 0,
+            physicalPrintDuration: nil
+        )
+        appendLog("Quick Bluetooth text test started. Write characteristic: 18F0 / 2AF1. Chunk size: \(chunkSize).")
+        sendNextChunk()
+    }
+
     private func startReceiptRasterJob(
         receipt: ComposedReceipt,
         rasterizedImage: ThermalRasterizedImage,
         mode: BluetoothPrinterRasterMode,
-        balancedProfile: BalancedBluetoothPrinterProfile
+        balancedProfile: BalancedBluetoothPrinterProfile,
+        completion: CompletionHandler?
+    ) {
+        startReceiptRasterJob(
+            receiptLabel: "\(receipt.format.displayName) Receipt",
+            rasterizedImage: rasterizedImage,
+            mode: mode,
+            balancedProfile: balancedProfile,
+            completion: completion
+        )
+    }
+
+    private func startReceiptRasterJob(
+        receiptLabel: String,
+        rasterizedImage: ThermalRasterizedImage,
+        mode: BluetoothPrinterRasterMode,
+        balancedProfile: BalancedBluetoothPrinterProfile,
+        completion: CompletionHandler?
     ) {
         let heading = ThermalImageRasterizer.receiptPrintHeading()
         let finishing = ThermalImageRasterizer.photoTestFinishing()
         startRasterJob(
-            label: "\(receipt.format.displayName) Receipt",
+            label: receiptLabel,
             mode: mode,
             balancedProfile: balancedProfile,
             photoCalibrationProfileName: nil,
@@ -502,7 +704,8 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
             rasterDataByteCount: rasterizedImage.rasterData.count,
             sanitizationReport: rasterizedImage.sanitizationReport,
             yL: rasterizedImage.yL,
-            yH: rasterizedImage.yH
+            yH: rasterizedImage.yH,
+            completion: completion
         )
     }
 
@@ -519,11 +722,15 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         rasterDataByteCount: Int,
         sanitizationReport: RasterSanitizationReport,
         yL: UInt8,
-        yH: UInt8
+        yH: UInt8,
+        completion: CompletionHandler?
     ) {
         guard beginJob() else {
+            completion?(.failure(.jobAlreadyActive), false)
             return
         }
+
+        pendingCompletion = completion
 
         guard let peripheral = connectedPeripheral, peripheral.state == .connected else {
             finishJob(.failure(.printerNotConnected))
@@ -665,6 +872,56 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         return true
     }
 
+    private var knownPrinterIdentifier: UUID? {
+        guard let rawValue = UserDefaults.standard.string(forKey: Self.knownPrinterIdentifierKey) else {
+            return nil
+        }
+
+        return UUID(uuidString: rawValue)
+    }
+
+    private func saveKnownPrinter(_ peripheral: CBPeripheral) {
+        UserDefaults.standard.set(peripheral.identifier.uuidString, forKey: Self.knownPrinterIdentifierKey)
+        let name = peripheralDisplayName(peripheral)
+        UserDefaults.standard.set(name, forKey: Self.knownPrinterNameKey)
+        savedPrinterName = name
+        idleReconnectBudget = 2
+        appendLog("Saved Bluetooth printer \(name) with identifier \(peripheral.identifier.uuidString).")
+    }
+
+    private func connectForProduction(to peripheral: CBPeripheral, reason: String) {
+        stopScan()
+        connectedPeripheral = peripheral
+        writeCharacteristic = nil
+        operatorDisconnectInProgress = false
+        peripheral.delegate = self
+        let name = peripheralDisplayName(peripheral)
+        jobState = .connecting(name)
+        appendLog("Production reconnect using \(reason): \(name).")
+        centralManager?.connect(peripheral, options: nil)
+    }
+
+    private func startTargetedReconnectScan() {
+        guard centralManager?.state == .poweredOn, connectedPeripheral == nil, !jobState.isWorking else {
+            return
+        }
+
+        stopScan()
+        candidates = []
+        peripheralsByID = [:]
+        scanShouldConnectFirstCandidate = true
+        jobState = .scanning
+        appendLog("Targeted production scan started for VOZY service 18F0.")
+        centralManager?.scanForPeripherals(withServices: [Self.vozyServiceUUID], options: [
+            CBCentralManagerScanOptionAllowDuplicatesKey: false
+        ])
+
+        scanStopTask = Task { [weak self, scanDuration] in
+            try? await Task.sleep(nanoseconds: UInt64(scanDuration * 1_000_000_000))
+            self?.finishTimedScan()
+        }
+    }
+
     private func sendNextChunk() {
         guard let pendingJob else {
             failJob(message: "Bluetooth raster job lost its pending state.")
@@ -702,6 +959,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
 
         let chunk = pendingJob.chunks[pendingChunkIndex]
         appendLog("Writing chunk \(pendingChunkIndex + 1)/\(pendingJob.chunkCount), \(chunk.count) bytes.")
+        printBytesStarted = true
         peripheral.writeValue(chunk, for: writeCharacteristic, type: .withResponse)
     }
 
@@ -719,6 +977,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
             updateTransferPhase(for: job)
 
             let chunk = job.chunks[pendingChunkIndex]
+            printBytesStarted = true
             peripheral.writeValue(chunk, for: characteristic, type: .withoutResponse)
             transferredBytes += chunk.count
             pendingChunkIndex += 1
@@ -806,6 +1065,9 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
     }
 
     private func finishJob(_ result: Result<Void, BluetoothPrinterServiceError>) {
+        let completion = pendingCompletion
+        let bytesStarted = printBytesStarted
+
         switch result {
         case .success:
             let progressLabel = pendingJob?.mode.progressLabel ?? "Sent"
@@ -825,14 +1087,17 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         }
 
         pendingJob = nil
+        pendingCompletion = nil
         pendingChunkIndex = 0
         transferredBytes = 0
         rasterTransmissionBegan = false
+        printBytesStarted = false
         isJobActive = false
         currentFlowControlPauseStartedAt = nil
         chunksSentInCurrentBurst = 0
         pacingPauseTask?.cancel()
         pacingPauseTask = nil
+        completion?(result, bytesStarted)
     }
 
     private func failJob(message: String) {
@@ -905,6 +1170,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
                 : .idle
         }
 
+        scanShouldConnectFirstCandidate = false
         appendLog("BT2 scan finished. Candidates: \(candidates.count).")
     }
 
@@ -941,7 +1207,12 @@ extension PrinterBluetoothService: CBCentralManagerDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         bluetoothState = central.state.displayName
 
-        if central.state != .poweredOn {
+        if central.state == .poweredOn {
+            if shouldPrepareWhenPoweredOn {
+                prepareSavedPrinter()
+            }
+            return
+        } else {
             stopScan()
             if isJobActive {
                 failJob(message: "Bluetooth state changed to \(central.state.displayName).")
@@ -980,6 +1251,10 @@ extension PrinterBluetoothService: CBCentralManagerDelegate {
             }
 
             return $0.rssi > $1.rssi
+        }
+
+        if scanShouldConnectFirstCandidate, connectedPeripheral == nil, !isJobActive {
+            connectForProduction(to: peripheral, reason: "targeted 18F0 scan")
         }
     }
 
@@ -1026,6 +1301,15 @@ extension PrinterBluetoothService: CBCentralManagerDelegate {
         } else {
             jobState = .failure("Bluetooth printer disconnected. \(detail)")
             appendLog("Bluetooth printer disconnected. \(detail)")
+            if reconnectAttemptsRemaining > 0 || idleReconnectBudget > 0 {
+                let delay: TimeInterval = reconnectAttemptsRemaining > 0 ? 1 : 2
+                reconnectAttemptsRemaining = max(0, reconnectAttemptsRemaining - 1)
+                idleReconnectBudget = max(0, idleReconnectBudget - 1)
+                Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    self?.prepareSavedPrinter()
+                }
+            }
         }
     }
 }
@@ -1076,6 +1360,7 @@ extension PrinterBluetoothService: CBPeripheralDelegate {
         }
 
         writeCharacteristic = characteristic
+        saveKnownPrinter(peripheral)
         jobState = .connected(connectedPrinterName ?? "VOZY G80")
         appendLog("Characteristic 2AF1 ready. Properties: \(characteristic.propertyLabels.joined(separator: ", ")).")
     }
@@ -1231,4 +1516,3 @@ private extension Data {
         return chunks
     }
 }
-#endif
