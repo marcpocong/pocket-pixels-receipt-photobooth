@@ -46,6 +46,7 @@ final class CameraService: NSObject {
     private let photoOutput = AVCapturePhotoOutput()
     private var videoDevice: AVCaptureDevice?
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
+    private var currentPreviewRotationAngle: CGFloat = 0
     private weak var previewLayer: AVCaptureVideoPreviewLayer?
     private var isConfigured = false
     private var isConfiguring = false
@@ -208,6 +209,7 @@ final class CameraService: NSObject {
         }
 
         let angle = rotationCoordinator?.videoRotationAngleForHorizonLevelPreview ?? 0
+        currentPreviewRotationAngle = angle
 
         guard let connection = previewLayer.connection else {
             return
@@ -228,7 +230,7 @@ final class CameraService: NSObject {
             return
         }
 
-        let angle = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? 0
+        let angle = currentPreviewRotationAngle
 
         if connection.isVideoRotationAngleSupported(angle) {
             connection.videoRotationAngle = angle
@@ -342,19 +344,6 @@ private final class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegat
             return
         }
 
-        completion(.success(image.normalizedUpImage()))
-    }
-}
-
-private extension UIImage {
-    func normalizedUpImage() -> UIImage {
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = scale
-        format.opaque = false
-
-        let renderer = UIGraphicsImageRenderer(size: size, format: format)
-        return renderer.image { _ in
-            draw(in: CGRect(origin: .zero, size: size))
-        }
+        completion(.success(image))
     }
 }

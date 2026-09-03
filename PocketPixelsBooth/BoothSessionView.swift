@@ -296,13 +296,16 @@ struct BoothSessionView: View {
         GeometryReader { proxy in
             let contentWidth = min(proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2), 620)
             let previewWidth = min(contentWidth, 600)
+            let previewAspectRatio = usesLandscapeCompositionGuide
+                ? ReceiptComposer.landscapePresentationAspectRatio
+                : ReviewPhotoPresentation.portrait.aspectRatio
 
             VStack(spacing: 18) {
                 cameraTopBar
                     .frame(width: contentWidth)
 
                 cameraPreviewSurface
-                    .aspectRatio(3.0 / 4.0, contentMode: .fit)
+                    .aspectRatio(previewAspectRatio, contentMode: .fit)
                     .frame(width: previewWidth)
 
                 VStack(spacing: 16) {
@@ -385,11 +388,6 @@ struct BoothSessionView: View {
             RoundedRectangle(cornerRadius: 18)
                 .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.50), lineWidth: 1.5)
 
-            if viewModel.selectedBoothFormat == .strip {
-                stripCompositionGuide
-                    .transition(.opacity)
-            }
-
             if let countdownValue {
                 Text("\(countdownValue)")
                     .font(.system(size: 142, weight: .black, design: .rounded))
@@ -408,45 +406,10 @@ struct BoothSessionView: View {
         }
         .animation(.easeOut(duration: 0.18), value: countdownValue)
         .animation(PocketPixelsTheme.Motion.quickAnimation, value: viewModel.transientCapturedPhoto != nil)
-        .animation(PocketPixelsTheme.Motion.quickAnimation, value: viewModel.selectedBoothFormat == .strip)
         .animation(PocketPixelsTheme.Motion.quickAnimation, value: shutterFlashActive)
         .clipShape(RoundedRectangle(cornerRadius: 18))
         .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.16), radius: 20, x: 0, y: 8)
         .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.10), radius: 14, x: 0, y: 8)
-    }
-
-    private var stripCompositionGuide: some View {
-        GeometryReader { proxy in
-            let guideWidth = proxy.size.width
-            let guideHeight = min(proxy.size.height, guideWidth * 3.0 / 4.0)
-            let guideY = (proxy.size.height - guideHeight) / 2
-            let guideRect = CGRect(x: 0, y: guideY, width: guideWidth, height: guideHeight)
-
-            ZStack {
-                VStack(spacing: 0) {
-                    Color.black.opacity(0.28)
-                        .frame(height: guideRect.minY)
-                    Color.clear
-                        .frame(height: guideRect.height)
-                    Color.black.opacity(0.28)
-                }
-
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.white.opacity(0.92), lineWidth: 2)
-                    .frame(width: guideRect.width - 2, height: guideRect.height - 2)
-                    .position(x: guideRect.midX, y: guideRect.midY)
-
-                Text("Keep yourself inside the frame")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.84))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .background(Color.black.opacity(0.28))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .position(x: guideRect.midX, y: guideRect.maxY - 24)
-            }
-        }
-        .allowsHitTesting(false)
     }
 
     private var reviewScreen: some View {
@@ -527,13 +490,13 @@ struct BoothSessionView: View {
     }
 
     private func reviewDuoLayout(width: CGFloat) -> some View {
-        let spacing: CGFloat = 22
-        let photoWidth = min((width - spacing) / 2, 320)
+        let spacing: CGFloat = 18
+        let photoWidth = min(width * 0.82, 560)
 
-        return HStack(alignment: .top, spacing: spacing) {
-            reviewPhotoItem(index: 0, photoWidth: photoWidth)
+        return VStack(spacing: spacing) {
+            reviewPhotoItem(index: 0, photoWidth: photoWidth, presentation: .landscape)
                 .reviewPhotoEntrance(index: 0, active: reviewMotionActive, reduceMotion: reduceMotion)
-            reviewPhotoItem(index: 1, photoWidth: photoWidth)
+            reviewPhotoItem(index: 1, photoWidth: photoWidth, presentation: .landscape)
                 .reviewPhotoEntrance(index: 1, active: reviewMotionActive, reduceMotion: reduceMotion)
         }
         .frame(width: width)
@@ -561,23 +524,23 @@ struct BoothSessionView: View {
     }
 
     private func reviewStripLayout(width: CGFloat) -> some View {
-        let spacing: CGFloat = 16
-        let photoWidth = min((width - (spacing * 2)) / 3, 210)
+        let spacing: CGFloat = 14
+        let photoWidth = min(width * 0.82, 560)
 
-        return HStack(alignment: .top, spacing: spacing) {
-            reviewPhotoItem(index: 0, photoWidth: photoWidth)
+        return VStack(spacing: spacing) {
+            reviewPhotoItem(index: 0, photoWidth: photoWidth, presentation: .landscape)
                 .reviewPhotoEntrance(index: 0, active: reviewMotionActive, reduceMotion: reduceMotion)
-            reviewPhotoItem(index: 1, photoWidth: photoWidth)
+            reviewPhotoItem(index: 1, photoWidth: photoWidth, presentation: .landscape)
                 .reviewPhotoEntrance(index: 1, active: reviewMotionActive, reduceMotion: reduceMotion)
-            reviewPhotoItem(index: 2, photoWidth: photoWidth)
+            reviewPhotoItem(index: 2, photoWidth: photoWidth, presentation: .landscape)
                 .reviewPhotoEntrance(index: 2, active: reviewMotionActive, reduceMotion: reduceMotion)
         }
         .frame(width: width)
     }
 
-    private func reviewPhotoItem(index: Int, photoWidth: CGFloat) -> some View {
+    private func reviewPhotoItem(index: Int, photoWidth: CGFloat, presentation: ReviewPhotoPresentation = .portrait) -> some View {
         VStack(spacing: 10) {
-            reviewPhoto(index: index)
+            reviewPhoto(index: index, presentation: presentation)
                 .frame(width: photoWidth)
 
             Button("Retake") {
@@ -589,16 +552,20 @@ struct BoothSessionView: View {
         }
     }
 
-    private func reviewPhoto(index: Int) -> some View {
+    private func reviewPhoto(index: Int, presentation: ReviewPhotoPresentation = .portrait) -> some View {
         ZStack {
             RoundedRectangle(cornerRadius: 14)
                 .fill(PocketPixelsTheme.ColorPalette.acrylic)
 
             if viewModel.capturedPhotos.indices.contains(index) {
-                Image(uiImage: viewModel.capturedPhotos[index])
+                let image = presentation == .landscape
+                    ? ReceiptComposer.makeLandscapePresentationPhoto(from: viewModel.capturedPhotos[index])
+                    : viewModel.capturedPhotos[index]
+
+                Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
-                    .aspectRatio(3.0 / 4.0, contentMode: .fill)
+                    .aspectRatio(presentation.aspectRatio, contentMode: .fill)
                     .id(reviewPhotoIdentifier(at: index))
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.975)))
             } else {
@@ -607,7 +574,7 @@ struct BoothSessionView: View {
                     .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
             }
         }
-        .aspectRatio(3.0 / 4.0, contentMode: .fit)
+        .aspectRatio(presentation.aspectRatio, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay {
             RoundedRectangle(cornerRadius: 14)
@@ -651,42 +618,44 @@ struct BoothSessionView: View {
 
     private var receiptScreen: some View {
         GeometryReader { proxy in
-            let usableHeight = max(1, proxy.size.height - (PocketPixelsTheme.Spacing.screenPadding * 2))
+            let availableHeight = max(1, proxy.size.height - (PocketPixelsTheme.Spacing.screenPadding * 2))
             let contentWidth = min(proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2), 760)
-            let receiptWidth = min(contentWidth * 0.55, 420)
-            let receiptMaxHeight = usableHeight * 0.52
-            let statusCardWidth = contentWidth * 0.74
-            let statusQRSize = min(max(contentWidth * 0.18, 130), 150)
+            let statusCardWidth = contentWidth * 0.72
+            let statusQRSize = min(max(contentWidth * 0.16, 120), 140)
+            let verticalSpacing: CGFloat = 14
+            let reservedHeight = receiptReservedScreenHeight(
+                statusQRSize: statusQRSize,
+                isPrinterWorking: viewModel.printerState.isWorking
+            )
+            let receiptMaxWidth = min(contentWidth, 500)
+            let receiptMaxHeight = max(180, availableHeight - reservedHeight - (verticalSpacing * 3))
 
-            ScrollView(.vertical) {
-                VStack(spacing: 24) {
-                    receiptCustomerHeader
-                        .frame(width: contentWidth)
+            VStack(spacing: verticalSpacing) {
+                receiptCustomerHeader
+                    .frame(width: contentWidth)
 
-                    customerReceiptPreview(width: receiptWidth, maxHeight: receiptMaxHeight)
-                        .pocketPixelsEntrance(
-                            active: receiptMotionActive,
-                            reduceMotion: reduceMotion,
-                            delay: 0,
-                            offset: PocketPixelsTheme.Motion.receiptOffset,
-                            scale: PocketPixelsTheme.Motion.subtleScale
-                        )
+                customerReceiptPreview(maxWidth: receiptMaxWidth, maxHeight: receiptMaxHeight)
+                    .pocketPixelsEntrance(
+                        active: receiptMotionActive,
+                        reduceMotion: reduceMotion,
+                        delay: 0,
+                        offset: PocketPixelsTheme.Motion.receiptOffset,
+                        scale: PocketPixelsTheme.Motion.subtleScale
+                    )
 
-                    receiptCustomerActions(width: contentWidth)
-                        .pocketPixelsEntrance(active: receiptMotionActive, reduceMotion: reduceMotion, delay: 0.08, offset: 8)
+                receiptCustomerActions(width: contentWidth)
+                    .pocketPixelsEntrance(active: receiptMotionActive, reduceMotion: reduceMotion, delay: 0.08, offset: 8)
 
-                    receiptGalleryStatus(qrSize: statusQRSize)
-                        .frame(width: statusCardWidth)
-                        .pocketPixelsEntrance(active: receiptMotionActive, reduceMotion: reduceMotion, delay: 0.12, offset: 8)
+                receiptGalleryStatus(qrSize: statusQRSize)
+                    .frame(width: statusCardWidth)
+                    .pocketPixelsEntrance(active: receiptMotionActive, reduceMotion: reduceMotion, delay: 0.12, offset: 8)
 
 #if DEBUG
-                    receiptDebugSection(width: contentWidth)
+                receiptDebugSection(width: contentWidth)
 #endif
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.vertical, 6)
         }
         .padding(PocketPixelsTheme.Spacing.screenPadding)
         .onAppear {
@@ -695,38 +664,52 @@ struct BoothSessionView: View {
     }
 
     private var receiptCustomerHeader: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             PocketPixelsLightboxLockup(scale: .compact)
 
             Text("Your receipt is ready")
-                .font(.system(size: 48, weight: .black))
+                .font(.system(size: 42, weight: .black))
                 .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
                 .multilineTextAlignment(.center)
 
             Text("Take a quick look, then print your copy.")
-                .font(.system(size: 20, weight: .medium))
+                .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
                 .multilineTextAlignment(.center)
         }
     }
 
-    private func customerReceiptPreview(width: CGFloat, maxHeight: CGFloat) -> some View {
+    private func receiptReservedScreenHeight(statusQRSize: CGFloat, isPrinterWorking: Bool) -> CGFloat {
+        let headerEstimate: CGFloat = 126
+        let actionEstimate: CGFloat = isPrinterWorking ? 106 : 70
+        let galleryEstimate = statusQRSize + 32
+        let debugDisclosureEstimate: CGFloat
+#if DEBUG
+        debugDisclosureEstimate = showingReceiptDebugTools ? 292 : 36
+#else
+        debugDisclosureEstimate = 0
+#endif
+
+        return headerEstimate + actionEstimate + galleryEstimate + debugDisclosureEstimate
+    }
+
+    private func customerReceiptPreview(maxWidth: CGFloat, maxHeight: CGFloat) -> some View {
         Group {
-            if let receiptImage = viewModel.receiptImage {
-                let previewSize = receiptPreviewDisplaySize(for: receiptImage, maxWidth: width, maxHeight: maxHeight)
-                Image(uiImage: receiptImage)
+            if let previewImage = viewModel.receiptPhotoPreviewImage ?? viewModel.receiptImage {
+                let previewSize = receiptPreviewDisplaySize(for: previewImage, maxWidth: maxWidth, maxHeight: maxHeight)
+                Image(uiImage: previewImage)
                     .resizable()
-                    .scaledToFit()
+                    .interpolation(.high)
                     .frame(width: previewSize.width, height: previewSize.height)
             } else {
                 Text("Receipt preview is getting ready.")
                     .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
-                    .frame(width: width, height: min(maxHeight, 360))
+                    .frame(width: maxWidth, height: min(maxHeight, 320))
                     .background(PocketPixelsTheme.ColorPalette.surface)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .background(PocketPixelsTheme.ColorPalette.surface)
         .overlay {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.58), lineWidth: 1)
@@ -738,7 +721,8 @@ struct BoothSessionView: View {
 
     private func receiptPreviewDisplaySize(for image: UIImage, maxWidth: CGFloat, maxHeight: CGFloat) -> CGSize {
         guard image.size.width > 0, image.size.height > 0 else {
-            return CGSize(width: maxWidth, height: maxHeight)
+            let fallbackSize = min(maxWidth, maxHeight)
+            return CGSize(width: fallbackSize, height: fallbackSize)
         }
 
         let scale = min(maxWidth / image.size.width, maxHeight / image.size.height)
@@ -1250,11 +1234,17 @@ struct BoothSessionView: View {
         switch viewModel.selectedBoothFormat {
         case .grid:
             36
+        case .duo:
+            34
         case .strip:
-            42
-        case .solo, .duo, nil:
+            30
+        case .solo, nil:
             44
         }
+    }
+
+    private var usesLandscapeCompositionGuide: Bool {
+        viewModel.selectedBoothFormat == .duo || viewModel.selectedBoothFormat == .strip
     }
 
     private var cameraCustomerStatusText: String {
@@ -1644,8 +1634,8 @@ struct BoothSessionView: View {
             previewPhoto(width: receiptWidth * 0.62, height: receiptHeight * 0.70)
         case .duo:
             VStack(spacing: receiptHeight * 0.055) {
-                previewPhoto(width: receiptWidth * 0.58, height: receiptHeight * 0.38)
-                previewPhoto(width: receiptWidth * 0.58, height: receiptHeight * 0.38)
+                previewPhoto(width: receiptWidth * 0.72, height: receiptWidth * 0.54)
+                previewPhoto(width: receiptWidth * 0.72, height: receiptWidth * 0.54)
             }
         case .grid:
             VStack(spacing: receiptHeight * 0.047) {
@@ -1726,6 +1716,20 @@ struct BoothSessionView: View {
                 viewModel.errorMessage = error.localizedDescription
                 viewModel.statusMessage = error.localizedDescription
             }
+        }
+    }
+}
+
+private enum ReviewPhotoPresentation {
+    case portrait
+    case landscape
+
+    var aspectRatio: CGFloat {
+        switch self {
+        case .portrait:
+            return 3.0 / 4.0
+        case .landscape:
+            return ReceiptComposer.landscapePresentationAspectRatio
         }
     }
 }

@@ -20,6 +20,7 @@ final class BoothSessionViewModel: ObservableObject {
     @Published var transientCapturedPhoto: UIImage?
     @Published var composedReceipt: ComposedReceipt?
     @Published var receiptImage: UIImage?
+    @Published var receiptPhotoPreviewImage: UIImage?
     @Published var thermalReceiptPreview: UIImage?
     @Published var receiptRasterizedImage: ThermalRasterizedImage?
     @Published var galleryToken: String?
@@ -171,6 +172,7 @@ final class BoothSessionViewModel: ObservableObject {
 
         capturedPhotos.removeAll()
         receiptImage = nil
+        receiptPhotoPreviewImage = nil
         thermalReceiptPreview = nil
         receiptRasterizedImage = nil
         composedReceipt = nil
@@ -192,6 +194,7 @@ final class BoothSessionViewModel: ObservableObject {
         state = .retaking(photoIndex: index)
         statusMessage = "Retaking photo \(index + 1)."
         receiptImage = nil
+        receiptPhotoPreviewImage = nil
         thermalReceiptPreview = nil
         receiptRasterizedImage = nil
         composedReceipt = nil
@@ -205,6 +208,7 @@ final class BoothSessionViewModel: ObservableObject {
 
         capturedPhotos.removeAll()
         receiptImage = nil
+        receiptPhotoPreviewImage = nil
         thermalReceiptPreview = nil
         receiptRasterizedImage = nil
         composedReceipt = nil
@@ -255,6 +259,7 @@ final class BoothSessionViewModel: ObservableObject {
     func rebuildReceipt() {
         guard let committedGallerySession else {
             receiptImage = nil
+            receiptPhotoPreviewImage = nil
             thermalReceiptPreview = nil
             receiptRasterizedImage = nil
             composedReceipt = nil
@@ -263,6 +268,7 @@ final class BoothSessionViewModel: ObservableObject {
         }
 
         receiptImage = nil
+        receiptPhotoPreviewImage = nil
         thermalReceiptPreview = nil
         receiptRasterizedImage = nil
         composedReceipt = nil
@@ -298,25 +304,30 @@ final class BoothSessionViewModel: ObservableObject {
                     guard let receiptImage = UIImage(data: receipt.imagePNGData) else {
                         throw ReceiptComposerError.renderFailed
                     }
+                    let receiptPhotoPreviewImage = ReceiptComposer.makePhotoSectionPreviewImage(
+                        from: receiptImage,
+                        previewContentHeight: receipt.previewContentHeight
+                    )
                     let rasterized = try ThermalImageRasterizer.rasterize(receiptImage, purpose: .completeReceipt)
                     guard let preview = UIImage(data: rasterized.previewPNGData) else {
                         throw ThermalImageRasterizerError.renderFailed
                     }
-                    return (receipt, receiptImage, preview, rasterized)
+                    return (receipt, receiptImage, receiptPhotoPreviewImage, preview, rasterized)
                 }.value
 
                 guard !Task.isCancelled else { return }
 
                 composedReceipt = result.0
                 receiptImage = result.1
-                thermalReceiptPreview = result.2
-                receiptRasterizedImage = result.3
+                receiptPhotoPreviewImage = result.2
+                thermalReceiptPreview = result.3
+                receiptRasterizedImage = result.4
                 state = .receiptPreview
                 statusMessage = "Receipt ready: \(result.0.width) x \(result.0.height) pixels."
                 if enqueueUpload {
                     startGalleryUpload(committedSession: committedSession, receiptImage: result.1)
                 }
-                debugLog("Session \(committedSession.sessionIdentifier) receipt ready. Raster bytes: \(result.3.rasterData.count). Sanitized EOT: \(result.3.sanitizationReport.dleEOTPatternCount). Sanitized DC4: \(result.3.sanitizationReport.dleDC4PatternCount).")
+                debugLog("Session \(committedSession.sessionIdentifier) receipt ready. Raster bytes: \(result.4.rasterData.count). Sanitized EOT: \(result.4.sanitizationReport.dleEOTPatternCount). Sanitized DC4: \(result.4.sanitizationReport.dleDC4PatternCount).")
             } catch {
                 state = .error(error.localizedDescription)
                 errorMessage = error.localizedDescription
@@ -649,6 +660,7 @@ final class BoothSessionViewModel: ObservableObject {
         transientCapturedPhoto = nil
         composedReceipt = nil
         receiptImage = nil
+        receiptPhotoPreviewImage = nil
         thermalReceiptPreview = nil
         receiptRasterizedImage = nil
         sessionIdentifier = nil

@@ -9,7 +9,7 @@ enum BoothPhotoProcessor {
     nonisolated static let aspectRatio = CGSize(width: 3, height: 4)
 
     nonisolated static func normalizedPortraitPhoto(from image: UIImage) -> UIImage {
-        let oriented = image.redrawnBoothImage(opaque: true)
+        let oriented = image.normalizedBoothOrientation(opaque: true)
         guard oriented.size.width > 0, oriented.size.height > 0 else {
             return oriented
         }
@@ -40,8 +40,39 @@ enum BoothPhotoProcessor {
 }
 
 private extension UIImage {
-    func redrawnBoothImage(opaque: Bool) -> UIImage {
-        let pixelSize = CGSize(width: max(1, floor(size.width)), height: max(1, floor(size.height)))
+    nonisolated func normalizedBoothOrientation(opaque: Bool) -> UIImage {
+        let pixelSize: CGSize
+        if imageOrientation == .up, let cgImage {
+            pixelSize = CGSize(width: cgImage.width, height: cgImage.height)
+        } else {
+            pixelSize = CGSize(
+                width: max(1, floor(size.width * scale)),
+                height: max(1, floor(size.height * scale))
+            )
+        }
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = opaque
+
+        let renderer = UIGraphicsImageRenderer(size: pixelSize, format: format)
+        return renderer.image { context in
+            if opaque {
+                UIColor.white.setFill()
+                context.fill(CGRect(origin: .zero, size: pixelSize))
+            }
+            draw(in: CGRect(origin: .zero, size: pixelSize))
+        }
+    }
+
+    nonisolated func redrawnBoothImage(opaque: Bool) -> UIImage {
+        let pixelSize: CGSize
+        if let cgImage {
+            pixelSize = CGSize(width: cgImage.width, height: cgImage.height)
+        } else {
+            pixelSize = CGSize(width: max(1, floor(size.width * scale)), height: max(1, floor(size.height * scale)))
+        }
+
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = opaque
