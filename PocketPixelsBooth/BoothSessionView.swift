@@ -84,6 +84,7 @@ struct BoothSessionView: View {
                 viewModel.retryQueuedGalleryUploads()
             }
         }
+        .preferredColorScheme(.light)
     }
 
     @ViewBuilder

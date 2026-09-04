@@ -44,6 +44,9 @@ struct CameraTestView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
                         header
+#if DEBUG
+                        colorReferenceSection
+#endif
 
                         if capturedImage == nil {
                             cameraCaptureArea
@@ -73,6 +76,92 @@ struct CameraTestView: View {
             }
         }
     }
+
+#if DEBUG
+    private var colorReferenceSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Color Reference")
+                .font(.headline)
+                .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
+
+            Text("DEBUG reference swatches using production PocketPixelsTheme colors.")
+                .font(.subheadline)
+                .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+
+            LazyVGrid(columns: colorReferenceColumns, alignment: .leading, spacing: 12) {
+                colorReferenceSwatch(
+                    name: "paper",
+                    color: PocketPixelsTheme.ColorPalette.paper,
+                    rgb: "255 / 248 / 242",
+                    hex: "#FFF8F2"
+                )
+                colorReferenceSwatch(
+                    name: "paperWarm",
+                    color: PocketPixelsTheme.ColorPalette.paperWarm,
+                    rgb: "255 / 240 / 230",
+                    hex: "#FFF0E6"
+                )
+                colorReferenceSwatch(
+                    name: "brandBlush",
+                    color: PocketPixelsTheme.ColorPalette.brandBlush,
+                    rgb: "249 / 217 / 199",
+                    hex: "#F9D9C7"
+                )
+                colorReferenceSwatch(
+                    name: "brandMaroon",
+                    color: PocketPixelsTheme.ColorPalette.brandMaroon,
+                    rgb: "119 / 33 / 48",
+                    hex: "#772130"
+                )
+                colorReferenceSwatch(
+                    name: "surface",
+                    color: PocketPixelsTheme.ColorPalette.surface,
+                    rgb: "255 / 253 / 249",
+                    hex: "#FFFDF9"
+                )
+                colorReferenceSwatch(
+                    name: "secondaryText",
+                    color: PocketPixelsTheme.ColorPalette.secondaryText,
+                    rgb: "112 / 92 / 84",
+                    hex: "#705C54"
+                )
+            }
+        }
+        .padding(18)
+        .background(PocketPixelsTheme.ColorPalette.acrylic)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.58), lineWidth: 1)
+        }
+    }
+
+    private var colorReferenceColumns: [GridItem] {
+        [
+            GridItem(.adaptive(minimum: 180), spacing: 12, alignment: .leading)
+        ]
+    }
+
+    private func colorReferenceSwatch(name: String, color: Color, rgb: String, hex: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(color)
+                .frame(height: 56)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.72), lineWidth: 1)
+                }
+
+            Text(name)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
+
+            Text("\(hex)  \(rgb)")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+        }
+    }
+#endif
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {

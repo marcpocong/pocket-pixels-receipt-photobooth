@@ -7,23 +7,23 @@ import SwiftUI
 
 enum PocketPixelsTheme {
     enum ColorPalette {
-        static let brandMaroon = Color(red: 0.467, green: 0.129, blue: 0.188)
-        static let brandBlush = Color(red: 0.976, green: 0.851, blue: 0.780)
-        static let paper = Color(red: 1.0, green: 0.973, blue: 0.949)
-        static let paperWarm = Color(red: 1.0, green: 0.941, blue: 0.902)
-        static let acrylic = Color(red: 1.0, green: 0.992, blue: 0.976)
-        static let surface = Color(red: 1.0, green: 0.992, blue: 0.976)
-        static let surfacePressed = Color(red: 0.976, green: 0.851, blue: 0.780)
-        static let amberGlow = Color(red: 0.898, green: 0.627, blue: 0.353)
-        static let charcoal = Color(red: 0.165, green: 0.129, blue: 0.118)
-        static let secondaryText = Color(red: 0.439, green: 0.361, blue: 0.329)
-        static let border = Color(red: 0.835, green: 0.706, blue: 0.639)
-        static let lightText = Color(red: 1.0, green: 0.973, blue: 0.949)
-        static let warningSurface = Color(red: 1.0, green: 0.921, blue: 0.866)
-        static let warningText = Color(red: 0.467, green: 0.129, blue: 0.188)
+        static let brandMaroon = Color(.sRGB, red: 0.467, green: 0.129, blue: 0.188, opacity: 1)
+        static let brandBlush = Color(.sRGB, red: 0.976, green: 0.851, blue: 0.780, opacity: 1)
+        static let paper = Color(.sRGB, red: 1.0, green: 0.973, blue: 0.949, opacity: 1)
+        static let paperWarm = Color(.sRGB, red: 1.0, green: 0.941, blue: 0.902, opacity: 1)
+        static let acrylic = Color(.sRGB, red: 1.0, green: 0.992, blue: 0.976, opacity: 1)
+        static let surface = Color(.sRGB, red: 1.0, green: 0.992, blue: 0.976, opacity: 1)
+        static let surfacePressed = Color(.sRGB, red: 0.976, green: 0.851, blue: 0.780, opacity: 1)
+        static let amberGlow = Color(.sRGB, red: 0.898, green: 0.627, blue: 0.353, opacity: 1)
+        static let charcoal = Color(.sRGB, red: 0.165, green: 0.129, blue: 0.118, opacity: 1)
+        static let secondaryText = Color(.sRGB, red: 0.439, green: 0.361, blue: 0.329, opacity: 1)
+        static let border = Color(.sRGB, red: 0.835, green: 0.706, blue: 0.639, opacity: 1)
+        static let lightText = Color(.sRGB, red: 1.0, green: 0.973, blue: 0.949, opacity: 1)
+        static let warningSurface = Color(.sRGB, red: 1.0, green: 0.921, blue: 0.866, opacity: 1)
+        static let warningText = Color(.sRGB, red: 0.467, green: 0.129, blue: 0.188, opacity: 1)
 
         static let maroon = brandMaroon
-        static let maroonMuted = Color(red: 0.62, green: 0.30, blue: 0.34)
+        static let maroonMuted = Color(.sRGB, red: 0.62, green: 0.30, blue: 0.34, opacity: 1)
     }
 
     enum Spacing {
