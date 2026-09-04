@@ -107,6 +107,7 @@ struct BluetoothPrinterMetrics: Equatable {
     let throughputBytesPerSecond: Double?
     let flowControlPauseCount: Int
     let longestFlowControlPause: TimeInterval?
+    let flowControlPauseEvents: [BluetoothPrinterFlowControlPauseEvent]
     let intentionalPacingPauseCount: Int
     let physicalPrintDuration: TimeInterval?
 
@@ -117,7 +118,62 @@ struct BluetoothPrinterMetrics: Equatable {
 
         return min(1, Double(transferredBytes) / Double(payloadByteCount))
     }
+
+    var rasterFlowPauseRowSummary: String? {
+        let rows = flowControlPauseEvents.compactMap(\.rasterRow)
+
+        guard !rows.isEmpty else {
+            return nil
+        }
+
+        let uniqueRows = Array(Set(rows)).sorted()
+        let displayedRows = uniqueRows.prefix(12).map { "~\($0)" }.joined(separator: ", ")
+
+        if uniqueRows.count > 12 {
+            return "\(displayedRows), +\(uniqueRows.count - 12) more"
+        }
+
+        return displayedRows
+    }
 }
+
+struct BluetoothPrinterFlowControlPauseEvent: Equatable {
+    let transferredBytes: Int
+    let rasterByteOffset: Int?
+    let rasterRow: Int?
+    let duration: TimeInterval
+}
+
+#if DEBUG
+enum SilentBLETest: String, CaseIterable, Identifiable {
+    case minimalTextNoCutter = "A"
+    case minimalTextWithCutter = "B"
+    case explicitBuzzerControl = "C"
+
+    var id: String {
+        rawValue
+    }
+
+    var displayName: String {
+        switch self {
+        case .minimalTextNoCutter:
+            "Test A - Minimal Text, No Cutter"
+        case .minimalTextWithCutter:
+            "Test B - Minimal Text + Cutter"
+        case .explicitBuzzerControl:
+            "Test C - Explicit Buzzer Control"
+        }
+    }
+
+    var hasCutter: Bool {
+        self == .minimalTextWithCutter
+    }
+
+    var hasExplicitBuzzer: Bool {
+        self == .explicitBuzzerControl
+    }
+}
+#endif
 
 enum BluetoothPrinterJobState: Equatable {
     case idle
@@ -224,6 +280,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         let chunks: [Data]
         let totalBytes: Int
         let rasterByteCount: Int
+        let rasterDataStartByteOffset: Int?
         let maximumWriteLength: Int
         let chunkSize: Int
         let chunkCount: Int
@@ -268,6 +325,8 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
     private var operatorDisconnectInProgress = false
     private var flowControlPauseCount = 0
     private var currentFlowControlPauseStartedAt: Date?
+    private var currentFlowControlPausePosition: (transferredBytes: Int, rasterByteOffset: Int?, rasterRow: Int?)?
+    private var flowControlPauseEvents: [BluetoothPrinterFlowControlPauseEvent] = []
     private var longestFlowControlPause: TimeInterval?
     private var lastJobStartedAt: Date?
     private var chunksSentInCurrentBurst = 0
@@ -581,6 +640,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
             throughputBytesPerSecond: currentMetrics.throughputBytesPerSecond,
             flowControlPauseCount: currentMetrics.flowControlPauseCount,
             longestFlowControlPause: currentMetrics.longestFlowControlPause,
+            flowControlPauseEvents: currentMetrics.flowControlPauseEvents,
             intentionalPacingPauseCount: currentMetrics.intentionalPacingPauseCount,
             physicalPrintDuration: Date().timeIntervalSince(lastJobStartedAt)
         )
@@ -624,6 +684,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
             chunks: chunks,
             totalBytes: payload.count,
             rasterByteCount: 0,
+            rasterDataStartByteOffset: nil,
             maximumWriteLength: maximumLength,
             chunkSize: chunkSize,
             chunkCount: chunks.count,
@@ -637,6 +698,8 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         printBytesStarted = false
         flowControlPauseCount = 0
         currentFlowControlPauseStartedAt = nil
+        currentFlowControlPausePosition = nil
+        flowControlPauseEvents = []
         longestFlowControlPause = nil
         lastJobStartedAt = Date()
         chunksSentInCurrentBurst = 0
@@ -659,12 +722,129 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
             throughputBytesPerSecond: nil,
             flowControlPauseCount: 0,
             longestFlowControlPause: nil,
+            flowControlPauseEvents: [],
             intentionalPacingPauseCount: 0,
             physicalPrintDuration: nil
         )
         appendLog("Quick Bluetooth text test started. Write characteristic: 18F0 / 2AF1. Chunk size: \(chunkSize).")
         sendNextChunk()
     }
+
+#if DEBUG
+    func printSilentBLETest(_ test: SilentBLETest, completion: CompletionHandler? = nil) {
+        guard beginJob() else {
+            completion?(.failure(.jobAlreadyActive), false)
+            return
+        }
+
+        pendingCompletion = completion
+
+        guard let peripheral = connectedPeripheral, peripheral.state == .connected else {
+            finishJob(.failure(.printerNotConnected))
+            return
+        }
+
+        guard let writeCharacteristic else {
+            finishJob(.failure(.knownCharacteristicUnavailable))
+            return
+        }
+
+        guard writeCharacteristic.properties.contains(.writeWithoutResponse) else {
+            finishJob(.failure(.sendFailed("Characteristic 2AF1 does not support writeWithoutResponse.")))
+            return
+        }
+
+        let payload = silentBLEPayload(for: test)
+        let maximumLength = max(1, peripheral.maximumWriteValueLength(for: .withoutResponse))
+        let chunkSize = max(1, min(Self.fastInitialChunkLimit, maximumLength))
+        let chunks = payload.chunked(maximumLength: chunkSize)
+
+        pendingJob = PendingJob(
+            label: "Silent BLE Test \(test.rawValue)",
+            mode: .fast,
+            balancedProfile: nil,
+            photoCalibrationProfileName: nil,
+            chunks: chunks,
+            totalBytes: payload.count,
+            rasterByteCount: 0,
+            rasterDataStartByteOffset: nil,
+            maximumWriteLength: maximumLength,
+            chunkSize: chunkSize,
+            chunkCount: chunks.count,
+            startedAt: Date(),
+            rasterStartChunkIndex: chunks.count,
+            finishingStartChunkIndex: chunks.count
+        )
+        pendingChunkIndex = 0
+        transferredBytes = 0
+        rasterTransmissionBegan = false
+        printBytesStarted = false
+        flowControlPauseCount = 0
+        currentFlowControlPauseStartedAt = nil
+        currentFlowControlPausePosition = nil
+        flowControlPauseEvents = []
+        longestFlowControlPause = nil
+        lastJobStartedAt = Date()
+        chunksSentInCurrentBurst = 0
+        burstCount = chunks.isEmpty ? 0 : 1
+        intentionalPacingPauseCount = 0
+        metrics = BluetoothPrinterMetrics(
+            mode: .fast,
+            balancedProfileName: nil,
+            photoCalibrationProfileName: nil,
+            payloadByteCount: payload.count,
+            rasterByteCount: 0,
+            maximumWriteLength: maximumLength,
+            chunkSize: chunkSize,
+            chunkCount: chunks.count,
+            burstChunkCount: nil,
+            interBurstDelayMilliseconds: nil,
+            burstCount: burstCount,
+            transferredBytes: 0,
+            duration: nil,
+            throughputBytesPerSecond: nil,
+            flowControlPauseCount: 0,
+            longestFlowControlPause: nil,
+            flowControlPauseEvents: [],
+            intentionalPacingPauseCount: 0,
+            physicalPrintDuration: nil
+        )
+
+        appendLog("[SILENT-BLE] test=\(test.rawValue)")
+        appendLog("[SILENT-BLE] command segments: \(silentBLESegmentDescription(for: test))")
+        appendLog("[SILENT-BLE] cutter=\(test.hasCutter ? "yes" : "no")")
+        appendLog("[SILENT-BLE] explicitBuzzer=\(test.hasExplicitBuzzer ? "yes" : "no")")
+        appendLog("Silent BLE Test \(test.rawValue) started. Write characteristic: 18F0 / 2AF1. Chunk size: \(chunkSize).")
+        sendNextChunk()
+    }
+
+    private func silentBLEPayload(for test: SilentBLETest) -> Data {
+        var payload = Data([0x1B, 0x40])
+
+        switch test {
+        case .minimalTextNoCutter:
+            payload.appendASCII("POCKET PIXELS SILENT TEST A\n\n\n")
+        case .minimalTextWithCutter:
+            payload.appendASCII("POCKET PIXELS SILENT TEST B\n\n\n")
+            payload.append(contentsOf: [0x1D, 0x56, 0x42, 0x00])
+        case .explicitBuzzerControl:
+            payload.append(contentsOf: [0x1B, 0x42, 0x01, 0x01])
+        }
+
+        return payload
+    }
+
+    private func silentBLESegmentDescription(for test: SilentBLETest) -> String {
+        switch test {
+        case .minimalTextNoCutter:
+            return "ESC @ = 1B 40; text = \"POCKET PIXELS SILENT TEST A\\n\\n\\n\""
+        case .minimalTextWithCutter:
+            return "ESC @ = 1B 40; text = \"POCKET PIXELS SILENT TEST B\\n\\n\\n\"; cut = 1D 56 42 00"
+        case .explicitBuzzerControl:
+            return "ESC @ = 1B 40; explicit buzzer = 1B 42 01 01"
+        }
+    }
+#endif
 
     private func startReceiptRasterJob(
         receipt: ComposedReceipt,
@@ -789,6 +969,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         let finishingChunks = finishing.chunked(maximumLength: chunkSize)
         let chunks = headingChunks + rasterChunks + finishingChunks
         let totalBytes = heading.count + rasterCommand.count + finishing.count
+        let rasterDataStartByteOffset = heading.count + 8
 
         pendingJob = PendingJob(
             label: label,
@@ -798,6 +979,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
             chunks: chunks,
             totalBytes: totalBytes,
             rasterByteCount: rasterDataByteCount,
+            rasterDataStartByteOffset: rasterDataStartByteOffset,
             maximumWriteLength: maximumLength,
             chunkSize: chunkSize,
             chunkCount: chunks.count,
@@ -810,6 +992,8 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         rasterTransmissionBegan = false
         flowControlPauseCount = 0
         currentFlowControlPauseStartedAt = nil
+        currentFlowControlPausePosition = nil
+        flowControlPauseEvents = []
         longestFlowControlPause = nil
         lastJobStartedAt = Date()
         chunksSentInCurrentBurst = 0
@@ -832,6 +1016,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
             throughputBytesPerSecond: nil,
             flowControlPauseCount: 0,
             longestFlowControlPause: nil,
+            flowControlPauseEvents: [],
             intentionalPacingPauseCount: 0,
             physicalPrintDuration: nil
         )
@@ -1094,6 +1279,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         printBytesStarted = false
         isJobActive = false
         currentFlowControlPauseStartedAt = nil
+        currentFlowControlPausePosition = nil
         chunksSentInCurrentBurst = 0
         pacingPauseTask?.cancel()
         pacingPauseTask = nil
@@ -1130,6 +1316,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
             throughputBytesPerSecond: throughput,
             flowControlPauseCount: flowControlPauseCount,
             longestFlowControlPause: longestFlowControlPause,
+            flowControlPauseEvents: flowControlPauseEvents,
             intentionalPacingPauseCount: intentionalPacingPauseCount,
             physicalPrintDuration: metrics?.physicalPrintDuration
         )
@@ -1141,6 +1328,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         }
 
         currentFlowControlPauseStartedAt = Date()
+        currentFlowControlPausePosition = currentRasterFlowPausePosition()
         flowControlPauseCount += 1
         updateMetrics(duration: nil)
     }
@@ -1151,14 +1339,48 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         }
 
         let duration = Date().timeIntervalSince(pauseStartedAt)
+        if let currentFlowControlPausePosition {
+            let event = BluetoothPrinterFlowControlPauseEvent(
+                transferredBytes: currentFlowControlPausePosition.transferredBytes,
+                rasterByteOffset: currentFlowControlPausePosition.rasterByteOffset,
+                rasterRow: currentFlowControlPausePosition.rasterRow,
+                duration: duration
+            )
+            flowControlPauseEvents.append(event)
+        }
         if let existingLongest = longestFlowControlPause {
             longestFlowControlPause = max(existingLongest, duration)
         } else {
             longestFlowControlPause = duration
         }
         currentFlowControlPauseStartedAt = nil
+        currentFlowControlPausePosition = nil
         updateMetrics(duration: nil)
-        appendLog("No-response flow-control pause cleared after \(String(format: "%.3f", duration)) seconds.")
+        if let row = flowControlPauseEvents.last?.rasterRow {
+            appendLog("No-response flow-control pause cleared near raster row ~\(row) after \(String(format: "%.3f", duration)) seconds.")
+        } else {
+            appendLog("No-response flow-control pause cleared after \(String(format: "%.3f", duration)) seconds.")
+        }
+    }
+
+    private func currentRasterFlowPausePosition() -> (transferredBytes: Int, rasterByteOffset: Int?, rasterRow: Int?) {
+        guard let pendingJob,
+              let rasterDataStartByteOffset = pendingJob.rasterDataStartByteOffset,
+              pendingJob.rasterByteCount > 0 else {
+            return (transferredBytes, nil, nil)
+        }
+
+        let rasterByteOffset = transferredBytes - rasterDataStartByteOffset
+
+        guard rasterByteOffset >= 0, rasterByteOffset < pendingJob.rasterByteCount else {
+            return (transferredBytes, nil, nil)
+        }
+
+        return (
+            transferredBytes,
+            rasterByteOffset,
+            rasterByteOffset / ThermalImageRasterizer.widthBytes
+        )
     }
 
     private func finishTimedScan() {
@@ -1402,6 +1624,7 @@ extension PrinterBluetoothService: CBPeripheralDelegate {
             throughputBytesPerSecond: nil,
             flowControlPauseCount: flowControlPauseCount,
             longestFlowControlPause: longestFlowControlPause,
+            flowControlPauseEvents: flowControlPauseEvents,
             intentionalPacingPauseCount: intentionalPacingPauseCount,
             physicalPrintDuration: metrics?.physicalPrintDuration
         )

@@ -5,6 +5,8 @@
 //  Created by marc on 8/30/26.
 //
 
+import CoreImage
+import CoreImage.CIFilterBuiltins
 import PhotosUI
 import SwiftUI
 import UIKit
@@ -30,6 +32,14 @@ struct PrinterTestView: View {
     @State private var calibratedBluetoothPreviewImage: UIImage?
     @State private var calibratedBluetoothRasterizedImage: ThermalRasterizedImage?
     @State private var isProcessingBluetoothCalibration = false
+    @State private var duoConsistencyPhotoItem: PhotosPickerItem?
+    @State private var duoConsistencySourceImage: UIImage?
+    @State private var duoConsistencyPreviewImage: UIImage?
+    @State private var duoConsistencyRasterizedImage: ThermalRasterizedImage?
+    @State private var duoConsistencyStatusMessage = "Select one photo to create a same-photo Duo receipt raster."
+    @State private var duoConsistencyCoverageSummary: String?
+    @State private var isProcessingDuoConsistency = false
+    @State private var duoConsistencySecondPhotoCompensation = ThermalDuoSecondPhotoCompensation.none
 #endif
 
     private let printerService = PrinterNetworkService()
@@ -69,6 +79,12 @@ struct PrinterTestView: View {
 #if DEBUG
             .onChange(of: thermalPhotoCalibrationProfile) { _, _ in
                 updateBluetoothCalibratedPreview()
+            }
+            .onChange(of: duoConsistencyPhotoItem) { _, newItem in
+                loadDuoConsistencyPhoto(from: newItem)
+            }
+            .onChange(of: duoConsistencySecondPhotoCompensation) { _, _ in
+                updateDuoConsistencyRaster()
             }
 #endif
             .onDisappear {
@@ -322,11 +338,15 @@ struct PrinterTestView: View {
 
             bluetoothConnectionControls
 
+            silentBLETestSection
+
             bluetoothModeSelector
 
             if bluetoothRasterMode == .fast {
                 thermalPhotoCalibrationSelector
             }
+
+            duoConsistencyTestSection
 
             if let metrics = bluetoothPrinterService.metrics {
                 bluetoothMetricsView(metrics)
@@ -664,6 +684,15 @@ struct PrinterTestView: View {
                     }
                 }
 
+                if let rasterFlowPauseRowSummary = metrics.rasterFlowPauseRowSummary {
+                    GridRow {
+                        Text("Pause rows")
+                            .foregroundStyle(.secondary)
+                        Text(rasterFlowPauseRowSummary)
+                            .font(.callout.monospacedDigit())
+                    }
+                }
+
                 if let physicalPrintDuration = metrics.physicalPrintDuration {
                     GridRow {
                         Text("Paper complete")
@@ -672,6 +701,129 @@ struct PrinterTestView: View {
                             .font(.callout.monospacedDigit())
                     }
                 }
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var duoConsistencyTestSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Duo Consistency Test")
+                    .font(.headline)
+
+                Text("DEBUG same-photo thermal test. The selected image is normalized once, then the exact same UIImage is used in both Duo positions.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 12) {
+                PhotosPicker(selection: $duoConsistencyPhotoItem, matching: .images) {
+                    Label("Select Duo Test Photo", systemImage: "photo.on.rectangle")
+                }
+                .buttonStyle(.bordered)
+                .disabled(isProcessingDuoConsistency || isAnyPrinterBusy)
+
+                Button {
+                    printDuoConsistencyViaBluetooth()
+                } label: {
+                    Label("Print Same-Photo Duo (Fast BLE)", systemImage: "printer")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(duoConsistencyRasterizedImage == nil || isProcessingDuoConsistency || !bluetoothPrinterService.canPrintRaster || connectionState.isWorking || discoveryState.isSearching)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Second Photo Compensation")
+                    .font(.subheadline.weight(.semibold))
+
+                Picker("Second Photo Compensation", selection: $duoConsistencySecondPhotoCompensation) {
+                    ForEach(ThermalDuoSecondPhotoCompensation.fineCalibrationProfiles) { profile in
+                        Text(profile.displayName).tag(profile)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 360)
+                .disabled(duoConsistencySourceImage == nil || isProcessingDuoConsistency || isAnyPrinterBusy)
+
+                Text(duoConsistencySecondPhotoCompensation.parametersDescription)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+
+                Text("Fine bracket for physical comparison: Mild- vs Mild vs Mild+.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Text(duoConsistencyStatusMessage)
+                .font(.subheadline)
+                .foregroundStyle(isProcessingDuoConsistency ? .primary : .secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let duoConsistencyCoverageSummary {
+                Text(duoConsistencyCoverageSummary)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            if isProcessingDuoConsistency {
+                ProgressView("Creating Duo consistency raster...")
+            }
+
+            Grid(alignment: .topLeading, horizontalSpacing: 20, verticalSpacing: 12) {
+                GridRow {
+                    imagePreview(title: "Duo Test Source", image: duoConsistencySourceImage)
+                    imagePreview(title: "Final 1-bit Raster Preview", image: duoConsistencyPreviewImage)
+                }
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var silentBLETestSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Silent BLE Test")
+                    .font(.headline)
+
+                Text("DEBUG-only beep isolation using minimal non-raster BLE payloads. Test C intentionally sends the documented buzzer command once.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(alignment: .top, spacing: 12) {
+                Button {
+                    bluetoothPrinterService.printSilentBLETest(.minimalTextNoCutter)
+                } label: {
+                    Label("Test A: Text, No Cutter", systemImage: "text.alignleft")
+                }
+                .buttonStyle(.bordered)
+                .disabled(!canRunSilentBLETest)
+
+                Button {
+                    bluetoothPrinterService.printSilentBLETest(.minimalTextWithCutter)
+                } label: {
+                    Label("Test B: Text + Cutter", systemImage: "scissors")
+                }
+                .buttonStyle(.bordered)
+                .disabled(!canRunSilentBLETest)
+
+                Button {
+                    bluetoothPrinterService.printSilentBLETest(.explicitBuzzerControl)
+                } label: {
+                    Label("Test C: Trigger Buzzer Once", systemImage: "speaker.wave.2")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.orange)
+                .disabled(!canRunSilentBLETest)
             }
         }
         .padding(18)
@@ -831,6 +983,15 @@ struct PrinterTestView: View {
             && bluetoothPrinterService.canPrintRaster
             && !connectionState.isWorking
             && !discoveryState.isSearching
+    }
+
+    private var canRunSilentBLETest: Bool {
+        bluetoothPrinterService.canPrintRaster
+            && !connectionState.isWorking
+            && !discoveryState.isSearching
+            && !isProcessingPhoto
+            && !isProcessingBluetoothCalibration
+            && !isProcessingDuoConsistency
     }
 #else
     private var isBluetoothPrinterBusy: Bool {
@@ -1002,6 +1163,165 @@ struct PrinterTestView: View {
             photoStatusMessage = error.localizedDescription
         }
     }
+
+    private func printDuoConsistencyViaBluetooth() {
+        guard let duoConsistencyRasterizedImage else {
+            duoConsistencyStatusMessage = "Create the same-photo Duo raster before printing."
+            return
+        }
+
+        bluetoothPrinterService.printRasterizedReceipt(
+            rasterizedImage: duoConsistencyRasterizedImage,
+            mode: .fast,
+            balancedProfile: balancedBluetoothProfile
+        )
+    }
+
+    private func loadDuoConsistencyPhoto(from item: PhotosPickerItem?) {
+        guard let item else {
+            return
+        }
+
+        isProcessingDuoConsistency = true
+        duoConsistencyStatusMessage = "Loading selected Duo test photo..."
+        duoConsistencySourceImage = nil
+        duoConsistencyPreviewImage = nil
+        duoConsistencyRasterizedImage = nil
+        duoConsistencyCoverageSummary = nil
+
+        Task {
+            do {
+                guard let imageData = try await item.loadTransferable(type: Data.self),
+                      let image = UIImage(data: imageData) else {
+                    throw ThermalImageRasterizerError.invalidImage
+                }
+
+                let normalizedPhoto = await Task.detached(priority: .userInitiated) {
+                    BoothPhotoProcessor.normalizedPortraitPhoto(from: image)
+                }.value
+
+                duoConsistencySourceImage = normalizedPhoto
+                renderDuoConsistencyRaster(from: normalizedPhoto)
+                return
+            } catch {
+                duoConsistencySourceImage = nil
+                duoConsistencyPreviewImage = nil
+                duoConsistencyRasterizedImage = nil
+                duoConsistencyCoverageSummary = nil
+                duoConsistencyStatusMessage = error.localizedDescription
+            }
+
+            isProcessingDuoConsistency = false
+        }
+    }
+
+    private func updateDuoConsistencyRaster() {
+        guard let duoConsistencySourceImage, !isProcessingDuoConsistency else {
+            return
+        }
+
+        renderDuoConsistencyRaster(from: duoConsistencySourceImage)
+    }
+
+    private func renderDuoConsistencyRaster(from normalizedPhoto: UIImage) {
+        isProcessingDuoConsistency = true
+        duoConsistencyStatusMessage = "Creating Duo consistency raster..."
+        duoConsistencyPreviewImage = nil
+        duoConsistencyRasterizedImage = nil
+        duoConsistencyCoverageSummary = nil
+
+        Task {
+            do {
+                let compensation = duoConsistencySecondPhotoCompensation
+                let result = try await Task.detached(priority: .userInitiated) {
+                    let secondPhoto = try compensation.apply(to: normalizedPhoto)
+                    let date = Date()
+                    let receipt = try ReceiptComposer.compose(
+                        photos: [normalizedPhoto, secondPhoto],
+                        sessionIdentifier: "DEBUG-DUO-\(ReceiptComposer.makeSessionIdentifier(date: date))",
+                        date: date,
+                        galleryURL: nil,
+                        format: .duo
+                    )
+
+                    guard let receiptImage = UIImage(data: receipt.imagePNGData) else {
+                        throw ThermalImageRasterizerError.renderFailed
+                    }
+
+                    let rasterized = try ThermalImageRasterizer.rasterize(receiptImage, purpose: .completeReceipt)
+
+                    guard let preview = UIImage(data: rasterized.previewPNGData) else {
+                        throw ThermalImageRasterizerError.renderFailed
+                    }
+
+                    let coverageSummary = Self.duoConsistencyCoverageSummary(for: rasterized)
+
+                    return (preview, rasterized, coverageSummary)
+                }.value
+
+                duoConsistencyPreviewImage = result.0
+                duoConsistencyRasterizedImage = result.1
+                duoConsistencyCoverageSummary = result.2
+                duoConsistencyStatusMessage = "Same-photo Duo raster ready with \(compensation.displayName) second-photo compensation: \(result.1.width) x \(result.1.height) dots."
+            } catch {
+                duoConsistencyPreviewImage = nil
+                duoConsistencyRasterizedImage = nil
+                duoConsistencyCoverageSummary = nil
+                duoConsistencyStatusMessage = error.localizedDescription
+            }
+
+            isProcessingDuoConsistency = false
+        }
+    }
+
+    nonisolated private static func duoConsistencyCoverageSummary(for rasterizedImage: ThermalRasterizedImage) -> String {
+        let photoWidth = BoothConfiguration.receiptWidth - (BoothConfiguration.receiptHorizontalMargin * 2)
+        let photoHeight = Int(round(Double(photoWidth) * 3.0 / 4.0))
+        let photoX = BoothConfiguration.receiptHorizontalMargin
+        let firstPhotoY = 86
+        let photoGap = 10
+        let secondPhotoY = firstPhotoY + photoHeight + photoGap
+
+        let firstCoverage = blackPixelCoverage(
+            in: rasterizedImage,
+            xRange: photoX..<(photoX + photoWidth),
+            yRange: firstPhotoY..<(firstPhotoY + photoHeight)
+        )
+        let secondCoverage = blackPixelCoverage(
+            in: rasterizedImage,
+            xRange: photoX..<(photoX + photoWidth),
+            yRange: secondPhotoY..<(secondPhotoY + photoHeight)
+        )
+
+        return "Approx black coverage - Duo photo 1: \(firstCoverage.formatted(.number.precision(.fractionLength(1))))%, photo 2: \(secondCoverage.formatted(.number.precision(.fractionLength(1))))%."
+    }
+
+    nonisolated private static func blackPixelCoverage(in rasterizedImage: ThermalRasterizedImage, xRange: Range<Int>, yRange: Range<Int>) -> Double {
+        let clampedXRange = max(0, xRange.lowerBound)..<min(rasterizedImage.width, xRange.upperBound)
+        let clampedYRange = max(0, yRange.lowerBound)..<min(rasterizedImage.height, yRange.upperBound)
+        var totalPixels = 0
+        var blackPixels = 0
+
+        guard !clampedXRange.isEmpty, !clampedYRange.isEmpty else {
+            return 0
+        }
+
+        for y in clampedYRange {
+            let rowOffset = y * rasterizedImage.widthBytes
+
+            for x in clampedXRange {
+                let byteIndex = rowOffset + (x / 8)
+                let bitMask = UInt8(0x80) >> UInt8(x % 8)
+                totalPixels += 1
+
+                if rasterizedImage.rasterData[byteIndex] & bitMask != 0 {
+                    blackPixels += 1
+                }
+            }
+        }
+
+        return totalPixels > 0 ? (Double(blackPixels) / Double(totalPixels)) * 100 : 0
+    }
 #endif
 
     private func loadPhoto(from item: PhotosPickerItem?) {
@@ -1093,3 +1413,131 @@ struct PrinterTestView: View {
     }
 #endif
 }
+
+#if DEBUG
+private enum ThermalDuoSecondPhotoCompensation: String, CaseIterable, Identifiable, Sendable {
+    case none
+    case mildMinus
+    case mild
+    case mildPlus
+    case medium
+    case strong
+
+    nonisolated static let fineCalibrationProfiles: [ThermalDuoSecondPhotoCompensation] = [
+        .mildMinus,
+        .mild,
+        .mildPlus
+    ]
+
+    nonisolated var id: String {
+        rawValue
+    }
+
+    nonisolated var displayName: String {
+        switch self {
+        case .none:
+            "None"
+        case .mildMinus:
+            "Mild-"
+        case .mild:
+            "Mild"
+        case .mildPlus:
+            "Mild+"
+        case .medium:
+            "Medium"
+        case .strong:
+            "Strong"
+        }
+    }
+
+    nonisolated var brightness: Float {
+        switch self {
+        case .none:
+            0
+        case .mildMinus:
+            0.025
+        case .mild:
+            0.035
+        case .mildPlus:
+            0.045
+        case .medium:
+            0.065
+        case .strong:
+            0.095
+        }
+    }
+
+    nonisolated var contrast: Float {
+        switch self {
+        case .none:
+            1
+        case .mildMinus:
+            0.985
+        case .mild:
+            0.98
+        case .mildPlus:
+            0.975
+        case .medium:
+            0.96
+        case .strong:
+            0.94
+        }
+    }
+
+    nonisolated var gammaPower: Float {
+        switch self {
+        case .none:
+            1
+        case .mildMinus:
+            0.96
+        case .mild:
+            0.94
+        case .mildPlus:
+            0.92
+        case .medium:
+            0.88
+        case .strong:
+            0.82
+        }
+    }
+
+    nonisolated var parametersDescription: String {
+        "P2 only - brightness \(brightness.formatted(.number.precision(.fractionLength(3)))), contrast \(contrast.formatted(.number.precision(.fractionLength(2)))), gamma \(gammaPower.formatted(.number.precision(.fractionLength(2))))"
+    }
+
+    nonisolated func apply(to image: UIImage) throws -> UIImage {
+        guard self != .none else {
+            return image
+        }
+
+        guard let inputImage = CIImage(image: image) else {
+            throw ThermalImageRasterizerError.invalidImage
+        }
+
+        let colorControls = CIFilter.colorControls()
+        colorControls.inputImage = inputImage
+        colorControls.brightness = brightness
+        colorControls.contrast = contrast
+        colorControls.saturation = 1
+
+        guard let colorAdjustedImage = colorControls.outputImage else {
+            throw ThermalImageRasterizerError.renderFailed
+        }
+
+        let gammaAdjust = CIFilter.gammaAdjust()
+        gammaAdjust.inputImage = colorAdjustedImage
+        gammaAdjust.power = gammaPower
+
+        guard let outputImage = gammaAdjust.outputImage else {
+            throw ThermalImageRasterizerError.renderFailed
+        }
+
+        let context = CIContext(options: [.useSoftwareRenderer: false])
+        guard let cgImage = context.createCGImage(outputImage, from: inputImage.extent) else {
+            throw ThermalImageRasterizerError.renderFailed
+        }
+
+        return UIImage(cgImage: cgImage, scale: image.scale, orientation: image.imageOrientation)
+    }
+}
+#endif
