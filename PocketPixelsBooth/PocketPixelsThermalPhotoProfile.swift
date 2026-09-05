@@ -24,25 +24,25 @@ struct PocketPixelsThermalPhotoProfile: Identifiable, Equatable, Hashable, Senda
     nonisolated static let light1 = PocketPixelsThermalPhotoProfile(
         id: "light1",
         displayName: "Light 1",
-        brightness: 0.025,
-        contrast: 0.985,
-        gammaPower: 0.96
+        brightness: 0.050,
+        contrast: 0.965,
+        gammaPower: 0.91
     )
 
     nonisolated static let light2 = PocketPixelsThermalPhotoProfile(
         id: "light2",
         displayName: "Light 2",
-        brightness: 0.050,
-        contrast: 0.960,
-        gammaPower: 0.90
+        brightness: 0.090,
+        contrast: 0.940,
+        gammaPower: 0.84
     )
 
     nonisolated static let light3 = PocketPixelsThermalPhotoProfile(
         id: "light3",
         displayName: "Light 3",
-        brightness: 0.075,
-        contrast: 0.940,
-        gammaPower: 0.84
+        brightness: 0.130,
+        contrast: 0.915,
+        gammaPower: 0.78
     )
 
     nonisolated static let debugCandidates = [neutral, light1, light2, light3]

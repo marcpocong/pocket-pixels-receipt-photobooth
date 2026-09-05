@@ -58,6 +58,8 @@ struct PrinterTestView: View {
     @State private var unifiedQualityProfile = PocketPixelsThermalPhotoProfile.neutral
     @State private var unifiedQualityResults: [UnifiedPhotoQualityFormatResult] = []
     @State private var unifiedQualityStatusMessage = "Select one photo to generate all-format quality diagnostics."
+    @State private var photoQualityCalibrationStatusMessage = "Print each profile separately with the same normalized source photo."
+    @State private var photoQualityCalibrationMetricsSummary: String?
     @State private var isProcessingUnifiedQuality = false
 #endif
 
@@ -869,6 +871,40 @@ struct PrinterTestView: View {
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
 
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Physical Photo Calibration")
+                    .font(.subheadline.weight(.semibold))
+
+                Text("Each button prints one SOLO-position receipt from the same normalized source photo. Compare separate receipts physically; do not treat software preview as final.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 10) {
+                    ForEach(PocketPixelsThermalPhotoProfile.debugCandidates) { profile in
+                        Button {
+                            printPhotoQualityCalibration(profile: profile)
+                        } label: {
+                            Label("Print \(profile.displayName)", systemImage: "printer")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(unifiedQualitySourceImage == nil || isProcessingUnifiedQuality || !bluetoothPrinterService.canPrintRaster || connectionState.isWorking || discoveryState.isSearching)
+                    }
+                }
+
+                Text(photoQualityCalibrationStatusMessage)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let photoQualityCalibrationMetricsSummary {
+                    Text(photoQualityCalibrationMetricsSummary)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
             Text(unifiedQualityStatusMessage)
                 .font(.subheadline)
                 .foregroundStyle(isProcessingUnifiedQuality ? .primary : .secondary)
@@ -1493,6 +1529,7 @@ struct PrinterTestView: View {
         unifiedQualityStatusMessage = "Loading selected quality test photo..."
         unifiedQualitySourceImage = nil
         unifiedQualityResults = []
+        photoQualityCalibrationMetricsSummary = nil
         unifiedQualitySourceDimensions = nil
         unifiedQualityNormalizedDimensions = nil
 
@@ -1516,6 +1553,7 @@ struct PrinterTestView: View {
             } catch {
                 unifiedQualitySourceImage = nil
                 unifiedQualityResults = []
+                photoQualityCalibrationMetricsSummary = nil
                 unifiedQualitySourceDimensions = nil
                 unifiedQualityNormalizedDimensions = nil
                 unifiedQualityStatusMessage = error.localizedDescription
@@ -1537,24 +1575,32 @@ struct PrinterTestView: View {
         isProcessingUnifiedQuality = true
         unifiedQualityStatusMessage = "Generating all-format quality diagnostics..."
         unifiedQualityResults = []
+        photoQualityCalibrationMetricsSummary = nil
 
         Task {
             do {
                 let profile = unifiedQualityProfile
-                let results = try await Task.detached(priority: .userInitiated) {
-                    try BoothFormat.allCases.map { format in
+                let diagnostics = try await Task.detached(priority: .userInitiated) {
+                    let results = try BoothFormat.allCases.map { format in
                         try Self.unifiedQualityResult(
                             format: format,
                             sourceImage: normalizedPhoto,
                             profile: profile
                         )
                     }
+                    let calibrationSummary = try PocketPixelsThermalPhotoProfile.debugCandidates
+                        .map { try Self.photoQualityCalibrationMetricLine(sourceImage: normalizedPhoto, profile: $0) }
+                        .joined(separator: "\n")
+
+                    return (results, calibrationSummary)
                 }.value
 
-                unifiedQualityResults = results
+                unifiedQualityResults = diagnostics.0
+                photoQualityCalibrationMetricsSummary = diagnostics.1
                 unifiedQualityStatusMessage = "Generated Solo, Duo, Grid, and Strip with \(profile.displayName) global profile."
             } catch {
                 unifiedQualityResults = []
+                photoQualityCalibrationMetricsSummary = nil
                 unifiedQualityStatusMessage = error.localizedDescription
             }
 
@@ -1573,6 +1619,38 @@ struct PrinterTestView: View {
             mode: .fast,
             balancedProfile: balancedBluetoothProfile
         )
+    }
+
+    private func printPhotoQualityCalibration(profile: PocketPixelsThermalPhotoProfile) {
+        guard let unifiedQualitySourceImage else {
+            photoQualityCalibrationStatusMessage = "Select a quality test photo before printing calibration profiles."
+            return
+        }
+
+        isProcessingUnifiedQuality = true
+        photoQualityCalibrationStatusMessage = "Creating \(profile.displayName) physical calibration receipt..."
+
+        Task {
+            do {
+                let result = try await Task.detached(priority: .userInitiated) {
+                    try Self.photoQualityCalibrationRaster(
+                        sourceImage: unifiedQualitySourceImage,
+                        profile: profile
+                    )
+                }.value
+
+                photoQualityCalibrationStatusMessage = result.summary
+                bluetoothPrinterService.printRasterizedReceipt(
+                    rasterizedImage: result.rasterizedImage,
+                    mode: .fast,
+                    balancedProfile: balancedBluetoothProfile
+                )
+            } catch {
+                photoQualityCalibrationStatusMessage = error.localizedDescription
+            }
+
+            isProcessingUnifiedQuality = false
+        }
     }
 
     private func loadDuoConsistencyPhoto(from item: PhotosPickerItem?) {
@@ -1888,6 +1966,71 @@ struct PrinterTestView: View {
         )
     }
 
+    nonisolated private static func photoQualityCalibrationRaster(
+        sourceImage: UIImage,
+        profile: PocketPixelsThermalPhotoProfile
+    ) throws -> PhotoQualityCalibrationRasterResult {
+        let plan = try ReceiptComposer.makeLayoutPlan(format: .solo, includesGalleryQRCode: false)
+        guard let photoFrame = plan.photoFrames.first?.rect else {
+            throw ThermalImageRasterizerError.renderFailed
+        }
+
+        let preparedPhoto = try ThermalPhotoProcessor.prepare(
+            sourceImage,
+            targetPixelSize: photoFrame.size,
+            presentationMode: .portrait,
+            profile: profile
+        )
+        let width = plan.width
+        let height = Int(photoFrame.maxY) + 126
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+
+        let renderer = UIGraphicsImageRenderer(
+            size: CGSize(width: width, height: height),
+            format: format
+        )
+        let calibrationImage = renderer.image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+
+            drawCentered("PHOTO QUALITY TEST", y: 20, width: width, font: .systemFont(ofSize: 22, weight: .semibold))
+            drawCentered(profile.displayName.uppercased(), y: 48, width: width, font: .systemFont(ofSize: 28, weight: .bold))
+            drawCentered(profile.parametersDescription, y: 78, width: width, font: .monospacedSystemFont(ofSize: 18, weight: .regular))
+            preparedPhoto.image.draw(in: photoFrame)
+
+            let metricsTop = Int(photoFrame.maxY) + 18
+            drawCentered("FINAL PHOTO \(Int(preparedPhoto.finalPixelSize.width)) x \(Int(preparedPhoto.finalPixelSize.height))", y: metricsTop, width: width, font: .monospacedSystemFont(ofSize: 17, weight: .regular))
+            drawCentered("PROFILE \(profile.parametersDescription)", y: metricsTop + 24, width: width, font: .monospacedSystemFont(ofSize: 17, weight: .regular))
+        }
+
+        let rasterized = try ThermalImageRasterizer.rasterize(calibrationImage, purpose: .completeReceipt)
+        let photoCoverage = blackPixelCoverage(
+            in: rasterized,
+            xRange: Int(photoFrame.minX)..<Int(photoFrame.maxX),
+            yRange: Int(photoFrame.minY)..<Int(photoFrame.maxY)
+        )
+        let summary = "\(profile.displayName) ready. Photo \(Int(preparedPhoto.finalPixelSize.width)) x \(Int(preparedPhoto.finalPixelSize.height)) px. Raster \(rasterized.width) x \(rasterized.height), rows \(rasterized.height), bytes \(rasterized.rasterData.count). Approx photo black \(photoCoverage.formatted(.number.precision(.fractionLength(1))))%."
+
+        return PhotoQualityCalibrationRasterResult(
+            rasterizedImage: rasterized,
+            summary: summary
+        )
+    }
+
+    nonisolated private static func photoQualityCalibrationMetricLine(
+        sourceImage: UIImage,
+        profile: PocketPixelsThermalPhotoProfile
+    ) throws -> String {
+        let result = try photoQualityCalibrationRaster(sourceImage: sourceImage, profile: profile)
+        let coverageFragment = result.summary
+            .components(separatedBy: "Approx photo black ")
+            .last ?? "unknown"
+
+        return "\(profile.displayName): \(coverageFragment)"
+    }
+
     nonisolated private static func pixelDimensions(of image: UIImage) -> CGSize {
         CGSize(
             width: max(1, round(image.size.width * image.scale)),
@@ -1920,6 +2063,22 @@ struct PrinterTestView: View {
         }
 
         return totalPixels > 0 ? (Double(blackPixels) / Double(totalPixels)) * 100 : 0
+    }
+
+    nonisolated private static func drawCentered(_ text: String, y: Int, width: Int, font: UIFont) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: UIColor.black,
+            .paragraphStyle: paragraph
+        ]
+
+        NSString(string: text).draw(
+            in: CGRect(x: 0, y: y, width: width, height: Int(font.lineHeight) + 8),
+            withAttributes: attributes
+        )
     }
 #endif
 
@@ -2022,6 +2181,11 @@ private struct UnifiedPhotoQualityFormatResult: Identifiable {
     var id: BoothFormat {
         format
     }
+}
+
+private struct PhotoQualityCalibrationRasterResult {
+    let rasterizedImage: ThermalRasterizedImage
+    let summary: String
 }
 
 private enum ThermalDuoSecondPhotoCompensation: String, CaseIterable, Identifiable, Sendable {
