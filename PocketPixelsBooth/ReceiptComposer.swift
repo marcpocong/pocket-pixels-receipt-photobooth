@@ -59,11 +59,13 @@ enum ReceiptComposer {
     nonisolated static let landscapePresentationCropAspectRatio = CGSize(width: 4, height: 3)
     nonisolated static let landscapePresentationAspectRatio = landscapePresentationCropAspectRatio.width / landscapePresentationCropAspectRatio.height
     nonisolated static let stripPresentationCropAspectRatio = landscapePresentationCropAspectRatio
-    nonisolated private static let footerTopDividerPadding = 10
+    nonisolated private static let footerTopDividerPadding = 16
     nonisolated private static let footerContentTopPadding = 10
     nonisolated private static let footerContentBottomPadding = 10
     nonisolated private static let footerBottomPadding = 14
-    nonisolated private static let footerColumnGutter = 20
+    nonisolated private static let footerColumnGutter = 22
+    nonisolated private static let footerHandleMonogramSize = 32
+    nonisolated private static let footerHandleMonogramToTextGap = 10
 
     nonisolated static func makeSessionIdentifier(date: Date = Date()) -> String {
         "PP-\(identifierFormatter.string(from: date))"
@@ -74,7 +76,8 @@ enum ReceiptComposer {
         sessionIdentifier: String,
         date: Date = Date(),
         galleryURL: URL? = nil,
-        format: BoothFormat
+        format: BoothFormat,
+        photoQualityProfile: PocketPixelsThermalPhotoProfile = .neutral
     ) throws -> ComposedReceipt {
         guard photos.count == format.photoCount else {
             throw ReceiptComposerError.missingPhotos(expected: format.photoCount, actual: photos.count)
@@ -88,6 +91,12 @@ enum ReceiptComposer {
         guard height <= BoothConfiguration.receiptMaximumHeight else {
             throw ReceiptComposerError.heightExceeded(height)
         }
+
+        let preparedPhotos = try preparePhotos(
+            photos,
+            for: plan,
+            profile: photoQualityProfile
+        )
 
         let rendererFormat = UIGraphicsImageRendererFormat()
         rendererFormat.scale = 1
@@ -115,10 +124,9 @@ enum ReceiptComposer {
 
             for frame in plan.photoFrames {
                 drawPhoto(
-                    photos[frame.photoIndex],
+                    preparedPhotos[frame.photoIndex].image,
                     in: frame.rect,
-                    context: cgContext,
-                    usesLandscapePresentationCrop: format.usesLandscapePhotoPresentation
+                    context: cgContext
                 )
             }
 
@@ -254,6 +262,25 @@ enum ReceiptComposer {
         return UIImage(cgImage: cropped, scale: 1, orientation: .up)
     }
 
+    nonisolated static func preparePhotos(
+        _ photos: [UIImage],
+        for plan: ReceiptLayoutPlan,
+        profile: PocketPixelsThermalPhotoProfile = .neutral
+    ) throws -> [ThermalPreparedPhoto] {
+        try photos.enumerated().map { index, photo in
+            guard let frame = plan.photoFrames.first(where: { $0.photoIndex == index }) else {
+                throw ReceiptComposerError.renderFailed
+            }
+
+            return try ThermalPhotoProcessor.prepare(
+                photo,
+                targetPixelSize: frame.rect.size,
+                presentationMode: plan.format.photoPresentationMode,
+                profile: profile
+            )
+        }
+    }
+
     nonisolated private static func compactGalleryFooterHeight(qrSize: Int) -> Int {
         footerTopDividerPadding + footerContentTopPadding + qrSize + footerContentBottomPadding + footerBottomPadding
     }
@@ -280,21 +307,36 @@ enum ReceiptComposer {
         context.interpolationQuality = .none
         qrImage.draw(in: CGRect(x: qrX, y: rowTop, width: qrSize, height: qrSize))
 
-        let textX = qrX + qrSize + footerColumnGutter
-        let textWidth = width - margin - textX
-        var textY = rowTop + 22
-        drawText("SCAN TO VIEW", x: textX, y: textY, font: .systemFont(ofSize: 20, weight: .bold), alignment: .left, width: textWidth)
-        textY += 24
-        drawText("& SAVE YOUR PHOTOS", x: textX, y: textY, font: .systemFont(ofSize: 17, weight: .semibold), alignment: .left, width: textWidth)
-        textY += 32
-        drawText(receiptDateFormatter.string(from: date).uppercased(), x: textX, y: textY, font: .monospacedDigitSystemFont(ofSize: 13, weight: .regular), alignment: .left, width: textWidth)
-        textY += 18
-        drawText(sessionIdentifier, x: textX, y: textY, font: .monospacedDigitSystemFont(ofSize: 12, weight: .regular), alignment: .left, width: textWidth)
-        textY += 26
-        drawText("@pocketpixels.ceb", x: textX, y: textY, font: .systemFont(ofSize: 17, weight: .semibold), alignment: .left, width: textWidth)
+        let infoTextX = qrX + qrSize + footerColumnGutter
+        let textWidth = width - margin - infoTextX
+        let handle = "@pocketpixels.ceb"
+        let scanFont = UIFont.systemFont(ofSize: 21, weight: .bold)
+        let saveFont = UIFont.systemFont(ofSize: 16, weight: .semibold)
+        let metadataFont = UIFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        let sessionFont = UIFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        let handleFont = UIFont.systemFont(ofSize: 16, weight: .semibold)
+        let handleTextX = infoTextX + footerHandleMonogramSize + footerHandleMonogramToTextGap
+        let handleTextWidth = width - margin - handleTextX
 
-        let bottomDividerY = rowTop + qrSize + footerContentBottomPadding
-        drawDivider(y: bottomDividerY, margin: margin, width: width)
+        var textY = rowTop + 22
+        drawMeasuredText("SCAN TO VIEW", x: infoTextX, y: textY, font: scanFont, availableWidth: textWidth)
+        textY += 25
+        drawMeasuredText("& SAVE YOUR PHOTOS", x: infoTextX, y: textY, font: saveFont, availableWidth: textWidth)
+        textY += 42
+        drawMeasuredText(receiptDateFormatter.string(from: date).uppercased(), x: infoTextX, y: textY, font: metadataFont, availableWidth: textWidth)
+        textY += 20
+        drawMeasuredText(sessionIdentifier, x: infoTextX, y: textY, font: sessionFont, availableWidth: textWidth)
+        textY += 30
+
+        let handleRowY = textY
+        let monogramY = handleRowY + Int(floor((handleFont.lineHeight - CGFloat(footerHandleMonogramSize)) / 2)) - 1
+        drawFooterMonogram(in: CGRect(
+            x: infoTextX,
+            y: monogramY,
+            width: footerHandleMonogramSize,
+            height: footerHandleMonogramSize
+        ))
+        drawMeasuredText(handle, x: handleTextX, y: handleRowY, font: handleFont, availableWidth: handleTextWidth)
     }
 
     nonisolated private static func drawMetadataFooter(
@@ -374,10 +416,9 @@ enum ReceiptComposer {
         return UIImage(cgImage: cropped, scale: 1, orientation: .up)
     }
 
-    nonisolated private static func drawPhoto(_ image: UIImage, in rect: CGRect, context: CGContext, usesLandscapePresentationCrop: Bool) {
+    nonisolated private static func drawPhoto(_ image: UIImage, in rect: CGRect, context: CGContext) {
         context.interpolationQuality = .high
-        let displayImage = usesLandscapePresentationCrop ? makeLandscapePresentationPhoto(from: image) : image
-        drawAspectFill(displayImage, in: rect, context: context)
+        image.draw(in: rect)
         UIColor.black.setStroke()
         context.setLineWidth(2)
         context.stroke(rect.insetBy(dx: 1, dy: 1))
@@ -399,6 +440,85 @@ enum ReceiptComposer {
         image.draw(in: CGRect(origin: origin, size: drawSize))
 
         context.restoreGState()
+    }
+
+    nonisolated private static func drawFooterMonogram(in rect: CGRect) {
+        guard let monogram = UIImage(named: "PocketPixelsMonogram") else {
+            return
+        }
+
+        let blackMonogram = trimmedToVisibleAlpha(monogram).withTintColor(.black, renderingMode: .alwaysOriginal)
+        blackMonogram.draw(in: aspectFitRect(for: blackMonogram.size, in: rect))
+    }
+
+    nonisolated private static func trimmedToVisibleAlpha(_ image: UIImage) -> UIImage {
+        guard let cgImage = image.cgImage,
+              let alphaBounds = visibleAlphaBounds(in: cgImage),
+              let cropped = cgImage.cropping(to: alphaBounds) else {
+            return image
+        }
+
+        return UIImage(cgImage: cropped, scale: image.scale, orientation: .up)
+    }
+
+    nonisolated private static func visibleAlphaBounds(in image: CGImage) -> CGRect? {
+        let width = image.width
+        let height = image.height
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        var pixels = [UInt8](repeating: 0, count: height * bytesPerRow)
+
+        guard let context = CGContext(
+            data: &pixels,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return nil
+        }
+
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        var minX = width
+        var minY = height
+        var maxX = -1
+        var maxY = -1
+        for y in 0..<height {
+            let rowOffset = y * bytesPerRow
+            for x in 0..<width {
+                let alpha = pixels[rowOffset + (x * bytesPerPixel) + 3]
+                if alpha > 0 {
+                    minX = min(minX, x)
+                    minY = min(minY, y)
+                    maxX = max(maxX, x)
+                    maxY = max(maxY, y)
+                }
+            }
+        }
+
+        guard maxX >= minX, maxY >= minY else {
+            return nil
+        }
+
+        return CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
+    }
+
+    nonisolated private static func aspectFitRect(for sourceSize: CGSize, in targetRect: CGRect) -> CGRect {
+        guard sourceSize.width > 0, sourceSize.height > 0 else {
+            return targetRect
+        }
+
+        let scale = min(targetRect.width / sourceSize.width, targetRect.height / sourceSize.height)
+        let drawSize = CGSize(width: sourceSize.width * scale, height: sourceSize.height * scale)
+        let origin = CGPoint(
+            x: targetRect.midX - (drawSize.width / 2),
+            y: targetRect.midY - (drawSize.height / 2)
+        )
+
+        return CGRect(origin: origin, size: drawSize)
     }
 
     nonisolated private static func normalizedUpImage(from image: UIImage) -> UIImage {
@@ -454,6 +574,11 @@ enum ReceiptComposer {
         drawText(text, x: 0, y: y, font: font, alignment: .center, width: width)
     }
 
+    nonisolated private static func drawMeasuredText(_ text: String, x: Int, y: Int, font: UIFont, availableWidth: Int) {
+        let measuredWidth = Int(ceil(measuredTextWidth(text, font: font))) + 6
+        drawText(text, x: x, y: y, font: font, alignment: .left, width: min(measuredWidth, availableWidth))
+    }
+
     nonisolated private static func drawText(_ text: String, x: Int, y: Int, font: UIFont, alignment: NSTextAlignment, width: Int) {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = alignment
@@ -468,6 +593,16 @@ enum ReceiptComposer {
             in: CGRect(x: x, y: y, width: width, height: Int(font.lineHeight) + 8),
             withAttributes: attributes
         )
+    }
+
+    nonisolated private static func measuredTextWidth(_ text: String, font: UIFont) -> CGFloat {
+        let attributes: [NSAttributedString.Key: Any] = [.font: font]
+        return NSString(string: text).boundingRect(
+            with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: attributes,
+            context: nil
+        ).width
     }
 
     nonisolated private static func drawDivider(y: Int, margin: Int, width: Int) {
@@ -503,7 +638,16 @@ nonisolated private func debugLog(_ message: String) {
 }
 
 private extension BoothFormat {
-    var usesLandscapePhotoPresentation: Bool {
+    nonisolated var usesLandscapePhotoPresentation: Bool {
         self == .duo || self == .strip
+    }
+
+    nonisolated var photoPresentationMode: ThermalPhotoPresentationMode {
+        switch self {
+        case .solo, .grid:
+            .portrait
+        case .duo, .strip:
+            .landscape
+        }
     }
 }

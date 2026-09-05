@@ -147,8 +147,10 @@ struct BluetoothPrinterFlowControlPauseEvent: Equatable {
 #if DEBUG
 enum SilentBLETest: String, CaseIterable, Identifiable {
     case minimalTextNoCutter = "A"
-    case minimalTextWithCutter = "B"
-    case explicitBuzzerControl = "C"
+    case currentGSVCut = "B"
+    case escICut = "C"
+    case escMCut = "D"
+    case gsvOneCut = "E"
 
     var id: String {
         rawValue
@@ -157,20 +159,54 @@ enum SilentBLETest: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .minimalTextNoCutter:
-            "Test A - Minimal Text, No Cutter"
-        case .minimalTextWithCutter:
-            "Test B - Minimal Text + Cutter"
-        case .explicitBuzzerControl:
-            "Test C - Explicit Buzzer Control"
+            "Test A - No Cut"
+        case .currentGSVCut:
+            "Test B - GS V 66 0"
+        case .escICut:
+            "Test C - ESC i"
+        case .escMCut:
+            "Test D - ESC m"
+        case .gsvOneCut:
+            "Test E - GS V 1"
         }
     }
 
     var hasCutter: Bool {
-        self == .minimalTextWithCutter
+        cutterCommand != nil
     }
 
-    var hasExplicitBuzzer: Bool {
-        self == .explicitBuzzerControl
+    var commandName: String {
+        switch self {
+        case .minimalTextNoCutter:
+            "No cutter"
+        case .currentGSVCut:
+            "GS V 66 0"
+        case .escICut:
+            "ESC i"
+        case .escMCut:
+            "ESC m"
+        case .gsvOneCut:
+            "GS V 1"
+        }
+    }
+
+    var cutterHex: String {
+        cutterCommand?.hexString ?? "none"
+    }
+
+    var cutterCommand: Data? {
+        switch self {
+        case .minimalTextNoCutter:
+            nil
+        case .currentGSVCut:
+            Data([0x1D, 0x56, 0x42, 0x00])
+        case .escICut:
+            Data([0x1B, 0x69])
+        case .escMCut:
+            Data([0x1B, 0x6D])
+        case .gsvOneCut:
+            Data([0x1D, 0x56, 0x01])
+        }
     }
 }
 #endif
@@ -732,6 +768,68 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
 
 #if DEBUG
     func printSilentBLETest(_ test: SilentBLETest, completion: CompletionHandler? = nil) {
+        let payload = silentBLEPayload(for: test)
+        startDebugFastPayloadJob(
+            label: "Silent Cut Test \(test.rawValue)",
+            payload: payload,
+            completion: completion,
+            logLines: [
+                "[SILENT-CUT] test=\(test.rawValue)",
+                "[SILENT-CUT] command=\(test.commandName)",
+                "[SILENT-CUT] hex=\(test.cutterHex)",
+                "[SILENT-CUT] hasCutter=\(test.hasCutter ? "yes" : "no")",
+                "[SILENT-CUT] payloadBytes=\(payload.count)",
+                "[SILENT-CUT] writeMode=\(BluetoothPrinterRasterMode.fast.writeType.logName)"
+            ]
+        )
+    }
+
+    func sendVOZYCutterAlarmOffConfiguration(completion: CompletionHandler? = nil) {
+        sendVOZYCutterAlarmConfiguration(
+            label: "VOZY Cutter Alarm Off Config",
+            variant: "related-pos80",
+            payload: Self.vozyCutterAlarmOffPayload,
+            completion: completion
+        )
+    }
+
+    func sendVOZYAltFirmwareCutterAlarmOffConfiguration(completion: CompletionHandler? = nil) {
+        sendVOZYCutterAlarmConfiguration(
+            label: "VOZY Cutter Alarm Off Alt Firmware Config",
+            variant: "alt-firmware",
+            payload: Self.vozyAltFirmwareCutterAlarmOffPayload,
+            completion: completion
+        )
+    }
+
+    private func sendVOZYCutterAlarmConfiguration(
+        label: String,
+        variant: String,
+        payload: Data,
+        completion: CompletionHandler?
+    ) {
+        startDebugFastPayloadJob(
+            label: label,
+            payload: payload,
+            completion: completion,
+            logLines: [
+                "[VOZY-CONFIG] setting=cutter-with-alarm",
+                "[VOZY-CONFIG] variant=\(variant)",
+                "[VOZY-CONFIG] requestedState=off",
+                "[VOZY-CONFIG] hex=\(payload.hexString)",
+                "[VOZY-CONFIG] payloadBytes=\(payload.count)",
+                "[VOZY-CONFIG] experimental=yes",
+                "[VOZY-CONFIG] Command transmission only; power-cycle and physical cutter test required for validation."
+            ]
+        )
+    }
+
+    private func startDebugFastPayloadJob(
+        label: String,
+        payload: Data,
+        completion: CompletionHandler?,
+        logLines: [String]
+    ) {
         guard beginJob() else {
             completion?(.failure(.jobAlreadyActive), false)
             return
@@ -754,13 +852,12 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
             return
         }
 
-        let payload = silentBLEPayload(for: test)
         let maximumLength = max(1, peripheral.maximumWriteValueLength(for: .withoutResponse))
         let chunkSize = max(1, min(Self.fastInitialChunkLimit, maximumLength))
         let chunks = payload.chunked(maximumLength: chunkSize)
 
         pendingJob = PendingJob(
-            label: "Silent BLE Test \(test.rawValue)",
+            label: label,
             mode: .fast,
             balancedProfile: nil,
             photoCalibrationProfileName: nil,
@@ -810,40 +907,28 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
             physicalPrintDuration: nil
         )
 
-        appendLog("[SILENT-BLE] test=\(test.rawValue)")
-        appendLog("[SILENT-BLE] command segments: \(silentBLESegmentDescription(for: test))")
-        appendLog("[SILENT-BLE] cutter=\(test.hasCutter ? "yes" : "no")")
-        appendLog("[SILENT-BLE] explicitBuzzer=\(test.hasExplicitBuzzer ? "yes" : "no")")
-        appendLog("Silent BLE Test \(test.rawValue) started. Write characteristic: 18F0 / 2AF1. Chunk size: \(chunkSize).")
+        for logLine in logLines {
+            appendLog(logLine)
+        }
+        appendLog("\(label) started. Write characteristic: 18F0 / 2AF1. Chunk size: \(chunkSize).")
         sendNextChunk()
     }
 
     private func silentBLEPayload(for test: SilentBLETest) -> Data {
         var payload = Data([0x1B, 0x40])
+        payload.appendASCII("POCKET PIXELS SILENT TEST \(test.rawValue)\n")
+        payload.append(Self.silentCutCommonFeed)
 
-        switch test {
-        case .minimalTextNoCutter:
-            payload.appendASCII("POCKET PIXELS SILENT TEST A\n\n\n")
-        case .minimalTextWithCutter:
-            payload.appendASCII("POCKET PIXELS SILENT TEST B\n\n\n")
-            payload.append(contentsOf: [0x1D, 0x56, 0x42, 0x00])
-        case .explicitBuzzerControl:
-            payload.append(contentsOf: [0x1B, 0x42, 0x01, 0x01])
+        if let cutterCommand = test.cutterCommand {
+            payload.append(cutterCommand)
         }
 
         return payload
     }
 
-    private func silentBLESegmentDescription(for test: SilentBLETest) -> String {
-        switch test {
-        case .minimalTextNoCutter:
-            return "ESC @ = 1B 40; text = \"POCKET PIXELS SILENT TEST A\\n\\n\\n\""
-        case .minimalTextWithCutter:
-            return "ESC @ = 1B 40; text = \"POCKET PIXELS SILENT TEST B\\n\\n\\n\"; cut = 1D 56 42 00"
-        case .explicitBuzzerControl:
-            return "ESC @ = 1B 40; explicit buzzer = 1B 42 01 01"
-        }
-    }
+    private static let silentCutCommonFeed = Data([0x0A, 0x0A])
+    private static let vozyCutterAlarmOffPayload = Data([0x1F, 0x1B, 0x1F, 0xE0, 0x13, 0x14, 0x00, 0x04, 0x02, 0x03])
+    private static let vozyAltFirmwareCutterAlarmOffPayload = Data([0x1F, 0x1B, 0x1F, 0xE0, 0x13, 0x14, 0x00, 0x05, 0x05, 0x01])
 #endif
 
     private func startReceiptRasterJob(
@@ -1722,6 +1807,10 @@ private extension CBCharacteristicWriteType {
 }
 
 private extension Data {
+    var hexString: String {
+        map { String(format: "%02X", $0) }.joined(separator: " ")
+    }
+
     func chunked(maximumLength: Int) -> [Data] {
         guard maximumLength > 0 else {
             return [self]

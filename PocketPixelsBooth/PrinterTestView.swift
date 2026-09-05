@@ -33,6 +33,8 @@ struct PrinterTestView: View {
     @State private var calibratedBluetoothRasterizedImage: ThermalRasterizedImage?
     @State private var isProcessingBluetoothCalibration = false
     @State private var duoConsistencyPhotoItem: PhotosPickerItem?
+    @State private var duoConsistencySourceDimensions: CGSize?
+    @State private var duoConsistencyNormalizedDimensions: CGSize?
     @State private var duoConsistencySourceImage: UIImage?
     @State private var duoConsistencyPreviewImage: UIImage?
     @State private var duoConsistencyRasterizedImage: ThermalRasterizedImage?
@@ -40,6 +42,23 @@ struct PrinterTestView: View {
     @State private var duoConsistencyCoverageSummary: String?
     @State private var isProcessingDuoConsistency = false
     @State private var duoConsistencySecondPhotoCompensation = ThermalDuoSecondPhotoCompensation.none
+    @State private var stripProgressionPhotoItem: PhotosPickerItem?
+    @State private var stripProgressionSourceDimensions: CGSize?
+    @State private var stripProgressionNormalizedDimensions: CGSize?
+    @State private var stripProgressionSourceImage: UIImage?
+    @State private var stripProgressionPreviewImage: UIImage?
+    @State private var stripProgressionRasterizedImage: ThermalRasterizedImage?
+    @State private var stripProgressionStatusMessage = "Select one photo to create a same-photo Strip receipt raster."
+    @State private var stripProgressionCoverageSummary: String?
+    @State private var isProcessingStripProgression = false
+    @State private var unifiedQualityPhotoItem: PhotosPickerItem?
+    @State private var unifiedQualitySourceDimensions: CGSize?
+    @State private var unifiedQualityNormalizedDimensions: CGSize?
+    @State private var unifiedQualitySourceImage: UIImage?
+    @State private var unifiedQualityProfile = PocketPixelsThermalPhotoProfile.neutral
+    @State private var unifiedQualityResults: [UnifiedPhotoQualityFormatResult] = []
+    @State private var unifiedQualityStatusMessage = "Select one photo to generate all-format quality diagnostics."
+    @State private var isProcessingUnifiedQuality = false
 #endif
 
     private let printerService = PrinterNetworkService()
@@ -85,6 +104,15 @@ struct PrinterTestView: View {
             }
             .onChange(of: duoConsistencySecondPhotoCompensation) { _, _ in
                 updateDuoConsistencyRaster()
+            }
+            .onChange(of: stripProgressionPhotoItem) { _, newItem in
+                loadStripProgressionPhoto(from: newItem)
+            }
+            .onChange(of: unifiedQualityPhotoItem) { _, newItem in
+                loadUnifiedQualityPhoto(from: newItem)
+            }
+            .onChange(of: unifiedQualityProfile) { _, _ in
+                updateUnifiedQualityDiagnostics()
             }
 #endif
             .onDisappear {
@@ -346,7 +374,9 @@ struct PrinterTestView: View {
                 thermalPhotoCalibrationSelector
             }
 
+            unifiedPhotoQualityTestSection
             duoConsistencyTestSection
+            stripProgressionTestSection
 
             if let metrics = bluetoothPrinterService.metrics {
                 bluetoothMetricsView(metrics)
@@ -770,6 +800,17 @@ struct PrinterTestView: View {
                     .foregroundStyle(.secondary)
             }
 
+            if let duoConsistencyDimensionSummary {
+                Text(duoConsistencyDimensionSummary)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Text("P1: Control / None. P2: \(duoConsistencySecondPhotoCompensation.displayName).")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             if isProcessingDuoConsistency {
                 ProgressView("Creating Duo consistency raster...")
             }
@@ -787,49 +828,275 @@ struct PrinterTestView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
-    private var silentBLETestSection: some View {
+    private var unifiedPhotoQualityTestSection: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Silent BLE Test")
+                Text("Unified Photo Quality Test")
                     .font(.headline)
 
-                Text("DEBUG-only beep isolation using minimal non-raster BLE payloads. Test C intentionally sends the documented buzzer command once.")
+                Text("DEBUG all-format software matrix. One selected image is normalized once, then reused for Solo, Duo, Grid, and Strip with one global photo profile.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack(alignment: .top, spacing: 12) {
-                Button {
-                    bluetoothPrinterService.printSilentBLETest(.minimalTextNoCutter)
-                } label: {
-                    Label("Test A: Text, No Cutter", systemImage: "text.alignleft")
+            HStack(spacing: 12) {
+                PhotosPicker(selection: $unifiedQualityPhotoItem, matching: .images) {
+                    Label("Select Quality Test Photo", systemImage: "photo")
                 }
                 .buttonStyle(.bordered)
-                .disabled(!canRunSilentBLETest)
+                .disabled(isProcessingUnifiedQuality || isAnyPrinterBusy)
 
                 Button {
-                    bluetoothPrinterService.printSilentBLETest(.minimalTextWithCutter)
+                    updateUnifiedQualityDiagnostics()
                 } label: {
-                    Label("Test B: Text + Cutter", systemImage: "scissors")
-                }
-                .buttonStyle(.bordered)
-                .disabled(!canRunSilentBLETest)
-
-                Button {
-                    bluetoothPrinterService.printSilentBLETest(.explicitBuzzerControl)
-                } label: {
-                    Label("Test C: Trigger Buzzer Once", systemImage: "speaker.wave.2")
+                    Label("Generate All Formats", systemImage: "square.grid.2x2")
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(.orange)
-                .disabled(!canRunSilentBLETest)
+                .disabled(unifiedQualitySourceImage == nil || isProcessingUnifiedQuality || isAnyPrinterBusy)
+            }
+
+            Picker("Global Profile", selection: $unifiedQualityProfile) {
+                ForEach(PocketPixelsThermalPhotoProfile.debugCandidates) { profile in
+                    Text(profile.displayName).tag(profile)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 480)
+            .disabled(unifiedQualitySourceImage == nil || isProcessingUnifiedQuality || isAnyPrinterBusy)
+
+            Text(unifiedQualityProfile.parametersDescription)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+
+            Text(unifiedQualityStatusMessage)
+                .font(.subheadline)
+                .foregroundStyle(isProcessingUnifiedQuality ? .primary : .secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let unifiedQualityDimensionSummary {
+                Text(unifiedQualityDimensionSummary)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if isProcessingUnifiedQuality {
+                ProgressView("Generating all-format quality diagnostics...")
+            }
+
+            Grid(alignment: .topLeading, horizontalSpacing: 20, verticalSpacing: 14) {
+                ForEach(unifiedQualityRows.indices, id: \.self) { rowIndex in
+                    GridRow {
+                        ForEach(unifiedQualityRows[rowIndex]) { result in
+                            unifiedQualityResultView(result)
+                        }
+                    }
+                }
             }
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func unifiedQualityResultView(_ result: UnifiedPhotoQualityFormatResult) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(result.format.displayName)
+                .font(.subheadline.weight(.semibold))
+
+            imagePreview(title: "1-bit Preview", image: result.previewImage)
+
+            Text(result.summary)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(width: 300, alignment: .leading)
+        }
+    }
+
+    private var stripProgressionTestSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Strip Thermal Progression Test")
+                    .font(.headline)
+
+                Text("DEBUG same-photo Strip baseline. The selected image is normalized once, then the exact same UIImage is used for P1, P2, and P3 with no compensation.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 12) {
+                PhotosPicker(selection: $stripProgressionPhotoItem, matching: .images) {
+                    Label("Select Strip Test Photo", systemImage: "photo.stack")
+                }
+                .buttonStyle(.bordered)
+                .disabled(isProcessingStripProgression || isAnyPrinterBusy)
+
+                Button {
+                    printStripProgressionViaBluetooth()
+                } label: {
+                    Label("Print Same-Photo Strip", systemImage: "printer")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(stripProgressionRasterizedImage == nil || isProcessingStripProgression || !bluetoothPrinterService.canPrintRaster || connectionState.isWorking || discoveryState.isSearching)
+            }
+
+            Text("Same image x3. P1: None. P2: None. P3: None.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Text(stripProgressionStatusMessage)
+                .font(.subheadline)
+                .foregroundStyle(isProcessingStripProgression ? .primary : .secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let stripProgressionCoverageSummary {
+                Text(stripProgressionCoverageSummary)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let stripProgressionDimensionSummary {
+                Text(stripProgressionDimensionSummary)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Text("Operator result: compare P1 vs P2 and P2 vs P3. Record P1 ~= P2 ~= P3, P1 < P2 ~= P3, P1 < P2 < P3, or other / inconsistent.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if isProcessingStripProgression {
+                ProgressView("Creating Strip progression raster...")
+            }
+
+            Grid(alignment: .topLeading, horizontalSpacing: 20, verticalSpacing: 12) {
+                GridRow {
+                    imagePreview(title: "Strip Test Source", image: stripProgressionSourceImage)
+                    imagePreview(title: "Final 1-bit Raster Preview", image: stripProgressionPreviewImage)
+                }
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var silentBLETestSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Silent BLE Test")
+                    .font(.headline)
+
+                Text("DEBUG-only cutter opcode isolation using minimal non-raster BLE payloads. Observe cut and beep behavior physically after each run.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 12) {
+                    silentCutTestButton(test: .minimalTextNoCutter, title: "A - No Cut", hex: "none")
+                    silentCutTestButton(test: .currentGSVCut, title: "B - GS V 66 0", hex: "1D 56 42 00")
+                    silentCutTestButton(test: .escICut, title: "C - ESC i", hex: "1B 69")
+                }
+
+                HStack(alignment: .top, spacing: 12) {
+                    silentCutTestButton(test: .escMCut, title: "D - ESC m", hex: "1B 6D")
+                    silentCutTestButton(test: .gsvOneCut, title: "E - GS V 1", hex: "1D 56 01")
+                }
+            }
+
+            Text("Record observations: A did it beep? B did it cut and beep? C did it cut and beep? D did it cut and beep? E did it cut and beep?")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("EXPERIMENTAL PRINTER CONFIGURATION")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.orange)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Variant 1 - Cutter with alarm OFF")
+                        .font(.subheadline.weight(.semibold))
+
+                    Text("1F 1B 1F E0 13 14 00 04 02 03")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+
+                    Text("Result: DID NOT SILENCE CUT BEEP")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    Button {
+                        bluetoothPrinterService.sendVOZYCutterAlarmOffConfiguration()
+                    } label: {
+                        Label("Cutter Alarm OFF - Experimental", systemImage: "exclamationmark.triangle")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!canRunSilentBLETest)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Variant 2 - ALT FIRMWARE")
+                        .font(.subheadline.weight(.semibold))
+
+                    Text("1F 1B 1F E0 13 14 00 05 05 01")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+
+                    Text("Status: NOT YET TESTED")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.orange)
+
+                    Button {
+                        bluetoothPrinterService.sendVOZYAltFirmwareCutterAlarmOffConfiguration()
+                    } label: {
+                        Label("Cutter Alarm OFF - Alt Firmware", systemImage: "exclamationmark.triangle")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.orange)
+                    .disabled(!canRunSilentBLETest)
+                }
+
+                Text("Send once, wait for BLE transmission to complete, turn printer off, wait about 5 seconds, turn printer on, reconnect if needed, then run cutter test B and record whether it cuts and beeps.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func silentCutTestButton(test: SilentBLETest, title: String, hex: String) -> some View {
+        Button {
+            bluetoothPrinterService.printSilentBLETest(test)
+        } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+
+                Text(hex)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            .frame(minWidth: 126, alignment: .leading)
+        }
+        .buttonStyle(.bordered)
+        .disabled(!canRunSilentBLETest)
     }
 #endif
 
@@ -985,6 +1252,44 @@ struct PrinterTestView: View {
             && !discoveryState.isSearching
     }
 
+    private var duoConsistencyDimensionSummary: String? {
+        dimensionSummary(
+            label: "Duo",
+            sourceDimensions: duoConsistencySourceDimensions,
+            normalizedDimensions: duoConsistencyNormalizedDimensions
+        )
+    }
+
+    private var stripProgressionDimensionSummary: String? {
+        dimensionSummary(
+            label: "Strip",
+            sourceDimensions: stripProgressionSourceDimensions,
+            normalizedDimensions: stripProgressionNormalizedDimensions
+        )
+    }
+
+    private var unifiedQualityDimensionSummary: String? {
+        dimensionSummary(
+            label: "Unified quality",
+            sourceDimensions: unifiedQualitySourceDimensions,
+            normalizedDimensions: unifiedQualityNormalizedDimensions
+        )
+    }
+
+    private var unifiedQualityRows: [[UnifiedPhotoQualityFormatResult]] {
+        stride(from: 0, to: unifiedQualityResults.count, by: 2).map { index in
+            Array(unifiedQualityResults[index..<min(index + 2, unifiedQualityResults.count)])
+        }
+    }
+
+    private func dimensionSummary(label: String, sourceDimensions: CGSize?, normalizedDimensions: CGSize?) -> String? {
+        guard let sourceDimensions, let normalizedDimensions else {
+            return nil
+        }
+
+        return "\(label) source image: \(Int(sourceDimensions.width)) x \(Int(sourceDimensions.height)) px. Normalized image: \(Int(normalizedDimensions.width)) x \(Int(normalizedDimensions.height)) px."
+    }
+
     private var canRunSilentBLETest: Bool {
         bluetoothPrinterService.canPrintRaster
             && !connectionState.isWorking
@@ -992,6 +1297,8 @@ struct PrinterTestView: View {
             && !isProcessingPhoto
             && !isProcessingBluetoothCalibration
             && !isProcessingDuoConsistency
+            && !isProcessingStripProgression
+            && !isProcessingUnifiedQuality
     }
 #else
     private var isBluetoothPrinterBusy: Bool {
@@ -1177,6 +1484,97 @@ struct PrinterTestView: View {
         )
     }
 
+    private func loadUnifiedQualityPhoto(from item: PhotosPickerItem?) {
+        guard let item else {
+            return
+        }
+
+        isProcessingUnifiedQuality = true
+        unifiedQualityStatusMessage = "Loading selected quality test photo..."
+        unifiedQualitySourceImage = nil
+        unifiedQualityResults = []
+        unifiedQualitySourceDimensions = nil
+        unifiedQualityNormalizedDimensions = nil
+
+        Task {
+            do {
+                guard let imageData = try await item.loadTransferable(type: Data.self),
+                      let image = UIImage(data: imageData) else {
+                    throw ThermalImageRasterizerError.invalidImage
+                }
+
+                let sourceDimensions = Self.pixelDimensions(of: image)
+                let normalizedPhoto = await Task.detached(priority: .userInitiated) {
+                    BoothPhotoProcessor.normalizedPortraitPhoto(from: image)
+                }.value
+
+                unifiedQualitySourceDimensions = sourceDimensions
+                unifiedQualityNormalizedDimensions = Self.pixelDimensions(of: normalizedPhoto)
+                unifiedQualitySourceImage = normalizedPhoto
+                renderUnifiedQualityDiagnostics(from: normalizedPhoto)
+                return
+            } catch {
+                unifiedQualitySourceImage = nil
+                unifiedQualityResults = []
+                unifiedQualitySourceDimensions = nil
+                unifiedQualityNormalizedDimensions = nil
+                unifiedQualityStatusMessage = error.localizedDescription
+            }
+
+            isProcessingUnifiedQuality = false
+        }
+    }
+
+    private func updateUnifiedQualityDiagnostics() {
+        guard let unifiedQualitySourceImage, !isProcessingUnifiedQuality else {
+            return
+        }
+
+        renderUnifiedQualityDiagnostics(from: unifiedQualitySourceImage)
+    }
+
+    private func renderUnifiedQualityDiagnostics(from normalizedPhoto: UIImage) {
+        isProcessingUnifiedQuality = true
+        unifiedQualityStatusMessage = "Generating all-format quality diagnostics..."
+        unifiedQualityResults = []
+
+        Task {
+            do {
+                let profile = unifiedQualityProfile
+                let results = try await Task.detached(priority: .userInitiated) {
+                    try BoothFormat.allCases.map { format in
+                        try Self.unifiedQualityResult(
+                            format: format,
+                            sourceImage: normalizedPhoto,
+                            profile: profile
+                        )
+                    }
+                }.value
+
+                unifiedQualityResults = results
+                unifiedQualityStatusMessage = "Generated Solo, Duo, Grid, and Strip with \(profile.displayName) global profile."
+            } catch {
+                unifiedQualityResults = []
+                unifiedQualityStatusMessage = error.localizedDescription
+            }
+
+            isProcessingUnifiedQuality = false
+        }
+    }
+
+    private func printStripProgressionViaBluetooth() {
+        guard let stripProgressionRasterizedImage else {
+            stripProgressionStatusMessage = "Create the same-photo Strip raster before printing."
+            return
+        }
+
+        bluetoothPrinterService.printRasterizedReceipt(
+            rasterizedImage: stripProgressionRasterizedImage,
+            mode: .fast,
+            balancedProfile: balancedBluetoothProfile
+        )
+    }
+
     private func loadDuoConsistencyPhoto(from item: PhotosPickerItem?) {
         guard let item else {
             return
@@ -1188,6 +1586,8 @@ struct PrinterTestView: View {
         duoConsistencyPreviewImage = nil
         duoConsistencyRasterizedImage = nil
         duoConsistencyCoverageSummary = nil
+        duoConsistencySourceDimensions = nil
+        duoConsistencyNormalizedDimensions = nil
 
         Task {
             do {
@@ -1196,10 +1596,13 @@ struct PrinterTestView: View {
                     throw ThermalImageRasterizerError.invalidImage
                 }
 
+                let sourceDimensions = Self.pixelDimensions(of: image)
                 let normalizedPhoto = await Task.detached(priority: .userInitiated) {
                     BoothPhotoProcessor.normalizedPortraitPhoto(from: image)
                 }.value
 
+                duoConsistencySourceDimensions = sourceDimensions
+                duoConsistencyNormalizedDimensions = Self.pixelDimensions(of: normalizedPhoto)
                 duoConsistencySourceImage = normalizedPhoto
                 renderDuoConsistencyRaster(from: normalizedPhoto)
                 return
@@ -1208,6 +1611,8 @@ struct PrinterTestView: View {
                 duoConsistencyPreviewImage = nil
                 duoConsistencyRasterizedImage = nil
                 duoConsistencyCoverageSummary = nil
+                duoConsistencySourceDimensions = nil
+                duoConsistencyNormalizedDimensions = nil
                 duoConsistencyStatusMessage = error.localizedDescription
             }
 
@@ -1274,6 +1679,100 @@ struct PrinterTestView: View {
         }
     }
 
+    private func loadStripProgressionPhoto(from item: PhotosPickerItem?) {
+        guard let item else {
+            return
+        }
+
+        isProcessingStripProgression = true
+        stripProgressionStatusMessage = "Loading selected Strip test photo..."
+        stripProgressionSourceImage = nil
+        stripProgressionPreviewImage = nil
+        stripProgressionRasterizedImage = nil
+        stripProgressionCoverageSummary = nil
+        stripProgressionSourceDimensions = nil
+        stripProgressionNormalizedDimensions = nil
+
+        Task {
+            do {
+                guard let imageData = try await item.loadTransferable(type: Data.self),
+                      let image = UIImage(data: imageData) else {
+                    throw ThermalImageRasterizerError.invalidImage
+                }
+
+                let sourceDimensions = Self.pixelDimensions(of: image)
+                let normalizedPhoto = await Task.detached(priority: .userInitiated) {
+                    BoothPhotoProcessor.normalizedPortraitPhoto(from: image)
+                }.value
+
+                stripProgressionSourceDimensions = sourceDimensions
+                stripProgressionNormalizedDimensions = Self.pixelDimensions(of: normalizedPhoto)
+                stripProgressionSourceImage = normalizedPhoto
+                renderStripProgressionRaster(from: normalizedPhoto)
+                return
+            } catch {
+                stripProgressionSourceImage = nil
+                stripProgressionPreviewImage = nil
+                stripProgressionRasterizedImage = nil
+                stripProgressionCoverageSummary = nil
+                stripProgressionSourceDimensions = nil
+                stripProgressionNormalizedDimensions = nil
+                stripProgressionStatusMessage = error.localizedDescription
+            }
+
+            isProcessingStripProgression = false
+        }
+    }
+
+    private func renderStripProgressionRaster(from normalizedPhoto: UIImage) {
+        isProcessingStripProgression = true
+        stripProgressionStatusMessage = "Creating Strip progression raster..."
+        stripProgressionPreviewImage = nil
+        stripProgressionRasterizedImage = nil
+        stripProgressionCoverageSummary = nil
+
+        Task {
+            do {
+                let result = try await Task.detached(priority: .userInitiated) {
+                    let date = Date()
+                    let receipt = try ReceiptComposer.compose(
+                        photos: [normalizedPhoto, normalizedPhoto, normalizedPhoto],
+                        sessionIdentifier: "DEBUG-STRIP-\(ReceiptComposer.makeSessionIdentifier(date: date))",
+                        date: date,
+                        galleryURL: nil,
+                        format: .strip
+                    )
+
+                    guard let receiptImage = UIImage(data: receipt.imagePNGData) else {
+                        throw ThermalImageRasterizerError.renderFailed
+                    }
+
+                    let rasterized = try ThermalImageRasterizer.rasterize(receiptImage, purpose: .completeReceipt)
+
+                    guard let preview = UIImage(data: rasterized.previewPNGData) else {
+                        throw ThermalImageRasterizerError.renderFailed
+                    }
+
+                    let coverageSummary = Self.stripProgressionCoverageSummary(for: rasterized)
+
+                    return (preview, rasterized, coverageSummary)
+                }.value
+
+                stripProgressionPreviewImage = result.0
+                stripProgressionRasterizedImage = result.1
+                stripProgressionCoverageSummary = result.2
+                stripProgressionStatusMessage = "Same-photo Strip baseline raster ready with no compensation: \(result.1.width) x \(result.1.height) dots."
+            } catch {
+                stripProgressionPreviewImage = nil
+                stripProgressionRasterizedImage = nil
+                stripProgressionCoverageSummary = nil
+                stripProgressionStatusMessage = error.localizedDescription
+            }
+
+            isProcessingStripProgression = false
+        }
+    }
+
     nonisolated private static func duoConsistencyCoverageSummary(for rasterizedImage: ThermalRasterizedImage) -> String {
         let photoWidth = BoothConfiguration.receiptWidth - (BoothConfiguration.receiptHorizontalMargin * 2)
         let photoHeight = Int(round(Double(photoWidth) * 3.0 / 4.0))
@@ -1294,6 +1793,106 @@ struct PrinterTestView: View {
         )
 
         return "Approx black coverage - Duo photo 1: \(firstCoverage.formatted(.number.precision(.fractionLength(1))))%, photo 2: \(secondCoverage.formatted(.number.precision(.fractionLength(1))))%."
+    }
+
+    nonisolated private static func stripProgressionCoverageSummary(for rasterizedImage: ThermalRasterizedImage) -> String {
+        let photoWidth = BoothConfiguration.receiptWidth - (BoothConfiguration.receiptHorizontalMargin * 2)
+        let photoHeight = Int(round(Double(photoWidth) * 3.0 / 4.0))
+        let photoX = BoothConfiguration.receiptHorizontalMargin
+        let firstPhotoY = 86
+        let photoGap = 10
+        let secondPhotoY = firstPhotoY + photoHeight + photoGap
+        let thirdPhotoY = secondPhotoY + photoHeight + photoGap
+
+        let firstCoverage = blackPixelCoverage(
+            in: rasterizedImage,
+            xRange: photoX..<(photoX + photoWidth),
+            yRange: firstPhotoY..<(firstPhotoY + photoHeight)
+        )
+        let secondCoverage = blackPixelCoverage(
+            in: rasterizedImage,
+            xRange: photoX..<(photoX + photoWidth),
+            yRange: secondPhotoY..<(secondPhotoY + photoHeight)
+        )
+        let thirdCoverage = blackPixelCoverage(
+            in: rasterizedImage,
+            xRange: photoX..<(photoX + photoWidth),
+            yRange: thirdPhotoY..<(thirdPhotoY + photoHeight)
+        )
+
+        return "Approx black coverage - Strip P1: \(firstCoverage.formatted(.number.precision(.fractionLength(1))))%, P2: \(secondCoverage.formatted(.number.precision(.fractionLength(1))))%, P3: \(thirdCoverage.formatted(.number.precision(.fractionLength(1))))%. Raster: \(rasterizedImage.width) x \(rasterizedImage.height), rows \(rasterizedImage.height), raster bytes \(rasterizedImage.rasterData.count)."
+    }
+
+    nonisolated private static func unifiedQualityResult(
+        format: BoothFormat,
+        sourceImage: UIImage,
+        profile: PocketPixelsThermalPhotoProfile
+    ) throws -> UnifiedPhotoQualityFormatResult {
+        let plan = try ReceiptComposer.makeLayoutPlan(format: format, includesGalleryQRCode: false)
+        let photos = Array(repeating: sourceImage, count: format.photoCount)
+        let preparedPhotos = try ReceiptComposer.preparePhotos(photos, for: plan, profile: profile)
+        let date = Date()
+        let receipt = try ReceiptComposer.compose(
+            photos: photos,
+            sessionIdentifier: "DEBUG-QUALITY-\(format.rawValue.uppercased())-\(ReceiptComposer.makeSessionIdentifier(date: date))",
+            date: date,
+            galleryURL: nil,
+            format: format,
+            photoQualityProfile: profile
+        )
+
+        guard let receiptImage = UIImage(data: receipt.imagePNGData) else {
+            throw ThermalImageRasterizerError.renderFailed
+        }
+
+        let rasterized = try ThermalImageRasterizer.rasterize(receiptImage, purpose: .completeReceipt)
+
+        guard let preview = UIImage(data: rasterized.previewPNGData) else {
+            throw ThermalImageRasterizerError.renderFailed
+        }
+
+        let photoCoverage = plan.photoFrames.map { frame in
+            blackPixelCoverage(
+                in: rasterized,
+                xRange: Int(frame.rect.minX)..<Int(frame.rect.maxX),
+                yRange: Int(frame.rect.minY)..<Int(frame.rect.maxY)
+            )
+        }
+        let coverageSummary = photoCoverage.enumerated()
+            .map { index, coverage in
+                "P\(index + 1) \(coverage.formatted(.number.precision(.fractionLength(1))))%"
+            }
+            .joined(separator: ", ")
+        let fullReceiptCoverage = blackPixelCoverage(
+            in: rasterized,
+            xRange: 0..<rasterized.width,
+            yRange: 0..<rasterized.height
+        )
+        let firstPrepared = preparedPhotos[0]
+        let firstFrame = plan.photoFrames[0].rect
+        let summary = [
+            "Profile: \(profile.displayName) (\(profile.parametersDescription))",
+            "Crop: \(Int(firstPrepared.croppedPixelSize.width)) x \(Int(firstPrepared.croppedPixelSize.height)) px",
+            "Final photo: \(Int(firstPrepared.finalPixelSize.width)) x \(Int(firstPrepared.finalPixelSize.height)) px",
+            "Frame: \(Int(firstFrame.width)) x \(Int(firstFrame.height)) px",
+            "Scale: \(Double(firstPrepared.effectiveScale).formatted(.number.precision(.fractionLength(3))))x",
+            "Photo black: \(coverageSummary)",
+            "Full receipt black: \(fullReceiptCoverage.formatted(.number.precision(.fractionLength(1))))%",
+            "Raster: \(rasterized.width) x \(rasterized.height), rows \(rasterized.height), bytes \(rasterized.rasterData.count)"
+        ].joined(separator: "\n")
+
+        return UnifiedPhotoQualityFormatResult(
+            format: format,
+            previewImage: preview,
+            summary: summary
+        )
+    }
+
+    nonisolated private static func pixelDimensions(of image: UIImage) -> CGSize {
+        CGSize(
+            width: max(1, round(image.size.width * image.scale)),
+            height: max(1, round(image.size.height * image.scale))
+        )
     }
 
     nonisolated private static func blackPixelCoverage(in rasterizedImage: ThermalRasterizedImage, xRange: Range<Int>, yRange: Range<Int>) -> Double {
@@ -1415,6 +2014,16 @@ struct PrinterTestView: View {
 }
 
 #if DEBUG
+private struct UnifiedPhotoQualityFormatResult: Identifiable {
+    let format: BoothFormat
+    let previewImage: UIImage
+    let summary: String
+
+    var id: BoothFormat {
+        format
+    }
+}
+
 private enum ThermalDuoSecondPhotoCompensation: String, CaseIterable, Identifiable, Sendable {
     case none
     case mildMinus

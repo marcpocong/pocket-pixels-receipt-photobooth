@@ -18,6 +18,7 @@ struct BoothSessionView: View {
     @State private var formatMotionActive = false
     @State private var reviewMotionActive = false
     @State private var receiptMotionActive = false
+    @State private var receiptFeedMotionActive = false
     @State private var progressMotionActive = false
     @State private var thankYouMotionActive = false
     @State private var shutterFlashActive = false
@@ -650,21 +651,24 @@ struct BoothSessionView: View {
         GeometryReader { proxy in
             let availableHeight = max(1, proxy.size.height - (PocketPixelsTheme.Spacing.screenPadding * 2))
             let contentWidth = min(proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2), 760)
-            let statusCardWidth = contentWidth * 0.72
-            let statusQRSize = min(max(contentWidth * 0.16, 120), 140)
-            let verticalSpacing: CGFloat = 14
+            let isPostPrintFlow = viewModel.state != .receiptPreview
+            let statusCardWidth = min(contentWidth * 0.78, 560)
+            let statusQRSize = min(max(contentWidth * 0.20, 150), 180)
+            let verticalSpacing: CGFloat = isPostPrintFlow ? 12 : 16
             let reservedHeight = receiptReservedScreenHeight(
                 statusQRSize: statusQRSize,
-                isPrinterWorking: viewModel.printerState.isWorking
+                isPrinterWorking: viewModel.printerState.isWorking,
+                showsGalleryStatus: isPostPrintFlow
             )
             let receiptMaxWidth = min(contentWidth, 500)
-            let receiptMaxHeight = max(180, availableHeight - reservedHeight - (verticalSpacing * 3))
+            let receiptAvailableHeight = max(220, availableHeight - reservedHeight - (verticalSpacing * 3))
+            let receiptMaxHeight = min(receiptAvailableHeight, isPostPrintFlow ? 440 : 520)
 
             VStack(spacing: verticalSpacing) {
                 receiptCustomerHeader
                     .frame(width: contentWidth)
 
-                customerReceiptPreview(maxWidth: receiptMaxWidth, maxHeight: receiptMaxHeight)
+                customerReceiptPreview(maxWidth: receiptMaxWidth, maxHeight: receiptMaxHeight, showsPrinterSlot: isPostPrintFlow)
                     .pocketPixelsEntrance(
                         active: receiptMotionActive,
                         reduceMotion: reduceMotion,
@@ -676,9 +680,12 @@ struct BoothSessionView: View {
                 receiptCustomerActions(width: contentWidth)
                     .pocketPixelsEntrance(active: receiptMotionActive, reduceMotion: reduceMotion, delay: 0.08, offset: 8)
 
-                receiptGalleryStatus(qrSize: statusQRSize)
-                    .frame(width: statusCardWidth)
-                    .pocketPixelsEntrance(active: receiptMotionActive, reduceMotion: reduceMotion, delay: 0.12, offset: 8)
+                if isPostPrintFlow {
+                    receiptGalleryStatus(qrSize: statusQRSize)
+                        .frame(width: statusCardWidth)
+                        .pocketPixelsEntrance(active: receiptMotionActive, reduceMotion: reduceMotion, delay: 0.12, offset: 8)
+                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .bottom)))
+                }
 
 #if DEBUG
                 receiptDebugSection(width: contentWidth)
@@ -690,6 +697,13 @@ struct BoothSessionView: View {
         .padding(PocketPixelsTheme.Spacing.screenPadding)
         .onAppear {
             startReceiptMotion()
+            updateReceiptFeedMotion()
+        }
+        .onChange(of: viewModel.state) { _, _ in
+            updateReceiptFeedMotion()
+        }
+        .onDisappear {
+            receiptFeedMotionActive = false
         }
     }
 
@@ -697,22 +711,22 @@ struct BoothSessionView: View {
         VStack(spacing: 8) {
             PocketPixelsLightboxLockup(scale: .compact)
 
-            Text("Your receipt is ready")
+            Text(receiptScreenTitle)
                 .font(.system(size: 42, weight: .black))
                 .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
                 .multilineTextAlignment(.center)
 
-            Text("Take a quick look, then print your copy.")
+            Text(receiptScreenSubtitle)
                 .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
                 .multilineTextAlignment(.center)
         }
     }
 
-    private func receiptReservedScreenHeight(statusQRSize: CGFloat, isPrinterWorking: Bool) -> CGFloat {
+    private func receiptReservedScreenHeight(statusQRSize: CGFloat, isPrinterWorking: Bool, showsGalleryStatus: Bool) -> CGFloat {
         let headerEstimate: CGFloat = 126
-        let actionEstimate: CGFloat = isPrinterWorking ? 106 : 70
-        let galleryEstimate = statusQRSize + 32
+        let actionEstimate: CGFloat = isPrinterWorking ? 54 : 70
+        let galleryEstimate = showsGalleryStatus ? statusQRSize + 42 : 0
         let debugDisclosureEstimate: CGFloat
 #if DEBUG
         debugDisclosureEstimate = showingReceiptDebugTools ? 292 : 36
@@ -723,30 +737,48 @@ struct BoothSessionView: View {
         return headerEstimate + actionEstimate + galleryEstimate + debugDisclosureEstimate
     }
 
-    private func customerReceiptPreview(maxWidth: CGFloat, maxHeight: CGFloat) -> some View {
-        Group {
-            if let previewImage = viewModel.receiptPhotoPreviewImage ?? viewModel.receiptImage {
-                let previewSize = receiptPreviewDisplaySize(for: previewImage, maxWidth: maxWidth, maxHeight: maxHeight)
-                Image(uiImage: previewImage)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: previewSize.width, height: previewSize.height)
-            } else {
-                Text("Receipt preview is getting ready.")
-                    .font(.system(size: 19, weight: .semibold))
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
-                    .frame(width: maxWidth, height: min(maxHeight, 320))
-                    .background(PocketPixelsTheme.ColorPalette.surface)
+    private func customerReceiptPreview(maxWidth: CGFloat, maxHeight: CGFloat, showsPrinterSlot: Bool) -> some View {
+        VStack(spacing: 0) {
+            if showsPrinterSlot {
+                printerOutputSlot(width: min(maxWidth * 0.62, 280))
+                    .padding(.bottom, 6)
+                    .transition(.opacity)
             }
+
+            Group {
+                if let previewImage = viewModel.receiptImage {
+                    let previewSize = receiptPreviewDisplaySize(for: previewImage, maxWidth: maxWidth, maxHeight: maxHeight)
+                    Image(uiImage: previewImage)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: previewSize.width, height: previewSize.height)
+                        .offset(y: receiptFeedOffset)
+                        .animation(receiptFeedAnimation, value: receiptFeedMotionActive)
+                } else {
+                    Text("Receipt preview is getting ready.")
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                        .frame(width: maxWidth, height: min(maxHeight, 320))
+                        .background(PocketPixelsTheme.ColorPalette.surface)
+                }
+            }
+            .background(PocketPixelsTheme.ColorPalette.surface)
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.58), lineWidth: 1)
+            }
+            .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.12), radius: 18, x: 0, y: 8)
+            .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.10), radius: 14, x: 0, y: 7)
         }
-        .background(PocketPixelsTheme.ColorPalette.surface)
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.58), lineWidth: 1)
-        }
-        .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.12), radius: 18, x: 0, y: 8)
-        .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.10), radius: 14, x: 0, y: 7)
         .accessibilityLabel("Receipt preview")
+    }
+
+    private func printerOutputSlot(width: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 3)
+            .fill(PocketPixelsTheme.ColorPalette.charcoal.opacity(0.70))
+            .frame(width: width, height: 7)
+            .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.10), radius: 4, x: 0, y: 2)
+            .accessibilityHidden(true)
     }
 
     private func receiptPreviewDisplaySize(for image: UIImage, maxWidth: CGFloat, maxHeight: CGFloat) -> CGSize {
@@ -766,7 +798,7 @@ struct BoothSessionView: View {
                     ProgressView()
                         .tint(PocketPixelsTheme.ColorPalette.maroon)
 
-                    Text("Printing your receipt...")
+                    Text(receiptWorkingStatusText)
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
                 }
@@ -788,7 +820,7 @@ struct BoothSessionView: View {
     }
 
     private func receiptGalleryStatus(qrSize: CGFloat) -> some View {
-        HStack(spacing: 26) {
+        HStack(spacing: 22) {
             if let qrImage = viewModel.galleryQRCodeImage {
                 Image(uiImage: qrImage)
                     .interpolation(.none)
@@ -801,16 +833,22 @@ struct BoothSessionView: View {
                     .accessibilityLabel("Gallery QR code")
             }
 
-            Text(receiptGalleryStatusText)
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .id(receiptGalleryStatusText)
-                .transition(.opacity)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Scan to save your photos")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
+
+                Text(receiptGalleryStatusText)
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .id(receiptGalleryStatusText)
+                    .transition(.opacity)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, 20)
+        .padding(.vertical, 18)
         .padding(.horizontal, 24)
         .background(PocketPixelsTheme.ColorPalette.acrylic.opacity(0.82))
         .overlay {
@@ -1296,6 +1334,51 @@ struct BoothSessionView: View {
         }
     }
 
+    private var receiptScreenTitle: String {
+        switch viewModel.state {
+        case .connectingToPrinter:
+            "Getting your printer ready..."
+        case .printing:
+            "Printing your keepsake..."
+        default:
+            "Your receipt is ready"
+        }
+    }
+
+    private var receiptScreenSubtitle: String {
+        switch viewModel.state {
+        case .connectingToPrinter, .printing:
+            "Scan while your printed copy is on the way."
+        default:
+            "Take a quick look, then print your copy."
+        }
+    }
+
+    private var receiptWorkingStatusText: String {
+        switch viewModel.state {
+        case .connectingToPrinter:
+            "Getting your printer ready..."
+        default:
+            "Printing your keepsake..."
+        }
+    }
+
+    private var receiptFeedOffset: CGFloat {
+        guard !reduceMotion, viewModel.state == .printing else {
+            return 0
+        }
+
+        return receiptFeedMotionActive ? 16 : 4
+    }
+
+    private var receiptFeedAnimation: Animation? {
+        guard !reduceMotion, viewModel.state == .printing else {
+            return nil
+        }
+
+        return .easeInOut(duration: 1.15).repeatForever(autoreverses: true)
+    }
+
     private var receiptDetailsText: String {
         guard let receipt = viewModel.composedReceipt else {
             return "Receipt is not ready."
@@ -1445,6 +1528,18 @@ struct BoothSessionView: View {
         receiptMotionActive = false
         DispatchQueue.main.async {
             receiptMotionActive = true
+        }
+    }
+
+    private func updateReceiptFeedMotion() {
+        guard !reduceMotion, viewModel.state == .printing else {
+            receiptFeedMotionActive = false
+            return
+        }
+
+        receiptFeedMotionActive = false
+        DispatchQueue.main.async {
+            receiptFeedMotionActive = true
         }
     }
 
