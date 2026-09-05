@@ -84,7 +84,6 @@ enum EventProfileStore {
     }
 }
 
-#if DEBUG
 struct EventSetupView: View {
     @State private var draft = EventProfileStore.load()
     @State private var statusMessage = "Event profile loaded."
@@ -234,4 +233,3 @@ private struct EventReceiptBlockPreview: View {
         return formatter
     }()
 }
-#endif

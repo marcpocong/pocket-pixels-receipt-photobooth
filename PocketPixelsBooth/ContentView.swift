@@ -10,9 +10,7 @@ import UIKit
 
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
-#if DEBUG
     @State private var isShowingAdmin = false
-#endif
 
     var body: some View {
         customerExperience
@@ -29,16 +27,13 @@ struct ContentView: View {
 
     @ViewBuilder
     private var customerExperience: some View {
-#if DEBUG
         BoothSessionView(onAdminAccessRequested: {
+            debugLog("[Admin] presentation state = true")
             isShowingAdmin = true
         })
         .sheet(isPresented: $isShowingAdmin) {
             PocketPixelsAdminView()
         }
-#else
-        BoothSessionView()
-#endif
     }
 
     private func setIdleTimerDisabled(_ disabled: Bool) {
@@ -46,7 +41,6 @@ struct ContentView: View {
     }
 }
 
-#if DEBUG
 private struct PocketPixelsAdminView: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -92,4 +86,9 @@ private struct PocketPixelsAdminView: View {
         }
     }
 }
+
+nonisolated private func debugLog(_ message: String) {
+#if DEBUG
+    print("[ContentView] \(message)")
 #endif
+}

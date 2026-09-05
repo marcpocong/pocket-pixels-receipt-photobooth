@@ -193,8 +193,9 @@ struct BoothSessionView: View {
                     PocketPixelsLightboxLockup(scale: .hero, showGlow: true)
                         .frame(width: lightboxWidth, height: lightboxHeight)
                         .contentShape(Rectangle())
-                        .onLongPressGesture(minimumDuration: 4, maximumDistance: 24) {
-                            openAdminAccess()
+                        .overlay(alignment: .leading) {
+                            adminLogoLongPressTarget
+                                .padding(.leading, 28)
                         }
 
                     Text("make your moment. print your keepsake.")
@@ -254,6 +255,16 @@ struct BoothSessionView: View {
                     .multilineTextAlignment(.center)
                     .padding(.top, 4)
                     .pocketPixelsEntrance(active: welcomeMotionActive, reduceMotion: reduceMotion, delay: 0.24, offset: 6)
+
+#if DEBUG
+                Button("Open Admin") {
+                    openAdminAccess()
+                }
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText.opacity(0.72))
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open Admin diagnostics")
+#endif
             }
             .padding(.top, max(proxy.size.height * 0.028, 24))
             .padding(.bottom, bottomBreathingRoom)
@@ -268,6 +279,19 @@ struct BoothSessionView: View {
             welcomeMotionActive = false
             welcomeReceiptFloatActive = false
         }
+    }
+
+    private var adminLogoLongPressTarget: some View {
+        Color.clear
+            .frame(width: 118, height: 118)
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 4, maximumDistance: 24)
+                    .onEnded { _ in
+                        openAdminAccess()
+                    }
+            )
+            .accessibilityHidden(true)
     }
 
     private var formatSelectionScreen: some View {
@@ -1636,14 +1660,13 @@ struct BoothSessionView: View {
     }
 
     private func openAdminAccess() {
-#if DEBUG
         guard let onAdminAccessRequested else {
             return
         }
 
+        adminDebugLog("long press recognized")
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         onAdminAccessRequested()
-#endif
     }
 
     private func reviewPhotoIdentifier(at index: Int) -> String {
@@ -1931,4 +1954,10 @@ private extension View {
             scale: 0.975
         )
     }
+}
+
+nonisolated private func adminDebugLog(_ message: String) {
+#if DEBUG
+    print("[BoothSessionView][Admin] \(message)")
+#endif
 }
