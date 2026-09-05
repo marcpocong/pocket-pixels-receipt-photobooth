@@ -34,6 +34,16 @@ final class BoothSessionViewModel: ObservableObject {
     @Published var isCameraRunning = false
     @Published var samplePhotoCount = 0
     @Published var selectedBoothFormat: BoothFormat?
+    @Published var selectedPrintCopies = 1 {
+        didSet {
+            guard Self.supportedPrintCopyCounts.contains(selectedPrintCopies) else {
+                selectedPrintCopies = oldValue
+                return
+            }
+        }
+    }
+    @Published var currentPrintCopy = 0
+    @Published var completedPrintCopies = 0
 
     let cameraService = CameraService()
 
@@ -42,6 +52,7 @@ final class BoothSessionViewModel: ObservableObject {
     private let uploadService = GoogleDriveGalleryUploadService()
     private let credentialStore = DeviceCredentialStore()
     private var activeTask: Task<Void, Never>?
+    private var printBatchTask: Task<Void, Never>?
     private var galleryUploadTasks: [String: Task<Void, Never>] = [:]
     private var queueRetryTask: Task<Void, Never>?
     private var thankYouResetTask: Task<Void, Never>?
@@ -49,6 +60,7 @@ final class BoothSessionViewModel: ObservableObject {
     private var retakeIndex: Int?
     private var sessionCreatedAt: Date?
     private var committedGallerySession: CommittedGallerySession?
+    private static let supportedPrintCopyCounts = [1, 2, 3]
 
     var nextPhotoIndex: Int {
         min(capturedPhotos.count, max(requiredPhotoCount - 1, 0))
@@ -71,7 +83,27 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     var canReturnToReview: Bool {
-        committedGallerySession == nil && !printerState.isWorking
+        committedGallerySession == nil && !printerState.isWorking && printBatchTask == nil
+    }
+
+    var supportedPrintCopies: [Int] {
+        Self.supportedPrintCopyCounts
+    }
+
+    var isPrintBatchActive: Bool {
+        printBatchTask != nil
+    }
+
+    var printButtonTitle: String {
+        selectedPrintCopies == 1 ? "Print Receipt" : "Print \(selectedPrintCopies) Copies"
+    }
+
+    var printProgressText: String {
+        if selectedPrintCopies > 1, currentPrintCopy > 0 {
+            return "Printing copy \(currentPrintCopy) of \(selectedPrintCopies)..."
+        }
+
+        return "Printing your keepsake..."
     }
 
     var estimatedReceiptLength: Double? {
@@ -350,6 +382,10 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     func printReceipt(host: String, port: UInt16?) {
+        guard printBatchTask == nil else {
+            return
+        }
+
         guard let port else {
             printerState = .failure("Enter a valid TCP port from 1 to 65535.")
             return
@@ -373,48 +409,21 @@ final class BoothSessionViewModel: ObservableObject {
             return
         }
 
+        let requestedCopies = selectedPrintCopies
+        currentPrintCopy = 0
+        completedPrintCopies = 0
         state = .connectingToPrinter
         statusMessage = "Preparing printer..."
+        debugLog("[MULTI-COPY] requestedCopies=\(requestedCopies)")
 
-        printerCoordinator.printReceipt(
-            rasterizedImage: rasterized,
-            wifiHost: host,
-            wifiPort: port
-        ) { [weak self] printerState in
+        printBatchTask = Task { [weak self] in
             guard let self else { return }
-            self.printerState = printerState
-
-            switch printerState {
-            case .connecting, .connected:
-                self.state = .connectingToPrinter
-                self.statusMessage = "Preparing printer..."
-            case .printing, .sendingHeading, .sendingPhotograph, .finalizingAndCutting, .printerProcessing, .coolingDown:
-                self.state = .printing
-                self.statusMessage = "Printing your receipt..."
-            case .recoveryRequired(let message):
-                self.state = .recoveryRequired(message)
-                self.statusMessage = message
-            case .failure(let message):
-                self.state = .receiptPreview
-                self.statusMessage = message
-            case .success:
-                break
-            case .disconnected:
-                break
-            }
-        } completion: { [weak self] result in
-            guard let self else { return }
-
-            switch result {
-            case .success:
-                self.showThankYou()
-            case .failure:
-                if self.printerState.requiresPrinterRestart {
-                    self.state = .recoveryRequired(self.printerState.message)
-                } else {
-                    self.state = .receiptPreview
-                }
-            }
+            await self.printReceiptCopies(
+                requestedCopies: requestedCopies,
+                rasterizedImage: rasterized,
+                wifiHost: host,
+                wifiPort: port
+            )
         }
     }
 
@@ -673,13 +682,105 @@ final class BoothSessionViewModel: ObservableObject {
         uploadStatusMessage = "Gallery upload has not started."
         samplePhotoCount = 0
         selectedBoothFormat = nil
+        selectedPrintCopies = 1
+        currentPrintCopy = 0
+        completedPrintCopies = 0
     }
 
     private func cancelTasks() {
         activeTask?.cancel()
         activeTask = nil
+        printBatchTask?.cancel()
+        printBatchTask = nil
         thankYouResetTask?.cancel()
         thankYouResetTask = nil
+    }
+
+    private func printReceiptCopies(
+        requestedCopies: Int,
+        rasterizedImage: ThermalRasterizedImage,
+        wifiHost: String,
+        wifiPort: UInt16
+    ) async {
+        defer {
+            printBatchTask = nil
+        }
+
+        for copy in 1...requestedCopies {
+            guard !Task.isCancelled else { return }
+
+            currentPrintCopy = copy
+            state = .printing
+            statusMessage = requestedCopies == 1 ? "Printing your keepsake..." : "Printing copy \(copy) of \(requestedCopies)..."
+            debugLog("[MULTI-COPY] startingCopy=\(copy) totalCopies=\(requestedCopies)")
+
+            let result = await printSingleReceiptCopy(
+                rasterizedImage: rasterizedImage,
+                wifiHost: wifiHost,
+                wifiPort: wifiPort,
+                requestedCopies: requestedCopies
+            )
+
+            guard !Task.isCancelled else { return }
+
+            switch result {
+            case .success:
+                completedPrintCopies = copy
+                debugLog("[MULTI-COPY] completedCopy=\(copy)")
+            case .failure:
+                let message = "\(completedPrintCopies) of \(requestedCopies) copies printed. Printer needs attention before continuing."
+                debugLog("[MULTI-COPY] failedCopy=\(copy) completedCopies=\(completedPrintCopies) requestedCopies=\(requestedCopies)")
+                if printerState.requiresPrinterRestart {
+                    state = .recoveryRequired(message)
+                } else {
+                    state = .receiptPreview
+                    printerState = .failure(message)
+                }
+                statusMessage = message
+                return
+            }
+        }
+
+        showThankYou()
+    }
+
+    private func printSingleReceiptCopy(
+        rasterizedImage: ThermalRasterizedImage,
+        wifiHost: String,
+        wifiPort: UInt16,
+        requestedCopies: Int
+    ) async -> Result<Void, Error> {
+        await withCheckedContinuation { continuation in
+            printerCoordinator.printReceipt(
+                rasterizedImage: rasterizedImage,
+                wifiHost: wifiHost,
+                wifiPort: wifiPort
+            ) { [weak self] printerState in
+                guard let self else { return }
+                self.printerState = printerState
+
+                switch printerState {
+                case .connecting, .connected:
+                    self.state = .connectingToPrinter
+                    self.statusMessage = "Preparing printer..."
+                case .printing, .sendingHeading, .sendingPhotograph, .finalizingAndCutting, .printerProcessing, .coolingDown:
+                    self.state = .printing
+                    self.statusMessage = requestedCopies == 1 ? "Printing your keepsake..." : "Printing copy \(self.currentPrintCopy) of \(requestedCopies)..."
+                case .recoveryRequired(let message):
+                    self.state = .recoveryRequired(message)
+                    self.statusMessage = message
+                case .failure(let message):
+                    self.state = .receiptPreview
+                    self.statusMessage = message
+                case .success:
+                    break
+                case .disconnected:
+                    break
+                }
+            } completion: { result in
+                continuation.resume(returning: result)
+            }
+        }
     }
 
     private func startGalleryUpload(committedSession: CommittedGallerySession, receiptImage: UIImage) {

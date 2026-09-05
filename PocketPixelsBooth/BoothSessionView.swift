@@ -725,7 +725,7 @@ struct BoothSessionView: View {
 
     private func receiptReservedScreenHeight(statusQRSize: CGFloat, isPrinterWorking: Bool, showsGalleryStatus: Bool) -> CGFloat {
         let headerEstimate: CGFloat = 126
-        let actionEstimate: CGFloat = isPrinterWorking ? 54 : 70
+        let actionEstimate: CGFloat = isPrinterWorking ? 54 : 124
         let galleryEstimate = showsGalleryStatus ? statusQRSize + 42 : 0
         let debugDisclosureEstimate: CGFloat
 #if DEBUG
@@ -798,22 +798,39 @@ struct BoothSessionView: View {
                     ProgressView()
                         .tint(PocketPixelsTheme.ColorPalette.maroon)
 
-                    Text(receiptWorkingStatusText)
+                    Text(viewModel.printProgressText)
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
                 }
                 .transition(.opacity)
             }
 
+            if !viewModel.printerState.isWorking {
+                VStack(spacing: 8) {
+                    Text("Copies")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+
+                    Picker("Copies", selection: $viewModel.selectedPrintCopies) {
+                        ForEach(viewModel.supportedPrintCopies, id: \.self) { copyCount in
+                            Text("\(copyCount)").tag(copyCount)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: min(width * 0.40, 260))
+                    .disabled(viewModel.isPrintBatchActive || viewModel.printerState.requiresPrinterRestart)
+                }
+            }
+
             Button {
                 viewModel.printReceipt(host: printerIP, port: parsedPort)
             } label: {
-                Text("Print Receipt")
+                Text(viewModel.printButtonTitle)
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(PocketPixelsPrimaryButtonStyle())
             .frame(width: width * 0.74)
-            .disabled(viewModel.receiptRasterizedImage == nil || viewModel.printerState.isWorking || viewModel.printerState.requiresPrinterRestart)
+            .disabled(viewModel.receiptRasterizedImage == nil || viewModel.printerState.isWorking || viewModel.isPrintBatchActive || viewModel.printerState.requiresPrinterRestart)
         }
         .frame(width: width)
         .animation(PocketPixelsTheme.Motion.quickAnimation, value: viewModel.printerState.isWorking)
@@ -1351,15 +1368,6 @@ struct BoothSessionView: View {
             "Scan while your printed copy is on the way."
         default:
             "Take a quick look, then print your copy."
-        }
-    }
-
-    private var receiptWorkingStatusText: String {
-        switch viewModel.state {
-        case .connectingToPrinter:
-            "Getting your printer ready..."
-        default:
-            "Printing your keepsake..."
         }
     }
 
