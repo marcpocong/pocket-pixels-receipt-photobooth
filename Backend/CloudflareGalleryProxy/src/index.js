@@ -325,13 +325,13 @@ function errorPage(title, message, reference) {
   <title>Pocket Pixels Gallery</title>
   <style>
     *{box-sizing:border-box}
-    body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#fffdf9;color:#27191b;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
-    main{width:min(100%,440px);text-align:center;padding:32px 24px;background:#fff;border:1px solid #eadcda;border-radius:12px}
-    .brand{margin:0 0 10px;color:#8b1e2d;font-weight:800;text-transform:uppercase;letter-spacing:.08em}
-    h1{margin:0 0 12px;font-size:30px;line-height:1.1}
-    p{margin:0;color:#6d5b5e;line-height:1.5}
-    button{margin-top:24px;min-height:44px;padding:11px 18px;border:0;border-radius:8px;background:#8b1e2d;color:#fff;font:inherit;font-weight:700;cursor:pointer}
-    .ref{margin-top:16px;font-size:11px;opacity:.55}
+    body{margin:0;min-height:100vh;display:grid;place-items:center;padding:calc(28px + env(safe-area-inset-top)) 20px calc(42px + env(safe-area-inset-bottom));background:linear-gradient(180deg,#fff8f2 0%,#fffdf9 52%,#f7ebe3 100%);color:#2a2020;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
+    main{width:min(100%,480px);text-align:center;padding:34px 22px;background:#fffdf9;border:1px solid #ead7ce;border-radius:10px;box-shadow:0 14px 32px rgba(42,32,32,.08)}
+    .brand{margin:0 0 10px;color:#781f2c;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.16em}
+    h1{margin:8px 0 12px;color:#4f111c;font-family:Georgia,"Times New Roman",serif;font-size:clamp(34px,9vw,48px);font-weight:400;line-height:1.02}
+    p{margin:0;color:#77605b;line-height:1.5}
+    button{margin-top:24px;min-height:46px;padding:11px 18px;border:0;border-radius:8px;background:#781f2c;color:#fff;font:inherit;font-weight:800;cursor:pointer}
+    button:focus-visible{outline:3px solid #7a4cff;outline-offset:3px}
   </style>
 </head>
 <body>
@@ -340,7 +340,6 @@ function errorPage(title, message, reference) {
     <h1>${escapeHTML(title)}</h1>
     <p>${escapeHTML(message)}</p>
     <button onclick="window.location.reload()">Try Again</button>
-    <p class="ref">Reference: ${escapeHTML(reference || "TEMPORARY_ERROR")}</p>
   </main>
 </body>
 </html>`;

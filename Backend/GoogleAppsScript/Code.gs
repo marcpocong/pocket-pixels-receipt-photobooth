@@ -1177,7 +1177,7 @@ function renderInvalidGalleryPage_() {
 
   return makeHTML_(pageShell_(
 
-    '<main class="center-page"><section class="notice"><p class="brand">Pocket Pixels</p><h1>Gallery unavailable.</h1><p>This gallery link cannot be opened.</p></section></main>',
+    '<main class="center-page"><section class="notice"><p class="brand">Pocket Pixels</p><h1>we could not load your photos just yet.</h1><p>This gallery link cannot be opened. Please try scanning the QR again.</p><button type="button" onclick="window.location.reload()">Try Again</button></section></main>',
 
     ''
 
@@ -1191,7 +1191,7 @@ function renderPendingGalleryPage_() {
 
   return makeHTML_(pageShell_(
 
-    '<main class="center-page"><section class="notice"><p class="brand">Pocket Pixels</p><h1>Your photos are still being prepared</h1><div class="loader" aria-hidden="true"></div><p>Your gallery will appear here as soon as the upload finishes.</p><button type="button" onclick="window.location.reload()">Check again</button></section></main>',
+    '<main class="center-page"><section class="notice"><p class="brand">Pocket Pixels</p><h1>your photos are still being prepared.</h1><div class="loader" aria-hidden="true"></div><p>Please check again in a moment.</p><button type="button" onclick="window.location.reload()">Check Again</button></section></main>',
 
     script
 
@@ -1239,27 +1239,34 @@ function renderGalleryPage_(gallery, timings, startedAt) {
 
   let body = '';
 
-  body += '<main class="gallery">';
+  body += '<main class="gallery-shell">';
 
-  body += '<header><p class="brand">Pocket Pixels</p><h1>Your photos are ready</h1><p class="meta">' + escapeHTML(createdAt) + ' · Ref ' + escapeHTML(reference) + '</p></header>';
+  body += '<header class="gallery-hero"><p class="brand">Pocket Pixels</p><h1>your photos are ready.</h1><p class="lede">save the moments you made at the receipt photobooth.</p></header>';
 
-  body += '<section class="actions"><button type="button" id="shareAll">Save All Photos</button><p id="allHint">Save your photos before closing this page.</p><p id="message" role="status" aria-live="polite"></p></section>';
+  body += '<section class="primary-actions" aria-label="Save photos"><button type="button" id="shareAll">Save All Photos</button><p id="allHint">Save your photos before closing this page.</p><p id="message" role="status" aria-live="polite"></p></section>';
 
-  body += '<section class="photo-grid" aria-label="Photos">';
+  body += '<section class="section-heading"><p>Photo Gallery</p></section>';
+
+  body += '<section class="photo-grid photo-count-' + assets.photos.length + '" aria-label="Pocket Pixels photo gallery">';
 
   for (let i = 0; i < assets.photos.length; i++) {
 
     const filename = assets.photos[i].filename;
+    const loading = i === 0 ? 'eager' : 'lazy';
 
-    body += '<article class="card"><div class="image-placeholder" id="placeholder-' + filename + '">Loading photo</div><img hidden decoding="async" id="image-' + filename + '" alt="Pocket Pixels photo ' + (i + 1) + '"><div class="card-body"><h2>Photo ' + (i + 1) + '</h2><div class="button-row"><button type="button" data-download="' + filename + '">Download Photo</button><button type="button" data-share="' + filename + '">Share Photo</button><button type="button" class="secondary" data-open="' + filename + '">Open Full Size</button></div></div></article>';
+    body += '<article class="photo-item"><button type="button" class="image-button" data-open="' + filename + '" aria-label="View photo ' + (i + 1) + ' larger"><div class="image-placeholder" id="placeholder-' + filename + '">getting photo ready...</div><img hidden decoding="async" loading="' + loading + '" id="image-' + filename + '" alt="Pocket Pixels photo ' + (i + 1) + '"></button><div class="photo-actions"><span>Photo ' + (i + 1) + '</span><div><button type="button" data-download="' + filename + '">Save Photo</button><button type="button" class="secondary" data-share="' + filename + '">Share</button></div></div></article>';
 
   }
 
   body += '</section>';
 
-  body += '<section class="receipt-section"><h2>Receipt</h2><article class="card receipt-card"><div class="image-placeholder" id="placeholder-' + assets.receipt.filename + '">Loading receipt</div><img hidden decoding="async" loading="lazy" id="image-' + assets.receipt.filename + '" alt="Pocket Pixels receipt preview"><div class="card-body"><div class="button-row"><button type="button" data-download="' + assets.receipt.filename + '">Download Receipt</button><button type="button" data-share="' + assets.receipt.filename + '">Share Receipt</button><button type="button" class="secondary" data-open="' + assets.receipt.filename + '">Open Full Size</button></div></div></article></section>';
+  body += '<section class="receipt-section"><div class="section-heading"><p>Receipt Copy</p></div><article class="receipt-item"><button type="button" class="image-button" data-open="' + assets.receipt.filename + '" aria-label="View receipt larger"><div class="image-placeholder receipt-placeholder" id="placeholder-' + assets.receipt.filename + '">getting receipt ready...</div><img hidden decoding="async" loading="lazy" id="image-' + assets.receipt.filename + '" alt="Pocket Pixels receipt preview"></button><div class="photo-actions"><span>Receipt</span><div><button type="button" data-download="' + assets.receipt.filename + '">Save Receipt</button><button type="button" class="secondary" data-share="' + assets.receipt.filename + '">Share</button></div></div></article></section>';
 
-  body += '<footer><strong>@pocketpixels.ceb</strong><span>Cebu</span><p>Thank you for collecting moments with us.</p></footer>';
+  body += '<section class="session-note"><p>' + escapeHTML(createdAt) + '</p><p>' + escapeHTML(reference) + '</p></section>';
+
+  body += '<footer><strong>Pocket Pixels</strong><a href="https://www.instagram.com/pocketpixels.ceb" rel="noreferrer noopener">@pocketpixels.ceb</a><span>receipt photobooth</span></footer>';
+
+  body += '<div class="lightbox" id="lightbox" hidden><button type="button" class="lightbox-close" id="lightboxClose">Close</button><img id="lightboxImage" alt=""><button type="button" class="lightbox-save" id="lightboxSave">Save Photo</button></div>';
 
   body += '</main>';
 
@@ -1435,29 +1442,37 @@ function galleryCSS_() {
 
   return [
 
-    ':root{color-scheme:light;--ink:#27191b;--muted:#6d5b5e;--paper:#fffdf9;--soft:#f6f0ed;--line:#eadcda;--accent:#8b1e2d;--accent-dark:#641521;--focus:#0f62fe;}',
+    ':root{color-scheme:light;--ink:#2a2020;--muted:#77605b;--paper:#fff8f2;--paper-warm:#f7ebe3;--surface:#fffdf9;--line:#ead7ce;--accent:#781f2c;--accent-soft:#f3d8cd;--accent-dark:#4f111c;--focus:#7a4cff;}',
 
-    '*{box-sizing:border-box;}html{background:var(--paper);}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,Arial,sans-serif;background:var(--paper);color:var(--ink);line-height:1.45;}',
+    '*{box-sizing:border-box;}html{background:var(--paper);}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,Arial,sans-serif;background:linear-gradient(180deg,var(--paper) 0%,var(--surface) 46%,var(--paper-warm) 100%);color:var(--ink);line-height:1.45;text-rendering:optimizeLegibility;}',
 
-    'button,a{font:inherit;}button,.button-row a{min-height:44px;border-radius:8px;border:1px solid var(--accent);padding:11px 14px;background:var(--accent);color:white;text-decoration:none;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;}',
+    'button,a{font:inherit;}button{min-height:44px;border-radius:8px;border:1px solid var(--accent);padding:11px 15px;background:var(--accent);color:white;text-decoration:none;font-weight:800;display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;-webkit-tap-highlight-color:transparent;}',
 
-    '.button-row a{background:white;color:var(--accent);}button.secondary{background:white;color:var(--accent);}button[hidden]{display:none;}button:focus-visible,a:focus-visible{outline:3px solid var(--focus);outline-offset:3px;}',
+    'button.secondary{background:transparent;color:var(--accent);border-color:rgba(120,31,44,.24);}button[hidden]{display:none;}button:focus-visible,a:focus-visible{outline:3px solid var(--focus);outline-offset:3px;}',
 
-    '.gallery{width:min(100%,920px);margin:0 auto;padding:calc(24px + env(safe-area-inset-top)) max(18px,env(safe-area-inset-left)) calc(36px + env(safe-area-inset-bottom));}',
+    '.gallery-shell{width:min(100%,880px);margin:0 auto;padding:calc(26px + env(safe-area-inset-top)) max(18px,env(safe-area-inset-left)) calc(40px + env(safe-area-inset-bottom));}',
 
-    'header{padding:10px 0 18px;border-bottom:1px solid var(--line);}h1{font-size:clamp(32px,7vw,52px);line-height:1.03;margin:4px 0 8px;letter-spacing:0;}h2{font-size:20px;margin:0 0 10px;letter-spacing:0;}.brand{text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:900;margin:0 0 4px;}.meta,p{color:var(--muted);margin:0;}',
+    '.gallery-hero{padding:8px 0 22px;text-align:left;}h1{font-family:Georgia,\"Times New Roman\",serif;font-size:clamp(38px,11vw,74px);font-weight:400;line-height:.98;margin:8px 0 12px;letter-spacing:0;color:var(--accent-dark);}h2{font-size:20px;margin:0 0 10px;letter-spacing:0;}.brand{text-transform:uppercase;letter-spacing:.16em;color:var(--accent);font-size:12px;font-weight:900;margin:0 0 8px;}.lede{max-width:620px;font-size:clamp(18px,4.8vw,24px);color:var(--muted);margin:0;}p{color:var(--muted);margin:0;}',
 
-    '.actions{display:grid;gap:8px;padding:18px 0 20px;}#shareAll{width:100%;font-size:17px;}#message{min-height:22px;color:var(--accent-dark);font-weight:600;}',
+    '.primary-actions{display:grid;gap:9px;padding:2px 0 30px;}#shareAll{width:100%;min-height:54px;font-size:17px;box-shadow:0 10px 22px rgba(120,31,44,.16);}#message{min-height:22px;color:var(--accent-dark);font-weight:700;}#allHint{font-size:14px;}',
 
-    '.photo-grid{display:grid;grid-template-columns:1fr;gap:18px;}.card{background:white;border:1px solid var(--line);border-radius:8px;overflow:hidden;box-shadow:0 1px 10px rgba(39,25,27,.06);}img{display:block;width:100%;height:auto;background:var(--soft);}.image-placeholder{min-height:240px;display:grid;place-items:center;background:var(--soft);color:var(--muted);font-weight:700;}.card-body{padding:14px;}.button-row{display:grid;grid-template-columns:1fr;gap:10px;}',
+    '.section-heading{display:flex;align-items:center;gap:12px;margin:0 0 14px;}.section-heading:after{content:\"\";height:1px;background:var(--line);flex:1;}.section-heading p{text-transform:uppercase;letter-spacing:.14em;font-size:12px;font-weight:900;color:var(--accent);}',
 
-    '.receipt-section{margin-top:28px;padding-top:22px;border-top:1px solid var(--line);}.receipt-card{max-width:440px;margin:0 auto;}.receipt-card img{max-height:520px;object-fit:contain;}',
+    '.photo-grid{display:grid;grid-template-columns:1fr;gap:22px;}.photo-item,.receipt-item{display:grid;gap:10px;}.image-button{display:block;width:100%;min-height:0;padding:0;border:0;border-radius:10px;background:transparent;color:inherit;box-shadow:0 16px 32px rgba(42,32,32,.08);overflow:hidden;text-align:inherit;}img{display:block;width:100%;height:auto;background:var(--paper-warm);border-radius:10px;}.image-placeholder{min-height:245px;display:grid;place-items:center;background:var(--paper-warm);color:var(--muted);font-weight:800;border:1px solid var(--line);border-radius:10px;}.photo-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 2px;}.photo-actions span{font-size:14px;font-weight:800;color:var(--muted);}.photo-actions div{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;}.photo-actions button{min-height:40px;padding:9px 12px;font-size:14px;}',
 
-    'footer{margin-top:30px;padding-top:20px;border-top:1px solid var(--line);display:grid;gap:4px;color:var(--muted);}footer strong{color:var(--accent);}footer span{font-weight:700;}',
+    '.receipt-section{margin-top:34px;padding-top:6px;}.receipt-item{max-width:430px;margin:0 auto;}.receipt-placeholder{min-height:360px;}.receipt-item img{max-height:560px;object-fit:contain;}',
 
-    '.center-page{min-height:100vh;display:grid;place-items:center;padding:calc(28px + env(safe-area-inset-top)) 20px calc(36px + env(safe-area-inset-bottom));}.notice{width:min(100%,460px);text-align:center;background:white;border:1px solid var(--line);border-radius:8px;padding:28px 20px;box-shadow:0 1px 12px rgba(39,25,27,.06);}.notice h1{font-size:32px;}.notice button{margin-top:18px;}.loader{width:34px;height:34px;border-radius:50%;border:4px solid var(--line);border-top-color:var(--accent);margin:18px auto;animation:spin 1s linear infinite;}@keyframes spin{to{transform:rotate(360deg);}}',
+    '.session-note{margin:34px auto 0;display:grid;gap:3px;text-align:center;font-size:13px;color:var(--muted);}.session-note p:last-child{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#8f7771;}footer{margin-top:30px;padding-top:22px;border-top:1px solid var(--line);display:grid;gap:5px;text-align:center;color:var(--muted);}footer strong{font-family:Georgia,\"Times New Roman\",serif;font-size:24px;font-weight:400;color:var(--accent-dark);}footer a{color:var(--accent);font-weight:800;text-decoration:none;}footer span{font-size:13px;text-transform:uppercase;letter-spacing:.12em;font-weight:900;}',
 
-    '@media(min-width:700px){.actions{grid-template-columns:max-content 1fr;align-items:center;}#shareAll{width:auto;}.photo-grid{grid-template-columns:repeat(3,1fr);}.button-row{grid-template-columns:1fr;}.card-body{padding:16px;}}'
+    '.center-page{min-height:100vh;display:grid;place-items:center;padding:calc(28px + env(safe-area-inset-top)) 20px calc(42px + env(safe-area-inset-bottom));}.notice{width:min(100%,480px);text-align:center;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:34px 22px;box-shadow:0 14px 32px rgba(42,32,32,.08);}.notice h1{font-family:Georgia,\"Times New Roman\",serif;font-size:clamp(34px,9vw,48px);font-weight:400;line-height:1.02;margin:8px 0 12px;color:var(--accent-dark);}.notice button{margin-top:22px;}.loader{width:34px;height:34px;border-radius:50%;border:4px solid var(--line);border-top-color:var(--accent);margin:20px auto;animation:spin 1s linear infinite;}@keyframes spin{to{transform:rotate(360deg);}}',
+
+    '.lightbox{position:fixed;inset:0;z-index:10;display:grid;grid-template-rows:auto 1fr auto;gap:14px;padding:calc(16px + env(safe-area-inset-top)) 16px calc(18px + env(safe-area-inset-bottom));background:rgba(42,32,32,.92);}.lightbox[hidden]{display:none;}.lightbox img{width:100%;height:100%;max-height:calc(100vh - 150px);object-fit:contain;background:transparent;border-radius:0;}.lightbox-close,.lightbox-save{justify-self:center;min-width:150px;}.lightbox-close{background:var(--surface);color:var(--accent);border-color:var(--surface);}',
+
+    '@media(prefers-reduced-motion:reduce){.loader{animation:none;}}',
+
+    '@media(min-width:560px){.photo-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.photo-count-1{grid-template-columns:1fr;}.photo-count-1 .photo-item{max-width:680px;margin:0 auto;}.primary-actions{grid-template-columns:minmax(220px,320px) 1fr;align-items:center;}#shareAll{width:auto;}}',
+
+    '@media(min-width:900px){.gallery-shell{padding-left:24px;padding-right:24px;}.gallery-hero{padding-top:18px;}.photo-grid{gap:26px;}.photo-count-3,.photo-count-4{grid-template-columns:repeat(2,minmax(0,1fr));}}'
 
   ].join('');
 
@@ -1467,7 +1482,7 @@ function galleryClientScript_() {
 
   return [
 
-    'const startedAt=performance.now();const files=[...galleryData.photos,galleryData.receipt];const assetMap=new Map(files.map(function(item){return [item.filename,item];}));const realFileCache=new Map();',
+    'const startedAt=performance.now();const files=[...galleryData.photos,galleryData.receipt];const assetMap=new Map(files.map(function(item){return [item.filename,item];}));const realFileCache=new Map();let activeLightboxURL=\"\";let activeLightboxItem=null;',
 
     'const message=document.getElementById(\"message\");',
 
@@ -1481,11 +1496,13 @@ function galleryClientScript_() {
 
     'function findItem(filename){return assetMap.get(filename);}',
 
-    'function showEmbeddedImages(){try{files.forEach(function(item){const image=document.getElementById(\"image-\"+item.filename);const placeholder=document.getElementById(\"placeholder-\"+item.filename);if(image){image.src=dataURL(item);image.hidden=false;}if(placeholder){placeholder.remove();}});wireOpenButtons();wireShareButtons();wireShareAll();logSafeBrowserTiming();setMessage(\"\");}catch(error){setMessage(\"Some images did not load. Refresh this page and try again.\");}}',
+    'function showEmbeddedImages(){try{files.forEach(function(item){const image=document.getElementById(\"image-\"+item.filename);const placeholder=document.getElementById(\"placeholder-\"+item.filename);if(image){image.src=dataURL(item);image.hidden=false;}if(placeholder){placeholder.remove();}});wireOpenButtons();wireShareButtons();wireShareAll();wireLightbox();logSafeBrowserTiming();setMessage(\"\");}catch(error){setMessage(\"Some images did not load. Refresh this page and try again.\");}}',
 
     'function downloadItem(item){try{const url=objectURLFor(item);const a=document.createElement(\"a\");a.href=url;a.download=item.filename;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1500);setMessage(\"Download started.\");}catch(error){setMessage(\"Could not start the download. Please try again.\");}}',
 
-    'function openFullSize(item){try{const url=objectURLFor(item);const opened=window.open(url,\"_blank\",\"noopener\");setTimeout(function(){URL.revokeObjectURL(url);},30000);if(!opened){setMessage(\"Pop-up blocked. Use Download Photo instead.\");}else{setMessage(\"Full-size image opened.\");}}catch(error){setMessage(\"Could not open the full-size image. Please try Download instead.\");}}',
+    'function openFullSize(item){try{const lightbox=document.getElementById(\"lightbox\");const image=document.getElementById(\"lightboxImage\");const save=document.getElementById(\"lightboxSave\");if(!lightbox||!image||!save){const url=objectURLFor(item);window.open(url,\"_blank\",\"noopener\");setTimeout(function(){URL.revokeObjectURL(url);},30000);return;}if(activeLightboxURL){URL.revokeObjectURL(activeLightboxURL);}activeLightboxItem=item;activeLightboxURL=URL.createObjectURL(fileForItem(item));image.src=activeLightboxURL;image.alt=item.filename.indexOf(\"receipt\")===0?\"Pocket Pixels receipt preview\":\"Pocket Pixels photo\";save.textContent=item.filename.indexOf(\"receipt\")===0?\"Save Receipt\":\"Save Photo\";lightbox.hidden=false;document.body.style.overflow=\"hidden\";document.getElementById(\"lightboxClose\").focus();setMessage(\"Photo opened.\");}catch(error){setMessage(\"Could not open the full-size image. Please try Save instead.\");}}',
+
+    'function closeLightbox(){const lightbox=document.getElementById(\"lightbox\");const image=document.getElementById(\"lightboxImage\");if(lightbox){lightbox.hidden=true;}if(image){image.removeAttribute(\"src\");}document.body.style.overflow=\"\";if(activeLightboxURL){URL.revokeObjectURL(activeLightboxURL);activeLightboxURL=\"\";}activeLightboxItem=null;}',
 
     'async function shareItem(item){try{const file=fileForItem(item);if(!supportsSingleFileShare()){downloadItem(item);return;}await navigator.share({files:[file],title:\"Pocket Pixels\",text:\"Pocket Pixels photo\"});setMessage(\"Share sheet opened.\");}catch(error){if(error&&error.name===\"AbortError\"){return;}setMessage(\"Sharing did not work here. Please use Download instead.\");}}',
 
@@ -1497,9 +1514,11 @@ function galleryClientScript_() {
 
     'function wireOpenButtons(){document.querySelectorAll(\"[data-open]\").forEach(function(button){button.addEventListener(\"click\",function(){const item=findItem(button.getAttribute(\"data-open\"));if(item){openFullSize(item);}});});}',
 
+    'function wireLightbox(){const close=document.getElementById(\"lightboxClose\");const lightbox=document.getElementById(\"lightbox\");const save=document.getElementById(\"lightboxSave\");if(close){close.addEventListener(\"click\",closeLightbox);}if(lightbox){lightbox.addEventListener(\"click\",function(event){if(event.target===lightbox){closeLightbox();}});}if(save){save.addEventListener(\"click\",function(){if(activeLightboxItem){downloadItem(activeLightboxItem);}});}document.addEventListener(\"keydown\",function(event){if(event.key===\"Escape\"){closeLightbox();}});}',
+
     'function wireShareButtons(){const supported=supportsSingleFileShare();document.querySelectorAll(\"[data-share]\").forEach(function(button){const item=findItem(button.getAttribute(\"data-share\"));if(!item||!supported){button.hidden=true;return;}button.addEventListener(\"click\",function(){shareItem(item);});});}',
 
-    'function wireShareAll(){const shareAll=document.getElementById(\"shareAll\");const allHint=document.getElementById(\"allHint\");if(!shareAll){return;}const photos=galleryData.photos.map(function(file){return findItem(file.filename);}).filter(Boolean);if(supportsMultipleFileShare()){shareAll.addEventListener(\"click\",async function(){try{await navigator.share({files:photos.map(fileForItem),title:\"Pocket Pixels\",text:\"Pocket Pixels photos\"});setMessage(\"Share sheet opened.\");}catch(error){if(error&&error.name!==\"AbortError\"){setMessage(\"Sharing all photos did not work here. Please download each photo below.\");}}});}else{shareAll.className=\"secondary\";shareAll.textContent=\"Download Photos Individually\";shareAll.addEventListener(\"click\",function(){setMessage(\"Use each Download Photo button below for the most reliable save.\");});if(allHint){allHint.textContent=\"This browser does not support sharing multiple image files from the page.\";}}}',
+    'function wireShareAll(){const shareAll=document.getElementById(\"shareAll\");const allHint=document.getElementById(\"allHint\");if(!shareAll){return;}const photos=galleryData.photos.map(function(file){return findItem(file.filename);}).filter(Boolean);if(supportsMultipleFileShare()){shareAll.addEventListener(\"click\",async function(){try{await navigator.share({files:photos.map(fileForItem),title:\"Pocket Pixels\",text:\"Pocket Pixels photos\"});setMessage(\"Share sheet opened.\");}catch(error){if(error&&error.name!==\"AbortError\"){setMessage(\"Sharing all photos did not work here. Please save each photo below.\");}}});}else{shareAll.className=\"secondary\";shareAll.textContent=\"Save Photos Individually\";shareAll.addEventListener(\"click\",function(){setMessage(\"Use each Save Photo button below for the most reliable save.\");});if(allHint){allHint.textContent=\"This browser does not support sharing multiple image files from the page.\";}}}',
 
     'function logSafeBrowserTiming(){setTimeout(function(){const supportsShare=!!navigator.share;const supportsSingle=supportsSingleFileShare();const supportsMultiple=supportsMultipleFileShare();console.log(\"Pocket Pixels gallery timing: imageInitializationMs=\"+Math.round(performance.now()-startedAt)+\" webShare=\"+supportsShare+\" singleFileShare=\"+supportsSingle+\" multiFileShare=\"+supportsMultiple+\" realFileConversionsAtInit=0\");},0);}',
 
