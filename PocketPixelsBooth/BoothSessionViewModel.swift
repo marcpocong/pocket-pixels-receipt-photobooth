@@ -56,7 +56,6 @@ final class BoothSessionViewModel: ObservableObject {
     private var printBatchTask: Task<Void, Never>?
     private var galleryUploadTasks: [String: Task<Void, Never>] = [:]
     private var queueRetryTask: Task<Void, Never>?
-    private var thankYouResetTask: Task<Void, Never>?
     private var isTransitionActive = false
     private var retakeIndex: Int?
     private var sessionCreatedAt: Date?
@@ -147,7 +146,6 @@ final class BoothSessionViewModel: ObservableObject {
         errorMessage = nil
         statusMessage = "Choose your format."
         state = .choosingFormat
-        setIdleTimerDisabled(true)
     }
 
     func selectBoothFormat(_ format: BoothFormat) {
@@ -179,7 +177,6 @@ final class BoothSessionViewModel: ObservableObject {
         errorMessage = nil
         statusMessage = "Preparing front camera..."
         state = .preparingCamera
-        setIdleTimerDisabled(true)
         debugLog("Session \(sessionIdentifier ?? "unknown") started.")
 
         prepareCamera { [weak self] result in
@@ -668,12 +665,6 @@ final class BoothSessionViewModel: ObservableObject {
         state = .thankYou
         statusMessage = "Scan the QR to view and save your photos."
         debugLog("Session \(sessionIdentifier ?? "unknown") printed successfully.")
-        thankYouResetTask?.cancel()
-        thankYouResetTask = Task {
-            try? await Task.sleep(for: .seconds(BoothConfiguration.thankYouDuration))
-            guard !Task.isCancelled else { return }
-            resetToWelcome()
-        }
     }
 
     private func resetToWelcome() {
@@ -686,7 +677,6 @@ final class BoothSessionViewModel: ObservableObject {
         errorMessage = nil
         printerState = .disconnected
         isTransitionActive = false
-        setIdleTimerDisabled(false)
     }
 
     private func clearCustomerData() {
@@ -717,8 +707,6 @@ final class BoothSessionViewModel: ObservableObject {
         activeTask = nil
         printBatchTask?.cancel()
         printBatchTask = nil
-        thankYouResetTask?.cancel()
-        thankYouResetTask = nil
     }
 
     private func printReceiptCopies(
@@ -895,9 +883,6 @@ final class BoothSessionViewModel: ObservableObject {
         GalleryUploadSessionIsolationPolicy.shouldApplyEvent(eventGalleryToken: token, currentGalleryToken: galleryToken)
     }
 
-    private func setIdleTimerDisabled(_ disabled: Bool) {
-        UIApplication.shared.isIdleTimerDisabled = disabled
-    }
 }
 
 private struct CommittedGallerySession {

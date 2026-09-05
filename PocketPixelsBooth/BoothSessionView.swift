@@ -11,6 +11,8 @@ import UIKit
 
 struct BoothSessionView: View {
     @StateObject private var viewModel = BoothSessionViewModel()
+    private let onAdminAccessRequested: (() -> Void)?
+    private let showsReceiptDebugTools: Bool
     @State private var selectedSamplePhotoItem: PhotosPickerItem?
     @State private var showingCancelConfirmation = false
     @State private var welcomeMotionActive = false
@@ -30,6 +32,14 @@ struct BoothSessionView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("printerIP") private var printerIP = BoothConfiguration.defaultPrinterIP
     @AppStorage("printerPort") private var printerPort = BoothConfiguration.defaultPrinterPort
+
+    init(
+        onAdminAccessRequested: (() -> Void)? = nil,
+        showsReceiptDebugTools: Bool = false
+    ) {
+        self.onAdminAccessRequested = onAdminAccessRequested
+        self.showsReceiptDebugTools = showsReceiptDebugTools
+    }
 
     var body: some View {
         NavigationStack {
@@ -182,6 +192,10 @@ struct BoothSessionView: View {
                 VStack(spacing: 12) {
                     PocketPixelsLightboxLockup(scale: .hero, showGlow: true)
                         .frame(width: lightboxWidth, height: lightboxHeight)
+                        .contentShape(Rectangle())
+                        .onLongPressGesture(minimumDuration: 4, maximumDistance: 24) {
+                            openAdminAccess()
+                        }
 
                     Text("make your moment. print your keepsake.")
                         .font(.system(size: 23, weight: .regular, design: .serif))
@@ -688,7 +702,9 @@ struct BoothSessionView: View {
                 }
 
 #if DEBUG
-                receiptDebugSection(width: contentWidth)
+                if showsReceiptDebugTools {
+                    receiptDebugSection(width: contentWidth)
+                }
 #endif
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1100,7 +1116,7 @@ struct BoothSessionView: View {
                 Button {
                     viewModel.resetAfterDone()
                 } label: {
-                    Text("Done")
+                    Text("Start Another Session")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(PocketPixelsPrimaryButtonStyle())
@@ -1617,6 +1633,17 @@ struct BoothSessionView: View {
                 shutterFlashActive = false
             }
         }
+    }
+
+    private func openAdminAccess() {
+#if DEBUG
+        guard let onAdminAccessRequested else {
+            return
+        }
+
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        onAdminAccessRequested()
+#endif
     }
 
     private func reviewPhotoIdentifier(at index: Int) -> String {
