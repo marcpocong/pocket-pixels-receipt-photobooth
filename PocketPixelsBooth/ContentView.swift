@@ -31,7 +31,7 @@ struct ContentView: View {
             debugLog("[Admin] presentation state = true")
             isShowingAdmin = true
         })
-        .sheet(isPresented: $isShowingAdmin) {
+        .fullScreenCover(isPresented: $isShowingAdmin) {
             PocketPixelsAdminView()
         }
     }
@@ -45,49 +45,51 @@ private struct PocketPixelsAdminView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        TabView {
-            NavigationStack {
-                EventSetupView()
-                    .adminDismissToolbar(dismiss)
-            }
-            .tabItem {
-                Label("Event Setup", systemImage: "calendar.badge.clock")
-            }
+        VStack(spacing: 0) {
+            HStack {
+                Text("Pocket Pixels Admin")
+                    .font(.headline)
 
-            BoothSessionView(showsReceiptDebugTools: true)
-                .adminDismissToolbar(dismiss)
-                .tabItem {
-                    Label("Booth Debug", systemImage: "rectangle.stack.person.crop")
-                }
+                Spacer()
 
-            CameraTestView()
-                .adminDismissToolbar(dismiss)
-                .tabItem {
-                    Label("Camera Test", systemImage: "camera")
-                }
-
-            PrinterTestView()
-                .adminDismissToolbar(dismiss)
-                .tabItem {
-                    Label("Printer Test", systemImage: "printer")
-                }
-
-            GalleryUploadTestView()
-                .adminDismissToolbar(dismiss)
-                .tabItem {
-                    Label("Cloud Test", systemImage: "icloud.and.arrow.up")
-                }
-        }
-    }
-}
-
-private extension View {
-    func adminDismissToolbar(_ dismiss: DismissAction) -> some View {
-        toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
                 Button("Done") {
                     dismiss()
                 }
+                .buttonStyle(.borderedProminent)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+            .background(.bar)
+
+            Divider()
+
+            TabView {
+                NavigationStack {
+                    EventSetupView()
+                }
+                .tabItem {
+                    Label("Event Setup", systemImage: "calendar.badge.clock")
+                }
+
+                BoothSessionView(showsReceiptDebugTools: true)
+                    .tabItem {
+                        Label("Booth Debug", systemImage: "rectangle.stack.person.crop")
+                    }
+
+                CameraTestView()
+                    .tabItem {
+                        Label("Camera Test", systemImage: "camera")
+                    }
+
+                PrinterTestView()
+                    .tabItem {
+                        Label("Printer Test", systemImage: "printer")
+                    }
+
+                GalleryUploadTestView()
+                    .tabItem {
+                        Label("Cloud Test", systemImage: "icloud.and.arrow.up")
+                    }
             }
         }
     }

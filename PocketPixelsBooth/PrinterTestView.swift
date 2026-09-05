@@ -65,6 +65,21 @@ struct PrinterTestView: View {
 
     private let printerService = PrinterNetworkService()
     private let discoveryService = PrinterDiscoveryService()
+    private let actionGridColumns = [
+        GridItem(.adaptive(minimum: 170, maximum: 260), spacing: 12, alignment: .leading)
+    ]
+    private let calibrationButtonColumns = [
+        GridItem(.adaptive(minimum: 190, maximum: 280), spacing: 10, alignment: .leading)
+    ]
+    private let previewGridColumns = [
+        GridItem(.adaptive(minimum: 280, maximum: 480), spacing: 16, alignment: .leading)
+    ]
+    private let resultGridColumns = [
+        GridItem(.adaptive(minimum: 300, maximum: 360), spacing: 16, alignment: .leading)
+    ]
+    private let silentTestColumns = [
+        GridItem(.adaptive(minimum: 132, maximum: 180), spacing: 12, alignment: .leading)
+    ]
 
     var body: some View {
         NavigationStack {
@@ -90,8 +105,8 @@ struct PrinterTestView: View {
                     bluetoothRasterTestSection
 #endif
                 }
-                .padding(40)
-                .frame(maxWidth: 1_080, alignment: .topLeading)
+                .padding(24)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .navigationTitle("Pocket Pixels Printer Test")
             .onChange(of: selectedPhotoItem) { _, newItem in
@@ -169,7 +184,7 @@ struct PrinterTestView: View {
     }
 
     private var actionButtons: some View {
-        HStack(spacing: 16) {
+        LazyVGrid(columns: actionGridColumns, alignment: .leading, spacing: 12) {
             Button {
                 findPrinter()
             } label: {
@@ -286,7 +301,7 @@ struct PrinterTestView: View {
         VStack(alignment: .leading, spacing: 18) {
             Divider()
 
-            HStack(alignment: .center, spacing: 16) {
+            LazyVGrid(columns: actionGridColumns, alignment: .leading, spacing: 12) {
                 PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
                     Label("Select Photo", systemImage: "photo")
                 }
@@ -404,7 +419,7 @@ struct PrinterTestView: View {
 
     private var bluetoothConnectionControls: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
+            LazyVGrid(columns: actionGridColumns, alignment: .leading, spacing: 12) {
                 Button {
                     bluetoothPrinterService.startScan()
                 } label: {
@@ -573,7 +588,7 @@ struct PrinterTestView: View {
             .buttonStyle(.borderedProminent)
             .disabled(!canPrintPhotoViaBluetooth)
 
-            HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 12) {
                 Picker("Receipt Format", selection: $bluetoothReceiptFormat) {
                     ForEach(BoothFormat.allCases) { format in
                         Text(format.displayName).tag(format)
@@ -753,7 +768,7 @@ struct PrinterTestView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack(spacing: 12) {
+            LazyVGrid(columns: actionGridColumns, alignment: .leading, spacing: 12) {
                 PhotosPicker(selection: $duoConsistencyPhotoItem, matching: .images) {
                     Label("Select Duo Test Photo", systemImage: "photo.on.rectangle")
                 }
@@ -817,11 +832,9 @@ struct PrinterTestView: View {
                 ProgressView("Creating Duo consistency raster...")
             }
 
-            Grid(alignment: .topLeading, horizontalSpacing: 20, verticalSpacing: 12) {
-                GridRow {
-                    imagePreview(title: "Duo Test Source", image: duoConsistencySourceImage)
-                    imagePreview(title: "Final 1-bit Raster Preview", image: duoConsistencyPreviewImage)
-                }
+            LazyVGrid(columns: previewGridColumns, alignment: .leading, spacing: 16) {
+                imagePreview(title: "Duo Test Source", image: duoConsistencySourceImage)
+                imagePreview(title: "Final 1-bit Raster Preview", image: duoConsistencyPreviewImage)
             }
         }
         .padding(18)
@@ -842,7 +855,7 @@ struct PrinterTestView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack(spacing: 12) {
+            LazyVGrid(columns: actionGridColumns, alignment: .leading, spacing: 12) {
                 PhotosPicker(selection: $unifiedQualityPhotoItem, matching: .images) {
                     Label("Select Quality Test Photo", systemImage: "photo")
                 }
@@ -880,7 +893,7 @@ struct PrinterTestView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                HStack(spacing: 10) {
+                LazyVGrid(columns: calibrationButtonColumns, alignment: .leading, spacing: 10) {
                     ForEach(PocketPixelsThermalPhotoProfile.debugCandidates) { profile in
                         Button {
                             printPhotoQualityCalibration(profile: profile)
@@ -929,13 +942,9 @@ struct PrinterTestView: View {
                 ProgressView("Generating all-format quality diagnostics...")
             }
 
-            Grid(alignment: .topLeading, horizontalSpacing: 20, verticalSpacing: 14) {
-                ForEach(unifiedQualityRows.indices, id: \.self) { rowIndex in
-                    GridRow {
-                        ForEach(unifiedQualityRows[rowIndex]) { result in
-                            unifiedQualityResultView(result)
-                        }
-                    }
+            LazyVGrid(columns: resultGridColumns, alignment: .leading, spacing: 16) {
+                ForEach(unifiedQualityResults) { result in
+                    unifiedQualityResultView(result)
                 }
             }
         }
@@ -972,7 +981,7 @@ struct PrinterTestView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack(spacing: 12) {
+            LazyVGrid(columns: actionGridColumns, alignment: .leading, spacing: 12) {
                 PhotosPicker(selection: $stripProgressionPhotoItem, matching: .images) {
                     Label("Select Strip Test Photo", systemImage: "photo.stack")
                 }
@@ -1020,11 +1029,9 @@ struct PrinterTestView: View {
                 ProgressView("Creating Strip progression raster...")
             }
 
-            Grid(alignment: .topLeading, horizontalSpacing: 20, verticalSpacing: 12) {
-                GridRow {
-                    imagePreview(title: "Strip Test Source", image: stripProgressionSourceImage)
-                    imagePreview(title: "Final 1-bit Raster Preview", image: stripProgressionPreviewImage)
-                }
+            LazyVGrid(columns: previewGridColumns, alignment: .leading, spacing: 16) {
+                imagePreview(title: "Strip Test Source", image: stripProgressionSourceImage)
+                imagePreview(title: "Final 1-bit Raster Preview", image: stripProgressionPreviewImage)
             }
         }
         .padding(18)
@@ -1046,13 +1053,10 @@ struct PrinterTestView: View {
             }
 
             VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .top, spacing: 12) {
+                LazyVGrid(columns: silentTestColumns, alignment: .leading, spacing: 12) {
                     silentCutTestButton(test: .minimalTextNoCutter, title: "A - No Cut", hex: "none")
                     silentCutTestButton(test: .currentGSVCut, title: "B - GS V 66 0", hex: "1D 56 42 00")
                     silentCutTestButton(test: .escICut, title: "C - ESC i", hex: "1B 69")
-                }
-
-                HStack(alignment: .top, spacing: 12) {
                     silentCutTestButton(test: .escMCut, title: "D - ESC m", hex: "1B 6D")
                     silentCutTestButton(test: .gsvOneCut, title: "E - GS V 1", hex: "1D 56 01")
                 }
@@ -1145,11 +1149,9 @@ struct PrinterTestView: View {
 #endif
 
     private var imagePreviewGrid: some View {
-        Grid(alignment: .topLeading, horizontalSpacing: 20, verticalSpacing: 12) {
-            GridRow {
-                imagePreview(title: "Original Image", image: originalImage)
-                imagePreview(title: "Thermal Preview", image: previewImage)
-            }
+        LazyVGrid(columns: previewGridColumns, alignment: .leading, spacing: 16) {
+            imagePreview(title: "Original Image", image: originalImage)
+            imagePreview(title: "Thermal Preview", image: previewImage)
         }
     }
 
@@ -1318,12 +1320,6 @@ struct PrinterTestView: View {
             sourceDimensions: unifiedQualitySourceDimensions,
             normalizedDimensions: unifiedQualityNormalizedDimensions
         )
-    }
-
-    private var unifiedQualityRows: [[UnifiedPhotoQualityFormatResult]] {
-        stride(from: 0, to: unifiedQualityResults.count, by: 2).map { index in
-            Array(unifiedQualityResults[index..<min(index + 2, unifiedQualityResults.count)])
-        }
     }
 
     private func dimensionSummary(label: String, sourceDimensions: CGSize?, normalizedDimensions: CGSize?) -> String? {
