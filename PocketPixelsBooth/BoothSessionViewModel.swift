@@ -36,7 +36,8 @@ final class BoothSessionViewModel: ObservableObject {
     @Published var selectedBoothFormat: BoothFormat?
     @Published var selectedPrintCopies = 1 {
         didSet {
-            guard Self.supportedPrintCopyCounts.contains(selectedPrintCopies) else {
+            guard printBatchTask == nil,
+                  Self.printCopyRange.contains(selectedPrintCopies) else {
                 selectedPrintCopies = oldValue
                 return
             }
@@ -60,7 +61,7 @@ final class BoothSessionViewModel: ObservableObject {
     private var retakeIndex: Int?
     private var sessionCreatedAt: Date?
     private var committedGallerySession: CommittedGallerySession?
-    private static let supportedPrintCopyCounts = [1, 2, 3]
+    private static let printCopyRange = 1...10
 
     var nextPhotoIndex: Int {
         min(capturedPhotos.count, max(requiredPhotoCount - 1, 0))
@@ -87,7 +88,7 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     var supportedPrintCopies: [Int] {
-        Self.supportedPrintCopyCounts
+        Array(Self.printCopyRange)
     }
 
     var isPrintBatchActive: Bool {
@@ -96,6 +97,14 @@ final class BoothSessionViewModel: ObservableObject {
 
     var printButtonTitle: String {
         selectedPrintCopies == 1 ? "Print Receipt" : "Print \(selectedPrintCopies) Copies"
+    }
+
+    var canDecreasePrintCopies: Bool {
+        !isPrintBatchActive && selectedPrintCopies > Self.printCopyRange.lowerBound
+    }
+
+    var canIncreasePrintCopies: Bool {
+        !isPrintBatchActive && selectedPrintCopies < Self.printCopyRange.upperBound
     }
 
     var printProgressText: String {
@@ -425,6 +434,22 @@ final class BoothSessionViewModel: ObservableObject {
                 wifiPort: port
             )
         }
+    }
+
+    func decreasePrintCopies() {
+        guard canDecreasePrintCopies else {
+            return
+        }
+
+        selectedPrintCopies -= 1
+    }
+
+    func increasePrintCopies() {
+        guard canIncreasePrintCopies else {
+            return
+        }
+
+        selectedPrintCopies += 1
     }
 
     func confirmPrinterRestarted() {

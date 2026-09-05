@@ -811,14 +811,9 @@ struct BoothSessionView: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
 
-                    Picker("Copies", selection: $viewModel.selectedPrintCopies) {
-                        ForEach(viewModel.supportedPrintCopies, id: \.self) { copyCount in
-                            Text("\(copyCount)").tag(copyCount)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: min(width * 0.40, 260))
-                    .disabled(viewModel.isPrintBatchActive || viewModel.printerState.requiresPrinterRestart)
+                    receiptCopyStepper
+                        .frame(width: min(width * 0.34, 210))
+                        .disabled(viewModel.isPrintBatchActive || viewModel.printerState.requiresPrinterRestart)
                 }
             }
 
@@ -834,6 +829,52 @@ struct BoothSessionView: View {
         }
         .frame(width: width)
         .animation(PocketPixelsTheme.Motion.quickAnimation, value: viewModel.printerState.isWorking)
+    }
+
+    private var receiptCopyStepper: some View {
+        HStack(spacing: 0) {
+            Button {
+                viewModel.decreasePrintCopies()
+            } label: {
+                Image(systemName: "minus")
+                    .font(.system(size: 18, weight: .bold))
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .foregroundStyle(copyStepperControlColor(isEnabled: viewModel.canDecreasePrintCopies))
+            }
+            .buttonStyle(.plain)
+            .disabled(!viewModel.canDecreasePrintCopies)
+            .accessibilityLabel("Decrease copies")
+
+            Text("\(viewModel.selectedPrintCopies)")
+                .font(.system(size: 24, weight: .black))
+                .monospacedDigit()
+                .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .accessibilityLabel("\(viewModel.selectedPrintCopies) \(viewModel.selectedPrintCopies == 1 ? "copy" : "copies") selected")
+
+            Button {
+                viewModel.increasePrintCopies()
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 18, weight: .bold))
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .foregroundStyle(copyStepperControlColor(isEnabled: viewModel.canIncreasePrintCopies))
+            }
+            .buttonStyle(.plain)
+            .disabled(!viewModel.canIncreasePrintCopies)
+            .accessibilityLabel("Increase copies")
+        }
+        .background(PocketPixelsTheme.ColorPalette.surface.opacity(0.92))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.24), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.10), radius: 10, x: 0, y: 4)
+    }
+
+    private func copyStepperControlColor(isEnabled: Bool) -> Color {
+        isEnabled ? PocketPixelsTheme.ColorPalette.brandMaroon : PocketPixelsTheme.ColorPalette.secondaryText.opacity(0.32)
     }
 
     private func receiptGalleryStatus(qrSize: CGFloat) -> some View {
