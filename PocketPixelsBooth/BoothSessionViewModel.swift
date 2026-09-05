@@ -63,6 +63,10 @@ final class BoothSessionViewModel: ObservableObject {
     private var committedGallerySession: CommittedGallerySession?
     private var customerSessionGeneration = 0
     private static let printCopyRange = 1...10
+    private static let conservativeReceiptPrintSpeedMillimetersPerSecond = 42.0
+    private static let minimumPhysicalCopyCompletionDelay: TimeInterval = 3.0
+    private static let maximumPhysicalCopyCompletionDelay: TimeInterval = 90.0
+    private static let cutterSettleDelay: TimeInterval = 1.5
 #if DEBUG
     private var debugSessionSequence = 0
     private var currentDebugSessionSequence: Int?
@@ -859,6 +863,14 @@ final class BoothSessionViewModel: ObservableObject {
 
             switch result {
             case .success:
+                guard await waitForPhysicalCopyCompletionBoundary(
+                    copy: copy,
+                    requestedCopies: requestedCopies,
+                    rasterizedImage: rasterizedImage,
+                    sessionGeneration: sessionGeneration
+                ) else {
+                    return
+                }
                 completedPrintCopies = copy
                 debugLog("[MULTI-COPY] completedCopy=\(copy)")
             case .failure:
@@ -876,6 +888,41 @@ final class BoothSessionViewModel: ObservableObject {
         }
 
         showThankYou()
+    }
+
+    private func waitForPhysicalCopyCompletionBoundary(
+        copy: Int,
+        requestedCopies: Int,
+        rasterizedImage: ThermalRasterizedImage,
+        sessionGeneration: Int
+    ) async -> Bool {
+        let delay = Self.physicalCopyCompletionDelay(for: rasterizedImage)
+        debugLog("[MULTI-COPY] waitingForPhysicalCopyCompletion copy=\(copy) totalCopies=\(requestedCopies) seconds=\(String(format: "%.1f", delay))")
+        do {
+            try await Task.sleep(for: .seconds(delay))
+        } catch {
+            return false
+        }
+
+        guard !Task.isCancelled else {
+            return false
+        }
+
+        guard isCurrentCustomerSession(sessionGeneration) else {
+            debugLog("[Session] ignored stale physical copy completion boundary")
+            return false
+        }
+
+        return true
+    }
+
+    private static func physicalCopyCompletionDelay(for rasterizedImage: ThermalRasterizedImage) -> TimeInterval {
+        let receiptLengthMillimeters = Double(rasterizedImage.height) / 8.0
+        let estimatedPrintDuration = receiptLengthMillimeters / conservativeReceiptPrintSpeedMillimetersPerSecond
+        return min(
+            max(estimatedPrintDuration + cutterSettleDelay, minimumPhysicalCopyCompletionDelay),
+            maximumPhysicalCopyCompletionDelay
+        )
     }
 
     private func printSingleReceiptCopy(
