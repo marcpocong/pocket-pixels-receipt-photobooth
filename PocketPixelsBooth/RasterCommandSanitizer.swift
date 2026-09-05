@@ -13,6 +13,7 @@ struct RasterSanitizationReport: Sendable {
     let dleEOTPatternCount: Int
     let dleDC4PatternCount: Int
     let modifiedByteCount: Int
+    let modifiedByteOffsets: [Int]
     let finalSafetyScanPassed: Bool
 }
 
@@ -47,6 +48,7 @@ enum RasterCommandSanitizer {
         var dleEOTPatternCount = 0
         var dleDC4PatternCount = 0
         var modifiedByteCount = 0
+        var modifiedByteOffsets: [Int] = []
         var index = 0
 
         while index < bytes.count {
@@ -54,6 +56,7 @@ enum RasterCommandSanitizer {
                 bytes[index] = 0x11
                 dleEOTPatternCount += 1
                 modifiedByteCount += 1
+                modifiedByteOffsets.append(index)
                 index += 3
                 continue
             }
@@ -62,6 +65,7 @@ enum RasterCommandSanitizer {
                 bytes[index] = 0x11
                 dleDC4PatternCount += 1
                 modifiedByteCount += 1
+                modifiedByteOffsets.append(index)
                 index += 5
                 continue
             }
@@ -87,10 +91,11 @@ enum RasterCommandSanitizer {
             dleEOTPatternCount: dleEOTPatternCount,
             dleDC4PatternCount: dleDC4PatternCount,
             modifiedByteCount: modifiedByteCount,
+            modifiedByteOffsets: modifiedByteOffsets,
             finalSafetyScanPassed: finalSafetyScanPassed
         )
 
-        debugLog("Sanitized raster bytes. Original: \(report.originalByteCount). Sanitized: \(report.sanitizedByteCount). DLE EOT: \(report.dleEOTPatternCount). DLE DC4: \(report.dleDC4PatternCount). Modified bytes: \(report.modifiedByteCount). Final scan passed: \(report.finalSafetyScanPassed).")
+        debugLog("Sanitized raster bytes. Original: \(report.originalByteCount). Sanitized: \(report.sanitizedByteCount). DLE EOT: \(report.dleEOTPatternCount). DLE DC4: \(report.dleDC4PatternCount). Modified bytes: \(report.modifiedByteCount). Offsets: \(report.modifiedOffsetSummary). Final scan passed: \(report.finalSafetyScanPassed).")
 
         return (sanitizedData, report)
     }
@@ -227,6 +232,7 @@ enum RasterCommandSanitizer {
                   result.report.dleEOTPatternCount == testCase.expectedEOT,
                   result.report.dleDC4PatternCount == testCase.expectedDC4,
                   result.report.modifiedByteCount == testCase.expectedEOT + testCase.expectedDC4,
+                  result.report.modifiedByteOffsets.count == testCase.expectedEOT + testCase.expectedDC4,
                   result.report.finalSafetyScanPassed else {
                 throw RasterCommandSanitizerError.selfCheckFailed("\(testCase.name) produced an invalid report.")
             }
@@ -241,6 +247,7 @@ enum RasterCommandSanitizer {
         var dleEOTPatternCount = 0
         var dleDC4PatternCount = 0
         var modifiedByteCount = 0
+        var modifiedByteOffsets: [Int] = []
         var index = 0
 
         while index < bytes.count {
@@ -248,6 +255,7 @@ enum RasterCommandSanitizer {
                 bytes[index] = 0x11
                 dleEOTPatternCount += 1
                 modifiedByteCount += 1
+                modifiedByteOffsets.append(index)
                 index += 3
                 continue
             }
@@ -256,6 +264,7 @@ enum RasterCommandSanitizer {
                 bytes[index] = 0x11
                 dleDC4PatternCount += 1
                 modifiedByteCount += 1
+                modifiedByteOffsets.append(index)
                 index += 5
                 continue
             }
@@ -274,11 +283,27 @@ enum RasterCommandSanitizer {
                 dleEOTPatternCount: dleEOTPatternCount,
                 dleDC4PatternCount: dleDC4PatternCount,
                 modifiedByteCount: modifiedByteCount,
+                modifiedByteOffsets: modifiedByteOffsets,
                 finalSafetyScanPassed: finalSafetyScanPassed
             )
         )
     }
 #endif
+}
+
+extension RasterSanitizationReport {
+    nonisolated var modifiedOffsetSummary: String {
+        guard !modifiedByteOffsets.isEmpty else {
+            return "none"
+        }
+
+        let prefix = modifiedByteOffsets
+            .prefix(8)
+            .map(String.init)
+            .joined(separator: ", ")
+        let suffix = modifiedByteOffsets.count > 8 ? ", ..." : ""
+        return "\(prefix)\(suffix)"
+    }
 }
 
 struct ReservedPatternMatch: Sendable {

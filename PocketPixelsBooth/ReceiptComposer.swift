@@ -14,6 +14,7 @@ struct ComposedReceipt: Sendable {
     let sessionIdentifier: String
     let createdAt: Date
     let format: BoothFormat
+    let photoQualityProfile: PocketPixelsThermalPhotoProfile
 
     var estimatedLengthMillimeters: Double {
         Double(height) / 8.0
@@ -79,7 +80,7 @@ enum ReceiptComposer {
         galleryURL: URL? = nil,
         format: BoothFormat,
         eventProfile: EventProfile? = nil,
-        photoQualityProfile: PocketPixelsThermalPhotoProfile = .neutral
+        photoQualityProfile: PocketPixelsThermalPhotoProfile = .customerPrintDefault
     ) throws -> ComposedReceipt {
         guard photos.count == format.photoCount else {
             throw ReceiptComposerError.missingPhotos(expected: format.photoCount, actual: photos.count)
@@ -173,7 +174,8 @@ enum ReceiptComposer {
             previewContentHeight: plan.previewContentHeight,
             sessionIdentifier: sessionIdentifier,
             createdAt: date,
-            format: format
+            format: format,
+            photoQualityProfile: photoQualityProfile
         )
     }
 
@@ -273,7 +275,7 @@ enum ReceiptComposer {
     nonisolated static func preparePhotos(
         _ photos: [UIImage],
         for plan: ReceiptLayoutPlan,
-        profile: PocketPixelsThermalPhotoProfile = .neutral
+        profile: PocketPixelsThermalPhotoProfile = .customerPrintDefault
     ) throws -> [ThermalPreparedPhoto] {
         try photos.enumerated().map { index, photo in
             guard let frame = plan.photoFrames.first(where: { $0.photoIndex == index }) else {

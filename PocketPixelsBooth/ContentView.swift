@@ -45,42 +45,48 @@ private struct PocketPixelsAdminView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
-            TabView {
-                NavigationStack {
-                    EventSetupView()
-                }
-                .tabItem {
-                    Label("Event Setup", systemImage: "calendar.badge.clock")
-                }
-
-                BoothSessionView(showsReceiptDebugTools: true)
-                    .tabItem {
-                        Label("Booth Debug", systemImage: "rectangle.stack.person.crop")
-                    }
-
-                CameraTestView()
-                    .tabItem {
-                        Label("Camera Test", systemImage: "camera")
-                    }
-
-                PrinterTestView()
-                    .tabItem {
-                        Label("Printer Test", systemImage: "printer")
-                    }
-
-                GalleryUploadTestView()
-                    .tabItem {
-                        Label("Cloud Test", systemImage: "icloud.and.arrow.up")
-                    }
+        TabView {
+            NavigationStack {
+                EventSetupView()
+                    .adminDismissToolbar(dismiss)
             }
-            .navigationTitle("Pocket Pixels Admin")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
+            .tabItem {
+                Label("Event Setup", systemImage: "calendar.badge.clock")
+            }
+
+            BoothSessionView(showsReceiptDebugTools: true)
+                .adminDismissToolbar(dismiss)
+                .tabItem {
+                    Label("Booth Debug", systemImage: "rectangle.stack.person.crop")
+                }
+
+            CameraTestView()
+                .adminDismissToolbar(dismiss)
+                .tabItem {
+                    Label("Camera Test", systemImage: "camera")
+                }
+
+            PrinterTestView()
+                .adminDismissToolbar(dismiss)
+                .tabItem {
+                    Label("Printer Test", systemImage: "printer")
+                }
+
+            GalleryUploadTestView()
+                .adminDismissToolbar(dismiss)
+                .tabItem {
+                    Label("Cloud Test", systemImage: "icloud.and.arrow.up")
+                }
+        }
+    }
+}
+
+private extension View {
+    func adminDismissToolbar(_ dismiss: DismissAction) -> some View {
+        toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") {
+                    dismiss()
                 }
             }
         }

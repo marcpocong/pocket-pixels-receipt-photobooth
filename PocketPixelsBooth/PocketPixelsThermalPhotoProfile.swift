@@ -14,13 +14,28 @@ struct PocketPixelsThermalPhotoProfile: Identifiable, Equatable, Hashable, Senda
 
     nonisolated static let neutral = PocketPixelsThermalPhotoProfile(
         id: "neutral",
-        displayName: "Neutral",
+        displayName: "Current Baseline",
         brightness: 0,
         contrast: 1,
         gammaPower: 1
     )
 
-#if DEBUG
+    nonisolated static let failedLocalPortrait = PocketPixelsThermalPhotoProfile(
+        id: "failedLocalPortrait",
+        displayName: "Failed Local Fix",
+        brightness: 0.070,
+        contrast: 0.925,
+        gammaPower: 0.76
+    )
+
+    nonisolated static let productionPortrait = PocketPixelsThermalPhotoProfile(
+        id: "productionPortrait",
+        displayName: "Repaired Portrait",
+        brightness: 0.020,
+        contrast: 1.060,
+        gammaPower: 0.88
+    )
+
     nonisolated static let light1 = PocketPixelsThermalPhotoProfile(
         id: "light1",
         displayName: "Light 1",
@@ -45,11 +60,23 @@ struct PocketPixelsThermalPhotoProfile: Identifiable, Equatable, Hashable, Senda
         gammaPower: 0.78
     )
 
-    nonisolated static let debugCandidates = [neutral, light1, light2, light3]
+    nonisolated static let customerPrintDefault = productionPortrait
+
+#if DEBUG
+    nonisolated static let debugCandidates = [neutral, light1, light2, light3, failedLocalPortrait, productionPortrait]
 #endif
 
     nonisolated var parametersDescription: String {
         "B +\(brightness.formatted(.number.precision(.fractionLength(3)))) C \(contrast.formatted(.number.precision(.fractionLength(3)))) G \(gammaPower.formatted(.number.precision(.fractionLength(2))))"
+    }
+
+    nonisolated var toneSampleDescription: String {
+        [0.25, 0.50, 0.75]
+            .map { sample in
+                let adjusted = ThermalPhotoProcessor.adjustedUnitLuminance(sample, profile: self)
+                return "\(Int(round(sample * 255)))->\(Int(round(adjusted * 255)))"
+            }
+            .joined(separator: ", ")
     }
 
     nonisolated var isNeutral: Bool {

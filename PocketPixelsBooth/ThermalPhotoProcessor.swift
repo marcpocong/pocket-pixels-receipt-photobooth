@@ -5,6 +5,7 @@
 
 import CoreImage
 import CoreImage.CIFilterBuiltins
+import CoreGraphics
 import Foundation
 import UIKit
 
@@ -37,7 +38,7 @@ enum ThermalPhotoProcessor {
         _ sourceImage: UIImage,
         targetPixelSize: CGSize,
         presentationMode: ThermalPhotoPresentationMode,
-        profile: PocketPixelsThermalPhotoProfile = .neutral
+        profile: PocketPixelsThermalPhotoProfile = .customerPrintDefault
     ) throws -> ThermalPreparedPhoto {
         guard targetPixelSize.width > 0, targetPixelSize.height > 0 else {
             throw ThermalImageRasterizerError.invalidImage
@@ -144,6 +145,12 @@ enum ThermalPhotoProcessor {
         }
     }
 
+    nonisolated static func adjustedUnitLuminance(_ input: Double, profile: PocketPixelsThermalPhotoProfile) -> Double {
+        let contrasted = ((input - 0.5) * Double(profile.contrast)) + 0.5
+        let brightened = min(1, max(0, contrasted + Double(profile.brightness)))
+        return pow(brightened, Double(profile.gammaPower))
+    }
+
     nonisolated private static func apply(_ profile: PocketPixelsThermalPhotoProfile, to image: UIImage) throws -> UIImage {
         guard !profile.isNeutral else {
             return image
@@ -171,8 +178,18 @@ enum ThermalPhotoProcessor {
             throw ThermalImageRasterizerError.renderFailed
         }
 
-        let context = CIContext(options: [.useSoftwareRenderer: false])
-        guard let cgImage = context.createCGImage(outputImage, from: inputImage.extent) else {
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        let context = CIContext(options: [
+            .useSoftwareRenderer: false,
+            .workingColorSpace: colorSpace,
+            .outputColorSpace: colorSpace
+        ])
+        guard let cgImage = context.createCGImage(
+            outputImage,
+            from: inputImage.extent,
+            format: .RGBA8,
+            colorSpace: colorSpace
+        ) else {
             throw ThermalImageRasterizerError.renderFailed
         }
 

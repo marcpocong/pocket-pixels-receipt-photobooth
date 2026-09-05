@@ -81,10 +81,10 @@ enum ThermalImageRasterizer {
         let canvas = try renderCanvas(from: image, purpose: purpose)
         let pixels = try rgbaPixels(from: canvas.image)
         let dithered = dither(pixels: pixels, width: canvas.width, height: canvas.height, purpose: purpose)
-        let previewPNGData = try previewPNG(from: dithered, width: canvas.width, height: canvas.height)
         let unsafeRasterData = packRows(dithered, width: canvas.width, height: canvas.height)
         let sanitized = try RasterCommandSanitizer.sanitizeRasterData(unsafeRasterData)
         let rasterData = sanitized.data
+        let previewPNGData = try previewPNG(fromRasterData: rasterData, width: canvas.width, height: canvas.height, widthBytes: widthBytes)
         let rasterCommand = completeRasterCommand(rasterData: rasterData, height: canvas.height)
         try validateRasterCommand(
             rasterCommand,
@@ -272,12 +272,10 @@ enum ThermalImageRasterizer {
             let green = Double(pixels[pixelIndex + 1])
             let blue = Double(pixels[pixelIndex + 2])
             let value = (0.299 * red) + (0.587 * green) + (0.114 * blue)
-            luminance[index] = clamp((value - 128) * 1.12 + 128)
+            luminance[index] = value
 
             if purpose.preservesSharpExtremes {
-                if value <= 18 {
-                    fixedOutput[index] = true
-                } else if value >= 245 {
+                if value >= 250 {
                     fixedOutput[index] = false
                 }
             }
@@ -286,7 +284,10 @@ enum ThermalImageRasterizer {
         var output = [Bool](repeating: false, count: width * height)
 
         for y in 0..<height {
-            for x in 0..<width {
+            let movesLeftToRight = y.isMultiple(of: 2)
+            let xSequence: any Sequence<Int> = movesLeftToRight ? 0..<width : stride(from: width - 1, through: 0, by: -1)
+
+            for x in xSequence {
                 let index = y * width + x
                 let oldValue = luminance[index]
                 let newValue: Double
@@ -299,10 +300,11 @@ enum ThermalImageRasterizer {
                 output[index] = newValue == 0
 
                 if fixedOutput[index] == nil {
-                    distribute(error * 7 / 16, x: x + 1, y: y, width: width, height: height, luminance: &luminance)
-                    distribute(error * 3 / 16, x: x - 1, y: y + 1, width: width, height: height, luminance: &luminance)
+                    let forward = movesLeftToRight ? 1 : -1
+                    distribute(error * 7 / 16, x: x + forward, y: y, width: width, height: height, luminance: &luminance)
+                    distribute(error * 3 / 16, x: x - forward, y: y + 1, width: width, height: height, luminance: &luminance)
                     distribute(error * 5 / 16, x: x, y: y + 1, width: width, height: height, luminance: &luminance)
-                    distribute(error * 1 / 16, x: x + 1, y: y + 1, width: width, height: height, luminance: &luminance)
+                    distribute(error * 1 / 16, x: x + forward, y: y + 1, width: width, height: height, luminance: &luminance)
                 }
             }
         }
@@ -323,7 +325,7 @@ enum ThermalImageRasterizer {
         }
 
         let index = y * width + x
-        luminance[index] = clamp(luminance[index] + error)
+        luminance[index] += error
     }
 
     nonisolated private static func packRows(_ pixels: [Bool], width: Int, height: Int) -> Data {
@@ -399,6 +401,22 @@ enum ThermalImageRasterizer {
         }
 
         return data
+    }
+
+    nonisolated private static func previewPNG(fromRasterData rasterData: Data, width: Int, height: Int, widthBytes: Int) throws -> Data {
+        var pixels = [Bool](repeating: false, count: width * height)
+
+        for y in 0..<height {
+            let rowOffset = y * widthBytes
+
+            for x in 0..<width {
+                let byteIndex = rowOffset + (x / 8)
+                let bitMask = UInt8(0x80) >> UInt8(x % 8)
+                pixels[y * width + x] = rasterData[byteIndex] & bitMask != 0
+            }
+        }
+
+        return try previewPNG(from: pixels, width: width, height: height)
     }
 
     nonisolated private static func clamp(_ value: Double) -> Double {

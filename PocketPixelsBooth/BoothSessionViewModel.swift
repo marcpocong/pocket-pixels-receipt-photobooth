@@ -62,6 +62,7 @@ final class BoothSessionViewModel: ObservableObject {
     private var sessionEventProfile: EventProfile?
     private var committedGallerySession: CommittedGallerySession?
     private var customerSessionGeneration = 0
+    private let customerPrintPhotoProfile = PocketPixelsThermalPhotoProfile.customerPrintDefault
     private static let printCopyRange = 1...10
 #if DEBUG
     private var debugSessionSequence = 0
@@ -347,6 +348,7 @@ final class BoothSessionViewModel: ObservableObject {
         statusMessage = "Composing receipt..."
         errorMessage = nil
         let sessionGeneration = customerSessionGeneration
+        let customerPrintPhotoProfile = self.customerPrintPhotoProfile
 
         activeTask = Task {
             do {
@@ -357,7 +359,8 @@ final class BoothSessionViewModel: ObservableObject {
                         date: committedSession.createdAt,
                         galleryURL: committedSession.galleryURL,
                         format: committedSession.format,
-                        eventProfile: committedSession.eventProfile
+                        eventProfile: committedSession.eventProfile,
+                        photoQualityProfile: customerPrintPhotoProfile
                     )
                     guard let receiptImage = UIImage(data: receipt.imagePNGData) else {
                         throw ReceiptComposerError.renderFailed
@@ -385,7 +388,7 @@ final class BoothSessionViewModel: ObservableObject {
                 thermalReceiptPreview = result.3
                 receiptRasterizedImage = result.4
                 state = .receiptPreview
-                statusMessage = "Receipt ready: \(result.0.width) x \(result.0.height) pixels."
+                statusMessage = "Receipt ready: \(result.0.width) x \(result.0.height) pixels. Photo profile: \(result.0.photoQualityProfile.displayName)."
                 if enqueueUpload {
                     startGalleryUpload(committedSession: committedSession, receiptImage: result.1)
                 }

@@ -55,7 +55,7 @@ struct PrinterTestView: View {
     @State private var unifiedQualitySourceDimensions: CGSize?
     @State private var unifiedQualityNormalizedDimensions: CGSize?
     @State private var unifiedQualitySourceImage: UIImage?
-    @State private var unifiedQualityProfile = PocketPixelsThermalPhotoProfile.neutral
+    @State private var unifiedQualityProfile = PocketPixelsThermalPhotoProfile.customerPrintDefault
     @State private var unifiedQualityResults: [UnifiedPhotoQualityFormatResult] = []
     @State private var unifiedQualityStatusMessage = "Select one photo to generate all-format quality diagnostics."
     @State private var photoQualityCalibrationStatusMessage = "Print each profile separately with the same normalized source photo."
@@ -890,6 +890,14 @@ struct PrinterTestView: View {
                         .buttonStyle(.borderedProminent)
                         .disabled(unifiedQualitySourceImage == nil || isProcessingUnifiedQuality || !bluetoothPrinterService.canPrintRaster || connectionState.isWorking || discoveryState.isSearching)
                     }
+
+                    Button {
+                        printCompactToneDiagnostic()
+                    } label: {
+                        Label("Print Tone Target", systemImage: "chart.bar")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isProcessingUnifiedQuality || !bluetoothPrinterService.canPrintRaster || connectionState.isWorking || discoveryState.isSearching)
                 }
 
                 Text(photoQualityCalibrationStatusMessage)
@@ -1494,7 +1502,8 @@ struct PrinterTestView: View {
                 sessionIdentifier: ReceiptComposer.makeSessionIdentifier(date: date),
                 date: date,
                 galleryURL: nil,
-                format: bluetoothReceiptFormat
+                format: bluetoothReceiptFormat,
+                photoQualityProfile: .customerPrintDefault
             )
 
             bluetoothPrinterService.printReceipt(
@@ -1653,6 +1662,30 @@ struct PrinterTestView: View {
         }
     }
 
+    private func printCompactToneDiagnostic() {
+        isProcessingUnifiedQuality = true
+        photoQualityCalibrationStatusMessage = "Creating compact tone diagnostic..."
+
+        Task {
+            do {
+                let result = try await Task.detached(priority: .userInitiated) {
+                    try Self.compactToneDiagnosticRaster()
+                }.value
+
+                photoQualityCalibrationStatusMessage = result.summary
+                bluetoothPrinterService.printRasterizedReceipt(
+                    rasterizedImage: result.rasterizedImage,
+                    mode: .fast,
+                    balancedProfile: balancedBluetoothProfile
+                )
+            } catch {
+                photoQualityCalibrationStatusMessage = error.localizedDescription
+            }
+
+            isProcessingUnifiedQuality = false
+        }
+    }
+
     private func loadDuoConsistencyPhoto(from item: PhotosPickerItem?) {
         guard let item else {
             return
@@ -1724,7 +1757,8 @@ struct PrinterTestView: View {
                         sessionIdentifier: "DEBUG-DUO-\(ReceiptComposer.makeSessionIdentifier(date: date))",
                         date: date,
                         galleryURL: nil,
-                        format: .duo
+                        format: .duo,
+                        photoQualityProfile: .customerPrintDefault
                     )
 
                     guard let receiptImage = UIImage(data: receipt.imagePNGData) else {
@@ -1818,7 +1852,8 @@ struct PrinterTestView: View {
                         sessionIdentifier: "DEBUG-STRIP-\(ReceiptComposer.makeSessionIdentifier(date: date))",
                         date: date,
                         galleryURL: nil,
-                        format: .strip
+                        format: .strip,
+                        photoQualityProfile: .customerPrintDefault
                     )
 
                     guard let receiptImage = UIImage(data: receipt.imagePNGData) else {
@@ -1950,6 +1985,7 @@ struct PrinterTestView: View {
         let firstFrame = plan.photoFrames[0].rect
         let summary = [
             "Profile: \(profile.displayName) (\(profile.parametersDescription))",
+            "Tone samples 25/50/75%: \(profile.toneSampleDescription)",
             "Crop: \(Int(firstPrepared.croppedPixelSize.width)) x \(Int(firstPrepared.croppedPixelSize.height)) px",
             "Final photo: \(Int(firstPrepared.finalPixelSize.width)) x \(Int(firstPrepared.finalPixelSize.height)) px",
             "Frame: \(Int(firstFrame.width)) x \(Int(firstFrame.height)) px",
@@ -2011,7 +2047,84 @@ struct PrinterTestView: View {
             xRange: Int(photoFrame.minX)..<Int(photoFrame.maxX),
             yRange: Int(photoFrame.minY)..<Int(photoFrame.maxY)
         )
-        let summary = "\(profile.displayName) ready. Photo \(Int(preparedPhoto.finalPixelSize.width)) x \(Int(preparedPhoto.finalPixelSize.height)) px. Raster \(rasterized.width) x \(rasterized.height), rows \(rasterized.height), bytes \(rasterized.rasterData.count). Approx photo black \(photoCoverage.formatted(.number.precision(.fractionLength(1))))%."
+        let summary = "\(profile.displayName) ready. Photo \(Int(preparedPhoto.finalPixelSize.width)) x \(Int(preparedPhoto.finalPixelSize.height)) px. Raster \(rasterized.width) x \(rasterized.height), rows \(rasterized.height), bytes \(rasterized.rasterData.count). Approx photo black \(photoCoverage.formatted(.number.precision(.fractionLength(1))))%. Sanitizer modified \(rasterized.sanitizationReport.modifiedByteCount) bytes at \(rasterized.sanitizationReport.modifiedOffsetSummary). Tone samples \(profile.toneSampleDescription)."
+
+        return PhotoQualityCalibrationRasterResult(
+            rasterizedImage: rasterized,
+            summary: summary
+        )
+    }
+
+    nonisolated private static func compactToneDiagnosticRaster() throws -> PhotoQualityCalibrationRasterResult {
+        let width = BoothConfiguration.receiptWidth
+        let height = 360
+        let margin = BoothConfiguration.receiptHorizontalMargin
+        let contentWidth = width - (margin * 2)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+
+        let renderer = UIGraphicsImageRenderer(
+            size: CGSize(width: width, height: height),
+            format: format
+        )
+        let targetImage = renderer.image { context in
+            let cgContext = context.cgContext
+            UIColor.white.setFill()
+            cgContext.fill(CGRect(x: 0, y: 0, width: width, height: height))
+
+            drawCentered("THERMAL TONE TARGET", y: 18, width: width, font: .systemFont(ofSize: 22, weight: .semibold))
+            drawCentered("WEDGE PATCHES DETAIL", y: 46, width: width, font: .monospacedSystemFont(ofSize: 16, weight: .regular))
+
+            let wedgeTop = 82
+            let wedgeHeight = 42
+            for x in 0..<contentWidth {
+                let gray = CGFloat(x) / CGFloat(max(1, contentWidth - 1))
+                UIColor(white: gray, alpha: 1).setFill()
+                cgContext.fill(CGRect(x: margin + x, y: wedgeTop, width: 1, height: wedgeHeight))
+            }
+            UIColor.black.setStroke()
+            cgContext.setLineWidth(1)
+            cgContext.stroke(CGRect(x: margin, y: wedgeTop, width: contentWidth, height: wedgeHeight))
+
+            let patchTop = wedgeTop + wedgeHeight + 28
+            let patchGap = 8
+            let patchCount = 5
+            let patchWidth = (contentWidth - (patchGap * (patchCount - 1))) / patchCount
+            let patchValues: [CGFloat] = [0.25, 0.38, 0.50, 0.62, 0.75]
+            for (index, gray) in patchValues.enumerated() {
+                let x = margin + index * (patchWidth + patchGap)
+                UIColor(white: gray, alpha: 1).setFill()
+                cgContext.fill(CGRect(x: x, y: patchTop, width: patchWidth, height: 56))
+                UIColor.black.setStroke()
+                cgContext.stroke(CGRect(x: x, y: patchTop, width: patchWidth, height: 56))
+                drawCentered(
+                    "\(Int(gray * 100))",
+                    in: CGRect(x: x, y: patchTop + 62, width: patchWidth, height: 18),
+                    font: .monospacedSystemFont(ofSize: 10, weight: .regular)
+                )
+            }
+
+            let detailTop = patchTop + 96
+            UIColor.black.setStroke()
+            cgContext.setLineWidth(1)
+            for offset in stride(from: 0, through: contentWidth, by: 8) {
+                cgContext.move(to: CGPoint(x: margin + offset, y: detailTop))
+                cgContext.addLine(to: CGPoint(x: margin + offset, y: detailTop + 42))
+            }
+            cgContext.strokePath()
+
+            UIColor.black.setFill()
+            for y in stride(from: 0, through: 40, by: 8) {
+                cgContext.fill(CGRect(x: margin, y: detailTop + 62 + y, width: contentWidth, height: 1))
+            }
+            for x in stride(from: 0, through: contentWidth, by: 16) {
+                cgContext.fill(CGRect(x: margin + x, y: detailTop + 58, width: 1, height: 48))
+            }
+        }
+
+        let rasterized = try ThermalImageRasterizer.rasterize(targetImage, purpose: .completeReceipt)
+        let summary = "Tone target ready. Raster \(rasterized.width) x \(rasterized.height), bytes \(rasterized.rasterData.count). Sanitizer modified \(rasterized.sanitizationReport.modifiedByteCount) bytes at \(rasterized.sanitizationReport.modifiedOffsetSummary)."
 
         return PhotoQualityCalibrationRasterResult(
             rasterizedImage: rasterized,
@@ -2066,6 +2179,10 @@ struct PrinterTestView: View {
     }
 
     nonisolated private static func drawCentered(_ text: String, y: Int, width: Int, font: UIFont) {
+        drawCentered(text, in: CGRect(x: 0, y: y, width: width, height: Int(font.lineHeight) + 8), font: font)
+    }
+
+    nonisolated private static func drawCentered(_ text: String, in rect: CGRect, font: UIFont) {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
 
@@ -2076,7 +2193,7 @@ struct PrinterTestView: View {
         ]
 
         NSString(string: text).draw(
-            in: CGRect(x: 0, y: y, width: width, height: Int(font.lineHeight) + 8),
+            in: rect,
             withAttributes: attributes
         )
     }
