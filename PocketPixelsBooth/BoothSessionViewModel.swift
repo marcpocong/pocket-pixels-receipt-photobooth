@@ -63,10 +63,6 @@ final class BoothSessionViewModel: ObservableObject {
     private var committedGallerySession: CommittedGallerySession?
     private var customerSessionGeneration = 0
     private static let printCopyRange = 1...10
-    private static let conservativeReceiptPrintSpeedMillimetersPerSecond = 42.0
-    private static let minimumPhysicalCopyCompletionDelay: TimeInterval = 3.0
-    private static let maximumPhysicalCopyCompletionDelay: TimeInterval = 90.0
-    private static let cutterSettleDelay: TimeInterval = 1.5
 #if DEBUG
     private var debugSessionSequence = 0
     private var currentDebugSessionSequence: Int?
@@ -842,18 +838,23 @@ final class BoothSessionViewModel: ObservableObject {
                 return
             }
 
+            let copyRequestedAt = Date()
             currentPrintCopy = copy
             state = .printing
             statusMessage = requestedCopies == 1 ? "Printing your keepsake..." : "Printing copy \(copy) of \(requestedCopies)..."
             debugLog("[MULTI-COPY] startingCopy=\(copy) totalCopies=\(requestedCopies)")
+            debugLog("[PrintBatch] copy \(copy) requested")
 
             let result = await printSingleReceiptCopy(
                 rasterizedImage: rasterizedImage,
                 wifiHost: wifiHost,
                 wifiPort: wifiPort,
                 requestedCopies: requestedCopies,
-                sessionGeneration: sessionGeneration
+                sessionGeneration: sessionGeneration,
+                copy: copy,
+                copyRequestedAt: copyRequestedAt
             )
+            let completionReportedAt = Date()
 
             guard !Task.isCancelled else { return }
             guard isCurrentCustomerSession(sessionGeneration) else {
@@ -863,19 +864,16 @@ final class BoothSessionViewModel: ObservableObject {
 
             switch result {
             case .success:
-                guard await waitForPhysicalCopyCompletionBoundary(
-                    copy: copy,
-                    requestedCopies: requestedCopies,
-                    rasterizedImage: rasterizedImage,
-                    sessionGeneration: sessionGeneration
-                ) else {
-                    return
-                }
                 completedPrintCopies = copy
                 debugLog("[MULTI-COPY] completedCopy=\(copy)")
+                debugLog("[PrintBatch] copy \(copy) job completion reported after \(Self.formatDuration(completionReportedAt.timeIntervalSince(copyRequestedAt)))")
+                if copy < requestedCopies {
+                    debugLog("[PrintBatch] copy \(copy + 1) requested immediately after copy \(copy) completion")
+                }
             case .failure:
                 let message = "\(completedPrintCopies) of \(requestedCopies) copies printed. Printer needs attention before continuing."
                 debugLog("[MULTI-COPY] failedCopy=\(copy) completedCopies=\(completedPrintCopies) requestedCopies=\(requestedCopies)")
+                debugLog("[PrintBatch] copy \(copy) failed after \(Self.formatDuration(completionReportedAt.timeIntervalSince(copyRequestedAt))). completed=\(completedPrintCopies) requested=\(requestedCopies). stopping batch.")
                 if printerState.requiresPrinterRestart {
                     state = .recoveryRequired(message)
                 } else {
@@ -890,49 +888,17 @@ final class BoothSessionViewModel: ObservableObject {
         showThankYou()
     }
 
-    private func waitForPhysicalCopyCompletionBoundary(
-        copy: Int,
-        requestedCopies: Int,
-        rasterizedImage: ThermalRasterizedImage,
-        sessionGeneration: Int
-    ) async -> Bool {
-        let delay = Self.physicalCopyCompletionDelay(for: rasterizedImage)
-        debugLog("[MULTI-COPY] waitingForPhysicalCopyCompletion copy=\(copy) totalCopies=\(requestedCopies) seconds=\(String(format: "%.1f", delay))")
-        do {
-            try await Task.sleep(for: .seconds(delay))
-        } catch {
-            return false
-        }
-
-        guard !Task.isCancelled else {
-            return false
-        }
-
-        guard isCurrentCustomerSession(sessionGeneration) else {
-            debugLog("[Session] ignored stale physical copy completion boundary")
-            return false
-        }
-
-        return true
-    }
-
-    private static func physicalCopyCompletionDelay(for rasterizedImage: ThermalRasterizedImage) -> TimeInterval {
-        let receiptLengthMillimeters = Double(rasterizedImage.height) / 8.0
-        let estimatedPrintDuration = receiptLengthMillimeters / conservativeReceiptPrintSpeedMillimetersPerSecond
-        return min(
-            max(estimatedPrintDuration + cutterSettleDelay, minimumPhysicalCopyCompletionDelay),
-            maximumPhysicalCopyCompletionDelay
-        )
-    }
-
     private func printSingleReceiptCopy(
         rasterizedImage: ThermalRasterizedImage,
         wifiHost: String,
         wifiPort: UInt16,
         requestedCopies: Int,
-        sessionGeneration: Int
+        sessionGeneration: Int,
+        copy: Int,
+        copyRequestedAt: Date
     ) async -> Result<Void, Error> {
         await withCheckedContinuation { continuation in
+            debugLog("[PrintBatch] copy \(copy) transport start after \(Self.formatDuration(Date().timeIntervalSince(copyRequestedAt)))")
             printerCoordinator.printReceipt(
                 rasterizedImage: rasterizedImage,
                 wifiHost: wifiHost,
@@ -950,6 +916,9 @@ final class BoothSessionViewModel: ObservableObject {
                     self.state = .connectingToPrinter
                     self.statusMessage = "Preparing printer..."
                 case .printing, .sendingHeading, .sendingPhotograph, .finalizingAndCutting, .printerProcessing, .coolingDown:
+                    if case .sendingPhotograph = printerState {
+                        debugLog("[PrintBatch] copy \(copy) first payload bytes phase after \(Self.formatDuration(Date().timeIntervalSince(copyRequestedAt)))")
+                    }
                     self.state = .printing
                     self.statusMessage = requestedCopies == 1 ? "Printing your keepsake..." : "Printing copy \(self.currentPrintCopy) of \(requestedCopies)..."
                 case .recoveryRequired(let message):
@@ -964,9 +933,14 @@ final class BoothSessionViewModel: ObservableObject {
                     break
                 }
             } completion: { result in
+                debugLog("[PrintBatch] copy \(copy) transport completion reported after \(Self.formatDuration(Date().timeIntervalSince(copyRequestedAt)))")
                 continuation.resume(returning: result)
             }
         }
+    }
+
+    private static func formatDuration(_ duration: TimeInterval) -> String {
+        "\(String(format: "%.2f", duration))s"
     }
 
     private func startGalleryUpload(committedSession: CommittedGallerySession, receiptImage: UIImage) {
