@@ -343,7 +343,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
 
     private let scanDuration: TimeInterval = 10
     private let printerProcessingDelay: TimeInterval = 1.5
-    private let cooldownDelay: TimeInterval = 2
+    private let postCutHandoffDelay: TimeInterval = 0.35
     private var centralManager: CBCentralManager?
     private var scanStopTask: Task<Void, Never>?
     private var peripheralsByID: [UUID: CBPeripheral] = [:]
@@ -1323,13 +1323,14 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
 
         let duration = Date().timeIntervalSince(pendingJob.startedAt)
         updateMetrics(duration: duration)
-        appendLog("\(pendingJob.mode.progressLabel) all BLE chunks in \(String(format: "%.2f", duration)) seconds. Waiting for printer processing.")
+        appendLog("\(pendingJob.mode.progressLabel) all BLE chunks in \(String(format: "%.2f", duration)) seconds. Waiting \(String(format: "%.2f", printerProcessingDelay))s processing + \(String(format: "%.2f", postCutHandoffDelay))s handoff.")
         jobState = .printerProcessing
 
-        Task { [weak self, printerProcessingDelay, cooldownDelay] in
+        Task { [weak self, printerProcessingDelay, postCutHandoffDelay] in
             try? await Task.sleep(nanoseconds: UInt64(printerProcessingDelay * 1_000_000_000))
             self?.jobState = .coolingDown
-            try? await Task.sleep(nanoseconds: UInt64(cooldownDelay * 1_000_000_000))
+            try? await Task.sleep(nanoseconds: UInt64(postCutHandoffDelay * 1_000_000_000))
+            self?.appendLog("Bluetooth post-cut handoff complete after \(String(format: "%.2f", printerProcessingDelay + postCutHandoffDelay)) seconds.")
             self?.finishJob(.success(()))
         }
     }
