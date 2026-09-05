@@ -7,6 +7,7 @@
 
 import AVFoundation
 import Combine
+import CryptoKit
 import SwiftUI
 import UIKit
 
@@ -67,6 +68,7 @@ final class BoothSessionViewModel: ObservableObject {
 #if DEBUG
     private var debugSessionSequence = 0
     private var currentDebugSessionSequence: Int?
+    private var debugPrintBatchSequence = 0
 #endif
 
     var nextPhotoIndex: Int {
@@ -448,11 +450,21 @@ final class BoothSessionViewModel: ObservableObject {
 
         let requestedCopies = selectedPrintCopies
         let sessionGeneration = customerSessionGeneration
+#if DEBUG
+        let printBatchID = nextPrintBatchDebugID()
+        let receiptFingerprint = Self.receiptPayloadFingerprint(for: rasterized)
+#else
+        let printBatchID: Int? = nil
+        let receiptFingerprint: String? = nil
+#endif
         currentPrintCopy = 0
         completedPrintCopies = 0
         state = .connectingToPrinter
         statusMessage = "Preparing printer..."
         debugLog("[MULTI-COPY] requestedCopies=\(requestedCopies)")
+#if DEBUG
+        debugLog("[PrintBatch \(printBatchID)] session=\(sessionIdentifier ?? "unknown") requestedCopies=\(requestedCopies) receiptFingerprint=\(receiptFingerprint) bytes=\(Self.receiptPayloadByteCount(for: rasterized))")
+#endif
 
         printBatchTask = Task { [weak self] in
             guard let self else { return }
@@ -461,7 +473,9 @@ final class BoothSessionViewModel: ObservableObject {
                 rasterizedImage: rasterized,
                 wifiHost: host,
                 wifiPort: port,
-                sessionGeneration: sessionGeneration
+                sessionGeneration: sessionGeneration,
+                printBatchID: printBatchID,
+                receiptFingerprint: receiptFingerprint
             )
         }
     }
@@ -826,7 +840,9 @@ final class BoothSessionViewModel: ObservableObject {
         rasterizedImage: ThermalRasterizedImage,
         wifiHost: String,
         wifiPort: UInt16,
-        sessionGeneration: Int
+        sessionGeneration: Int,
+        printBatchID: Int?,
+        receiptFingerprint: String?
     ) async {
         defer {
             if isCurrentCustomerSession(sessionGeneration) {
@@ -846,7 +862,11 @@ final class BoothSessionViewModel: ObservableObject {
             state = .printing
             statusMessage = requestedCopies == 1 ? "Printing your keepsake..." : "Printing copy \(copy) of \(requestedCopies)..."
             debugLog("[MULTI-COPY] startingCopy=\(copy) totalCopies=\(requestedCopies)")
-            debugLog("[PrintBatch] copy \(copy) requested")
+            if let printBatchID, let receiptFingerprint {
+                debugLog("[PrintBatch \(printBatchID)] copy=\(copy)/\(requestedCopies) start fingerprint=\(receiptFingerprint)")
+            } else {
+                debugLog("[PrintBatch] copy \(copy) requested")
+            }
 
             let result = await printSingleReceiptCopy(
                 rasterizedImage: rasterizedImage,
@@ -869,7 +889,11 @@ final class BoothSessionViewModel: ObservableObject {
             case .success:
                 completedPrintCopies = copy
                 debugLog("[MULTI-COPY] completedCopy=\(copy)")
-                debugLog("[PrintBatch] copy \(copy) job completion reported after \(Self.formatDuration(completionReportedAt.timeIntervalSince(copyRequestedAt)))")
+                if let printBatchID, let receiptFingerprint {
+                    debugLog("[PrintBatch \(printBatchID)] copy=\(copy)/\(requestedCopies) complete fingerprint=\(receiptFingerprint) elapsed=\(Self.formatDuration(completionReportedAt.timeIntervalSince(copyRequestedAt)))")
+                } else {
+                    debugLog("[PrintBatch] copy \(copy) job completion reported after \(Self.formatDuration(completionReportedAt.timeIntervalSince(copyRequestedAt)))")
+                }
                 if copy < requestedCopies {
                     debugLog("[PrintBatch] copy \(copy + 1) requested immediately after copy \(copy) completion")
                 }
@@ -945,6 +969,27 @@ final class BoothSessionViewModel: ObservableObject {
     private static func formatDuration(_ duration: TimeInterval) -> String {
         "\(String(format: "%.2f", duration))s"
     }
+
+#if DEBUG
+    private func nextPrintBatchDebugID() -> Int {
+        debugPrintBatchSequence += 1
+        return debugPrintBatchSequence
+    }
+
+    private static func receiptPayloadFingerprint(for rasterizedImage: ThermalRasterizedImage) -> String {
+        receiptPayloadData(for: rasterizedImage).shortSHA256Fingerprint
+    }
+
+    private static func receiptPayloadByteCount(for rasterizedImage: ThermalRasterizedImage) -> Int {
+        receiptPayloadData(for: rasterizedImage).count
+    }
+
+    private static func receiptPayloadData(for rasterizedImage: ThermalRasterizedImage) -> Data {
+        ThermalImageRasterizer.receiptPrintHeading()
+            + rasterizedImage.rasterCommand
+            + ThermalImageRasterizer.photoTestFinishing()
+    }
+#endif
 
     private func startGalleryUpload(committedSession: CommittedGallerySession, receiptImage: UIImage) {
         guard GalleryUploadSessionIsolationPolicy.canStartPreparation(
@@ -1060,3 +1105,14 @@ nonisolated private func debugLog(_ message: String) {
     print("[BoothSessionViewModel] \(message)")
 #endif
 }
+
+#if DEBUG
+private extension Data {
+    var shortSHA256Fingerprint: String {
+        SHA256.hash(data: self)
+            .prefix(6)
+            .map { String(format: "%02X", $0) }
+            .joined()
+    }
+}
+#endif
