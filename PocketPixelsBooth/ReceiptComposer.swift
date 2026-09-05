@@ -66,6 +66,7 @@ enum ReceiptComposer {
     nonisolated private static let footerColumnGutter = 22
     nonisolated private static let footerHandleMonogramSize = 32
     nonisolated private static let footerHandleMonogramToTextGap = 10
+    nonisolated private static let standardPhotoTop = 86
 
     nonisolated static func makeSessionIdentifier(date: Date = Date()) -> String {
         "PP-\(identifierFormatter.string(from: date))"
@@ -77,13 +78,15 @@ enum ReceiptComposer {
         date: Date = Date(),
         galleryURL: URL? = nil,
         format: BoothFormat,
+        eventProfile: EventProfile? = nil,
         photoQualityProfile: PocketPixelsThermalPhotoProfile = .neutral
     ) throws -> ComposedReceipt {
         guard photos.count == format.photoCount else {
             throw ReceiptComposerError.missingPhotos(expected: format.photoCount, actual: photos.count)
         }
 
-        let plan = try makeLayoutPlan(format: format, includesGalleryQRCode: galleryURL != nil)
+        let eventSnapshot = eventProfile?.activeReceiptSnapshot
+        let plan = try makeLayoutPlan(format: format, includesGalleryQRCode: galleryURL != nil, eventProfile: eventSnapshot)
         let width = BoothConfiguration.receiptWidth
         let margin = BoothConfiguration.receiptHorizontalMargin
         let height = plan.height
@@ -115,6 +118,9 @@ enum ReceiptComposer {
             drawCentered("RECEIPT PHOTOBOOTH", y: y, width: width, font: .systemFont(ofSize: 16, weight: .semibold))
             y += 26
             drawDivider(y: y, margin: margin, width: width)
+            if let eventSnapshot {
+                drawEventBlock(eventSnapshot, startY: standardPhotoTop, margin: margin, width: width)
+            }
 
             if let groupFrame = plan.groupFrame {
                 UIColor.black.setStroke()
@@ -173,12 +179,14 @@ enum ReceiptComposer {
 
     nonisolated static func makeLayoutPlan(
         format: BoothFormat,
-        includesGalleryQRCode: Bool = true
+        includesGalleryQRCode: Bool = true,
+        eventProfile: EventProfile? = nil
     ) throws -> ReceiptLayoutPlan {
         let width = BoothConfiguration.receiptWidth
         let margin = BoothConfiguration.receiptHorizontalMargin
         let fullPhotoWidth = width - (margin * 2)
-        let top = 86
+        let eventSnapshot = eventProfile?.activeReceiptSnapshot
+        let top = eventSnapshot.map { eventBlockPhotoTop($0, startY: standardPhotoTop, margin: margin, width: width) } ?? standardPhotoTop
         let photoFrames: [ReceiptPhotoFrame]
         let groupFrame: CGRect?
 
@@ -287,6 +295,70 @@ enum ReceiptComposer {
 
     nonisolated private static var metadataOnlyFooterHeight: Int {
         10 + 20 + 18 + 24 + footerBottomPadding
+    }
+
+    nonisolated private static func eventBlockPhotoTop(
+        _ profile: EventProfile,
+        startY: Int,
+        margin: Int,
+        width: Int
+    ) -> Int {
+        var y = startY + 14
+        let textX = margin + 22
+        let textWidth = width - (textX * 2)
+
+        y += measuredWrappedTextHeight(profile.eventName.uppercased(), font: .systemFont(ofSize: 27, weight: .black), width: textWidth)
+        y += 10
+
+        if !profile.subtitle.isEmpty {
+            y += measuredWrappedTextHeight(profile.subtitle.uppercased(), font: .systemFont(ofSize: 16, weight: .semibold), width: textWidth)
+            y += 7
+        }
+
+        if profile.includeEventDate {
+            y += measuredWrappedTextHeight(eventDateFormatter.string(from: profile.eventDate).uppercased(), font: .monospacedDigitSystemFont(ofSize: 15, weight: .medium), width: textWidth)
+            y += 7
+        }
+
+        if !profile.shortMessage.isEmpty {
+            y += measuredWrappedTextHeight(profile.shortMessage, font: .systemFont(ofSize: 15, weight: .regular), width: textWidth)
+            y += 8
+        }
+
+        y += 10
+        return y + 14
+    }
+
+    nonisolated private static func drawEventBlock(
+        _ profile: EventProfile,
+        startY: Int,
+        margin: Int,
+        width: Int
+    ) {
+        var y = startY + 14
+        let textX = margin + 22
+        let textWidth = width - (textX * 2)
+
+        y += drawCenteredWrapped(profile.eventName.uppercased(), x: textX, y: y, width: textWidth, font: .systemFont(ofSize: 27, weight: .black))
+        y += 10
+
+        if !profile.subtitle.isEmpty {
+            y += drawCenteredWrapped(profile.subtitle.uppercased(), x: textX, y: y, width: textWidth, font: .systemFont(ofSize: 16, weight: .semibold))
+            y += 7
+        }
+
+        if profile.includeEventDate {
+            y += drawCenteredWrapped(eventDateFormatter.string(from: profile.eventDate).uppercased(), x: textX, y: y, width: textWidth, font: .monospacedDigitSystemFont(ofSize: 15, weight: .medium))
+            y += 7
+        }
+
+        if !profile.shortMessage.isEmpty {
+            y += drawCenteredWrapped(profile.shortMessage, x: textX, y: y, width: textWidth, font: .systemFont(ofSize: 15, weight: .regular))
+            y += 8
+        }
+
+        y += 10
+        drawDivider(y: y, margin: margin, width: width)
     }
 
     nonisolated private static func drawCompactGalleryFooter(
@@ -574,6 +646,27 @@ enum ReceiptComposer {
         drawText(text, x: 0, y: y, font: font, alignment: .center, width: width)
     }
 
+    @discardableResult
+    nonisolated private static func drawCenteredWrapped(_ text: String, x: Int, y: Int, width: Int, font: UIFont) -> Int {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byWordWrapping
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: UIColor.black,
+            .paragraphStyle: paragraph
+        ]
+        let height = measuredWrappedTextHeight(text, font: font, width: width)
+
+        NSString(string: text).draw(
+            in: CGRect(x: x, y: y, width: width, height: height + 2),
+            withAttributes: attributes
+        )
+
+        return height
+    }
+
     nonisolated private static func drawMeasuredText(_ text: String, x: Int, y: Int, font: UIFont, availableWidth: Int) {
         let measuredWidth = Int(ceil(measuredTextWidth(text, font: font))) + 6
         drawText(text, x: x, y: y, font: font, alignment: .left, width: min(measuredWidth, availableWidth))
@@ -605,6 +698,25 @@ enum ReceiptComposer {
         ).width
     }
 
+    nonisolated private static func measuredWrappedTextHeight(_ text: String, font: UIFont, width: Int) -> Int {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byWordWrapping
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .paragraphStyle: paragraph
+        ]
+        let rect = NSString(string: text).boundingRect(
+            with: CGSize(width: CGFloat(width), height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: attributes,
+            context: nil
+        )
+
+        return max(Int(ceil(rect.height)), Int(ceil(font.lineHeight)))
+    }
+
     nonisolated private static func drawDivider(y: Int, margin: Int, width: Int) {
         let path = UIBezierPath()
         path.move(to: CGPoint(x: margin, y: y))
@@ -627,6 +739,14 @@ enum ReceiptComposer {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = sessionIdentifierTimeZone
         formatter.dateFormat = "MMM d, yyyy • h:mm a"
+        return formatter
+    }()
+
+    nonisolated private static let eventDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = sessionIdentifierTimeZone
+        formatter.dateFormat = "MMM d, yyyy"
         return formatter
     }()
 }

@@ -53,6 +53,13 @@ private struct PocketPixelsAdminView: View {
     var body: some View {
         NavigationStack {
             TabView {
+                NavigationStack {
+                    EventSetupView()
+                }
+                .tabItem {
+                    Label("Event Setup", systemImage: "calendar.badge.clock")
+                }
+
                 BoothSessionView(showsReceiptDebugTools: true)
                     .tabItem {
                         Label("Booth Debug", systemImage: "rectangle.stack.person.crop")

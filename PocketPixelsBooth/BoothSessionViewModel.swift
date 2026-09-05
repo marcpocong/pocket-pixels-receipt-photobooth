@@ -59,6 +59,7 @@ final class BoothSessionViewModel: ObservableObject {
     private var isTransitionActive = false
     private var retakeIndex: Int?
     private var sessionCreatedAt: Date?
+    private var sessionEventProfile: EventProfile?
     private var committedGallerySession: CommittedGallerySession?
     private var customerSessionGeneration = 0
     private static let printCopyRange = 1...10
@@ -163,6 +164,7 @@ final class BoothSessionViewModel: ObservableObject {
         let sessionDate = Date()
         sessionCreatedAt = sessionDate
         sessionIdentifier = ReceiptComposer.makeSessionIdentifier(date: sessionDate)
+        sessionEventProfile = EventProfileStore.load().activeReceiptSnapshot
         do {
             let token = try GalleryTokenGenerator.makeGalleryToken()
             let url = try GalleryURLBuilder.makeGalleryURL(customerGalleryBaseURL: CustomerGalleryConfiguration.load().baseURL, galleryToken: token)
@@ -303,7 +305,8 @@ final class BoothSessionViewModel: ObservableObject {
             galleryToken: galleryToken,
             galleryURL: galleryURL,
             photos: capturedPhotos,
-            format: selectedBoothFormat
+            format: selectedBoothFormat,
+            eventProfile: sessionEventProfile
         )
         committedGallerySession = committedSession
         composeReceipt(for: committedSession, enqueueUpload: true)
@@ -353,7 +356,8 @@ final class BoothSessionViewModel: ObservableObject {
                         sessionIdentifier: committedSession.sessionIdentifier,
                         date: committedSession.createdAt,
                         galleryURL: committedSession.galleryURL,
-                        format: committedSession.format
+                        format: committedSession.format,
+                        eventProfile: committedSession.eventProfile
                     )
                     guard let receiptImage = UIImage(data: receipt.imagePNGData) else {
                         throw ReceiptComposerError.renderFailed
@@ -770,6 +774,7 @@ final class BoothSessionViewModel: ObservableObject {
         receiptRasterizedImage = nil
         sessionIdentifier = nil
         sessionCreatedAt = nil
+        sessionEventProfile = nil
         galleryToken = nil
         galleryURL = nil
         galleryQRCodeImage = nil
@@ -1013,6 +1018,7 @@ private struct CommittedGallerySession {
     let galleryURL: URL
     let photos: [UIImage]
     let format: BoothFormat
+    let eventProfile: EventProfile?
 }
 
 enum GalleryUploadSessionIsolationPolicy {
