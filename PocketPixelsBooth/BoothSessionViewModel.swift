@@ -60,7 +60,12 @@ final class BoothSessionViewModel: ObservableObject {
     private var retakeIndex: Int?
     private var sessionCreatedAt: Date?
     private var committedGallerySession: CommittedGallerySession?
+    private var customerSessionGeneration = 0
     private static let printCopyRange = 1...10
+#if DEBUG
+    private var debugSessionSequence = 0
+    private var currentDebugSessionSequence: Int?
+#endif
 
     var nextPhotoIndex: Int {
         min(capturedPhotos.count, max(requiredPhotoCount - 1, 0))
@@ -143,6 +148,7 @@ final class BoothSessionViewModel: ObservableObject {
 
         cancelTasks()
         clearCustomerData()
+        beginNewCustomerSession()
         errorMessage = nil
         statusMessage = "Choose your format."
         state = .choosingFormat
@@ -177,10 +183,19 @@ final class BoothSessionViewModel: ObservableObject {
         errorMessage = nil
         statusMessage = "Preparing front camera..."
         state = .preparingCamera
+        let sessionGeneration = customerSessionGeneration
+        debugLog("[Session] format selected: \(format.displayName)")
+        if galleryToken != nil {
+            debugLog("[Gallery] token state initialized")
+        }
         debugLog("Session \(sessionIdentifier ?? "unknown") started.")
 
         prepareCamera { [weak self] result in
             guard let self else { return }
+            guard self.isCurrentCustomerSession(sessionGeneration) else {
+                debugLog("[Session] ignored stale format camera preparation callback")
+                return
+            }
             isTransitionActive = false
 
             switch result {
@@ -328,6 +343,7 @@ final class BoothSessionViewModel: ObservableObject {
         state = .composingReceipt
         statusMessage = "Composing receipt..."
         errorMessage = nil
+        let sessionGeneration = customerSessionGeneration
 
         activeTask = Task {
             do {
@@ -354,6 +370,10 @@ final class BoothSessionViewModel: ObservableObject {
                 }.value
 
                 guard !Task.isCancelled else { return }
+                guard isCurrentCustomerSession(sessionGeneration) else {
+                    debugLog("[Session] ignored stale receipt composition result")
+                    return
+                }
 
                 composedReceipt = result.0
                 receiptImage = result.1
@@ -367,6 +387,10 @@ final class BoothSessionViewModel: ObservableObject {
                 }
                 debugLog("Session \(committedSession.sessionIdentifier) receipt ready. Raster bytes: \(result.4.rasterData.count). Sanitized EOT: \(result.4.sanitizationReport.dleEOTPatternCount). Sanitized DC4: \(result.4.sanitizationReport.dleDC4PatternCount).")
             } catch {
+                guard isCurrentCustomerSession(sessionGeneration) else {
+                    debugLog("[Session] ignored stale receipt composition failure")
+                    return
+                }
                 state = .error(error.localizedDescription)
                 errorMessage = error.localizedDescription
                 statusMessage = error.localizedDescription
@@ -416,6 +440,7 @@ final class BoothSessionViewModel: ObservableObject {
         }
 
         let requestedCopies = selectedPrintCopies
+        let sessionGeneration = customerSessionGeneration
         currentPrintCopy = 0
         completedPrintCopies = 0
         state = .connectingToPrinter
@@ -428,7 +453,8 @@ final class BoothSessionViewModel: ObservableObject {
                 requestedCopies: requestedCopies,
                 rasterizedImage: rasterized,
                 wifiHost: host,
-                wifiPort: port
+                wifiPort: port,
+                sessionGeneration: sessionGeneration
             )
         }
     }
@@ -519,8 +545,13 @@ final class BoothSessionViewModel: ObservableObject {
     private func startCameraForSequence() {
         isTransitionActive = true
         state = .preparingCamera
+        let sessionGeneration = customerSessionGeneration
         prepareCamera { [weak self] result in
             guard let self else { return }
+            guard self.isCurrentCustomerSession(sessionGeneration) else {
+                debugLog("[Session] ignored stale sequence camera preparation callback")
+                return
+            }
             isTransitionActive = false
 
             switch result {
@@ -537,8 +568,13 @@ final class BoothSessionViewModel: ObservableObject {
 
     private func startCameraForRetake(index: Int) {
         isTransitionActive = true
+        let sessionGeneration = customerSessionGeneration
         prepareCamera { [weak self] result in
             guard let self else { return }
+            guard self.isCurrentCustomerSession(sessionGeneration) else {
+                debugLog("[Session] ignored stale retake camera preparation callback")
+                return
+            }
             isTransitionActive = false
 
             switch result {
@@ -559,16 +595,25 @@ final class BoothSessionViewModel: ObservableObject {
         }
 
         isTransitionActive = true
+        let sessionGeneration = customerSessionGeneration
         activeTask = Task {
             let targetCount = requiredPhotoCount
             for index in startIndex..<targetCount {
                 guard !Task.isCancelled else { return }
-                await countdownAndCapture(index: index, replacing: false)
+                guard isCurrentCustomerSession(sessionGeneration) else {
+                    debugLog("[Session] stopped stale automatic sequence")
+                    return
+                }
+                await countdownAndCapture(index: index, replacing: false, sessionGeneration: sessionGeneration)
                 if case .error = state {
                     return
                 }
 
                 guard !Task.isCancelled else { return }
+                guard isCurrentCustomerSession(sessionGeneration) else {
+                    debugLog("[Session] stopped stale automatic sequence delay")
+                    return
+                }
                 if index < targetCount - 1 {
                     state = .betweenPhotos(nextPhotoIndex: index + 1)
                     statusMessage = "Next photo in a moment."
@@ -577,6 +622,10 @@ final class BoothSessionViewModel: ObservableObject {
             }
 
             guard !Task.isCancelled else { return }
+            guard isCurrentCustomerSession(sessionGeneration) else {
+                debugLog("[Session] ignored stale automatic sequence completion")
+                return
+            }
             cameraService.stopSession()
             isCameraRunning = false
             transientCapturedPhoto = nil
@@ -593,13 +642,18 @@ final class BoothSessionViewModel: ObservableObject {
         }
 
         isTransitionActive = true
+        let sessionGeneration = customerSessionGeneration
         activeTask = Task {
-            await countdownAndCapture(index: index, replacing: true)
+            await countdownAndCapture(index: index, replacing: true, sessionGeneration: sessionGeneration)
             if case .error = state {
                 return
             }
 
             guard !Task.isCancelled else { return }
+            guard isCurrentCustomerSession(sessionGeneration) else {
+                debugLog("[Session] ignored stale retake completion")
+                return
+            }
             cameraService.stopSession()
             isCameraRunning = false
             transientCapturedPhoto = nil
@@ -611,21 +665,33 @@ final class BoothSessionViewModel: ObservableObject {
         }
     }
 
-    private func countdownAndCapture(index: Int, replacing: Bool) async {
+    private func countdownAndCapture(index: Int, replacing: Bool, sessionGeneration: Int) async {
         for value in stride(from: BoothConfiguration.countdownSeconds, through: 1, by: -1) {
             guard !Task.isCancelled else { return }
+            guard isCurrentCustomerSession(sessionGeneration) else {
+                debugLog("[Session] stopped stale countdown")
+                return
+            }
             state = .countdown(photoIndex: index, value: value)
             statusMessage = replacing ? "Retaking photo \(index + 1)." : "Photo \(index + 1) of \(requiredPhotoCount)."
             try? await Task.sleep(for: .seconds(1))
         }
 
         guard !Task.isCancelled else { return }
+        guard isCurrentCustomerSession(sessionGeneration) else {
+            debugLog("[Session] ignored stale capture start")
+            return
+        }
         state = .capturing(photoIndex: index)
         statusMessage = "Capturing photo \(index + 1)."
 
         do {
             let image = try await capturePhoto()
             guard !Task.isCancelled else { return }
+            guard isCurrentCustomerSession(sessionGeneration) else {
+                debugLog("[Session] ignored stale captured photo")
+                return
+            }
 
             if replacing, capturedPhotos.indices.contains(index) {
                 capturedPhotos[index] = image
@@ -636,10 +702,21 @@ final class BoothSessionViewModel: ObservableObject {
             }
 
             transientCapturedPhoto = image
+            if replacing {
+                debugLog("[Retake] replaced photo index \(index + 1)")
+            }
             debugLog("Session \(sessionIdentifier ?? "unknown") captured photo \(index + 1).")
             try? await Task.sleep(for: .seconds(BoothConfiguration.capturedPhotoDisplayDuration))
+            guard isCurrentCustomerSession(sessionGeneration) else {
+                debugLog("[Session] ignored stale captured photo display completion")
+                return
+            }
             transientCapturedPhoto = nil
         } catch {
+            guard isCurrentCustomerSession(sessionGeneration) else {
+                debugLog("[Session] ignored stale capture failure")
+                return
+            }
             state = .error(error.localizedDescription)
             errorMessage = error.localizedDescription
             statusMessage = error.localizedDescription
@@ -664,11 +741,14 @@ final class BoothSessionViewModel: ObservableObject {
     private func showThankYou() {
         state = .thankYou
         statusMessage = "Scan the QR to view and save your photos."
+        debugLog("[Session] session completed")
         debugLog("Session \(sessionIdentifier ?? "unknown") printed successfully.")
     }
 
     private func resetToWelcome() {
+        debugLog("[Session] reset requested")
         cancelTasks()
+        invalidateCustomerSessionCallbacks()
         cameraService.stopSession()
         isCameraRunning = false
         clearCustomerData()
@@ -677,6 +757,7 @@ final class BoothSessionViewModel: ObservableObject {
         errorMessage = nil
         printerState = .disconnected
         isTransitionActive = false
+        debugLog("[Session] session state cleared")
     }
 
     private func clearCustomerData() {
@@ -709,18 +790,48 @@ final class BoothSessionViewModel: ObservableObject {
         printBatchTask = nil
     }
 
+    private func beginNewCustomerSession() {
+        customerSessionGeneration += 1
+#if DEBUG
+        debugSessionSequence += 1
+        currentDebugSessionSequence = debugSessionSequence
+        debugLog("[Session] new session initialized #\(debugSessionSequence)")
+#endif
+    }
+
+    private func invalidateCustomerSessionCallbacks() {
+        customerSessionGeneration += 1
+#if DEBUG
+        if let currentDebugSessionSequence {
+            debugLog("[Session] invalidated session #\(currentDebugSessionSequence)")
+        }
+        currentDebugSessionSequence = nil
+#endif
+    }
+
+    private func isCurrentCustomerSession(_ generation: Int) -> Bool {
+        customerSessionGeneration == generation
+    }
+
     private func printReceiptCopies(
         requestedCopies: Int,
         rasterizedImage: ThermalRasterizedImage,
         wifiHost: String,
-        wifiPort: UInt16
+        wifiPort: UInt16,
+        sessionGeneration: Int
     ) async {
         defer {
-            printBatchTask = nil
+            if isCurrentCustomerSession(sessionGeneration) {
+                printBatchTask = nil
+            }
         }
 
         for copy in 1...requestedCopies {
             guard !Task.isCancelled else { return }
+            guard isCurrentCustomerSession(sessionGeneration) else {
+                debugLog("[Session] stopped stale print batch")
+                return
+            }
 
             currentPrintCopy = copy
             state = .printing
@@ -731,10 +842,15 @@ final class BoothSessionViewModel: ObservableObject {
                 rasterizedImage: rasterizedImage,
                 wifiHost: wifiHost,
                 wifiPort: wifiPort,
-                requestedCopies: requestedCopies
+                requestedCopies: requestedCopies,
+                sessionGeneration: sessionGeneration
             )
 
             guard !Task.isCancelled else { return }
+            guard isCurrentCustomerSession(sessionGeneration) else {
+                debugLog("[Session] ignored stale print copy result")
+                return
+            }
 
             switch result {
             case .success:
@@ -761,7 +877,8 @@ final class BoothSessionViewModel: ObservableObject {
         rasterizedImage: ThermalRasterizedImage,
         wifiHost: String,
         wifiPort: UInt16,
-        requestedCopies: Int
+        requestedCopies: Int,
+        sessionGeneration: Int
     ) async -> Result<Void, Error> {
         await withCheckedContinuation { continuation in
             printerCoordinator.printReceipt(
@@ -770,6 +887,10 @@ final class BoothSessionViewModel: ObservableObject {
                 wifiPort: wifiPort
             ) { [weak self] printerState in
                 guard let self else { return }
+                guard self.isCurrentCustomerSession(sessionGeneration) else {
+                    debugLog("[Session] ignored stale printer state callback")
+                    return
+                }
                 self.printerState = printerState
 
                 switch printerState {
