@@ -9,6 +9,7 @@ import SwiftUI
 struct EventProfile: Codable, Equatable, Sendable {
     nonisolated static let eventNameLimit = 48
     nonisolated static let subtitleLimit = 60
+    nonisolated static let locationLimit = 56
     nonisolated static let shortMessageLimit = 80
 
     var isEnabled: Bool
@@ -16,7 +17,47 @@ struct EventProfile: Codable, Equatable, Sendable {
     var subtitle: String
     var includeEventDate: Bool
     var eventDate: Date
+    var location: String
     var shortMessage: String
+
+    init(
+        isEnabled: Bool,
+        eventName: String,
+        subtitle: String,
+        includeEventDate: Bool,
+        eventDate: Date,
+        location: String = "",
+        shortMessage: String
+    ) {
+        self.isEnabled = isEnabled
+        self.eventName = eventName
+        self.subtitle = subtitle
+        self.includeEventDate = includeEventDate
+        self.eventDate = eventDate
+        self.location = location
+        self.shortMessage = shortMessage
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case isEnabled
+        case eventName
+        case subtitle
+        case includeEventDate
+        case eventDate
+        case location
+        case shortMessage
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
+        eventName = try container.decode(String.self, forKey: .eventName)
+        subtitle = try container.decode(String.self, forKey: .subtitle)
+        includeEventDate = try container.decode(Bool.self, forKey: .includeEventDate)
+        eventDate = try container.decode(Date.self, forKey: .eventDate)
+        location = try container.decodeIfPresent(String.self, forKey: .location) ?? ""
+        shortMessage = try container.decode(String.self, forKey: .shortMessage)
+    }
 
     nonisolated static var pocketPixelsDefault: EventProfile {
         EventProfile(
@@ -25,6 +66,7 @@ struct EventProfile: Codable, Equatable, Sendable {
             subtitle: "",
             includeEventDate: false,
             eventDate: Date(),
+            location: "",
             shortMessage: ""
         )
     }
@@ -45,7 +87,27 @@ struct EventProfile: Codable, Equatable, Sendable {
             subtitle: Self.normalizedSingleLine(subtitle, limit: Self.subtitleLimit),
             includeEventDate: includeEventDate,
             eventDate: eventDate,
+            location: Self.normalizedSingleLine(location, limit: Self.locationLimit),
             shortMessage: Self.normalizedSingleLine(shortMessage, limit: Self.shortMessageLimit)
+        )
+    }
+
+    nonisolated var receiptBlockContent: EventReceiptBlockContent? {
+        let snapshot = activeReceiptSnapshot
+        guard let snapshot else {
+            return nil
+        }
+
+        let dateText = snapshot.includeEventDate ? Self.eventDateFormatter.string(from: snapshot.eventDate).uppercased() : nil
+        let locationText = snapshot.location.isEmpty ? nil : snapshot.location.uppercased()
+        let metadata = [dateText, locationText].compactMap { $0 }.joined(separator: " • ")
+
+        return EventReceiptBlockContent(
+            eyebrow: "A KEEPSAKE FROM",
+            eventName: snapshot.eventName,
+            subtitle: snapshot.subtitle,
+            metadata: metadata,
+            message: snapshot.shortMessage
         )
     }
 
@@ -61,6 +123,22 @@ struct EventProfile: Codable, Equatable, Sendable {
 
         return String(collapsed.prefix(limit))
     }
+
+    nonisolated private static let eventDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "Asia/Manila") ?? TimeZone(secondsFromGMT: 8 * 60 * 60)
+        formatter.dateFormat = "MMM d, yyyy"
+        return formatter
+    }()
+}
+
+struct EventReceiptBlockContent: Equatable, Sendable {
+    let eyebrow: String
+    let eventName: String
+    let subtitle: String
+    let metadata: String
+    let message: String
 }
 
 enum EventProfileStore {
@@ -105,7 +183,10 @@ struct EventSetupView: View {
                     DatePicker("Event Date", selection: $draft.eventDate, displayedComponents: .date)
                 }
 
-                limitedTextField("Short Message", text: $draft.shortMessage, limit: EventProfile.shortMessageLimit)
+                limitedTextField("Location", text: $draft.location, limit: EventProfile.locationLimit)
+                    .accessibilityHint("Optional event location printed compactly with the date on new receipts.")
+
+                limitedTextField("Short Message", text: $draft.shortMessage, limit: EventProfile.shortMessageLimit, autocapitalization: .sentences)
             }
 
             Section("Event Receipt Preview") {
@@ -136,10 +217,15 @@ struct EventSetupView: View {
         !draft.isEnabled || !draft.normalized().eventName.isEmpty
     }
 
-    private func limitedTextField(_ title: String, text: Binding<String>, limit: Int) -> some View {
+    private func limitedTextField(
+        _ title: String,
+        text: Binding<String>,
+        limit: Int,
+        autocapitalization: TextInputAutocapitalization = .words
+    ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             TextField(title, text: text)
-                .textInputAutocapitalization(.words)
+                .textInputAutocapitalization(autocapitalization)
                 .onChange(of: text.wrappedValue) { _, newValue in
                     let limited = EventProfile.limited(newValue, limit: limit)
                     if limited != newValue {
@@ -181,28 +267,37 @@ private struct EventReceiptBlockPreview: View {
 
             Divider()
 
-            if let snapshot = profile.activeReceiptSnapshot {
-                VStack(spacing: 8) {
-                    Text(snapshot.eventName.uppercased())
-                        .font(.system(size: 20, weight: .black))
-                        .multilineTextAlignment(.center)
+            if let content = profile.receiptBlockContent {
+                VStack(spacing: 5) {
+                    Text(content.eyebrow)
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .tracking(1.0)
+                        .foregroundStyle(.secondary)
 
-                    if !snapshot.subtitle.isEmpty {
-                        Text(snapshot.subtitle.uppercased())
+                    Text(content.eventName)
+                        .font(.system(size: 21, weight: .semibold, design: .serif))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+
+                    if !content.subtitle.isEmpty {
+                        Text(content.subtitle)
                             .font(.system(size: 12, weight: .semibold))
                             .multilineTextAlignment(.center)
+                            .lineLimit(2)
                     }
 
-                    if snapshot.includeEventDate {
-                        Text(Self.eventDateFormatter.string(from: snapshot.eventDate).uppercased())
-                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    if !content.metadata.isEmpty {
+                        Text(content.metadata)
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
                             .multilineTextAlignment(.center)
+                            .lineLimit(2)
                     }
 
-                    if !snapshot.shortMessage.isEmpty {
-                        Text(snapshot.shortMessage)
-                            .font(.system(size: 13, weight: .regular))
+                    if !content.message.isEmpty {
+                        Text(content.message)
+                            .font(.system(size: 12, weight: .regular))
                             .multilineTextAlignment(.center)
+                            .lineLimit(2)
                     }
                 }
                 .foregroundStyle(.primary)
@@ -225,11 +320,4 @@ private struct EventReceiptBlockPreview: View {
         }
     }
 
-    private static let eventDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = ReceiptComposer.sessionIdentifierTimeZone
-        formatter.dateFormat = "MMM d, yyyy"
-        return formatter
-    }()
 }

@@ -165,6 +165,12 @@ enum ReceiptComposer {
             throw ReceiptComposerError.renderFailed
         }
 
+#if DEBUG
+        if let eventSnapshot {
+            let eventBlockHeight = measureEventBlockHeight(for: eventSnapshot, width: width, margin: margin)
+            debugLog("[EventReceipt] eventBlockHeight=\(eventBlockHeight) receiptHeight=\(height) estimatedLengthMM=\(String(format: "%.1f", Double(height) / 8.0))")
+        }
+#endif
         debugLog("Composed \(format.rawValue) receipt \(sessionIdentifier). Dimensions: \(width)x\(height). Estimated length: \(String(format: "%.1f", Double(height) / 8.0)) mm.")
 
         return ComposedReceipt(
@@ -272,6 +278,43 @@ enum ReceiptComposer {
         return UIImage(cgImage: cropped, scale: 1, orientation: .up)
     }
 
+    nonisolated static func measureEventBlockHeight(
+        for profile: EventProfile,
+        width: Int = BoothConfiguration.receiptWidth,
+        margin: Int = BoothConfiguration.receiptHorizontalMargin
+    ) -> Int {
+        guard let content = profile.receiptBlockContent else {
+            return 0
+        }
+
+        let textWidth = eventBlockTextWidth(margin: margin, width: width)
+        let titleFont = eventTitleFont(for: content.eventName)
+        var height = 8
+
+        height += measuredWrappedTextHeight(content.eyebrow, font: eventEyebrowFont, width: textWidth, tracking: 1.8)
+        height += 3
+        height += measuredWrappedTextHeight(content.eventName, font: titleFont, width: textWidth, lineSpacing: 1)
+
+        if !content.subtitle.isEmpty {
+            height += 5
+            height += measuredWrappedTextHeight(content.subtitle, font: eventSubtitleFont, width: textWidth)
+        }
+
+        if !content.metadata.isEmpty {
+            height += 4
+            height += measuredWrappedTextHeight(content.metadata, font: eventMetadataFont, width: textWidth, tracking: 0.4)
+        }
+
+        if !content.message.isEmpty {
+            height += 4
+            height += measuredWrappedTextHeight(content.message, font: eventMessageFont, width: textWidth)
+        }
+
+        height += 9
+        height += 12
+        return height
+    }
+
     nonisolated static func preparePhotos(
         _ photos: [UIImage],
         for plan: ReceiptLayoutPlan,
@@ -305,30 +348,7 @@ enum ReceiptComposer {
         margin: Int,
         width: Int
     ) -> Int {
-        var y = startY + 14
-        let textX = margin + 22
-        let textWidth = width - (textX * 2)
-
-        y += measuredWrappedTextHeight(profile.eventName.uppercased(), font: .systemFont(ofSize: 27, weight: .black), width: textWidth)
-        y += 10
-
-        if !profile.subtitle.isEmpty {
-            y += measuredWrappedTextHeight(profile.subtitle.uppercased(), font: .systemFont(ofSize: 16, weight: .semibold), width: textWidth)
-            y += 7
-        }
-
-        if profile.includeEventDate {
-            y += measuredWrappedTextHeight(eventDateFormatter.string(from: profile.eventDate).uppercased(), font: .monospacedDigitSystemFont(ofSize: 15, weight: .medium), width: textWidth)
-            y += 7
-        }
-
-        if !profile.shortMessage.isEmpty {
-            y += measuredWrappedTextHeight(profile.shortMessage, font: .systemFont(ofSize: 15, weight: .regular), width: textWidth)
-            y += 8
-        }
-
-        y += 10
-        return y + 14
+        startY + measureEventBlockHeight(for: profile, width: width, margin: margin)
     }
 
     nonisolated private static func drawEventBlock(
@@ -337,29 +357,35 @@ enum ReceiptComposer {
         margin: Int,
         width: Int
     ) {
-        var y = startY + 14
-        let textX = margin + 22
-        let textWidth = width - (textX * 2)
-
-        y += drawCenteredWrapped(profile.eventName.uppercased(), x: textX, y: y, width: textWidth, font: .systemFont(ofSize: 27, weight: .black))
-        y += 10
-
-        if !profile.subtitle.isEmpty {
-            y += drawCenteredWrapped(profile.subtitle.uppercased(), x: textX, y: y, width: textWidth, font: .systemFont(ofSize: 16, weight: .semibold))
-            y += 7
+        guard let content = profile.receiptBlockContent else {
+            return
         }
 
-        if profile.includeEventDate {
-            y += drawCenteredWrapped(eventDateFormatter.string(from: profile.eventDate).uppercased(), x: textX, y: y, width: textWidth, font: .monospacedDigitSystemFont(ofSize: 15, weight: .medium))
-            y += 7
+        var y = startY + 8
+        let textX = eventBlockTextX(margin: margin)
+        let textWidth = eventBlockTextWidth(margin: margin, width: width)
+        let titleFont = eventTitleFont(for: content.eventName)
+
+        y += drawCenteredWrapped(content.eyebrow, x: textX, y: y, width: textWidth, font: eventEyebrowFont, tracking: 1.8)
+        y += 3
+        y += drawCenteredWrapped(content.eventName, x: textX, y: y, width: textWidth, font: titleFont, lineSpacing: 1)
+
+        if !content.subtitle.isEmpty {
+            y += 5
+            y += drawCenteredWrapped(content.subtitle, x: textX, y: y, width: textWidth, font: eventSubtitleFont)
         }
 
-        if !profile.shortMessage.isEmpty {
-            y += drawCenteredWrapped(profile.shortMessage, x: textX, y: y, width: textWidth, font: .systemFont(ofSize: 15, weight: .regular))
-            y += 8
+        if !content.metadata.isEmpty {
+            y += 4
+            y += drawCenteredWrapped(content.metadata, x: textX, y: y, width: textWidth, font: eventMetadataFont, tracking: 0.4)
         }
 
-        y += 10
+        if !content.message.isEmpty {
+            y += 4
+            y += drawCenteredWrapped(content.message, x: textX, y: y, width: textWidth, font: eventMessageFont)
+        }
+
+        y += 9
         drawDivider(y: y, margin: margin, width: width)
     }
 
@@ -649,17 +675,27 @@ enum ReceiptComposer {
     }
 
     @discardableResult
-    nonisolated private static func drawCenteredWrapped(_ text: String, x: Int, y: Int, width: Int, font: UIFont) -> Int {
+    nonisolated private static func drawCenteredWrapped(
+        _ text: String,
+        x: Int,
+        y: Int,
+        width: Int,
+        font: UIFont,
+        tracking: CGFloat = 0,
+        lineSpacing: CGFloat = 0
+    ) -> Int {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
         paragraph.lineBreakMode = .byWordWrapping
+        paragraph.lineSpacing = lineSpacing
 
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
+            .kern: tracking,
             .foregroundColor: UIColor.black,
             .paragraphStyle: paragraph
         ]
-        let height = measuredWrappedTextHeight(text, font: font, width: width)
+        let height = measuredWrappedTextHeight(text, font: font, width: width, tracking: tracking, lineSpacing: lineSpacing)
 
         NSString(string: text).draw(
             in: CGRect(x: x, y: y, width: width, height: height + 2),
@@ -700,13 +736,21 @@ enum ReceiptComposer {
         ).width
     }
 
-    nonisolated private static func measuredWrappedTextHeight(_ text: String, font: UIFont, width: Int) -> Int {
+    nonisolated private static func measuredWrappedTextHeight(
+        _ text: String,
+        font: UIFont,
+        width: Int,
+        tracking: CGFloat = 0,
+        lineSpacing: CGFloat = 0
+    ) -> Int {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
         paragraph.lineBreakMode = .byWordWrapping
+        paragraph.lineSpacing = lineSpacing
 
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
+            .kern: tracking,
             .paragraphStyle: paragraph
         ]
         let rect = NSString(string: text).boundingRect(
@@ -717,6 +761,50 @@ enum ReceiptComposer {
         )
 
         return max(Int(ceil(rect.height)), Int(ceil(font.lineHeight)))
+    }
+
+    nonisolated private static func eventBlockTextX(margin: Int) -> Int {
+        margin + 16
+    }
+
+    nonisolated private static func eventBlockTextWidth(margin: Int, width: Int) -> Int {
+        width - (eventBlockTextX(margin: margin) * 2)
+    }
+
+    nonisolated private static var eventEyebrowFont: UIFont {
+        .monospacedSystemFont(ofSize: 13, weight: .semibold)
+    }
+
+    nonisolated private static var eventSubtitleFont: UIFont {
+        .systemFont(ofSize: 15, weight: .semibold)
+    }
+
+    nonisolated private static var eventMetadataFont: UIFont {
+        .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+    }
+
+    nonisolated private static var eventMessageFont: UIFont {
+        .systemFont(ofSize: 14, weight: .regular)
+    }
+
+    nonisolated private static func eventTitleFont(for title: String) -> UIFont {
+        let count = title.count
+        let size: CGFloat
+
+        if count <= 22 {
+            size = 28
+        } else if count <= 36 {
+            size = 25
+        } else {
+            size = 22
+        }
+
+        let base = UIFont.systemFont(ofSize: size, weight: .semibold)
+        guard let serifDescriptor = base.fontDescriptor.withDesign(.serif) else {
+            return base
+        }
+
+        return UIFont(descriptor: serifDescriptor, size: size)
     }
 
     nonisolated private static func drawDivider(y: Int, margin: Int, width: Int) {
