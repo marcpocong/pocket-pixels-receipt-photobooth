@@ -16,7 +16,7 @@ struct ComposedReceipt: Sendable {
     let format: BoothFormat
     let photoQualityProfile: PocketPixelsThermalPhotoProfile
 
-    var estimatedLengthMillimeters: Double {
+    nonisolated var estimatedLengthMillimeters: Double {
         Double(height) / 8.0
     }
 }

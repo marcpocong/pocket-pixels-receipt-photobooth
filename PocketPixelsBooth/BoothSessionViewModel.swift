@@ -987,7 +987,7 @@ final class BoothSessionViewModel: ObservableObject {
         Task.detached(priority: .utility) {
             do {
                 let thumbnails = try committedSession.photos.map {
-                    try RecentSessionArchiveStore.makePhotoThumbnailData(from: $0)
+                    try Self.makeRecentSessionThumbnailData(from: $0)
                 }
                 let payload = RecentSessionArchivePayload(
                     committedSession: committedSession,
@@ -1003,6 +1003,15 @@ final class BoothSessionViewModel: ObservableObject {
                 debugLog("[RecentSessions] archive failed for \(committedSession.sessionIdentifier): \(error.localizedDescription)")
             }
         }
+    }
+
+    nonisolated private static func makeRecentSessionThumbnailData(from image: UIImage, maxLongestSide: Int = 220) throws -> Data {
+        let normalized = image.normalizedForGalleryUpload()
+        let resized = normalized.resizedForGalleryUpload(maxLongestSide: maxLongestSide)
+        guard let data = resized.jpegData(compressionQuality: 0.72) else {
+            throw GalleryUploadError.imageEncoding("Recent session thumbnail could not be encoded.")
+        }
+        return data
     }
 
 #if DEBUG

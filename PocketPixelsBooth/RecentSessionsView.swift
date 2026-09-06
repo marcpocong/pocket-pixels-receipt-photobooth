@@ -10,11 +10,13 @@ import UIKit
 @MainActor
 final class RecentSessionsViewModel: ObservableObject {
     @Published private(set) var summaries: [RecentSessionArchiveSummary] = []
+    @Published private(set) var thumbnailCache: [String: Data] = [:]
     @Published private(set) var isLoading = false
     @Published var searchText = ""
     @Published var statusMessage = ""
 
     private let store: RecentSessionArchiveStore?
+    private var refreshTask: Task<Void, Never>?
 
     init(store: RecentSessionArchiveStore? = nil) {
         do {
@@ -71,18 +73,44 @@ final class RecentSessionsViewModel: ObservableObject {
             return
         }
 
+        refreshTask?.cancel()
         isLoading = true
-        do {
-            summaries = try store.summaries()
-            statusMessage = summaries.isEmpty ? "No recent sessions yet." : "\(summaries.count) recent sessions loaded."
-        } catch {
-            statusMessage = error.localizedDescription
+        refreshTask = Task { [store] in
+            let result = await Task.detached(priority: .utility) {
+                Result {
+                    let loadedSummaries = try store.summaries()
+                    var loadedThumbnails: [String: Data] = [:]
+
+                    for summary in loadedSummaries where summary.rasterFingerprint != "CORRUPT" {
+                        for filename in summary.thumbnailFilenames.prefix(3) {
+                            if let data = store.thumbnailData(archiveID: summary.archiveID, filename: filename) {
+                                loadedThumbnails[Self.thumbnailCacheKey(archiveID: summary.archiveID, filename: filename)] = data
+                            }
+                        }
+                    }
+
+                    return (loadedSummaries, loadedThumbnails)
+                }
+            }.value
+
+            guard !Task.isCancelled else { return }
+
+            switch result {
+            case .success(let loaded):
+                summaries = loaded.0
+                thumbnailCache = loaded.1
+                statusMessage = loaded.0.isEmpty ? "No recent sessions yet." : "\(loaded.0.count) recent sessions loaded."
+            case .failure(let error):
+                statusMessage = error.localizedDescription
+            }
+
+            isLoading = false
+            refreshTask = nil
         }
-        isLoading = false
     }
 
     func thumbnailData(for summary: RecentSessionArchiveSummary, filename: String) -> Data? {
-        store?.thumbnailData(archiveID: summary.archiveID, filename: filename)
+        thumbnailCache[Self.thumbnailCacheKey(archiveID: summary.archiveID, filename: filename)]
     }
 
     func loadArchive(_ archiveID: String) throws -> RecentSessionArchive {
@@ -90,6 +118,18 @@ final class RecentSessionsViewModel: ObservableObject {
             throw RecentSessionArchiveError.archiveNotFound
         }
         return try store.load(archiveID: archiveID)
+    }
+
+    func loadArchiveResult(_ archiveID: String) async -> Result<RecentSessionArchive, Error> {
+        guard let store else {
+            return .failure(RecentSessionArchiveError.archiveNotFound)
+        }
+
+        return await Task.detached(priority: .userInitiated) {
+            Result {
+                try store.load(archiveID: archiveID)
+            }
+        }.value
     }
 
     func delete(_ archiveID: String) {
@@ -154,6 +194,10 @@ final class RecentSessionsViewModel: ObservableObject {
         formatter.timeStyle = .none
         return formatter
     }()
+
+    private nonisolated static func thumbnailCacheKey(archiveID: String, filename: String) -> String {
+        "\(archiveID)/\(filename)"
+    }
 }
 
 @MainActor
@@ -181,6 +225,17 @@ final class ArchivedReceiptReprintController: ObservableObject {
 
     var buttonTitle: String {
         quantity == 1 ? "Reprint Receipt" : "Reprint \(quantity) Copies"
+    }
+
+    var reprintUnavailableMessage: String? {
+        guard !isReprinting else { return nil }
+        if printerState.requiresPrinterRestart {
+            return "Printer recovery is required before reprinting."
+        }
+        if printerCoordinator.isWorking || PrinterBluetoothService.shared.jobState.isWorking {
+            return "Printer is busy. Wait for the current job to finish."
+        }
+        return nil
     }
 
     func decreaseQuantity() {
@@ -551,16 +606,19 @@ private struct ArchivedSessionDetailView: View {
     private func loadArchive() {
         guard !isLoadingArchive else { return }
         isLoadingArchive = true
-        defer {
-            isLoadingArchive = false
-        }
 
-        do {
-            archive = try rootViewModel.loadArchive(summary.archiveID)
-            loadError = nil
-        } catch {
-            archive = nil
-            loadError = error.localizedDescription
+        Task {
+            let result = await rootViewModel.loadArchiveResult(summary.archiveID)
+            isLoadingArchive = false
+
+            switch result {
+            case .success(let loadedArchive):
+                archive = loadedArchive
+                loadError = nil
+            case .failure(let error):
+                archive = nil
+                loadError = error.localizedDescription
+            }
         }
     }
 
@@ -666,6 +724,10 @@ private struct ArchivedSessionDetailView: View {
 
             if reprintController.isReprinting {
                 ProgressView(reprintController.statusMessage)
+            } else if let message = reprintController.reprintUnavailableMessage {
+                Text(message)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.red)
             } else {
                 Text(reprintController.statusMessage)
                     .font(.footnote)

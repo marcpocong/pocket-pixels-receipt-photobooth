@@ -5,7 +5,6 @@
 
 import CryptoKit
 import Foundation
-import UIKit
 
 struct RecentSessionArchiveSummary: Identifiable, Equatable, Sendable {
     var id: String { archiveID }
@@ -67,15 +66,15 @@ enum RecentSessionArchiveError: Error, LocalizedError, Equatable {
     }
 }
 
-struct RecentSessionArchiveStore: Sendable {
+nonisolated struct RecentSessionArchiveStore: Sendable {
     static let schemaVersion = 1
     static let retentionAge: TimeInterval = 7 * 24 * 60 * 60
     static let retentionCount = 250
 
-    private let fileManager: FileManager
+    nonisolated(unsafe) private let fileManager: FileManager
     private let directoryURL: URL
 
-    init(fileManager: FileManager = .default, directoryURL: URL? = nil) throws {
+    nonisolated init(fileManager: FileManager = .default, directoryURL: URL? = nil) throws {
         self.fileManager = fileManager
         if let directoryURL {
             self.directoryURL = directoryURL
@@ -94,11 +93,11 @@ struct RecentSessionArchiveStore: Sendable {
         try prune()
     }
 
-    var storagePath: String {
+    nonisolated var storagePath: String {
         directoryURL.path
     }
 
-    func save(_ payload: RecentSessionArchivePayload) throws {
+    nonisolated func save(_ payload: RecentSessionArchivePayload) throws {
         let archiveID = archiveID(for: payload.committedSession)
         guard isValidArchiveID(archiveID) else {
             throw RecentSessionArchiveError.invalidArchiveID
@@ -144,7 +143,7 @@ struct RecentSessionArchiveStore: Sendable {
         }
     }
 
-    func summaries() throws -> [RecentSessionArchiveSummary] {
+    nonisolated func summaries() throws -> [RecentSessionArchiveSummary] {
         try archiveDirectories().compactMap { directory in
             do {
                 let metadata = try loadMetadata(from: directory)
@@ -188,7 +187,7 @@ struct RecentSessionArchiveStore: Sendable {
         .sorted { $0.createdAt > $1.createdAt }
     }
 
-    func load(archiveID: String) throws -> RecentSessionArchive {
+    nonisolated func load(archiveID: String) throws -> RecentSessionArchive {
         guard isValidArchiveID(archiveID) else {
             throw RecentSessionArchiveError.invalidArchiveID
         }
@@ -260,7 +259,7 @@ struct RecentSessionArchiveStore: Sendable {
         )
     }
 
-    func markReprinted(archiveID: String, date: Date = Date(), copies: Int) throws {
+    nonisolated func markReprinted(archiveID: String, date: Date = Date(), copies: Int) throws {
         guard isValidArchiveID(archiveID) else {
             throw RecentSessionArchiveError.invalidArchiveID
         }
@@ -272,7 +271,7 @@ struct RecentSessionArchiveStore: Sendable {
         try JSONEncoder.archiveEncoder.encode(metadata).write(to: directory.appendingPathComponent(Self.metadataFilename), options: .atomic)
     }
 
-    func delete(archiveID: String) throws {
+    nonisolated func delete(archiveID: String) throws {
         guard isValidArchiveID(archiveID) else {
             throw RecentSessionArchiveError.invalidArchiveID
         }
@@ -282,13 +281,13 @@ struct RecentSessionArchiveStore: Sendable {
         try fileManager.removeItem(at: directory)
     }
 
-    func clearAll(excluding excludedArchiveIDs: Set<String> = []) throws {
+    nonisolated func clearAll(excluding excludedArchiveIDs: Set<String> = []) throws {
         for directory in try archiveDirectories() where !excludedArchiveIDs.contains(directory.lastPathComponent) {
             try fileManager.removeItem(at: directory)
         }
     }
 
-    func thumbnailData(archiveID: String, filename: String) -> Data? {
+    nonisolated func thumbnailData(archiveID: String, filename: String) -> Data? {
         guard isValidArchiveID(archiveID), isSafeFilename(filename) else {
             return nil
         }
@@ -296,7 +295,7 @@ struct RecentSessionArchiveStore: Sendable {
         return try? Data(contentsOf: archiveDirectoryURL(for: archiveID).appendingPathComponent(filename))
     }
 
-    func prune(excluding excludedArchiveIDs: Set<String> = []) throws {
+    nonisolated func prune(excluding excludedArchiveIDs: Set<String> = []) throws {
         let now = Date()
         var entries = try archiveDirectories().compactMap { directory -> (url: URL, metadata: RecentSessionArchiveMetadata)? in
             guard let metadata = try? loadMetadata(from: directory) else { return nil }
@@ -321,16 +320,7 @@ struct RecentSessionArchiveStore: Sendable {
         }
     }
 
-    static func makePhotoThumbnailData(from image: UIImage, maxLongestSide: Int = 220) throws -> Data {
-        let normalized = image.normalizedForGalleryUpload()
-        let resized = normalized.resizedForGalleryUpload(maxLongestSide: maxLongestSide)
-        guard let data = resized.jpegData(compressionQuality: 0.72) else {
-            throw GalleryUploadError.imageEncoding("Recent session thumbnail could not be encoded.")
-        }
-        return data
-    }
-
-    static func rasterFingerprint(for rasterizedImage: ThermalRasterizedImage) -> String {
+    nonisolated static func rasterFingerprint(for rasterizedImage: ThermalRasterizedImage) -> String {
         let payload = ThermalImageRasterizer.receiptPrintHeading()
             + rasterizedImage.rasterCommand
             + ThermalImageRasterizer.photoTestFinishing()
@@ -509,7 +499,7 @@ struct RecentSessionArchiveStore: Sendable {
     private static let rasterCommandFilename = "raster-command.bin"
 }
 
-private struct RecentSessionArchiveMetadata: Codable, Equatable {
+nonisolated private struct RecentSessionArchiveMetadata: Codable, Equatable {
     let schemaVersion: Int
     let archiveID: String
     let sessionIdentifier: String
@@ -537,7 +527,7 @@ private struct RecentSessionArchiveMetadata: Codable, Equatable {
 }
 
 private extension JSONEncoder {
-    static var archiveEncoder: JSONEncoder {
+    nonisolated static var archiveEncoder: JSONEncoder {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -546,7 +536,7 @@ private extension JSONEncoder {
 }
 
 private extension JSONDecoder {
-    static var archiveDecoder: JSONDecoder {
+    nonisolated static var archiveDecoder: JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder
@@ -554,7 +544,7 @@ private extension JSONDecoder {
 }
 
 private extension String {
-    var nilIfEmpty: String? {
+    nonisolated var nilIfEmpty: String? {
         isEmpty ? nil : self
     }
 }
