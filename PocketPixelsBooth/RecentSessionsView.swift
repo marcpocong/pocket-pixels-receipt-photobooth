@@ -202,11 +202,7 @@ final class RecentSessionsViewModel: ObservableObject {
 
 @MainActor
 final class ArchivedReceiptReprintController: ObservableObject {
-    @Published var quantity = 1 {
-        didSet {
-            quantity = min(10, max(1, quantity))
-        }
-    }
+    @Published private(set) var quantity = 1
     @Published private(set) var printerState = PrinterConnectionState.disconnected
     @Published private(set) var currentCopy = 0
     @Published private(set) var completedCopies = 0
@@ -239,11 +235,15 @@ final class ArchivedReceiptReprintController: ObservableObject {
     }
 
     func decreaseQuantity() {
-        quantity -= 1
+        setQuantity(quantity - 1)
     }
 
     func increaseQuantity() {
-        quantity += 1
+        setQuantity(quantity + 1)
+    }
+
+    private func setQuantity(_ newValue: Int) {
+        quantity = min(10, max(1, newValue))
     }
 
     func reprint(
