@@ -323,6 +323,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         let maximumWriteLength: Int
         let chunkSize: Int
         let chunkCount: Int
+        let imageHeight: Int?
         let startedAt: Date
         let rasterStartChunkIndex: Int
         let finishingStartChunkIndex: Int
@@ -347,7 +348,10 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
 
     private let scanDuration: TimeInterval = 10
     private let printerProcessingDelay: TimeInterval = 1.5
-    private let postCutHandoffDelay: TimeInterval = 0.35
+    private let postCutHandoffDelay: TimeInterval = 0.75
+    private let estimatedThermalPrintMillimetersPerSecond: Double = 42
+    private let estimatedCutAndSettleDelay: TimeInterval = 1.25
+    private let maximumEstimatedPhysicalHandoffDelay: TimeInterval = 8
     private var centralManager: CBCentralManager?
     private var scanStopTask: Task<Void, Never>?
     private var peripheralsByID: [UUID: CBPeripheral] = [:]
@@ -732,6 +736,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
             maximumWriteLength: maximumLength,
             chunkSize: chunkSize,
             chunkCount: chunks.count,
+            imageHeight: nil,
             startedAt: Date(),
             rasterStartChunkIndex: 0,
             finishingStartChunkIndex: chunks.count,
@@ -879,6 +884,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
             maximumWriteLength: maximumLength,
             chunkSize: chunkSize,
             chunkCount: chunks.count,
+            imageHeight: nil,
             startedAt: Date(),
             rasterStartChunkIndex: chunks.count,
             finishingStartChunkIndex: chunks.count,
@@ -1083,6 +1089,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
             maximumWriteLength: maximumLength,
             chunkSize: chunkSize,
             chunkCount: chunks.count,
+            imageHeight: imageHeight,
             startedAt: Date(),
             rasterStartChunkIndex: headingChunks.count,
             finishingStartChunkIndex: headingChunks.count + rasterChunks.count,
@@ -1373,14 +1380,15 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         self.pendingJob = pendingJob
 
         let duration = Date().timeIntervalSince(pendingJob.startedAt)
+        let processingDelay = postTransportProcessingDelay(for: pendingJob, transportDuration: duration)
         updateMetrics(duration: duration)
-        appendJobLog(jobID: expectedJobID, "\(pendingJob.mode.progressLabel) all BLE chunks in \(String(format: "%.2f", duration)) seconds. Waiting \(String(format: "%.2f", printerProcessingDelay))s processing + \(String(format: "%.2f", postCutHandoffDelay))s handoff.")
+        appendJobLog(jobID: expectedJobID, "\(pendingJob.mode.progressLabel) all BLE chunks in \(String(format: "%.2f", duration)) seconds. Waiting \(String(format: "%.2f", processingDelay))s processing + \(String(format: "%.2f", postCutHandoffDelay))s handoff.")
         appendJobLog(jobID: expectedJobID, "transport completion scheduled.")
         jobState = .printerProcessing
 
         postSendCompletionTask?.cancel()
-        postSendCompletionTask = Task { [weak self, expectedJobID, printerProcessingDelay, postCutHandoffDelay] in
-            try? await Task.sleep(nanoseconds: UInt64(printerProcessingDelay * 1_000_000_000))
+        postSendCompletionTask = Task { [weak self, expectedJobID, processingDelay, postCutHandoffDelay] in
+            try? await Task.sleep(nanoseconds: UInt64(processingDelay * 1_000_000_000))
             guard !Task.isCancelled else { return }
             guard await self?.isActiveJob(expectedJobID) == true else {
                 await self?.appendStaleJobLog(expectedJobID: expectedJobID, "ignored stale printer-processing wake.")
@@ -1389,9 +1397,25 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
             await self?.setCoolingDown(expectedJobID: expectedJobID)
             try? await Task.sleep(nanoseconds: UInt64(postCutHandoffDelay * 1_000_000_000))
             guard !Task.isCancelled else { return }
-            await self?.appendJobLog(jobID: expectedJobID, "Bluetooth post-cut handoff complete after \(String(format: "%.2f", printerProcessingDelay + postCutHandoffDelay)) seconds.")
+            await self?.appendJobLog(jobID: expectedJobID, "Bluetooth post-cut handoff complete after \(String(format: "%.2f", processingDelay + postCutHandoffDelay)) seconds.")
             await self?.finishJob(expectedJobID: expectedJobID, result: .success(()))
         }
+    }
+
+    private func postTransportProcessingDelay(for job: PendingJob, transportDuration: TimeInterval) -> TimeInterval {
+        guard let imageHeight = job.imageHeight, imageHeight > 0 else {
+            return printerProcessingDelay
+        }
+
+        let estimatedReceiptLengthMillimeters = Double(imageHeight) / 8.0
+        let estimatedPhysicalDuration = (estimatedReceiptLengthMillimeters / estimatedThermalPrintMillimetersPerSecond) + estimatedCutAndSettleDelay
+        let remainingPhysicalDuration = estimatedPhysicalDuration - transportDuration - postCutHandoffDelay
+        let boundedRemaining = min(maximumEstimatedPhysicalHandoffDelay, max(printerProcessingDelay, remainingPhysicalDuration))
+        appendJobLog(
+            jobID: job.id,
+            "physical handoff estimate length=\(String(format: "%.1f", estimatedReceiptLengthMillimeters))mm speed=\(String(format: "%.1f", estimatedThermalPrintMillimetersPerSecond))mm/s transport=\(String(format: "%.2f", transportDuration))s remaining=\(String(format: "%.2f", boundedRemaining))s"
+        )
+        return boundedRemaining
     }
 
     private func finishJob(expectedJobID: UInt64, result: Result<Void, BluetoothPrinterServiceError>) {
