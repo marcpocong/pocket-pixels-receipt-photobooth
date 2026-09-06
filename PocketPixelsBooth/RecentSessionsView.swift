@@ -441,6 +441,9 @@ private struct RecentSessionRow: View {
     let summary: RecentSessionArchiveSummary
     let viewModel: RecentSessionsViewModel
 
+    private let thumbnailCellWidth: CGFloat = 34
+    private let thumbnailCellHeight: CGFloat = 54
+
     var body: some View {
         HStack(spacing: 12) {
             thumbnailStrip
@@ -490,12 +493,13 @@ private struct RecentSessionRow: View {
                             Image(uiImage: image)
                                 .resizable()
                                 .scaledToFill()
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .frame(width: thumbnailCellWidth, height: thumbnailCellHeight)
                                 .clipped()
                                 .clipShape(RoundedRectangle(cornerRadius: 4))
                         } else {
                             RoundedRectangle(cornerRadius: 4)
                                 .fill(.secondary.opacity(0.14))
+                                .frame(width: thumbnailCellWidth, height: thumbnailCellHeight)
                                 .overlay {
                                     Image(systemName: "photo")
                                         .foregroundStyle(.secondary)
