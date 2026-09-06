@@ -394,6 +394,13 @@ final class BoothSessionViewModel: ObservableObject {
                 if enqueueUpload {
                     startGalleryUpload(committedSession: committedSession, receiptImage: result.1)
                 }
+                archiveCommittedSession(
+                    committedSession,
+                    composedReceipt: result.0,
+                    receiptPreviewPNGData: result.0.imagePNGData,
+                    thermalPreviewPNGData: result.4.previewPNGData,
+                    rasterizedImage: result.4
+                )
                 debugLog("Session \(committedSession.sessionIdentifier) receipt ready. Raster bytes: \(result.4.rasterData.count). Sanitized EOT: \(result.4.sanitizationReport.dleEOTPatternCount). Sanitized DC4: \(result.4.sanitizationReport.dleDC4PatternCount).")
             } catch {
                 guard isCurrentCustomerSession(sessionGeneration) else {
@@ -970,6 +977,34 @@ final class BoothSessionViewModel: ObservableObject {
         "\(String(format: "%.2f", duration))s"
     }
 
+    private func archiveCommittedSession(
+        _ committedSession: CommittedGallerySession,
+        composedReceipt: ComposedReceipt,
+        receiptPreviewPNGData: Data,
+        thermalPreviewPNGData: Data,
+        rasterizedImage: ThermalRasterizedImage
+    ) {
+        Task.detached(priority: .utility) {
+            do {
+                let thumbnails = try committedSession.photos.map {
+                    try RecentSessionArchiveStore.makePhotoThumbnailData(from: $0)
+                }
+                let payload = RecentSessionArchivePayload(
+                    committedSession: committedSession,
+                    composedReceipt: composedReceipt,
+                    receiptPreviewPNGData: receiptPreviewPNGData,
+                    thermalPreviewPNGData: thermalPreviewPNGData,
+                    rasterizedImage: rasterizedImage,
+                    photoThumbnailData: thumbnails
+                )
+                try RecentSessionArchiveStore().save(payload)
+                debugLog("[RecentSessions] archived \(committedSession.sessionIdentifier) fingerprint=\(RecentSessionArchiveStore.rasterFingerprint(for: rasterizedImage))")
+            } catch {
+                debugLog("[RecentSessions] archive failed for \(committedSession.sessionIdentifier): \(error.localizedDescription)")
+            }
+        }
+    }
+
 #if DEBUG
     private func nextPrintBatchDebugID() -> Int {
         debugPrintBatchSequence += 1
@@ -1080,7 +1115,7 @@ final class BoothSessionViewModel: ObservableObject {
 
 }
 
-private struct CommittedGallerySession {
+struct CommittedGallerySession {
     let sessionIdentifier: String
     let createdAt: Date
     let galleryToken: String

@@ -5,7 +5,7 @@
 
 import Foundation
 
-enum BoothFormat: String, CaseIterable, Identifiable, Sendable {
+enum BoothFormat: String, Codable, CaseIterable, Identifiable, Sendable {
     case solo
     case duo
     case grid

@@ -71,6 +71,13 @@ private struct PocketPixelsAdminView: View {
                     Label("Event Setup", systemImage: "calendar.badge.clock")
                 }
 
+                NavigationStack {
+                    RecentSessionsView()
+                }
+                .tabItem {
+                    Label("Recent Sessions", systemImage: "clock.arrow.circlepath")
+                }
+
                 BoothSessionView(showsReceiptDebugTools: true)
                     .tabItem {
                         Label("Booth Debug", systemImage: "rectangle.stack.person.crop")
