@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct RasterSanitizationReport: Codable, Equatable, Sendable {
+nonisolated struct RasterSanitizationReport: Codable, Equatable, Sendable {
     let originalByteCount: Int
     let sanitizedByteCount: Int
     let dleEOTPatternCount: Int

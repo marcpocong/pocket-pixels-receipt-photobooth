@@ -1390,15 +1390,15 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         postSendCompletionTask = Task { [weak self, expectedJobID, processingDelay, postCutHandoffDelay] in
             try? await Task.sleep(nanoseconds: UInt64(processingDelay * 1_000_000_000))
             guard !Task.isCancelled else { return }
-            guard await self?.isActiveJob(expectedJobID) == true else {
-                await self?.appendStaleJobLog(expectedJobID: expectedJobID, "ignored stale printer-processing wake.")
+            guard self?.isActiveJob(expectedJobID) == true else {
+                self?.appendStaleJobLog(expectedJobID: expectedJobID, "ignored stale printer-processing wake.")
                 return
             }
-            await self?.setCoolingDown(expectedJobID: expectedJobID)
+            self?.setCoolingDown(expectedJobID: expectedJobID)
             try? await Task.sleep(nanoseconds: UInt64(postCutHandoffDelay * 1_000_000_000))
             guard !Task.isCancelled else { return }
-            await self?.appendJobLog(jobID: expectedJobID, "Bluetooth post-cut handoff complete after \(String(format: "%.2f", processingDelay + postCutHandoffDelay)) seconds.")
-            await self?.finishJob(expectedJobID: expectedJobID, result: .success(()))
+            self?.appendJobLog(jobID: expectedJobID, "Bluetooth post-cut handoff complete after \(String(format: "%.2f", processingDelay + postCutHandoffDelay)) seconds.")
+            self?.finishJob(expectedJobID: expectedJobID, result: .success(()))
         }
     }
 

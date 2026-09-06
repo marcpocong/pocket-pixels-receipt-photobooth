@@ -6,7 +6,7 @@
 import Foundation
 import UIKit
 
-struct GalleryUploadTimingMetrics: Codable, Equatable, Sendable {
+nonisolated struct GalleryUploadTimingMetrics: Codable, Equatable, Sendable {
     let imagePreparationDuration: TimeInterval
     let jsonEncodingDuration: TimeInterval
     let uploadNetworkDuration: TimeInterval?
@@ -22,6 +22,15 @@ struct GalleryUploadTimingMetrics: Codable, Equatable, Sendable {
         decodedPayloadByteCount: 0,
         jsonBodyByteCount: nil
     )
+
+    nonisolated static func == (lhs: GalleryUploadTimingMetrics, rhs: GalleryUploadTimingMetrics) -> Bool {
+        lhs.imagePreparationDuration == rhs.imagePreparationDuration
+            && lhs.jsonEncodingDuration == rhs.jsonEncodingDuration
+            && lhs.uploadNetworkDuration == rhs.uploadNetworkDuration
+            && lhs.totalDuration == rhs.totalDuration
+            && lhs.decodedPayloadByteCount == rhs.decodedPayloadByteCount
+            && lhs.jsonBodyByteCount == rhs.jsonBodyByteCount
+    }
 }
 
 enum GalleryUploadPreparation {

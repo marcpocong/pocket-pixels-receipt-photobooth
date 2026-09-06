@@ -6,7 +6,7 @@
 import Foundation
 import SwiftUI
 
-struct EventProfile: Codable, Equatable, Sendable {
+nonisolated struct EventProfile: Codable, Equatable, Sendable {
     nonisolated static let eventNameLimit = 48
     nonisolated static let subtitleLimit = 60
     nonisolated static let locationLimit = 56
@@ -20,7 +20,7 @@ struct EventProfile: Codable, Equatable, Sendable {
     var location: String
     var shortMessage: String
 
-    init(
+    nonisolated init(
         isEnabled: Bool,
         eventName: String,
         subtitle: String,
