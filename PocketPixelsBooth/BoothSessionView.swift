@@ -41,6 +41,14 @@ struct BoothSessionView: View {
         self.showsReceiptDebugTools = showsReceiptDebugTools
     }
 
+    private func clampedContentWidth(for proxy: GeometryProxy, maximum: CGFloat) -> CGFloat {
+        let paddedWidth = proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2)
+        guard paddedWidth.isFinite else {
+            return 1
+        }
+        return max(1, min(paddedWidth, maximum))
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -180,7 +188,7 @@ struct BoothSessionView: View {
 
     private var welcomeScreen: some View {
         GeometryReader { proxy in
-            let contentWidth = min(proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2), 640)
+            let contentWidth = clampedContentWidth(for: proxy, maximum: 640)
             let lightboxWidth = min(contentWidth, 550)
             let lightboxHeight = lightboxWidth / 3.32
             let receiptWidth = min(contentWidth * 0.92, 588)
@@ -296,7 +304,7 @@ struct BoothSessionView: View {
 
     private var formatSelectionScreen: some View {
         GeometryReader { proxy in
-            let contentWidth = min(proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2), PocketPixelsTheme.Layout.maxContentWidth)
+            let contentWidth = clampedContentWidth(for: proxy, maximum: PocketPixelsTheme.Layout.maxContentWidth)
             let cardHeight = min(max(proxy.size.height * 0.285, 304), 320)
             let previewHeight = min(max(cardHeight * 0.60, 184), 194)
 
@@ -363,7 +371,7 @@ struct BoothSessionView: View {
 
     private var cameraScreen: some View {
         GeometryReader { proxy in
-            let contentWidth = min(proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2), 620)
+            let contentWidth = clampedContentWidth(for: proxy, maximum: 620)
             let previewWidth = min(contentWidth, 600)
             let previewAspectRatio = usesLandscapeCompositionGuide
                 ? ReceiptComposer.landscapePresentationAspectRatio
@@ -483,7 +491,7 @@ struct BoothSessionView: View {
 
     private var reviewScreen: some View {
         GeometryReader { proxy in
-            let contentWidth = min(proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2), 700)
+            let contentWidth = clampedContentWidth(for: proxy, maximum: 700)
 
             VStack(spacing: 0) {
                 reviewHeader
@@ -688,7 +696,7 @@ struct BoothSessionView: View {
     private var receiptScreen: some View {
         GeometryReader { proxy in
             let availableHeight = max(1, proxy.size.height - (PocketPixelsTheme.Spacing.screenPadding * 2))
-            let contentWidth = min(proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2), 760)
+            let contentWidth = clampedContentWidth(for: proxy, maximum: 760)
             let isPostPrintFlow = viewModel.state != .receiptPreview
             let statusCardWidth = min(contentWidth * 0.78, 560)
             let statusQRSize = min(max(contentWidth * 0.20, 150), 180)
@@ -1054,7 +1062,7 @@ struct BoothSessionView: View {
 
     private func recoveryScreen(message: String) -> some View {
         GeometryReader { proxy in
-            let contentWidth = min(proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2), 620)
+            let contentWidth = clampedContentWidth(for: proxy, maximum: 620)
 
             VStack(spacing: 18) {
                 Spacer()
@@ -1099,7 +1107,7 @@ struct BoothSessionView: View {
 
     private var thankYouScreen: some View {
         GeometryReader { proxy in
-            let contentWidth = min(proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2), 620)
+            let contentWidth = clampedContentWidth(for: proxy, maximum: 620)
             let qrSize = min(max(contentWidth * 0.52, 280), 340)
 
             VStack(spacing: 0) {
@@ -1205,7 +1213,7 @@ struct BoothSessionView: View {
 
     private func progressScreen(title: String, message: String) -> some View {
         GeometryReader { proxy in
-            let contentWidth = min(proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2), 560)
+            let contentWidth = clampedContentWidth(for: proxy, maximum: 560)
 
             VStack(spacing: 18) {
                 Spacer()
@@ -1251,7 +1259,7 @@ struct BoothSessionView: View {
 
     private func errorScreen(message: String) -> some View {
         GeometryReader { proxy in
-            let contentWidth = min(proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2), 620)
+            let contentWidth = clampedContentWidth(for: proxy, maximum: 620)
 
             VStack(spacing: 18) {
                 Spacer()
