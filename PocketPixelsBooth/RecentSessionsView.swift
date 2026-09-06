@@ -42,7 +42,6 @@ final class RecentSessionsViewModel: ObservableObject {
 
     var groupedSummaries: [(String, [RecentSessionArchiveSummary])] {
         let calendar = Calendar.current
-        let today = Date()
         let groups = Dictionary(grouping: filteredSummaries) { summary in
             if calendar.isDateInToday(summary.createdAt) {
                 return "Today"
@@ -73,15 +72,13 @@ final class RecentSessionsViewModel: ObservableObject {
         }
 
         isLoading = true
-        Task {
-            do {
-                summaries = try store.summaries()
-                statusMessage = summaries.isEmpty ? "No recent sessions yet." : "\(summaries.count) recent sessions loaded."
-            } catch {
-                statusMessage = error.localizedDescription
-            }
-            isLoading = false
+        do {
+            summaries = try store.summaries()
+            statusMessage = summaries.isEmpty ? "No recent sessions yet." : "\(summaries.count) recent sessions loaded."
+        } catch {
+            statusMessage = error.localizedDescription
         }
+        isLoading = false
     }
 
     func thumbnailData(for summary: RecentSessionArchiveSummary, filename: String) -> Data? {
@@ -345,6 +342,9 @@ struct RecentSessionsView: View {
         .navigationTitle("Recent Sessions")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $viewModel.searchText, prompt: "Search session, event, or format")
+        .refreshable {
+            viewModel.refresh()
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Clear") {
@@ -392,7 +392,7 @@ private struct RecentSessionRow: View {
                 .frame(width: 112, height: 54)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(summary.eventName ?? RecentSessionsViewModel.rowTimeFormatter.string(from: summary.createdAt))
+                Text(summary.eventName ?? "Pocket Pixels Receipt")
                     .font(.headline)
                     .lineLimit(1)
 
@@ -403,29 +403,50 @@ private struct RecentSessionRow: View {
                 Text(summary.sessionIdentifier)
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
+
+                if summary.rasterFingerprint == "CORRUPT" {
+                    Text("Archive needs attention")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.red)
+                } else if summary.reprintCount > 0 {
+                    Text("Reprinted \(summary.reprintCount)x")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(.vertical, 4)
     }
 
     private var thumbnailStrip: some View {
-        HStack(spacing: 4) {
-            ForEach(Array(summary.thumbnailFilenames.prefix(3).enumerated()), id: \.offset) { _, filename in
-                if let data = viewModel.thumbnailData(for: summary, filename: filename),
-                   let image = UIImage(data: data) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .clipped()
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                } else {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(.secondary.opacity(0.14))
-                        .overlay {
-                            Image(systemName: "photo")
-                                .foregroundStyle(.secondary)
+        Group {
+            if summary.thumbnailFilenames.isEmpty {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(.secondary.opacity(0.14))
+                    .overlay {
+                        Image(systemName: summary.rasterFingerprint == "CORRUPT" ? "exclamationmark.triangle" : "photo")
+                            .foregroundStyle(summary.rasterFingerprint == "CORRUPT" ? .red : .secondary)
+                    }
+            } else {
+                HStack(spacing: 4) {
+                    ForEach(Array(summary.thumbnailFilenames.prefix(3).enumerated()), id: \.offset) { _, filename in
+                        if let data = viewModel.thumbnailData(for: summary, filename: filename),
+                           let image = UIImage(data: data) {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .clipped()
+                                .clipShape(RoundedRectangle(cornerRadius: 4))
+                        } else {
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(.secondary.opacity(0.14))
+                                .overlay {
+                                    Image(systemName: "photo")
+                                        .foregroundStyle(.secondary)
+                                }
                         }
+                    }
                 }
             }
         }
@@ -436,13 +457,16 @@ private struct ArchivedSessionDetailView: View {
     let summary: RecentSessionArchiveSummary
     @ObservedObject var rootViewModel: RecentSessionsViewModel
 
+    @Environment(\.dismiss) private var dismiss
     @AppStorage("printerIP") private var printerIP = BoothConfiguration.defaultPrinterIP
     @AppStorage("printerPort") private var printerPort = BoothConfiguration.defaultPrinterPort
     @StateObject private var reprintController = ArchivedReceiptReprintController()
     @State private var archive: RecentSessionArchive?
     @State private var loadError: String?
+    @State private var isLoadingArchive = false
     @State private var isConfirmingReprint = false
     @State private var isConfirmingDelete = false
+    @State private var isShowingFullReceiptPreview = false
 
     var body: some View {
         ScrollView {
@@ -486,6 +510,7 @@ private struct ArchivedSessionDetailView: View {
         ) {
             Button("Delete This Session", role: .destructive) {
                 rootViewModel.delete(summary.archiveID)
+                dismiss()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -514,6 +539,9 @@ private struct ArchivedSessionDetailView: View {
         .onAppear {
             loadArchive()
         }
+        .sheet(isPresented: $isShowingFullReceiptPreview) {
+            FullReceiptPreviewSheet(archive: archive)
+        }
     }
 
     private var parsedPort: UInt16? {
@@ -521,23 +549,39 @@ private struct ArchivedSessionDetailView: View {
     }
 
     private func loadArchive() {
+        guard !isLoadingArchive else { return }
+        isLoadingArchive = true
+        defer {
+            isLoadingArchive = false
+        }
+
         do {
             archive = try rootViewModel.loadArchive(summary.archiveID)
             loadError = nil
         } catch {
+            archive = nil
             loadError = error.localizedDescription
         }
     }
 
     private func receiptPreview(_ archive: RecentSessionArchive) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Original Receipt")
-                .font(.headline)
+            HStack {
+                Text("Original Receipt")
+                    .font(.headline)
+                Spacer()
+                Button("View Larger") {
+                    isShowingFullReceiptPreview = true
+                }
+                .font(.subheadline.weight(.semibold))
+            }
             if let image = UIImage(data: archive.receiptPreviewPNGData) {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
                     .frame(maxWidth: .infinity)
+                    .frame(maxHeight: 520)
+                    .background(Color.white)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .overlay {
                         RoundedRectangle(cornerRadius: 8)
@@ -631,6 +675,43 @@ private struct ArchivedSessionDetailView: View {
         .padding()
         .background(.thinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct FullReceiptPreviewSheet: View {
+    let archive: RecentSessionArchive?
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                if let archive,
+                   let image = UIImage(data: archive.receiptPreviewPNGData) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: 520)
+                        .background(Color.white)
+                        .padding()
+                } else {
+                    ContentUnavailableView(
+                        "Receipt preview unavailable.",
+                        systemImage: "photo",
+                        description: Text("This archive does not include a readable receipt preview.")
+                    )
+                }
+            }
+            .navigationTitle("Original Receipt")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
     }
 }
 

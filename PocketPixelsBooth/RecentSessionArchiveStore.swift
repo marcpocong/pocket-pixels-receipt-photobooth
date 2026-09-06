@@ -203,6 +203,11 @@ struct RecentSessionArchiveStore: Sendable {
         let thermalPreview = try Data(contentsOf: directory.appendingPathComponent(Self.thermalPreviewFilename))
         let rasterData = try Data(contentsOf: directory.appendingPathComponent(Self.rasterDataFilename))
         let rasterCommand = try Data(contentsOf: directory.appendingPathComponent(Self.rasterCommandFilename))
+        guard rasterData.count == metadata.rasterDataByteCount,
+              rasterCommand.count == metadata.rasterCommandByteCount else {
+            throw RecentSessionArchiveError.corruptedArchive("Raster byte counts do not match metadata.")
+        }
+
         let rasterizedImage = ThermalRasterizedImage(
             width: metadata.receiptWidth,
             height: metadata.receiptHeight,
@@ -364,7 +369,7 @@ struct RecentSessionArchiveStore: Sendable {
             yL: raster.yL,
             yH: raster.yH,
             sanitizationReport: raster.sanitizationReport,
-            thumbnailFilenames: payload.photoThumbnailData.indices.map(Self.thumbnailFilename(index:)),
+            thumbnailFilenames: payload.photoThumbnailData.indices.map { Self.thumbnailFilename(index: $0) },
             lastReprintedAt: nil,
             reprintCount: 0
         )
