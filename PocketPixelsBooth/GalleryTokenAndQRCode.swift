@@ -9,6 +9,15 @@ import Foundation
 import Security
 import UIKit
 
+struct QRCodeRenderMetrics: Sendable {
+    let matrixModules: Int
+    let quietZoneModules: Int
+    let moduleScale: Int
+    let pixelSize: Int
+    let renderedMatrixPixelSize: Int
+    let renderedTotalPixelSize: Int
+}
+
 enum GalleryTokenGenerator {
     nonisolated static func makeGalleryToken() throws -> String {
         var bytes = [UInt8](repeating: 0, count: 32)
@@ -126,18 +135,35 @@ enum GalleryQRCodeGenerator {
     nonisolated static let correctionLevel = "M"
     nonisolated static let quietZoneModules = 4
 
+    nonisolated static func makeRenderMetrics(for galleryURL: URL, pixelSize: Int = Self.pixelSize) throws -> QRCodeRenderMetrics {
+        let outputImage = try makeQRCodeOutputImage(for: galleryURL)
+        let extent = outputImage.extent.integral
+        let matrixModules = Int(max(extent.width, extent.height))
+        let totalModules = matrixModules + quietZoneModules * 2
+        let moduleScale = max(1, Int(floor(CGFloat(pixelSize) / CGFloat(totalModules))))
+        return QRCodeRenderMetrics(
+            matrixModules: matrixModules,
+            quietZoneModules: quietZoneModules,
+            moduleScale: moduleScale,
+            pixelSize: pixelSize,
+            renderedMatrixPixelSize: matrixModules * moduleScale,
+            renderedTotalPixelSize: totalModules * moduleScale
+        )
+    }
+
+    nonisolated static func moduleAlignedPixelSize(for galleryURL: URL, moduleScale: Int) throws -> Int {
+        let outputImage = try makeQRCodeOutputImage(for: galleryURL)
+        let extent = outputImage.extent.integral
+        let matrixModules = Int(max(extent.width, extent.height))
+        return (matrixModules + quietZoneModules * 2) * max(1, moduleScale)
+    }
+
     nonisolated static func makeQRCodeImage(for galleryURL: URL, pixelSize: Int = Self.pixelSize) throws -> UIImage {
         guard galleryURL.scheme?.lowercased() == "https" else {
             throw GalleryUploadError.invalidGalleryURL
         }
 
-        let filter = CIFilter.qrCodeGenerator()
-        filter.message = Data(galleryURL.absoluteString.utf8)
-        filter.correctionLevel = correctionLevel
-
-        guard let outputImage = filter.outputImage else {
-            throw GalleryUploadError.qrGeneration("QR output image could not be created.")
-        }
+        let outputImage = try makeQRCodeOutputImage(for: galleryURL)
 
         let colorFilter = CIFilter.falseColor()
         colorFilter.inputImage = outputImage
@@ -179,5 +205,21 @@ enum GalleryQRCodeGenerator {
             context.cgContext.interpolationQuality = .none
             UIImage(cgImage: cgImage, scale: 1, orientation: .up).draw(in: CGRect(origin: CGPoint(x: totalOrigin.x + quietZoneOffset, y: totalOrigin.y + quietZoneOffset), size: scaledMatrixSize))
         }
+    }
+
+    nonisolated private static func makeQRCodeOutputImage(for galleryURL: URL) throws -> CIImage {
+        guard galleryURL.scheme?.lowercased() == "https" else {
+            throw GalleryUploadError.invalidGalleryURL
+        }
+
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(galleryURL.absoluteString.utf8)
+        filter.correctionLevel = correctionLevel
+
+        guard let outputImage = filter.outputImage else {
+            throw GalleryUploadError.qrGeneration("QR output image could not be created.")
+        }
+
+        return outputImage
     }
 }
