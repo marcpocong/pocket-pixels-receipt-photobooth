@@ -100,19 +100,30 @@ final class EventEnduranceHarnessViewModel: ObservableObject {
             galleryToken: galleryToken
         )
         let photos = Self.makeSamplePhotos(count: format.photoCount, index: index)
-        let receipt = try ReceiptComposer.compose(
-            photos: photos,
-            sessionIdentifier: sessionID,
-            date: date,
-            galleryURL: galleryURL,
-            format: format,
-            eventProfile: EventProfileStore.load().activeReceiptSnapshot,
-            photoQualityProfile: .customerPrintDefault
-        )
-        guard let receiptImage = UIImage(data: receipt.imagePNGData) else {
-            throw ReceiptComposerError.renderFailed
+        let eventSnapshot = EventProfileStore.load().activeReceiptSnapshot
+        let worker = Task.detached(priority: .utility) {
+            try Task.checkCancellation()
+            let receipt = try ReceiptComposer.compose(
+                photos: photos,
+                sessionIdentifier: sessionID,
+                date: date,
+                galleryURL: galleryURL,
+                format: format,
+                eventProfile: eventSnapshot,
+                photoQualityProfile: .customerPrintDefault
+            )
+            guard let receiptImage = UIImage(data: receipt.imagePNGData) else {
+                throw ReceiptComposerError.renderFailed
+            }
+            try Task.checkCancellation()
+            let rasterized = try ThermalImageRasterizer.rasterize(receiptImage, purpose: .completeReceipt)
+            return (receipt, receiptImage, rasterized)
         }
-        let rasterized = try ThermalImageRasterizer.rasterize(receiptImage, purpose: .completeReceipt)
+        let (receipt, receiptImage, rasterized) = try await withTaskCancellationHandler {
+            try await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
         let committedSession = CommittedGallerySession(
             sessionIdentifier: sessionID,
             createdAt: date,
@@ -120,7 +131,7 @@ final class EventEnduranceHarnessViewModel: ObservableObject {
             galleryURL: galleryURL,
             photos: photos,
             format: format,
-            eventProfile: EventProfileStore.load().activeReceiptSnapshot
+            eventProfile: eventSnapshot
         )
         let thumbnails = photos.compactMap { AppRecoveryStore.photoData(from: $0) }
         try archiveStore?.save(

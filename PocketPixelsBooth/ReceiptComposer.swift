@@ -26,8 +26,91 @@ struct ReceiptPhotoFrame: Sendable {
     let rect: CGRect
 }
 
+private struct ReceiptTextSnapshot: Sendable {
+    let established: String
+    let wordmark: String
+    let descriptor: String
+    let eventContent: EventReceiptBlockContent?
+    let cta: String
+    let subCTA: String
+    let formattedDate: String
+    let sessionIdentifier: String
+    let handle: String
+    let closing: String
+}
+
+private struct ReceiptWrappedTextFrame: Sendable {
+    let rect: CGRect
+    let tracking: CGFloat
+    let lineSpacing: CGFloat
+    let lineBreakMode: NSLineBreakMode
+}
+
+private struct ReceiptHeaderLayout: Sendable {
+    let startY: Int
+    let textX: Int
+    let textWidth: Int
+    let establishedFrame: ReceiptWrappedTextFrame
+    let wordmarkFrame: ReceiptWrappedTextFrame
+    let descriptorFrame: ReceiptWrappedTextFrame
+    let eventEyebrowFrame: ReceiptWrappedTextFrame?
+    let eventTitleFrame: ReceiptWrappedTextFrame?
+    let eventTitleFontSize: CGFloat?
+    let eventSubtitleFrame: ReceiptWrappedTextFrame?
+    let eventMetadataFrame: ReceiptWrappedTextFrame?
+    let eventMessageFrame: ReceiptWrappedTextFrame?
+    let dividerY: Int
+    let bottom: Int
+}
+
+private enum ReceiptFooterMode: Sendable {
+    case galleryQRCode(qrSize: Int)
+    case metadataOnly
+}
+
+private enum ReceiptFooterContent {
+    case galleryQRCode(UIImage)
+    case metadataOnly
+
+    nonisolated var mode: ReceiptFooterMode {
+        switch self {
+        case .galleryQRCode:
+            .galleryQRCode(qrSize: ReceiptComposer.receiptQRCodeSize)
+        case .metadataOnly:
+            .metadataOnly
+        }
+    }
+}
+
+private enum ReceiptFooterLayoutPlan: Sendable {
+    case gallery(ReceiptFooterLayout)
+    case metadataOnly(ReceiptMetadataFooterLayout)
+
+    nonisolated var height: Int {
+        switch self {
+        case .gallery(let layout):
+            layout.height
+        case .metadataOnly(let layout):
+            layout.height
+        }
+    }
+
+    nonisolated var bottom: Int {
+        switch self {
+        case .gallery(let layout):
+            layout.top + layout.height
+        case .metadataOnly(let layout):
+            layout.top + layout.height
+        }
+    }
+}
+
 struct ReceiptLayoutPlan: Sendable {
     let format: BoothFormat
+    fileprivate let textSnapshot: ReceiptTextSnapshot
+    fileprivate let headerLayout: ReceiptHeaderLayout
+    fileprivate let footerMode: ReceiptFooterMode
+    fileprivate let footerLayout: ReceiptFooterLayoutPlan
     let displayedPhotoIndexes: [Int]
     let photoFrames: [ReceiptPhotoFrame]
     let groupFrame: CGRect?
@@ -66,6 +149,16 @@ private struct ReceiptFooterLayout: Sendable {
     let brandRowWidth: Int
     let closingY: Int
     let bottomPadding: Int
+}
+
+private struct ReceiptMetadataFooterLayout: Sendable {
+    let top: Int
+    let height: Int
+    let dividerY: Int
+    let dateY: Int
+    let sessionY: Int
+    let handleY: Int
+    let closingDividerY: Int
 }
 
 private struct ReceiptFooterMetrics: Sendable {
@@ -108,6 +201,7 @@ enum ReceiptComposerError: Error, LocalizedError {
     case missingPhotos(expected: Int, actual: Int)
     case renderFailed
     case heightExceeded(Int)
+    case invalidLayout(String)
 
     var errorDescription: String? {
         switch self {
@@ -117,6 +211,8 @@ enum ReceiptComposerError: Error, LocalizedError {
             "The receipt could not be rendered."
         case .heightExceeded(let height):
             "The composed receipt is too tall: \(height) pixels."
+        case .invalidLayout(let message):
+            "The receipt layout is invalid: \(message)"
         }
     }
 }
@@ -159,14 +255,19 @@ enum ReceiptComposer {
         eventProfile: EventProfile? = nil,
         photoQualityProfile: PocketPixelsThermalPhotoProfile = .customerPrintDefault
     ) throws -> ComposedReceipt {
+        try Task.checkCancellation()
         guard photos.count == format.photoCount else {
             throw ReceiptComposerError.missingPhotos(expected: format.photoCount, actual: photos.count)
         }
 
         let eventSnapshot = eventProfile?.activeReceiptSnapshot
-        let plan = try makeLayoutPlan(format: format, includesGalleryQRCode: galleryURL != nil, eventProfile: eventSnapshot)
+        let textSnapshot = makeTextSnapshot(date: date, sessionIdentifier: sessionIdentifier, eventProfile: eventSnapshot)
+        let footerContent = try makeFooterContent(for: galleryURL)
+        let plan = try makeLayoutPlan(format: format, textSnapshot: textSnapshot, footerMode: footerContent.mode)
+        try validateLayoutPlan(plan)
+        try Task.checkCancellation()
+
         let width = BoothConfiguration.receiptWidth
-        let margin = BoothConfiguration.receiptHorizontalMargin
         let height = plan.height
 
         guard height <= BoothConfiguration.receiptMaximumHeight else {
@@ -178,6 +279,7 @@ enum ReceiptComposer {
             for: plan,
             profile: photoQualityProfile
         )
+        try Task.checkCancellation()
 
         let rendererFormat = UIGraphicsImageRendererFormat()
         rendererFormat.scale = 1
@@ -190,7 +292,7 @@ enum ReceiptComposer {
             UIColor.white.setFill()
             cgContext.fill(CGRect(origin: .zero, size: size))
 
-            drawPocketPixelsMasthead(eventSnapshot: eventSnapshot, startY: receiptTopPadding, margin: margin, width: width)
+            drawPocketPixelsMasthead(textSnapshot: textSnapshot, layout: plan.headerLayout)
 
             if let groupFrame = plan.groupFrame {
                 UIColor.black.setStroke()
@@ -206,36 +308,34 @@ enum ReceiptComposer {
                 )
             }
 
-            let photoBottom = Int(plan.photoFrames.map(\.rect.maxY).max() ?? 0)
-            if let galleryURL,
-               let qrImage = try? GalleryQRCodeGenerator.makeQRCodeImage(for: galleryURL, pixelSize: plan.qrSize) {
+            switch (footerContent, plan.footerLayout) {
+            case (.galleryQRCode(let qrImage), .gallery(let layout)):
                 drawCompactGalleryFooter(
                     qrImage: qrImage,
-                    date: date,
-                    sessionIdentifier: sessionIdentifier,
-                    photoBottom: photoBottom,
-                    margin: margin,
-                    width: width,
-                    qrSize: plan.qrSize,
+                    textSnapshot: textSnapshot,
+                    layout: layout,
                     context: cgContext
                 )
-            } else {
-                drawMetadataFooter(
-                    date: date,
-                    sessionIdentifier: sessionIdentifier,
-                    photoBottom: photoBottom,
-                    margin: margin,
-                    width: width
-                )
+            case (.metadataOnly, .metadataOnly(let layout)):
+                drawMetadataFooter(textSnapshot: textSnapshot, layout: layout)
+            default:
+                assertionFailure("Validated receipt footer mode drifted before rendering.")
             }
         }
 
-        guard let data = image.pngData(), image.size.width == CGFloat(width), image.size.height == CGFloat(height) else {
+        try Task.checkCancellation()
+
+        guard let data = image.pngData(),
+              let decodedImage = UIImage(data: data),
+              Int(decodedImage.size.width) == width,
+              Int(decodedImage.size.height) == height,
+              image.size.width == CGFloat(width),
+              image.size.height == CGFloat(height) else {
             throw ReceiptComposerError.renderFailed
         }
 
 #if DEBUG
-        let headerHeight = measurePocketPixelsHeaderHeight(eventProfile: eventSnapshot, width: width, margin: margin)
+        let headerHeight = plan.headerLayout.bottom - plan.headerLayout.startY
         debugLog("[ReceiptHeader] headerHeight=\(headerHeight) event=\(eventSnapshot != nil) receiptHeight=\(height) estimatedLengthMM=\(String(format: "%.1f", Double(height) / 8.0))")
 #endif
         debugLog("Composed \(format.rawValue) receipt \(sessionIdentifier). Dimensions: \(width)x\(height). Estimated length: \(String(format: "%.1f", Double(height) / 8.0)) mm.")
@@ -257,11 +357,26 @@ enum ReceiptComposer {
         includesGalleryQRCode: Bool = true,
         eventProfile: EventProfile? = nil
     ) throws -> ReceiptLayoutPlan {
+        let date = Date(timeIntervalSince1970: 1_788_692_040)
+        let textSnapshot = makeTextSnapshot(
+            date: date,
+            sessionIdentifier: "PP-20260907-161400",
+            eventProfile: eventProfile?.activeReceiptSnapshot
+        )
+        let footerMode: ReceiptFooterMode = includesGalleryQRCode ? .galleryQRCode(qrSize: receiptQRCodeSize) : .metadataOnly
+        return try makeLayoutPlan(format: format, textSnapshot: textSnapshot, footerMode: footerMode)
+    }
+
+    nonisolated private static func makeLayoutPlan(
+        format: BoothFormat,
+        textSnapshot: ReceiptTextSnapshot,
+        footerMode: ReceiptFooterMode
+    ) throws -> ReceiptLayoutPlan {
         let width = BoothConfiguration.receiptWidth
         let margin = BoothConfiguration.receiptHorizontalMargin
         let fullPhotoWidth = width - (margin * 2)
-        let eventSnapshot = eventProfile?.activeReceiptSnapshot
-        let top = pocketPixelsHeaderPhotoTop(eventProfile: eventSnapshot, startY: receiptTopPadding, margin: margin, width: width)
+        let headerLayout = makeHeaderLayout(textSnapshot: textSnapshot, startY: receiptTopPadding, margin: margin, width: width)
+        let top = headerLayout.bottom
         let verticalPhotoGap = photoStackGap
         let photoFrames: [ReceiptPhotoFrame]
         let groupFrame: CGRect?
@@ -312,19 +427,292 @@ enum ReceiptComposer {
 
         let photoBottom = Int(photoFrames.map(\.rect.maxY).max() ?? CGFloat(top))
         let previewContentHeight = photoBottom + 12
-        let footerHeight = includesGalleryQRCode ? compactGalleryFooterHeight(qrSize: receiptQRCodeSize) : metadataOnlyFooterHeight
-        let height = photoBottom + footerHeight
+        let footerLayout: ReceiptFooterLayoutPlan
+        let qrSize: Int
+        switch footerMode {
+        case .galleryQRCode(let plannedQRSize):
+            let metrics = footerMetrics(qrSize: plannedQRSize)
+            footerLayout = .gallery(makeCompactGalleryFooterLayout(photoBottom: photoBottom, margin: margin, width: width, metrics: metrics, textSnapshot: textSnapshot))
+            qrSize = plannedQRSize
+        case .metadataOnly:
+            footerLayout = .metadataOnly(makeMetadataFooterLayout(photoBottom: photoBottom))
+            qrSize = 0
+        }
+        let height = footerLayout.bottom
 
         return ReceiptLayoutPlan(
             format: format,
+            textSnapshot: textSnapshot,
+            headerLayout: headerLayout,
+            footerMode: footerMode,
+            footerLayout: footerLayout,
             displayedPhotoIndexes: Array(0..<format.photoCount),
             photoFrames: photoFrames,
             groupFrame: groupFrame,
             width: width,
             height: height,
             previewContentHeight: previewContentHeight,
-            qrSize: includesGalleryQRCode ? receiptQRCodeSize : 0
+            qrSize: qrSize
         )
+    }
+
+    nonisolated private static func makeTextSnapshot(
+        date: Date,
+        sessionIdentifier: String,
+        eventProfile: EventProfile?
+    ) -> ReceiptTextSnapshot {
+        ReceiptTextSnapshot(
+            established: "EST. 2026",
+            wordmark: "Pocket Pixels",
+            descriptor: "RECEIPT PHOTOBOOTH",
+            eventContent: eventProfile?.activeReceiptSnapshot?.receiptBlockContent,
+            cta: "SCAN TO VIEW",
+            subCTA: "& SAVE YOUR PHOTOS",
+            formattedDate: receiptDateFormatter.string(from: date).uppercased(),
+            sessionIdentifier: sessionIdentifier,
+            handle: "@pocketpixels.ceb",
+            closing: "— THANK YOU —"
+        )
+    }
+
+    nonisolated private static func makeFooterContent(for galleryURL: URL?) throws -> ReceiptFooterContent {
+        guard let galleryURL else {
+            return .metadataOnly
+        }
+
+        let qrImage = try GalleryQRCodeGenerator.makeQRCodeImage(for: galleryURL, pixelSize: receiptQRCodeSize)
+        return .galleryQRCode(qrImage)
+    }
+
+    nonisolated private static func defaultLayoutTextSnapshot() -> ReceiptTextSnapshot {
+        makeTextSnapshot(
+            date: Date(timeIntervalSince1970: 1_788_692_040),
+            sessionIdentifier: "PP-20260907-161400",
+            eventProfile: nil
+        )
+    }
+
+    nonisolated private static func footerMetrics(qrSize: Int) -> ReceiptFooterMetrics {
+        ReceiptFooterMetrics(
+            qrModuleScale: ReceiptFooterMetrics.production.qrModuleScale,
+            qrSize: qrSize,
+            gutter: ReceiptFooterMetrics.production.gutter,
+            mainGroupHorizontalOpticalOffset: ReceiptFooterMetrics.production.mainGroupHorizontalOpticalOffset,
+            ctaFontSize: ReceiptFooterMetrics.production.ctaFontSize,
+            ctaTracking: ReceiptFooterMetrics.production.ctaTracking,
+            subCTAFontSize: ReceiptFooterMetrics.production.subCTAFontSize,
+            subCTATracking: ReceiptFooterMetrics.production.subCTATracking,
+            ctaLineGap: ReceiptFooterMetrics.production.ctaLineGap,
+            ctaToMetadataGap: ReceiptFooterMetrics.production.ctaToMetadataGap,
+            metadataToSessionGap: ReceiptFooterMetrics.production.metadataToSessionGap,
+            rightStackOpticalOffset: ReceiptFooterMetrics.production.rightStackOpticalOffset,
+            brandTopPadding: ReceiptFooterMetrics.production.brandTopPadding,
+            closingTopPadding: ReceiptFooterMetrics.production.closingTopPadding,
+            bottomPadding: ReceiptFooterMetrics.production.bottomPadding
+        )
+    }
+
+    nonisolated private static func makeHeaderLayout(
+        textSnapshot: ReceiptTextSnapshot,
+        startY: Int,
+        margin: Int,
+        width: Int
+    ) -> ReceiptHeaderLayout {
+        var y = startY
+        let textX = mastheadTextX(margin: margin)
+        let textWidth = mastheadTextWidth(margin: margin, width: width)
+
+        let establishedHeight = measuredWrappedTextHeight(textSnapshot.established, font: mastheadEstablishedFont, width: textWidth, tracking: 1.4)
+        let establishedFrame = wrappedTextFrame(x: textX, y: y, width: textWidth, height: establishedHeight, tracking: 1.4)
+        y += establishedHeight + mastheadEstablishedBottomGap
+
+        let wordmarkHeight = measuredWrappedTextHeight(textSnapshot.wordmark, font: mastheadWordmarkFont, width: textWidth)
+        let wordmarkFrame = wrappedTextFrame(x: textX, y: y, width: textWidth, height: wordmarkHeight)
+        y += wordmarkHeight + mastheadWordmarkBottomGap
+
+        let descriptorHeight = measuredWrappedTextHeight(textSnapshot.descriptor, font: mastheadLabelFont, width: textWidth, tracking: 4.0)
+        let descriptorFrame = wrappedTextFrame(x: textX, y: y, width: textWidth, height: descriptorHeight, tracking: 4.0)
+        y += descriptorHeight + mastheadBottomGap
+
+        var eventEyebrowFrame: ReceiptWrappedTextFrame?
+        var eventTitleFrame: ReceiptWrappedTextFrame?
+        var eventTitleFontSize: CGFloat?
+        var eventSubtitleFrame: ReceiptWrappedTextFrame?
+        var eventMetadataFrame: ReceiptWrappedTextFrame?
+        var eventMessageFrame: ReceiptWrappedTextFrame?
+
+        if let content = textSnapshot.eventContent {
+            let eyebrowHeight = measuredWrappedTextHeight(content.eyebrow, font: eventEyebrowFont, width: textWidth, tracking: 1.8)
+            eventEyebrowFrame = wrappedTextFrame(x: textX, y: y, width: textWidth, height: eyebrowHeight, tracking: 1.8)
+            y += eyebrowHeight + eventHeaderKickerBottomGap
+
+            let titleFont = eventTitleFont(for: content.eventName, width: textWidth)
+            let titleHeight = measuredWrappedTextHeight(content.eventName, font: titleFont, width: textWidth, lineSpacing: 1, lineBreakMode: .byCharWrapping)
+            eventTitleFrame = wrappedTextFrame(x: textX, y: y, width: textWidth, height: titleHeight, lineSpacing: 1, lineBreakMode: .byCharWrapping)
+            eventTitleFontSize = titleFont.pointSize
+            y += titleHeight + eventHeaderTitleBottomGap
+
+            if !content.subtitle.isEmpty {
+                let subtitleHeight = measuredWrappedTextHeight(content.subtitle, font: eventSubtitleFont, width: textWidth)
+                eventSubtitleFrame = wrappedTextFrame(x: textX, y: y, width: textWidth, height: subtitleHeight)
+                y += subtitleHeight + eventHeaderDetailGap
+            }
+
+            if !content.metadata.isEmpty {
+                let metadataHeight = measuredWrappedTextHeight(content.metadata, font: eventMetadataFont, width: textWidth, tracking: 0.4)
+                eventMetadataFrame = wrappedTextFrame(x: textX, y: y, width: textWidth, height: metadataHeight, tracking: 0.4)
+                y += metadataHeight + eventHeaderDetailGap
+            }
+
+            if !content.message.isEmpty {
+                let message = content.message.uppercased()
+                let messageHeight = measuredWrappedTextHeight(message, font: eventMessageFont, width: textWidth, tracking: 0.8)
+                eventMessageFrame = wrappedTextFrame(x: textX, y: y, width: textWidth, height: messageHeight, tracking: 0.8)
+                y += messageHeight
+            }
+
+            y += eventHeaderBottomPadding
+        }
+
+        let dividerY = y
+        let bottom = dividerY + 1 + eventHeaderPhotoGap
+        return ReceiptHeaderLayout(
+            startY: startY,
+            textX: textX,
+            textWidth: textWidth,
+            establishedFrame: establishedFrame,
+            wordmarkFrame: wordmarkFrame,
+            descriptorFrame: descriptorFrame,
+            eventEyebrowFrame: eventEyebrowFrame,
+            eventTitleFrame: eventTitleFrame,
+            eventTitleFontSize: eventTitleFontSize,
+            eventSubtitleFrame: eventSubtitleFrame,
+            eventMetadataFrame: eventMetadataFrame,
+            eventMessageFrame: eventMessageFrame,
+            dividerY: dividerY,
+            bottom: bottom
+        )
+    }
+
+    nonisolated private static func wrappedTextFrame(
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int,
+        tracking: CGFloat = 0,
+        lineSpacing: CGFloat = 0,
+        lineBreakMode: NSLineBreakMode = .byWordWrapping
+    ) -> ReceiptWrappedTextFrame {
+        ReceiptWrappedTextFrame(
+            rect: CGRect(x: x, y: y, width: width, height: height),
+            tracking: tracking,
+            lineSpacing: lineSpacing,
+            lineBreakMode: lineBreakMode
+        )
+    }
+
+    nonisolated private static func validateLayoutPlan(_ plan: ReceiptLayoutPlan) throws {
+        guard plan.width == BoothConfiguration.receiptWidth else {
+            throw ReceiptComposerError.invalidLayout("canvas width \(plan.width) does not equal \(BoothConfiguration.receiptWidth)")
+        }
+        guard plan.width > 0,
+              plan.height > 0,
+              plan.height <= BoothConfiguration.receiptMaximumHeight,
+              plan.previewContentHeight > 0 else {
+            throw ReceiptComposerError.invalidLayout("canvas dimensions are outside supported bounds")
+        }
+
+        let canvas = CGRect(x: 0, y: 0, width: plan.width, height: plan.height)
+        try validateFrame(plan.headerLayout.establishedFrame.rect, name: "header.established", inside: canvas)
+        try validateFrame(plan.headerLayout.wordmarkFrame.rect, name: "header.wordmark", inside: canvas)
+        try validateFrame(plan.headerLayout.descriptorFrame.rect, name: "header.descriptor", inside: canvas)
+        for (name, frame) in [
+            ("header.eventEyebrow", plan.headerLayout.eventEyebrowFrame),
+            ("header.eventTitle", plan.headerLayout.eventTitleFrame),
+            ("header.eventSubtitle", plan.headerLayout.eventSubtitleFrame),
+            ("header.eventMetadata", plan.headerLayout.eventMetadataFrame),
+            ("header.eventMessage", plan.headerLayout.eventMessageFrame)
+        ] {
+            if let frame {
+                try validateFrame(frame.rect, name: name, inside: canvas)
+            }
+        }
+        guard plan.headerLayout.dividerY >= 0,
+              plan.headerLayout.bottom <= Int(plan.photoFrames.first?.rect.minY ?? CGFloat(plan.height)) else {
+            throw ReceiptComposerError.invalidLayout("header overlaps photo section")
+        }
+
+        guard plan.displayedPhotoIndexes == Array(0..<plan.format.photoCount),
+              plan.photoFrames.count == plan.format.photoCount else {
+            throw ReceiptComposerError.invalidLayout("photo count/index plan does not match \(plan.format.rawValue)")
+        }
+
+        let contentLeft = CGFloat(BoothConfiguration.receiptHorizontalMargin)
+        let contentRight = CGFloat(plan.width - BoothConfiguration.receiptHorizontalMargin)
+        var previousFrame: CGRect?
+        for frame in plan.photoFrames.sorted(by: { $0.photoIndex < $1.photoIndex }) {
+            try validateFrame(frame.rect, name: "photo.\(frame.photoIndex)", inside: canvas)
+            guard frame.rect.width > 0,
+                  frame.rect.height > 0,
+                  frame.rect.minX >= contentLeft,
+                  frame.rect.maxX <= contentRight else {
+                throw ReceiptComposerError.invalidLayout("photo \(frame.photoIndex) outside content bounds")
+            }
+            if let previousFrame, previousFrame.intersects(frame.rect) {
+                throw ReceiptComposerError.invalidLayout("photo frames overlap")
+            }
+            previousFrame = frame.rect
+        }
+
+        let photoBottom = Int(plan.photoFrames.map(\.rect.maxY).max() ?? 0)
+        switch (plan.footerMode, plan.footerLayout) {
+        case (.galleryQRCode(let qrSize), .gallery(let layout)):
+            guard layout.top == photoBottom,
+                  layout.top + layout.height == plan.height,
+                  Int(layout.qrRect.width) == qrSize,
+                  Int(layout.qrRect.height) == qrSize else {
+                throw ReceiptComposerError.invalidLayout("gallery footer dimensions do not match plan")
+            }
+            try validateFrame(layout.qrRect, name: "footer.qr", inside: canvas)
+            try validateFrame(layout.textColumnRect, name: "footer.textColumn", inside: canvas)
+            try validateFrame(layout.ctaFrame, name: "footer.cta", inside: canvas)
+            try validateFrame(layout.subCTAFrame, name: "footer.subCTA", inside: canvas)
+            try validateFrame(layout.metadataFrame, name: "footer.metadata", inside: canvas)
+            try validateFrame(layout.sessionFrame, name: "footer.session", inside: canvas)
+            try validateFrame(layout.monogramRect, name: "footer.monogram", inside: canvas)
+            guard layout.dividerY >= photoBottom,
+                  layout.qrRect.maxX < layout.textColumnRect.minX,
+                  Int(layout.metadataFrame.minY) == Int(ceil(layout.subCTAFrame.maxY)) + ReceiptFooterMetrics.production.ctaToMetadataGap,
+                  layout.mainRowBottom == max(Int(ceil(layout.qrRect.maxY)), layout.rightStackBottom),
+                  layout.brandRowY == layout.mainRowBottom + ReceiptFooterMetrics.production.brandTopPadding,
+                  layout.closingY + footerClosingHeight + layout.bottomPadding <= plan.height else {
+                throw ReceiptComposerError.invalidLayout("gallery footer structural invariant failed")
+            }
+        case (.metadataOnly, .metadataOnly(let layout)):
+            guard layout.top == photoBottom,
+                  layout.top + layout.height == plan.height,
+                  layout.dividerY >= photoBottom,
+                  layout.closingDividerY + footerBottomPadding <= plan.height else {
+                throw ReceiptComposerError.invalidLayout("metadata footer dimensions do not match plan")
+            }
+        default:
+            throw ReceiptComposerError.invalidLayout("footer mode does not match footer layout")
+        }
+    }
+
+    nonisolated private static func validateFrame(_ frame: CGRect, name: String, inside canvas: CGRect) throws {
+        guard frame.origin.x.isFinite,
+              frame.origin.y.isFinite,
+              frame.size.width.isFinite,
+              frame.size.height.isFinite,
+              frame.minX >= 0,
+              frame.minY >= 0,
+              frame.width >= 0,
+              frame.height >= 0,
+              frame.maxX <= canvas.maxX,
+              frame.maxY <= canvas.maxY else {
+            throw ReceiptComposerError.invalidLayout("\(name) frame is outside canvas: \(frame)")
+        }
     }
 
     nonisolated static func makePhotoSectionPreviewImage(from image: UIImage, previewContentHeight: Int) -> UIImage {
@@ -350,44 +738,9 @@ enum ReceiptComposer {
         width: Int = BoothConfiguration.receiptWidth,
         margin: Int = BoothConfiguration.receiptHorizontalMargin
     ) -> Int {
-        let content = eventProfile?.receiptBlockContent
-        let textWidth = mastheadTextWidth(margin: margin, width: width)
-        var height = 0
-
-        height += Int(ceil(mastheadEstablishedFont.lineHeight))
-        height += mastheadEstablishedBottomGap
-        height += Int(ceil(mastheadWordmarkFont.lineHeight))
-        height += mastheadWordmarkBottomGap
-        height += Int(ceil(mastheadLabelFont.lineHeight))
-        height += mastheadBottomGap
-
-        if let content {
-            let titleFont = eventTitleFont(for: content.eventName, width: textWidth)
-            height += measuredWrappedTextHeight(content.eyebrow, font: eventEyebrowFont, width: textWidth, tracking: 1.8)
-            height += eventHeaderKickerBottomGap
-            height += measuredWrappedTextHeight(content.eventName, font: titleFont, width: textWidth, lineSpacing: 1, lineBreakMode: .byCharWrapping)
-            height += eventHeaderTitleBottomGap
-
-            if !content.subtitle.isEmpty {
-                height += measuredWrappedTextHeight(content.subtitle, font: eventSubtitleFont, width: textWidth)
-                height += eventHeaderDetailGap
-            }
-
-            if !content.metadata.isEmpty {
-                height += measuredWrappedTextHeight(content.metadata, font: eventMetadataFont, width: textWidth, tracking: 0.4)
-                height += eventHeaderDetailGap
-            }
-
-            if !content.message.isEmpty {
-                height += measuredWrappedTextHeight(content.message.uppercased(), font: eventMessageFont, width: textWidth, tracking: 0.8)
-            }
-
-            height += eventHeaderBottomPadding
-        }
-
-        height += 1
-        height += eventHeaderPhotoGap
-        return height
+        let snapshot = makeTextSnapshot(date: Date(timeIntervalSince1970: 1_788_692_040), sessionIdentifier: "PP-20260907-161400", eventProfile: eventProfile?.activeReceiptSnapshot)
+        let layout = makeHeaderLayout(textSnapshot: snapshot, startY: 0, margin: margin, width: width)
+        return layout.bottom
     }
 
     nonisolated static func measureEventHeaderHeight(
@@ -411,18 +764,25 @@ enum ReceiptComposer {
         for plan: ReceiptLayoutPlan,
         profile: PocketPixelsThermalPhotoProfile = .customerPrintDefault
     ) throws -> [ThermalPreparedPhoto] {
-        try photos.enumerated().map { index, photo in
+        var preparedPhotos: [ThermalPreparedPhoto] = []
+        preparedPhotos.reserveCapacity(photos.count)
+        for (index, photo) in photos.enumerated() {
+            try Task.checkCancellation()
             guard let frame = plan.photoFrames.first(where: { $0.photoIndex == index }) else {
                 throw ReceiptComposerError.renderFailed
             }
 
-            return try ThermalPhotoProcessor.prepare(
-                photo,
-                targetPixelSize: frame.rect.size,
-                presentationMode: plan.format.photoPresentationMode,
-                profile: profile
-            )
+            let prepared = try autoreleasepool {
+                try ThermalPhotoProcessor.prepare(
+                    photo,
+                    targetPixelSize: frame.rect.size,
+                    presentationMode: plan.format.photoPresentationMode,
+                    profile: profile
+                )
+            }
+            preparedPhotos.append(prepared)
         }
+        return preparedPhotos
     }
 
 #if DEBUG
@@ -1095,7 +1455,25 @@ enum ReceiptComposer {
     }
 
     nonisolated private static var metadataOnlyFooterHeight: Int {
-        10 + 20 + 18 + 24 + footerBottomPadding
+        footerTopDividerPadding + 10 + 20 + 18 + 24 + footerBottomPadding
+    }
+
+    nonisolated private static func makeMetadataFooterLayout(photoBottom: Int) -> ReceiptMetadataFooterLayout {
+        let dividerY = photoBottom + footerTopDividerPadding
+        let dateY = dividerY + 10
+        let sessionY = dateY + 20
+        let handleY = sessionY + 18
+        let closingDividerY = handleY + 24
+        let footerBottom = closingDividerY + footerBottomPadding
+        return ReceiptMetadataFooterLayout(
+            top: photoBottom,
+            height: footerBottom - photoBottom,
+            dividerY: dividerY,
+            dateY: dateY,
+            sessionY: sessionY,
+            handleY: handleY,
+            closingDividerY: closingDividerY
+        )
     }
 
     nonisolated private static func pocketPixelsHeaderPhotoTop(
@@ -1108,55 +1486,41 @@ enum ReceiptComposer {
     }
 
     nonisolated private static func drawPocketPixelsMasthead(
-        eventSnapshot: EventProfile?,
-        startY: Int,
-        margin: Int,
-        width: Int
+        textSnapshot: ReceiptTextSnapshot,
+        layout: ReceiptHeaderLayout
     ) {
-        let content = eventSnapshot?.receiptBlockContent
-        var y = startY
-        let textX = mastheadTextX(margin: margin)
-        let textWidth = mastheadTextWidth(margin: margin, width: width)
+        drawCenteredWrapped(textSnapshot.established, in: layout.establishedFrame, font: mastheadEstablishedFont)
+        drawCenteredWrapped(textSnapshot.wordmark, in: layout.wordmarkFrame, font: mastheadWordmarkFont)
+        drawCenteredWrapped(textSnapshot.descriptor, in: layout.descriptorFrame, font: mastheadLabelFont)
 
-        y += drawCenteredWrapped("EST. 2026", x: textX, y: y, width: textWidth, font: mastheadEstablishedFont, tracking: 1.4)
-        y += mastheadEstablishedBottomGap
-        y += drawCenteredWrapped("Pocket Pixels", x: textX, y: y, width: textWidth, font: mastheadWordmarkFont)
-        y += mastheadWordmarkBottomGap
-        y += drawCenteredWrapped("RECEIPT PHOTOBOOTH", x: textX, y: y, width: textWidth, font: mastheadLabelFont, tracking: 4.0)
-        y += mastheadBottomGap
-
-        if let content {
-            let titleFont = eventTitleFont(for: content.eventName, width: textWidth)
-            y += drawCenteredWrapped(content.eyebrow, x: textX, y: y, width: textWidth, font: eventEyebrowFont, tracking: 1.8)
-            y += eventHeaderKickerBottomGap
-            y += drawCenteredWrapped(content.eventName, x: textX, y: y, width: textWidth, font: titleFont, lineSpacing: 1, lineBreakMode: .byCharWrapping)
-            y += eventHeaderTitleBottomGap
-
-            if !content.subtitle.isEmpty {
-                y += drawCenteredWrapped(content.subtitle, x: textX, y: y, width: textWidth, font: eventSubtitleFont)
-                y += eventHeaderDetailGap
+        if let content = textSnapshot.eventContent {
+            if let frame = layout.eventEyebrowFrame {
+                drawCenteredWrapped(content.eyebrow, in: frame, font: eventEyebrowFont)
             }
-
-            if !content.metadata.isEmpty {
-                y += drawCenteredWrapped(content.metadata, x: textX, y: y, width: textWidth, font: eventMetadataFont, tracking: 0.4)
-                y += eventHeaderDetailGap
+            if let frame = layout.eventTitleFrame {
+                let titleFont = UIFont.systemFont(ofSize: layout.eventTitleFontSize ?? 17, weight: .bold)
+                drawCenteredWrapped(content.eventName, in: frame, font: titleFont)
             }
-
-            if !content.message.isEmpty {
-                y += drawCenteredWrapped(content.message.uppercased(), x: textX, y: y, width: textWidth, font: eventMessageFont, tracking: 0.8)
+            if let frame = layout.eventSubtitleFrame {
+                drawCenteredWrapped(content.subtitle, in: frame, font: eventSubtitleFont)
             }
-
-            y += eventHeaderBottomPadding
+            if let frame = layout.eventMetadataFrame {
+                drawCenteredWrapped(content.metadata, in: frame, font: eventMetadataFont)
+            }
+            if let frame = layout.eventMessageFrame {
+                drawCenteredWrapped(content.message.uppercased(), in: frame, font: eventMessageFont)
+            }
         }
 
-        drawDivider(y: y, margin: margin, width: width)
+        drawDivider(y: layout.dividerY, margin: BoothConfiguration.receiptHorizontalMargin, width: BoothConfiguration.receiptWidth)
     }
 
     nonisolated private static func makeCompactGalleryFooterLayout(
         photoBottom: Int,
         margin: Int,
         width: Int,
-        metrics: ReceiptFooterMetrics
+        metrics: ReceiptFooterMetrics,
+        textSnapshot: ReceiptTextSnapshot = defaultLayoutTextSnapshot()
     ) -> ReceiptFooterLayout {
         let dividerY = photoBottom + footerTopDividerPadding
         let mainRowTop = dividerY + 1 + footerContentTopPadding
@@ -1166,10 +1530,10 @@ enum ReceiptComposer {
         let ctaFont = footerCTAFont(size: metrics.ctaFontSize)
         let subCTAFont = footerSubCTAFont(size: metrics.subCTAFontSize)
         let rightStackMeasuredWidth = Int(ceil([
-            measuredTextWidth("SCAN TO VIEW", font: ctaFont, tracking: metrics.ctaTracking),
-            measuredTextWidth("& SAVE YOUR PHOTOS", font: subCTAFont, tracking: metrics.subCTATracking),
-            measuredTextWidth("SEP 7, 2026 • 9:17 AM", font: footerMetadataFont),
-            measuredTextWidth("PP-20260907-091754", font: footerSessionFont)
+            measuredTextWidth(textSnapshot.cta, font: ctaFont, tracking: metrics.ctaTracking),
+            measuredTextWidth(textSnapshot.subCTA, font: subCTAFont, tracking: metrics.subCTATracking),
+            measuredTextWidth(textSnapshot.formattedDate, font: footerMetadataFont),
+            measuredTextWidth(textSnapshot.sessionIdentifier, font: footerSessionFont)
         ].max() ?? 1)) + 6
         let maxRightStackWidth = max(1, usableContentWidth - metrics.qrSize - metrics.gutter)
         let rightStackEffectiveWidth = maxRightStackWidth
@@ -1188,7 +1552,7 @@ enum ReceiptComposer {
         let centeredStackOffset = max(0, (metrics.qrSize - rightStackHeight) / 2)
         let rightStackTop = mainRowTop + centeredStackOffset + metrics.rightStackOpticalOffset
         let ctaFrame = textFrame(
-            text: "SCAN TO VIEW",
+            text: textSnapshot.cta,
             x: textColumnX,
             y: rightStackTop,
             font: ctaFont,
@@ -1196,7 +1560,7 @@ enum ReceiptComposer {
             tracking: metrics.ctaTracking
         )
         let subCTAFrame = textFrame(
-            text: "& SAVE YOUR PHOTOS",
+            text: textSnapshot.subCTA,
             x: textColumnX,
             y: Int(ceil(ctaFrame.maxY)) + metrics.ctaLineGap,
             font: subCTAFont,
@@ -1204,14 +1568,14 @@ enum ReceiptComposer {
             tracking: metrics.subCTATracking
         )
         let metadataFrame = textFrame(
-            text: "SEP 7, 2026 • 9:17 AM",
+            text: textSnapshot.formattedDate,
             x: textColumnX,
             y: Int(ceil(subCTAFrame.maxY)) + metrics.ctaToMetadataGap,
             font: footerMetadataFont,
             availableWidth: textColumnWidth
         )
         let sessionFrame = textFrame(
-            text: "PP-20260907-091754",
+            text: textSnapshot.sessionIdentifier,
             x: textColumnX,
             y: Int(ceil(metadataFrame.maxY)) + metrics.metadataToSessionGap,
             font: footerSessionFont,
@@ -1274,62 +1638,33 @@ enum ReceiptComposer {
 
     nonisolated private static func drawCompactGalleryFooter(
         qrImage: UIImage,
-        date: Date,
-        sessionIdentifier: String,
-        photoBottom: Int,
-        margin: Int,
-        width: Int,
-        qrSize: Int,
+        textSnapshot: ReceiptTextSnapshot,
+        layout: ReceiptFooterLayout,
         context: CGContext
     ) {
-        let metrics = ReceiptFooterMetrics(
-            qrModuleScale: ReceiptFooterMetrics.production.qrModuleScale,
-                qrSize: qrSize,
-            gutter: ReceiptFooterMetrics.production.gutter,
-            mainGroupHorizontalOpticalOffset: ReceiptFooterMetrics.production.mainGroupHorizontalOpticalOffset,
-            ctaFontSize: ReceiptFooterMetrics.production.ctaFontSize,
-            ctaTracking: ReceiptFooterMetrics.production.ctaTracking,
-            subCTAFontSize: ReceiptFooterMetrics.production.subCTAFontSize,
-            subCTATracking: ReceiptFooterMetrics.production.subCTATracking,
-                ctaLineGap: ReceiptFooterMetrics.production.ctaLineGap,
-            ctaToMetadataGap: ReceiptFooterMetrics.production.ctaToMetadataGap,
-            metadataToSessionGap: ReceiptFooterMetrics.production.metadataToSessionGap,
-            rightStackOpticalOffset: ReceiptFooterMetrics.production.rightStackOpticalOffset,
-            brandTopPadding: ReceiptFooterMetrics.production.brandTopPadding,
-            closingTopPadding: ReceiptFooterMetrics.production.closingTopPadding,
-            bottomPadding: ReceiptFooterMetrics.production.bottomPadding
-        )
-        let layout = makeCompactGalleryFooterLayout(photoBottom: photoBottom, margin: margin, width: width, metrics: metrics)
-        drawDivider(y: layout.dividerY, margin: margin, width: width)
+        let metrics = footerMetrics(qrSize: Int(layout.qrRect.width))
+        drawDivider(y: layout.dividerY, margin: layout.contentLeft, width: BoothConfiguration.receiptWidth)
 
         context.interpolationQuality = .none
         qrImage.draw(in: layout.qrRect)
 
-        drawMeasuredText("SCAN TO VIEW", in: layout.ctaFrame, font: footerCTAFont(size: metrics.ctaFontSize), tracking: metrics.ctaTracking)
-        drawMeasuredText("& SAVE YOUR PHOTOS", in: layout.subCTAFrame, font: footerSubCTAFont(size: metrics.subCTAFontSize), tracking: metrics.subCTATracking)
-        drawMeasuredText(receiptDateFormatter.string(from: date).uppercased(), in: layout.metadataFrame, font: footerMetadataFont)
-        drawMeasuredText(sessionIdentifier, in: layout.sessionFrame, font: footerSessionFont)
+        drawMeasuredText(textSnapshot.cta, in: layout.ctaFrame, font: footerCTAFont(size: metrics.ctaFontSize), tracking: metrics.ctaTracking)
+        drawMeasuredText(textSnapshot.subCTA, in: layout.subCTAFrame, font: footerSubCTAFont(size: metrics.subCTAFontSize), tracking: metrics.subCTATracking)
+        drawMeasuredText(textSnapshot.formattedDate, in: layout.metadataFrame, font: footerMetadataFont)
+        drawMeasuredText(textSnapshot.sessionIdentifier, in: layout.sessionFrame, font: footerSessionFont)
 
-        drawBrandClosing(layout: layout)
+        drawBrandClosing(layout: layout, textSnapshot: textSnapshot)
     }
 
     nonisolated private static func drawMetadataFooter(
-        date: Date,
-        sessionIdentifier: String,
-        photoBottom: Int,
-        margin: Int,
-        width: Int
+        textSnapshot: ReceiptTextSnapshot,
+        layout: ReceiptMetadataFooterLayout
     ) {
-        var y = photoBottom + footerTopDividerPadding
-        drawDivider(y: y, margin: margin, width: width)
-        y += 10
-        drawCentered(receiptDateFormatter.string(from: date).uppercased(), y: y, width: width, font: .monospacedDigitSystemFont(ofSize: 15, weight: .regular))
-        y += 20
-        drawCentered(sessionIdentifier, y: y, width: width, font: .monospacedDigitSystemFont(ofSize: 13, weight: .regular))
-        y += 18
-        drawCentered("@pocketpixels.ceb", y: y, width: width, font: .systemFont(ofSize: 19, weight: .semibold))
-        y += 24
-        drawDivider(y: y, margin: margin, width: width)
+        drawDivider(y: layout.dividerY, margin: BoothConfiguration.receiptHorizontalMargin, width: BoothConfiguration.receiptWidth)
+        drawCentered(textSnapshot.formattedDate, y: layout.dateY, width: BoothConfiguration.receiptWidth, font: .monospacedDigitSystemFont(ofSize: 15, weight: .regular))
+        drawCentered(textSnapshot.sessionIdentifier, y: layout.sessionY, width: BoothConfiguration.receiptWidth, font: .monospacedDigitSystemFont(ofSize: 13, weight: .regular))
+        drawCentered(textSnapshot.handle, y: layout.handleY, width: BoothConfiguration.receiptWidth, font: .systemFont(ofSize: 19, weight: .semibold))
+        drawDivider(y: layout.closingDividerY, margin: BoothConfiguration.receiptHorizontalMargin, width: BoothConfiguration.receiptWidth)
     }
 
     nonisolated private static func centeredPortraitRect(y: Int, width photoWidth: Int, in receiptWidth: Int) -> CGRect {
@@ -1544,17 +1879,19 @@ enum ReceiptComposer {
         )
     }
 
-    nonisolated private static func drawBrandClosing(layout: ReceiptFooterLayout) {
-        let handle = "@pocketpixels.ceb"
+    nonisolated private static func drawBrandClosing(
+        layout: ReceiptFooterLayout,
+        textSnapshot: ReceiptTextSnapshot = defaultLayoutTextSnapshot()
+    ) {
         drawFooterMonogram(in: layout.monogramRect)
         drawMeasuredText(
-            handle,
+            textSnapshot.handle,
             x: layout.handleX,
             y: layout.handleY,
             font: footerHandleFont,
             availableWidth: layout.handleWidth
         )
-        drawCentered("— THANK YOU —", y: layout.closingY, width: BoothConfiguration.receiptWidth, font: footerClosingFont)
+        drawCentered(textSnapshot.closing, y: layout.closingY, width: BoothConfiguration.receiptWidth, font: footerClosingFont)
     }
 
     nonisolated private static func drawCentered(_ text: String, y: Int, width: Int, font: UIFont) {
@@ -1591,6 +1928,34 @@ enum ReceiptComposer {
         )
 
         return height
+    }
+
+    nonisolated private static func drawCenteredWrapped(
+        _ text: String,
+        in frame: ReceiptWrappedTextFrame,
+        font: UIFont
+    ) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = frame.lineBreakMode
+        paragraph.lineSpacing = frame.lineSpacing
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .kern: frame.tracking,
+            .foregroundColor: UIColor.black,
+            .paragraphStyle: paragraph
+        ]
+
+        NSString(string: text).draw(
+            in: CGRect(
+                x: Int(frame.rect.minX),
+                y: Int(frame.rect.minY),
+                width: Int(frame.rect.width),
+                height: Int(frame.rect.height) + 2
+            ),
+            withAttributes: attributes
+        )
     }
 
     nonisolated private static func drawMeasuredText(_ text: String, x: Int, y: Int, font: UIFont, availableWidth: Int) {

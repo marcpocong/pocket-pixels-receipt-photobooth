@@ -363,7 +363,8 @@ final class BoothSessionViewModel: ObservableObject {
 
         activeTask = Task {
             do {
-                let result = try await Task.detached(priority: .userInitiated) {
+                let worker = Task.detached(priority: .userInitiated) {
+                    try Task.checkCancellation()
                     let receipt = try ReceiptComposer.compose(
                         photos: committedSession.photos,
                         sessionIdentifier: committedSession.sessionIdentifier,
@@ -376,16 +377,24 @@ final class BoothSessionViewModel: ObservableObject {
                     guard let receiptImage = UIImage(data: receipt.imagePNGData) else {
                         throw ReceiptComposerError.renderFailed
                     }
+                    try Task.checkCancellation()
                     let receiptPhotoPreviewImage = ReceiptComposer.makePhotoSectionPreviewImage(
                         from: receiptImage,
                         previewContentHeight: receipt.previewContentHeight
                     )
+                    try Task.checkCancellation()
                     let rasterized = try ThermalImageRasterizer.rasterize(receiptImage, purpose: .completeReceipt)
                     guard let preview = UIImage(data: rasterized.previewPNGData) else {
                         throw ThermalImageRasterizerError.renderFailed
                     }
+                    try Task.checkCancellation()
                     return (receipt, receiptImage, receiptPhotoPreviewImage, preview, rasterized)
-                }.value
+                }
+                let result = try await withTaskCancellationHandler {
+                    try await worker.value
+                } onCancel: {
+                    worker.cancel()
+                }
 
                 guard !Task.isCancelled else { return }
                 guard isCurrentCustomerSession(sessionGeneration) else {
@@ -412,7 +421,10 @@ final class BoothSessionViewModel: ObservableObject {
                     rasterizedImage: result.4
                 )
                 debugLog("Session \(committedSession.sessionIdentifier) receipt ready. Raster bytes: \(result.4.rasterData.count). Sanitized EOT: \(result.4.sanitizationReport.dleEOTPatternCount). Sanitized DC4: \(result.4.sanitizationReport.dleDC4PatternCount).")
+            } catch is CancellationError {
+                return
             } catch {
+                guard !Task.isCancelled else { return }
                 guard isCurrentCustomerSession(sessionGeneration) else {
                     debugLog("[Session] ignored stale receipt composition failure")
                     return

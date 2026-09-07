@@ -335,53 +335,65 @@ private struct EventReceiptComposerPreview: View {
         previewError = nil
         let profile = profile.normalized()
         let format = selectedFormat
-        renderTask = Task { @MainActor in
+        renderTask = Task {
             try? await Task.sleep(nanoseconds: 180_000_000)
             guard !Task.isCancelled else {
                 return
             }
 
             do {
-                let receipt = try Self.makePreviewReceipt(profile: profile, format: format)
+                let receipt = try await Self.makePreviewReceipt(profile: profile, format: format)
                 guard let image = UIImage(data: receipt.imagePNGData) else {
                     throw ReceiptComposerError.renderFailed
                 }
-                previewReceipt = receipt
-                previewImage = image
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    previewReceipt = receipt
+                    previewImage = image
+                }
+            } catch is CancellationError {
+                return
             } catch {
-                previewReceipt = nil
-                previewImage = nil
-                previewError = error.localizedDescription
+                await MainActor.run {
+                    previewReceipt = nil
+                    previewImage = nil
+                    previewError = error.localizedDescription
+                }
             }
         }
     }
 
-    @MainActor
-    private static func makePreviewReceipt(profile: EventProfile, format: BoothFormat) throws -> ComposedReceipt {
-        guard let galleryURL = URL(string: "https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/?g=event-preview") else {
-            throw GalleryUploadError.invalidGalleryURL
-        }
+    nonisolated private static func makePreviewReceipt(profile: EventProfile, format: BoothFormat) async throws -> ComposedReceipt {
+        let worker = Task.detached(priority: .utility) {
+            try Task.checkCancellation()
+            guard let galleryURL = URL(string: "https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/?g=event-preview") else {
+                throw GalleryUploadError.invalidGalleryURL
+            }
 
-        let date = previewDate
-        return try ReceiptComposer.compose(
-            photos: makeSamplePhotos(count: format.photoCount),
-            sessionIdentifier: "PP-20260907-192104",
-            date: date,
-            galleryURL: galleryURL,
-            format: format,
-            eventProfile: profile.activeReceiptSnapshot
-        )
+            let date = previewDate
+            return try ReceiptComposer.compose(
+                photos: makeSamplePhotos(count: format.photoCount),
+                sessionIdentifier: "PP-20260907-192104",
+                date: date,
+                galleryURL: galleryURL,
+                format: format,
+                eventProfile: profile.activeReceiptSnapshot
+            )
+        }
+        return try await withTaskCancellationHandler {
+            try await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
     }
 
-    @MainActor
-    private static func makeSamplePhotos(count: Int) -> [UIImage] {
+    nonisolated private static func makeSamplePhotos(count: Int) -> [UIImage] {
         (0..<count).map { index in
             makeSamplePhoto(index: index)
         }
     }
 
-    @MainActor
-    private static func makeSamplePhoto(index: Int) -> UIImage {
+    nonisolated private static func makeSamplePhoto(index: Int) -> UIImage {
         let size = CGSize(width: 900, height: 1200)
         let renderer = UIGraphicsImageRenderer(size: size)
         return renderer.image { context in
@@ -412,7 +424,7 @@ private struct EventReceiptComposerPreview: View {
         }
     }
 
-    private static var previewDate: Date {
+    nonisolated private static var previewDate: Date {
         var components = DateComponents()
         components.calendar = Calendar(identifier: .gregorian)
         components.timeZone = TimeZone(identifier: "Asia/Manila")
