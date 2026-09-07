@@ -4,10 +4,46 @@
 //
 
 import Combine
+import AVFoundation
 import Foundation
 import Network
 import SwiftUI
 import UIKit
+
+struct EventReadinessCheck: Identifiable, Sendable {
+    enum Severity: String, Sendable {
+        case critical
+        case important
+        case optional
+    }
+
+    enum Status: String, Sendable {
+        case pass
+        case fail
+        case warning
+    }
+
+    var id: String { "\(severity.rawValue)-\(title)" }
+    let severity: Severity
+    let title: String
+    let status: Status
+    let detail: String
+}
+
+struct EventReadinessReport: Sendable {
+    let checks: [EventReadinessCheck]
+    let generatedAt: Date
+
+    var isReadyForEvent: Bool {
+        checks.allSatisfy { check in
+            check.severity != .critical || check.status == .pass
+        }
+    }
+
+    var title: String {
+        isReadyForEvent ? "READY FOR EVENT" : "NOT READY"
+    }
+}
 
 @MainActor
 final class EventOperationalState: ObservableObject {
@@ -22,6 +58,7 @@ final class EventOperationalState: ObservableObject {
     @Published private(set) var cameraRestartCountThisLaunch = 0
     @Published private(set) var uploadFailuresThisLaunch = 0
     @Published private(set) var appStartedAt = Date()
+    @Published private(set) var readinessReport = EventReadinessReport(checks: [], generatedAt: Date())
 
     private let monitor = NWPathMonitor()
     private let monitorQueue = DispatchQueue(label: "com.pocketpixels.event-network-monitor")
@@ -71,6 +108,7 @@ final class EventOperationalState: ObservableObject {
     func refresh() {
         pendingUploads = uploadService.pendingUploadSummaries()
         recoverableSession = recoveryStore?.load()
+        readinessReport = makeReadinessReport()
     }
 
     func recordSessionCompleted() {
@@ -122,6 +160,113 @@ final class EventOperationalState: ObservableObject {
     func dismissRecoverableSession() {
         recoveryStore?.clear()
         recoverableSession = nil
+        readinessReport = makeReadinessReport()
+    }
+
+    func runEventPreflight() {
+        refresh()
+    }
+
+    private func makeReadinessReport() -> EventReadinessReport {
+        var checks: [EventReadinessCheck] = []
+        let cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
+        let printerCoordinator = PrinterCoordinator.shared
+        let freeDiskSpace = Self.freeDiskSpaceBytes()
+        let eventProfile = EventProfileStore.load()
+
+        checks.append(EventReadinessCheck(
+            severity: .critical,
+            title: "Camera Authorization",
+            status: cameraStatus == .authorized ? .pass : .fail,
+            detail: Self.cameraAuthorizationText(cameraStatus)
+        ))
+        checks.append(EventReadinessCheck(
+            severity: .critical,
+            title: "Printer",
+            status: printerCoordinator.isBluetoothReady ? .pass : .fail,
+            detail: printerCoordinator.bluetoothSummary
+        ))
+        checks.append(EventReadinessCheck(
+            severity: .critical,
+            title: "Print Queue",
+            status: printerCoordinator.isWorking ? .fail : .pass,
+            detail: printerCoordinator.isWorking ? "Busy" : "Idle"
+        ))
+        checks.append(EventReadinessCheck(
+            severity: .critical,
+            title: "Printer Recovery",
+            status: printerCoordinator.requiresRecovery ? .fail : .pass,
+            detail: printerCoordinator.requiresRecovery ? "Recovery Required" : "Clear"
+        ))
+        checks.append(EventReadinessCheck(
+            severity: .critical,
+            title: "Unsafe Print State",
+            status: recoverableSession?.stage == .printStatusUnknown ? .fail : .pass,
+            detail: recoverableSession?.stage == .printStatusUnknown ? "Print Status Unknown" : "None"
+        ))
+        checks.append(storageCheck(title: "Archive Storage", severity: .critical) {
+            _ = try RecentSessionArchiveStore().summaries()
+        })
+        checks.append(storageCheck(title: "Recovery Storage", severity: .critical) {
+            _ = try AppRecoveryStore().load()
+        })
+        checks.append(EventReadinessCheck(
+            severity: .important,
+            title: "Internet",
+            status: networkPathStatus == "Online" ? .pass : .warning,
+            detail: networkPathStatus
+        ))
+        checks.append(EventReadinessCheck(
+            severity: .important,
+            title: "Pending Uploads",
+            status: pendingUploadCount == 0 ? .pass : .warning,
+            detail: "\(pendingUploadCount)"
+        ))
+        checks.append(EventReadinessCheck(
+            severity: .important,
+            title: "Gallery Credentials",
+            status: credentialStore.hasDeviceToken() ? .pass : .warning,
+            detail: credentialStore.hasDeviceToken() ? "Saved" : "Missing"
+        ))
+        checks.append(EventReadinessCheck(
+            severity: .important,
+            title: "Free Disk Space",
+            status: freeDiskSpace > 500_000_000 ? .pass : .warning,
+            detail: Self.freeDiskSpaceText(bytes: freeDiskSpace)
+        ))
+        checks.append(EventReadinessCheck(
+            severity: .optional,
+            title: "Event Profile",
+            status: eventProfile.activeReceiptSnapshot != nil ? .pass : .warning,
+            detail: eventProfile.activeReceiptSnapshot?.eventName ?? "Pocket Pixels default"
+        ))
+        checks.append(EventReadinessCheck(
+            severity: .optional,
+            title: "Printer Mode",
+            status: .pass,
+            detail: printerCoordinator.preferredMode.displayName
+        ))
+        checks.append(EventReadinessCheck(
+            severity: .optional,
+            title: "App Uptime",
+            status: .pass,
+            detail: uptimeText
+        ))
+
+        return EventReadinessReport(checks: checks, generatedAt: Date())
+    }
+
+    private func storageCheck(
+        title: String,
+        severity: EventReadinessCheck.Severity,
+        operation: () throws -> Void
+    ) -> EventReadinessCheck {
+        do {
+            try operation()
+            return EventReadinessCheck(severity: severity, title: title, status: .pass, detail: "Accessible")
+        } catch {
+            return EventReadinessCheck(severity: severity, title: title, status: .fail, detail: error.localizedDescription)
+        }
     }
 
     private static func networkStatusText(_ status: NWPath.Status) -> String {
@@ -146,6 +291,31 @@ final class EventOperationalState: ObservableObject {
         }
         return "\(minutes)m"
     }
+
+    private static func cameraAuthorizationText(_ status: AVAuthorizationStatus) -> String {
+        switch status {
+        case .authorized:
+            "Authorized"
+        case .notDetermined:
+            "Not Determined"
+        case .denied:
+            "Denied"
+        case .restricted:
+            "Restricted"
+        @unknown default:
+            "Unknown"
+        }
+    }
+
+    private static func freeDiskSpaceBytes() -> Int64 {
+        let values = try? URL(fileURLWithPath: NSHomeDirectory()).resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        return values?.volumeAvailableCapacityForImportantUsage ?? 0
+    }
+
+    private static func freeDiskSpaceText(bytes: Int64) -> String {
+        let megabytes = bytes / 1_000_000
+        return megabytes > 0 ? "\(megabytes) MB" : "Unknown"
+    }
 }
 
 struct SystemHealthView: View {
@@ -156,6 +326,26 @@ struct SystemHealthView: View {
 
     var body: some View {
         List {
+            Section("Event Readiness") {
+                HStack {
+                    Text(operationalState.readinessReport.title)
+                        .font(.headline)
+                        .foregroundStyle(operationalState.readinessReport.isReadyForEvent ? Color.green : Color.red)
+                    Spacer()
+                    Text(operationalState.readinessReport.generatedAt.formatted(date: .omitted, time: .standard))
+                        .foregroundStyle(.secondary)
+                }
+
+                ForEach(operationalState.readinessReport.checks) { check in
+                    readinessRow(check)
+                }
+
+                Button("Run Event Preflight") {
+                    operationalState.runEventPreflight()
+                    loadRecentSessionCount()
+                }
+            }
+
             Section("System Status") {
                 healthRow("Camera", value: "Use Camera Test for live preview status")
                 healthRow("Printer", value: printerCoordinator.requiresRecovery ? "Recovery Required" : printerCoordinator.bluetoothSummary)
@@ -256,6 +446,38 @@ struct SystemHealthView: View {
             Text(value)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private func readinessRow(_ check: EventReadinessCheck) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(check.title)
+                Text(check.severity.rawValue.capitalized)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(check.status.rawValue.uppercased())
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(color(for: check.status))
+                Text(check.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.trailing)
+            }
+        }
+    }
+
+    private func color(for status: EventReadinessCheck.Status) -> Color {
+        switch status {
+        case .pass:
+            .green
+        case .warning:
+            .orange
+        case .fail:
+            .red
         }
     }
 

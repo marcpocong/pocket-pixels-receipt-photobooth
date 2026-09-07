@@ -48,9 +48,17 @@ final class PrintSpooler: ObservableObject {
     private let conservativeThermalPrintMillimetersPerSecond: Double = 34
     private let cutAndSettleDelay: TimeInterval = 1.75
     private let minimumPhysicalHandoffDelay: TimeInterval = 1.5
+    private let waitsForPhysicalHandoff: Bool
+    private let writesAuditSynchronously: Bool
 
-    private init() {
-        auditStore = try? PrintAuditStore()
+    init(
+        auditStore: PrintAuditStore? = try? PrintAuditStore(),
+        waitsForPhysicalHandoff: Bool = true,
+        writesAuditSynchronously: Bool = false
+    ) {
+        self.auditStore = auditStore
+        self.waitsForPhysicalHandoff = waitsForPhysicalHandoff
+        self.writesAuditSynchronously = writesAuditSynchronously
     }
 
     var isWorking: Bool {
@@ -174,6 +182,10 @@ final class PrintSpooler: ObservableObject {
         startedAt: Date,
         transportFinishedAt: Date
     ) async {
+        guard waitsForPhysicalHandoff else {
+            return
+        }
+
         let receiptLengthMillimeters = Double(envelope.imageHeight) / 8.0
         let estimatedPhysicalDuration = (receiptLengthMillimeters / conservativeThermalPrintMillimetersPerSecond) + cutAndSettleDelay
         let elapsedSinceStart = transportFinishedAt.timeIntervalSince(startedAt)
@@ -225,8 +237,12 @@ final class PrintSpooler: ObservableObject {
             recoveryReason: recoveryReason
         )
 
-        Task.detached(priority: .utility) { [auditStore] in
+        if writesAuditSynchronously {
             auditStore?.append(record)
+        } else {
+            Task.detached(priority: .utility) { [auditStore] in
+                auditStore?.append(record)
+            }
         }
     }
 }

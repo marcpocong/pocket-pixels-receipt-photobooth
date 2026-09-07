@@ -17,6 +17,13 @@ Products/
 *.dSYM
 *.dSYM.zip
 
+# Xcode test results and coverage output
+*.xcresult/
+*.xctestrun
+*.xcactivitylog
+*.profraw
+*.profdata
+
 # Swift Package Manager
 .build/
 .swiftpm/
