@@ -14,6 +14,8 @@ struct GalleryPendingUploadSummary: Equatable, Sendable, Identifiable {
     let deliveryState: GalleryDeliveryState
     let metrics: GalleryPreparedUploadMetrics
     let payloadSizeBytes: Int
+    let retryAttemptCount: Int
+    let lastAttemptAt: Date?
     let lastSafeError: String?
 }
 
@@ -57,6 +59,8 @@ struct GalleryPendingUploadStore: Sendable {
             receiptFilename: payload.receipt.filename,
             metrics: payload.metrics,
             deliveryState: payload.deliveryState,
+            retryAttemptCount: existingRetryAttemptCount(for: payload.galleryToken),
+            lastAttemptAt: existingLastAttemptAt(for: payload.galleryToken),
             lastSafeError: lastSafeError
         )
 
@@ -143,6 +147,8 @@ struct GalleryPendingUploadStore: Sendable {
                 deliveryState: metadata.deliveryState,
                 metrics: metadata.metrics,
                 payloadSizeBytes: payloadSize(at: directory),
+                retryAttemptCount: metadata.retryAttemptCount,
+                lastAttemptAt: metadata.lastAttemptAt,
                 lastSafeError: metadata.lastSafeError
             )
         }
@@ -170,6 +176,17 @@ struct GalleryPendingUploadStore: Sendable {
             deliveryState: deliveryState
         )
         try save(payload, lastSafeError: lastSafeError)
+    }
+
+    func recordAttempt(galleryToken: String) throws {
+        let metadataURL = payloadDirectoryURL(for: galleryToken).appendingPathComponent(Self.metadataFilename)
+        guard fileManager.fileExists(atPath: metadataURL.path) else {
+            return
+        }
+        var metadata = try JSONDecoder().decode(GalleryPendingUploadMetadata.self, from: Data(contentsOf: metadataURL))
+        metadata.retryAttemptCount += 1
+        metadata.lastAttemptAt = Date()
+        try JSONEncoder().encode(metadata).write(to: metadataURL, options: .atomic)
     }
 
     func clear(galleryToken: String) throws {
@@ -264,6 +281,26 @@ struct GalleryPendingUploadStore: Sendable {
         return total
     }
 
+    private func existingRetryAttemptCount(for galleryToken: String) -> Int {
+        guard let metadata = try? JSONDecoder().decode(
+            GalleryPendingUploadMetadata.self,
+            from: Data(contentsOf: payloadDirectoryURL(for: galleryToken).appendingPathComponent(Self.metadataFilename))
+        ) else {
+            return 0
+        }
+        return metadata.retryAttemptCount
+    }
+
+    private func existingLastAttemptAt(for galleryToken: String) -> Date? {
+        guard let metadata = try? JSONDecoder().decode(
+            GalleryPendingUploadMetadata.self,
+            from: Data(contentsOf: payloadDirectoryURL(for: galleryToken).appendingPathComponent(Self.metadataFilename))
+        ) else {
+            return nil
+        }
+        return metadata.lastAttemptAt
+    }
+
     private func applyStorageAttributes(to url: URL) throws {
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
@@ -310,6 +347,8 @@ struct GalleryPendingUploadStore: Sendable {
             receiptFilename: metadata.receiptFilename,
             metrics: metadata.metrics,
             deliveryState: metadata.deliveryState,
+            retryAttemptCount: metadata.retryAttemptCount,
+            lastAttemptAt: metadata.lastAttemptAt,
             lastSafeError: metadata.lastSafeError
         )
         try JSONEncoder().encode(migratedMetadata).write(to: metadataURL, options: .atomic)
@@ -332,5 +371,66 @@ private struct GalleryPendingUploadMetadata: Codable {
     let receiptFilename: String
     let metrics: GalleryPreparedUploadMetrics
     let deliveryState: GalleryDeliveryState
+    var retryAttemptCount: Int
+    var lastAttemptAt: Date?
     let lastSafeError: String?
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case galleryToken
+        case galleryURL
+        case sessionID
+        case createdAt
+        case photoFilenames
+        case receiptFilename
+        case metrics
+        case deliveryState
+        case retryAttemptCount
+        case lastAttemptAt
+        case lastSafeError
+    }
+
+    init(
+        schemaVersion: Int,
+        galleryToken: String,
+        galleryURL: URL,
+        sessionID: String,
+        createdAt: String,
+        photoFilenames: [String],
+        receiptFilename: String,
+        metrics: GalleryPreparedUploadMetrics,
+        deliveryState: GalleryDeliveryState,
+        retryAttemptCount: Int,
+        lastAttemptAt: Date?,
+        lastSafeError: String?
+    ) {
+        self.schemaVersion = schemaVersion
+        self.galleryToken = galleryToken
+        self.galleryURL = galleryURL
+        self.sessionID = sessionID
+        self.createdAt = createdAt
+        self.photoFilenames = photoFilenames
+        self.receiptFilename = receiptFilename
+        self.metrics = metrics
+        self.deliveryState = deliveryState
+        self.retryAttemptCount = retryAttemptCount
+        self.lastAttemptAt = lastAttemptAt
+        self.lastSafeError = lastSafeError
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        galleryToken = try container.decode(String.self, forKey: .galleryToken)
+        galleryURL = try container.decode(URL.self, forKey: .galleryURL)
+        sessionID = try container.decode(String.self, forKey: .sessionID)
+        createdAt = try container.decode(String.self, forKey: .createdAt)
+        photoFilenames = try container.decode([String].self, forKey: .photoFilenames)
+        receiptFilename = try container.decode(String.self, forKey: .receiptFilename)
+        metrics = try container.decode(GalleryPreparedUploadMetrics.self, forKey: .metrics)
+        deliveryState = try container.decode(GalleryDeliveryState.self, forKey: .deliveryState)
+        retryAttemptCount = try container.decodeIfPresent(Int.self, forKey: .retryAttemptCount) ?? 0
+        lastAttemptAt = try container.decodeIfPresent(Date.self, forKey: .lastAttemptAt)
+        lastSafeError = try container.decodeIfPresent(String.self, forKey: .lastSafeError)
+    }
 }

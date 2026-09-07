@@ -7,7 +7,6 @@
 
 import AVFoundation
 import Combine
-import CryptoKit
 import SwiftUI
 import UIKit
 
@@ -53,8 +52,11 @@ final class BoothSessionViewModel: ObservableObject {
     private let printerCoordinator = PrinterCoordinator.shared
     private let uploadService = GoogleDriveGalleryUploadService()
     private let credentialStore = DeviceCredentialStore()
+    private let recoveryStore = try? AppRecoveryStore()
+    private let operationalState = EventOperationalState.shared
     private var activeTask: Task<Void, Never>?
     private var printBatchTask: Task<Void, Never>?
+    private var cameraWatchdogTask: Task<Void, Never>?
     private var galleryUploadTasks: [String: Task<Void, Never>] = [:]
     private var queueRetryTask: Task<Void, Never>?
     private var isTransitionActive = false
@@ -139,6 +141,11 @@ final class BoothSessionViewModel: ObservableObject {
         cameraService.onSessionMessage = { [weak self] message in
             self?.statusMessage = message
         }
+        cameraService.onEvent = { [weak self] event in
+            Task { @MainActor in
+                self?.handleCameraEvent(event)
+            }
+        }
     }
 
     func preparePrinter() {
@@ -176,6 +183,7 @@ final class BoothSessionViewModel: ObservableObject {
             galleryQRCodeImage = try GalleryQRCodeGenerator.makeQRCodeImage(for: url)
             uploadPhase = .idle
             uploadStatusMessage = "Gallery will be prepared after the photos are approved."
+            persistRecoverySnapshot(stage: .formatSelected)
         } catch {
             galleryToken = nil
             galleryURL = nil
@@ -240,6 +248,7 @@ final class BoothSessionViewModel: ObservableObject {
 
     func cancelSession() {
         debugLog("Session \(sessionIdentifier ?? "unknown") cancelled.")
+        recoveryStore?.clear(sessionIdentifier: sessionIdentifier)
         resetToWelcome()
     }
 
@@ -389,6 +398,7 @@ final class BoothSessionViewModel: ObservableObject {
                 receiptPhotoPreviewImage = result.2
                 thermalReceiptPreview = result.3
                 receiptRasterizedImage = result.4
+                persistRecoverySnapshot(stage: .receiptComposed)
                 state = .receiptPreview
                 statusMessage = "Receipt ready: \(result.0.width) x \(result.0.height) pixels. Photo profile: \(result.0.photoQualityProfile.displayName)."
                 if enqueueUpload {
@@ -457,21 +467,14 @@ final class BoothSessionViewModel: ObservableObject {
 
         let requestedCopies = selectedPrintCopies
         let sessionGeneration = customerSessionGeneration
-#if DEBUG
-        let printBatchID = nextPrintBatchDebugID()
+        let printBatchID = UUID()
         let receiptFingerprint = Self.receiptPayloadFingerprint(for: rasterized)
-#else
-        let printBatchID: Int? = nil
-        let receiptFingerprint: String? = nil
-#endif
         currentPrintCopy = 0
         completedPrintCopies = 0
         state = .connectingToPrinter
         statusMessage = "Preparing printer..."
         debugLog("[MULTI-COPY] requestedCopies=\(requestedCopies)")
-#if DEBUG
         debugLog("[PrintBatch \(printBatchID)] session=\(sessionIdentifier ?? "unknown") requestedCopies=\(requestedCopies) receiptFingerprint=\(receiptFingerprint) bytes=\(Self.receiptPayloadByteCount(for: rasterized))")
-#endif
 
         printBatchTask = Task { [weak self] in
             guard let self else { return }
@@ -508,6 +511,67 @@ final class BoothSessionViewModel: ObservableObject {
         printerState = .disconnected
         state = .receiptPreview
         statusMessage = "Ask the operator to reconnect and test the printer before printing again."
+    }
+
+    func restartCameraForOperator() {
+        guard !printerState.isWorking else {
+            statusMessage = "Wait for printing to finish before restarting the camera."
+            return
+        }
+
+        operationalState.recordCameraRestart()
+        state = .preparingCamera
+        statusMessage = "Camera is getting ready..."
+        let sessionGeneration = customerSessionGeneration
+        cameraService.restartSession { [weak self] result in
+            guard let self else { return }
+            guard self.isCurrentCustomerSession(sessionGeneration) else {
+                debugLog("[Camera] ignored stale operator restart result")
+                return
+            }
+
+            switch result {
+            case .success:
+                isCameraRunning = true
+                statusMessage = "Camera ready."
+                state = .cameraReady
+            case .failure:
+                isCameraRunning = false
+                statusMessage = "Camera needs operator attention."
+                state = .error("Camera needs operator attention.")
+            }
+        }
+    }
+
+    func handleScenePhase(_ phase: ScenePhase) {
+        switch phase {
+        case .active:
+            operationalState.handleScenePhaseActive()
+            refreshPendingUploads()
+            if state == .preparingCamera || state == .cameraReady {
+                restartCameraForOperator()
+            }
+        case .inactive:
+            if case .countdown = state {
+                activeTask?.cancel()
+                activeTask = nil
+                state = .cameraReady
+                statusMessage = "Camera ready."
+                isTransitionActive = false
+            }
+        case .background:
+            cameraService.stopSession()
+            isCameraRunning = false
+            if case .countdown = state {
+                activeTask?.cancel()
+                activeTask = nil
+                state = .cameraReady
+                statusMessage = "Camera paused. Tap when ready."
+                isTransitionActive = false
+            }
+        @unknown default:
+            break
+        }
     }
 
     func resetAfterDone() {
@@ -549,23 +613,34 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     private func prepareCamera(completion: @escaping (Result<Void, CameraServiceError>) -> Void) {
+        scheduleCameraReadinessWatchdog()
         switch cameraService.authorizationStatus() {
         case .authorized:
-            cameraService.configureAndStart(completion: completion)
+            cameraService.configureAndStart { [weak self] result in
+                self?.cancelCameraReadinessWatchdog()
+                completion(result)
+            }
         case .notDetermined:
             Task {
                 let granted = await cameraService.requestAccess()
                 if granted {
-                    cameraService.configureAndStart(completion: completion)
+                    self.cameraService.configureAndStart { [weak self] result in
+                        self?.cancelCameraReadinessWatchdog()
+                        completion(result)
+                    }
                 } else {
+                    self.cancelCameraReadinessWatchdog()
                     completion(.failure(.permissionDenied))
                 }
             }
         case .denied:
+            cancelCameraReadinessWatchdog()
             completion(.failure(.permissionDenied))
         case .restricted:
+            cancelCameraReadinessWatchdog()
             completion(.failure(.permissionRestricted))
         @unknown default:
+            cancelCameraReadinessWatchdog()
             completion(.failure(.configurationFailed("Camera permission could not be determined.")))
         }
     }
@@ -730,6 +805,7 @@ final class BoothSessionViewModel: ObservableObject {
             }
 
             transientCapturedPhoto = image
+            persistRecoverySnapshot(stage: .photosCaptured)
             if replacing {
                 debugLog("[Retake] replaced photo index \(index + 1)")
             }
@@ -769,6 +845,8 @@ final class BoothSessionViewModel: ObservableObject {
     private func showThankYou() {
         state = .thankYou
         statusMessage = "Scan the QR to view and save your photos."
+        recoveryStore?.clear(sessionIdentifier: sessionIdentifier)
+        operationalState.recordSessionCompleted()
         debugLog("[Session] session completed")
         debugLog("Session \(sessionIdentifier ?? "unknown") printed successfully.")
     }
@@ -817,6 +895,8 @@ final class BoothSessionViewModel: ObservableObject {
         activeTask = nil
         printBatchTask?.cancel()
         printBatchTask = nil
+        cameraWatchdogTask?.cancel()
+        cameraWatchdogTask = nil
     }
 
     private func beginNewCustomerSession() {
@@ -848,8 +928,8 @@ final class BoothSessionViewModel: ObservableObject {
         wifiHost: String,
         wifiPort: UInt16,
         sessionGeneration: Int,
-        printBatchID: Int?,
-        receiptFingerprint: String?
+        printBatchID: UUID,
+        receiptFingerprint: String
     ) async {
         defer {
             if isCurrentCustomerSession(sessionGeneration) {
@@ -869,11 +949,7 @@ final class BoothSessionViewModel: ObservableObject {
             state = .printing
             statusMessage = requestedCopies == 1 ? "Printing your keepsake..." : "Printing copy \(copy) of \(requestedCopies)..."
             debugLog("[MULTI-COPY] startingCopy=\(copy) totalCopies=\(requestedCopies)")
-            if let printBatchID, let receiptFingerprint {
-                debugLog("[PrintBatch \(printBatchID)] copy=\(copy)/\(requestedCopies) start fingerprint=\(receiptFingerprint)")
-            } else {
-                debugLog("[PrintBatch] copy \(copy) requested")
-            }
+            debugLog("[PrintBatch \(printBatchID)] copy=\(copy)/\(requestedCopies) start fingerprint=\(receiptFingerprint)")
 
             let result = await printSingleReceiptCopy(
                 rasterizedImage: rasterizedImage,
@@ -882,7 +958,8 @@ final class BoothSessionViewModel: ObservableObject {
                 requestedCopies: requestedCopies,
                 sessionGeneration: sessionGeneration,
                 copy: copy,
-                copyRequestedAt: copyRequestedAt
+                copyRequestedAt: copyRequestedAt,
+                batchID: printBatchID
             )
             let completionReportedAt = Date()
 
@@ -896,11 +973,7 @@ final class BoothSessionViewModel: ObservableObject {
             case .success:
                 completedPrintCopies = copy
                 debugLog("[MULTI-COPY] completedCopy=\(copy)")
-                if let printBatchID, let receiptFingerprint {
-                    debugLog("[PrintBatch \(printBatchID)] copy=\(copy)/\(requestedCopies) complete fingerprint=\(receiptFingerprint) elapsed=\(Self.formatDuration(completionReportedAt.timeIntervalSince(copyRequestedAt)))")
-                } else {
-                    debugLog("[PrintBatch] copy \(copy) job completion reported after \(Self.formatDuration(completionReportedAt.timeIntervalSince(copyRequestedAt)))")
-                }
+                debugLog("[PrintBatch \(printBatchID)] copy=\(copy)/\(requestedCopies) complete fingerprint=\(receiptFingerprint) elapsed=\(Self.formatDuration(completionReportedAt.timeIntervalSince(copyRequestedAt)))")
                 if copy < requestedCopies {
                     debugLog("[PrintBatch] copy \(copy + 1) requested immediately after copy \(copy) completion")
                 }
@@ -929,14 +1002,22 @@ final class BoothSessionViewModel: ObservableObject {
         requestedCopies: Int,
         sessionGeneration: Int,
         copy: Int,
-        copyRequestedAt: Date
+        copyRequestedAt: Date,
+        batchID: UUID? = nil
     ) async -> Result<Void, Error> {
         await withCheckedContinuation { continuation in
             debugLog("[PrintBatch] copy \(copy) transport start after \(Self.formatDuration(Date().timeIntervalSince(copyRequestedAt)))")
+            persistRecoverySnapshot(stage: .printStatusUnknown)
             printerCoordinator.printReceipt(
                 rasterizedImage: rasterizedImage,
                 wifiHost: wifiHost,
-                wifiPort: wifiPort
+                wifiPort: wifiPort,
+                sessionIdentifier: sessionIdentifier ?? "unknown",
+                source: .liveCustomer,
+                copyIndex: copy,
+                copyCount: requestedCopies,
+                batchID: batchID ?? UUID(),
+                transportPolicy: .safeIntegrity
             ) { [weak self] printerState in
                 guard let self else { return }
                 guard self.isCurrentCustomerSession(sessionGeneration) else {
@@ -977,6 +1058,77 @@ final class BoothSessionViewModel: ObservableObject {
         "\(String(format: "%.2f", duration))s"
     }
 
+    private func handleCameraEvent(_ event: CameraServiceEvent) {
+        switch event {
+        case .interrupted:
+            if state == .cameraReady || isCameraRunning {
+                isCameraRunning = false
+                statusMessage = "Camera is getting ready..."
+            }
+        case .interruptionEnded:
+            if state == .cameraReady || state == .preparingCamera {
+                restartCameraForOperator()
+            }
+        case .runtimeError(_, let shouldRestart):
+            isCameraRunning = false
+            if shouldRestart, state == .cameraReady || state == .preparingCamera {
+                restartCameraForOperator()
+            } else if state.isActiveSession {
+                statusMessage = "Camera needs operator attention."
+            }
+        }
+    }
+
+    private func scheduleCameraReadinessWatchdog() {
+        cameraWatchdogTask?.cancel()
+        let generation = customerSessionGeneration
+        cameraWatchdogTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(12))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self, self.isCurrentCustomerSession(generation), self.state == .preparingCamera else {
+                    return
+                }
+                self.isTransitionActive = false
+                self.isCameraRunning = false
+                self.statusMessage = "Camera needs operator attention."
+                self.state = .error("Camera needs operator attention.")
+            }
+        }
+    }
+
+    private func cancelCameraReadinessWatchdog() {
+        cameraWatchdogTask?.cancel()
+        cameraWatchdogTask = nil
+    }
+
+    private func persistRecoverySnapshot(stage: AppRecoveryStage) {
+        guard let sessionIdentifier,
+              let selectedBoothFormat,
+              let createdAt = sessionCreatedAt else {
+            return
+        }
+
+        let photos = capturedPhotos.compactMap { AppRecoveryStore.photoData(from: $0) }
+        let snapshot = AppRecoverySnapshot(
+            schemaVersion: AppRecoverySnapshot.schemaVersion,
+            sessionIdentifier: sessionIdentifier,
+            createdAt: createdAt,
+            format: selectedBoothFormat,
+            eventProfile: sessionEventProfile,
+            galleryToken: galleryToken,
+            galleryURL: galleryURL,
+            photoJPEGData: photos,
+            receiptPreviewPNGData: composedReceipt?.imagePNGData,
+            thermalPreviewPNGData: receiptRasterizedImage?.previewPNGData,
+            rasterFingerprint: receiptRasterizedImage.map { Self.receiptPayloadFingerprint(for: $0) },
+            stage: stage,
+            updatedAt: Date()
+        )
+        recoveryStore?.save(snapshot)
+        operationalState.refresh()
+    }
+
     private func archiveCommittedSession(
         _ committedSession: CommittedGallerySession,
         composedReceipt: ComposedReceipt,
@@ -1014,12 +1166,6 @@ final class BoothSessionViewModel: ObservableObject {
         return data
     }
 
-#if DEBUG
-    private func nextPrintBatchDebugID() -> Int {
-        debugPrintBatchSequence += 1
-        return debugPrintBatchSequence
-    }
-
     private static func receiptPayloadFingerprint(for rasterizedImage: ThermalRasterizedImage) -> String {
         receiptPayloadData(for: rasterizedImage).shortSHA256Fingerprint
     }
@@ -1033,7 +1179,6 @@ final class BoothSessionViewModel: ObservableObject {
             + rasterizedImage.rasterCommand
             + ThermalImageRasterizer.photoTestFinishing()
     }
-#endif
 
     private func startGalleryUpload(committedSession: CommittedGallerySession, receiptImage: UIImage) {
         guard GalleryUploadSessionIsolationPolicy.canStartPreparation(
@@ -1149,14 +1294,3 @@ nonisolated private func debugLog(_ message: String) {
     print("[BoothSessionViewModel] \(message)")
 #endif
 }
-
-#if DEBUG
-private extension Data {
-    var shortSHA256Fingerprint: String {
-        SHA256.hash(data: self)
-            .prefix(6)
-            .map { String(format: "%02X", $0) }
-            .joined()
-    }
-}
-#endif

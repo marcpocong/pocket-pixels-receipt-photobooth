@@ -190,7 +190,7 @@ struct EventSetupView: View {
             }
 
             Section("Event Receipt Preview") {
-                EventReceiptBlockPreview(profile: draft.normalized())
+                EventReceiptComposerPreview(profile: draft.normalized())
                     .padding(.vertical, 6)
             }
 
@@ -252,72 +252,175 @@ struct EventSetupView: View {
     }
 }
 
-private struct EventReceiptBlockPreview: View {
+private struct EventReceiptComposerPreview: View {
     let profile: EventProfile
 
+    @State private var selectedFormat: BoothFormat = .duo
+    @State private var previewImage: UIImage?
+    @State private var previewReceipt: ComposedReceipt?
+    @State private var previewError: String?
+    @State private var renderTask: Task<Void, Never>?
+
     var body: some View {
-        VStack(spacing: 10) {
-            Text("POCKET PIXELS")
-                .font(.system(size: 16, weight: .bold))
-                .tracking(1.2)
-
-            Text("RECEIPT PHOTOBOOTH")
-                .font(.system(size: 11, weight: .semibold))
-                .tracking(0.8)
-
-            Divider()
-
-            if let content = profile.receiptBlockContent {
-                VStack(spacing: 5) {
-                    Text(content.eyebrow)
-                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                        .tracking(1.0)
-                        .foregroundStyle(.secondary)
-
-                    Text(content.eventName)
-                        .font(.system(size: 21, weight: .semibold, design: .serif))
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-
-                    if !content.subtitle.isEmpty {
-                        Text(content.subtitle)
-                            .font(.system(size: 12, weight: .semibold))
-                            .multilineTextAlignment(.center)
-                            .lineLimit(2)
-                    }
-
-                    if !content.metadata.isEmpty {
-                        Text(content.metadata)
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .multilineTextAlignment(.center)
-                            .lineLimit(2)
-                    }
-
-                    if !content.message.isEmpty {
-                        Text(content.message)
-                            .font(.system(size: 12, weight: .regular))
-                            .multilineTextAlignment(.center)
-                            .lineLimit(2)
-                    }
+        VStack(alignment: .leading, spacing: 10) {
+            Picker("Preview Format", selection: $selectedFormat) {
+                ForEach(BoothFormat.allCases) { format in
+                    Text(format.displayName).tag(format)
                 }
-                .foregroundStyle(.primary)
+            }
+            .pickerStyle(.segmented)
 
-                Divider()
-            } else {
-                Text("Pocket Pixels default receipt")
-                    .font(.system(size: 14, weight: .semibold))
+            ScrollView(.vertical) {
+                if let previewImage {
+                    Image(uiImage: previewImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: 360)
+                        .overlay {
+                            Rectangle()
+                                .stroke(Color.secondary.opacity(0.24), lineWidth: 1)
+                        }
+                        .frame(maxWidth: .infinity)
+                } else if let previewError {
+                    Text(previewError)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 260)
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, minHeight: 260)
+                }
+            }
+            .frame(maxHeight: 520)
+
+            if let previewReceipt {
+                Text("\(previewReceipt.format.displayName) • \(previewReceipt.width)x\(previewReceipt.height) px • \(String(format: "%.1f", previewReceipt.estimatedLengthMillimeters)) mm")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+            } else {
+                Text(profile.activeReceiptSnapshot == nil ? "Event branding is off or missing an event name." : "Rendering receipt preview.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
-        .padding(18)
+        .onAppear {
+            scheduleRender()
+        }
+        .onChange(of: previewIdentity) { _, _ in
+            scheduleRender()
+        }
+        .onDisappear {
+            renderTask?.cancel()
+        }
         .frame(maxWidth: .infinity)
-        .background(Color.white)
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.secondary.opacity(0.24), lineWidth: 1)
+    }
+
+    private var previewIdentity: String {
+        let normalized = profile.normalized()
+        return [
+            selectedFormat.rawValue,
+            normalized.isEnabled.description,
+            normalized.eventName,
+            normalized.subtitle,
+            normalized.includeEventDate.description,
+            String(normalized.eventDate.timeIntervalSince1970),
+            normalized.location,
+            normalized.shortMessage
+        ].joined(separator: "|")
+    }
+
+    @MainActor
+    private func scheduleRender() {
+        renderTask?.cancel()
+        previewError = nil
+        let profile = profile.normalized()
+        let format = selectedFormat
+        renderTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+
+            do {
+                let receipt = try Self.makePreviewReceipt(profile: profile, format: format)
+                guard let image = UIImage(data: receipt.imagePNGData) else {
+                    throw ReceiptComposerError.renderFailed
+                }
+                previewReceipt = receipt
+                previewImage = image
+            } catch {
+                previewReceipt = nil
+                previewImage = nil
+                previewError = error.localizedDescription
+            }
         }
     }
 
+    @MainActor
+    private static func makePreviewReceipt(profile: EventProfile, format: BoothFormat) throws -> ComposedReceipt {
+        guard let galleryURL = URL(string: "https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/?g=event-preview") else {
+            throw GalleryUploadError.invalidGalleryURL
+        }
+
+        let date = previewDate
+        return try ReceiptComposer.compose(
+            photos: makeSamplePhotos(count: format.photoCount),
+            sessionIdentifier: "PP-20260907-192104",
+            date: date,
+            galleryURL: galleryURL,
+            format: format,
+            eventProfile: profile.activeReceiptSnapshot
+        )
+    }
+
+    @MainActor
+    private static func makeSamplePhotos(count: Int) -> [UIImage] {
+        (0..<count).map { index in
+            makeSamplePhoto(index: index)
+        }
+    }
+
+    @MainActor
+    private static func makeSamplePhoto(index: Int) -> UIImage {
+        let size = CGSize(width: 900, height: 1200)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+
+            UIColor.black.setFill()
+            context.fill(CGRect(x: 84, y: 92, width: 732, height: 906))
+            UIColor.white.setFill()
+            context.fill(CGRect(x: 126, y: 134, width: 648, height: 822))
+
+            UIColor.black.setFill()
+            UIColor.black.setStroke()
+            context.cgContext.setLineWidth(22)
+            context.cgContext.stroke(CGRect(x: 176, y: 206, width: 548, height: 612))
+            context.fill(CGRect(x: 126, y: 878, width: 648, height: 78))
+
+            let label = "PHOTO \(index + 1)"
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.monospacedSystemFont(ofSize: 72, weight: .bold),
+                .foregroundColor: UIColor.white
+            ]
+            let labelSize = NSString(string: label).size(withAttributes: attributes)
+            NSString(string: label).draw(
+                at: CGPoint(x: (size.width - labelSize.width) / 2, y: 884),
+                withAttributes: attributes
+            )
+        }
+    }
+
+    private static var previewDate: Date {
+        var components = DateComponents()
+        components.calendar = Calendar(identifier: .gregorian)
+        components.timeZone = TimeZone(identifier: "Asia/Manila")
+        components.year = 2026
+        components.month = 9
+        components.day = 7
+        components.hour = 19
+        components.minute = 21
+        return components.date ?? Date(timeIntervalSince1970: 1_789_155_660)
+    }
 }

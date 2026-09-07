@@ -11,17 +11,22 @@ import UIKit
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var isShowingAdmin = false
+    @StateObject private var operationalState = EventOperationalState.shared
 
     var body: some View {
         customerExperience
             .onAppear {
                 setIdleTimerDisabled(true)
+                operationalState.start()
             }
             .onDisappear {
                 setIdleTimerDisabled(false)
             }
             .onChange(of: scenePhase) { _, newPhase in
                 setIdleTimerDisabled(newPhase == .active)
+                if newPhase == .active {
+                    operationalState.handleScenePhaseActive()
+                }
             }
     }
 
@@ -64,6 +69,13 @@ private struct PocketPixelsAdminView: View {
             Divider()
 
             TabView {
+                NavigationStack {
+                    SystemHealthView()
+                }
+                .tabItem {
+                    Label("Health", systemImage: "heart.text.square")
+                }
+
                 NavigationStack {
                     EventSetupView()
                 }

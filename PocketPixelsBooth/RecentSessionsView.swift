@@ -268,6 +268,15 @@ final class ArchivedReceiptReprintController: ObservableObject {
         let archiveID = archive.summary.archiveID
         let sessionID = archive.summary.sessionIdentifier
         let fingerprint = archive.summary.rasterFingerprint
+        let currentRasterFingerprint = RecentSessionArchiveStore.rasterFingerprint(for: rasterizedImage)
+        guard currentRasterFingerprint == fingerprint else {
+            printerState = .failure("Archived receipt integrity check failed. Nothing was sent.")
+            statusMessage = printerState.message
+            debugLog("[RecentSessions] reprint blocked archive=\(archiveID) archivedFingerprint=\(fingerprint) currentFingerprint=\(currentRasterFingerprint)")
+            return
+        }
+
+        let batchID = UUID()
         completedCopies = 0
         currentCopy = 0
         isReprinting = true
@@ -291,7 +300,9 @@ final class ArchivedReceiptReprintController: ObservableObject {
                     wifiPort: wifiPort,
                     copy: copy,
                     copies: copies,
-                    fingerprint: fingerprint
+                    fingerprint: fingerprint,
+                    batchID: batchID,
+                    sessionID: sessionID
                 )
 
                 switch result {
@@ -316,7 +327,9 @@ final class ArchivedReceiptReprintController: ObservableObject {
         wifiPort: UInt16,
         copy: Int,
         copies: Int,
-        fingerprint: String
+        fingerprint: String,
+        batchID: UUID,
+        sessionID: String
     ) async -> Result<Void, Error> {
         do {
             try ThermalImageRasterizer.validateRasterCommand(
@@ -343,7 +356,13 @@ final class ArchivedReceiptReprintController: ObservableObject {
             printerCoordinator.printReceipt(
                 rasterizedImage: rasterizedImage,
                 wifiHost: wifiHost,
-                wifiPort: wifiPort
+                wifiPort: wifiPort,
+                sessionIdentifier: sessionID,
+                source: .archivedReprint,
+                copyIndex: copy,
+                copyCount: copies,
+                batchID: batchID,
+                transportPolicy: .safeIntegrity
             ) { [weak self] state in
                 guard let self else { return }
                 self.printerState = state

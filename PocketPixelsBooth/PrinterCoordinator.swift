@@ -25,7 +25,7 @@ enum PrinterConnectionMode: String, CaseIterable, Identifiable {
     }
 }
 
-enum PrinterTransportSelection: String {
+enum PrinterTransportSelection: String, Codable, Sendable {
     case none
     case bluetooth
     case wifi
@@ -56,7 +56,7 @@ final class PrinterCoordinator: ObservableObject {
     private static let modeKey = "printerConnectionMode"
     private let bluetoothService: PrinterBluetoothService
     private let wifiService: PrinterNetworkService
-    private var isJobActive = false
+    private let spooler = PrintSpooler.shared
 
     private init() {
         bluetoothService = PrinterBluetoothService.shared
@@ -99,11 +99,15 @@ final class PrinterCoordinator: ObservableObject {
     }
 
     var isWorking: Bool {
-        isJobActive || state.isWorking
+        spooler.isWorking || state.isWorking
     }
 
     var requiresRecovery: Bool {
-        state.requiresPrinterRestart
+        state.requiresPrinterRestart || spooler.requiresRecovery
+    }
+
+    var auditExportText: String {
+        spooler.auditExportText
     }
 
     func prepare() {
@@ -127,6 +131,7 @@ final class PrinterCoordinator: ObservableObject {
     }
 
     func confirmPrinterRestarted() {
+        spooler.confirmPrinterRestarted()
         bluetoothService.confirmPrinterRestarted()
         wifiService.confirmPrinterRestarted { [weak self] state in
             self?.publish(state)
@@ -134,19 +139,17 @@ final class PrinterCoordinator: ObservableObject {
     }
 
     func quickBluetoothTextTest(completion: CompletionHandler? = nil) {
-        guard !isJobActive else {
+        guard !spooler.isWorking else {
             publish(.failure(PrinterNetworkError.jobAlreadyActive.userMessage))
             completion?(.failure(PrinterNetworkError.jobAlreadyActive))
             return
         }
 
-        isJobActive = true
         activeTransport = .bluetooth
         publish(.printing)
 
         bluetoothService.printQuickText { [weak self] result, bytesStarted in
             guard let self else { return }
-            self.isJobActive = false
 
             switch result {
             case .success:
@@ -166,10 +169,71 @@ final class PrinterCoordinator: ObservableObject {
         rasterizedImage: ThermalRasterizedImage,
         wifiHost: String,
         wifiPort: UInt16?,
+        sessionIdentifier: String = "operator",
+        source: PrintJobSource = .diagnostic,
+        copyIndex: Int = 1,
+        copyCount: Int = 1,
+        batchID: UUID = UUID(),
+        transportPolicy: ProductionPrintTransportPolicy = .safeIntegrity,
         onStateChange: StateHandler? = nil,
         completion: CompletionHandler? = nil
     ) {
-        guard !isJobActive else {
+        guard !spooler.requiresRecovery else {
+            let message = "Printer needs attention. Please ask staff for assistance."
+            let state = PrinterConnectionState.recoveryRequired(message)
+            publish(state, onStateChange: onStateChange)
+            completion?(.failure(PrintSpoolerError.recoveryRequired(message)))
+            return
+        }
+
+        do {
+            let envelope = try PrintJobEnvelope.receipt(
+                rasterizedImage: rasterizedImage,
+                sessionIdentifier: sessionIdentifier,
+                source: source,
+                copyIndex: copyIndex,
+                copyCount: copyCount,
+                batchID: batchID,
+                transportPolicy: transportPolicy
+            )
+            submitReceiptEnvelope(
+                envelope,
+                wifiHost: wifiHost,
+                wifiPort: wifiPort,
+                onStateChange: onStateChange,
+                completion: completion
+            )
+        } catch {
+            let state = PrinterConnectionState.failure(error.localizedDescription)
+            publish(state, onStateChange: onStateChange)
+            completion?(.failure(error))
+        }
+    }
+
+    func printEnvelope(
+        _ envelope: PrintJobEnvelope,
+        wifiHost: String,
+        wifiPort: UInt16?,
+        onStateChange: StateHandler? = nil,
+        completion: CompletionHandler? = nil
+    ) {
+        submitReceiptEnvelope(
+            envelope,
+            wifiHost: wifiHost,
+            wifiPort: wifiPort,
+            onStateChange: onStateChange,
+            completion: completion
+        )
+    }
+
+    private func submitReceiptEnvelope(
+        _ envelope: PrintJobEnvelope,
+        wifiHost: String,
+        wifiPort: UInt16?,
+        onStateChange: StateHandler?,
+        completion: CompletionHandler?
+    ) {
+        guard !isWorking else {
             let state = PrinterConnectionState.failure(PrinterNetworkError.jobAlreadyActive.userMessage)
             publish(state, onStateChange: onStateChange)
             completion?(.failure(PrinterNetworkError.jobAlreadyActive))
@@ -177,13 +241,7 @@ final class PrinterCoordinator: ObservableObject {
         }
 
         do {
-            try ThermalImageRasterizer.validateRasterCommand(
-                rasterizedImage.rasterCommand,
-                imageWidth: rasterizedImage.width,
-                imageHeight: rasterizedImage.height,
-                bytesPerRow: rasterizedImage.widthBytes,
-                rasterDataCount: rasterizedImage.rasterData.count
-            )
+            try envelope.verifyPayloadIntegrity()
         } catch {
             let state = PrinterConnectionState.failure(error.localizedDescription)
             publish(state, onStateChange: onStateChange)
@@ -191,27 +249,43 @@ final class PrinterCoordinator: ObservableObject {
             return
         }
 
-        isJobActive = true
         fallbackReason = nil
 
         Task {
-            await printReceiptWithSelectedTransport(
-                rasterizedImage: rasterizedImage,
-                wifiHost: wifiHost,
-                wifiPort: wifiPort,
-                onStateChange: onStateChange,
-                completion: completion
-            )
+            let result = await spooler.submit(envelope: envelope) { [weak self] envelope in
+                guard let self else {
+                    return .failure(PrintSpoolerError.physicalPrinterBusy)
+                }
+
+                return await self.printReceiptWithSelectedTransport(
+                    envelope: envelope,
+                    wifiHost: wifiHost,
+                    wifiPort: wifiPort,
+                    onStateChange: onStateChange
+                )
+            }
+
+            switch result {
+            case .success:
+                self.publish(.success("Your receipt is ready."), onStateChange: onStateChange)
+                completion?(.success(()))
+            case .failure(let error):
+                let bytesStarted = (error as? PrintTransportFailure)?.bytesStarted ?? false
+                let state: PrinterConnectionState = bytesStarted
+                    ? .recoveryRequired("Printer needs attention. Please ask staff for assistance.")
+                    : .failure(error.localizedDescription)
+                self.publish(state, onStateChange: onStateChange)
+                completion?(.failure(error))
+            }
         }
     }
 
     private func printReceiptWithSelectedTransport(
-        rasterizedImage: ThermalRasterizedImage,
+        envelope: PrintJobEnvelope,
         wifiHost: String,
         wifiPort: UInt16?,
-        onStateChange: StateHandler?,
-        completion: CompletionHandler?
-    ) async {
+        onStateChange: StateHandler?
+    ) async -> Result<PhysicalPrintTransportResult, Error> {
         let mode = preferredMode
 
         if mode == .auto || mode == .bluetooth {
@@ -224,124 +298,136 @@ final class PrinterCoordinator: ObservableObject {
 
             if bluetoothService.isConnectedAndReady {
                 activeTransport = .bluetooth
-                sendBluetoothReceipt(
-                    rasterizedImage: rasterizedImage,
+                return await sendBluetoothReceipt(
+                    envelope: envelope,
                     wifiHost: wifiHost,
                     wifiPort: wifiPort,
                     allowWifiFallbackBeforeBytes: mode == .auto,
-                    onStateChange: onStateChange,
-                    completion: completion
+                    onStateChange: onStateChange
                 )
-                return
             }
 
             if mode == .bluetooth {
-                finishActiveJob()
                 let state = PrinterConnectionState.failure("Bluetooth printer unavailable. Please ask staff for assistance.")
                 publish(state, onStateChange: onStateChange)
-                completion?(.failure(BluetoothPrinterServiceError.printerNotConnected))
-                return
+                return .failure(BluetoothPrinterServiceError.printerNotConnected)
             }
 
             fallbackReason = "Bluetooth was unavailable before any print bytes were sent."
         }
 
-        sendWifiReceipt(
-            rasterizedImage: rasterizedImage,
+        return await sendWifiReceipt(
+            envelope: envelope,
             wifiHost: wifiHost,
             wifiPort: wifiPort,
-            onStateChange: onStateChange,
-            completion: completion
+            onStateChange: onStateChange
         )
     }
 
     private func sendBluetoothReceipt(
-        rasterizedImage: ThermalRasterizedImage,
+        envelope: PrintJobEnvelope,
         wifiHost: String,
         wifiPort: UInt16?,
         allowWifiFallbackBeforeBytes: Bool,
-        onStateChange: StateHandler?,
-        completion: CompletionHandler?
-    ) {
+        onStateChange: StateHandler?
+    ) async -> Result<PhysicalPrintTransportResult, Error> {
         publish(.sendingPhotograph, onStateChange: onStateChange)
 
-        bluetoothService.printRasterizedReceipt(
-            rasterizedImage: rasterizedImage,
-            mode: .fast,
-            balancedProfile: .medium
-        ) { [weak self] result, bytesStarted in
-            guard let self else { return }
+        let startedAt = Date()
+        let bluetoothMode = envelope.transportPolicy.bluetoothMode
 
-            switch result {
-            case .success:
-                self.finishActiveJob()
-                self.publish(.success("Your receipt is ready."), onStateChange: onStateChange)
-                completion?(.success(()))
+        return await withCheckedContinuation { continuation in
+            bluetoothService.printEnvelope(
+                envelope,
+                mode: bluetoothMode,
+                balancedProfile: .medium
+            ) { [weak self] result, bytesStarted in
+                guard let self else { return }
+                let metrics = self.bluetoothService.metrics
+                let transportResult = PhysicalPrintTransportResult(
+                    transport: .bluetooth,
+                    bluetoothMode: bluetoothMode,
+                    chunkSize: metrics?.chunkSize,
+                    chunkCount: metrics?.chunkCount,
+                    flowControlPauseCount: metrics?.flowControlPauseCount,
+                    writeTimeout: self.bluetoothService.lastReliableWriteTimeout,
+                    bytesStarted: bytesStarted,
+                    transportFinishedAt: Date()
+                )
 
-            case .failure(let error):
-                if allowWifiFallbackBeforeBytes && !bytesStarted {
-                    self.fallbackReason = "Bluetooth failed before print bytes started: \(error.localizedDescription)"
-                    self.sendWifiReceipt(
-                        rasterizedImage: rasterizedImage,
-                        wifiHost: wifiHost,
-                        wifiPort: wifiPort,
-                        onStateChange: onStateChange,
-                        completion: completion
-                    )
-                    return
+                switch result {
+                case .success:
+                    debugLog("[PrinterCoordinator] Bluetooth envelope complete job=\(envelope.jobID.uuidString) elapsed=\(String(format: "%.2f", Date().timeIntervalSince(startedAt)))s")
+                    continuation.resume(returning: .success(transportResult))
+
+                case .failure(let error):
+                    if allowWifiFallbackBeforeBytes && !bytesStarted {
+                        self.fallbackReason = "Bluetooth failed before print bytes started: \(error.localizedDescription)"
+                        Task {
+                            let fallback = await self.sendWifiReceipt(
+                                envelope: envelope,
+                                wifiHost: wifiHost,
+                                wifiPort: wifiPort,
+                                onStateChange: onStateChange
+                            )
+                            continuation.resume(returning: fallback)
+                        }
+                        return
+                    }
+
+                    continuation.resume(returning: .failure(PrintTransportFailure(
+                        underlyingError: error,
+                        bytesStarted: bytesStarted,
+                        transportResult: transportResult
+                    )))
                 }
-
-                self.finishActiveJob()
-                let state: PrinterConnectionState = bytesStarted
-                    ? .recoveryRequired("Printer needs attention. Please ask staff for assistance.")
-                    : .failure("Printer unavailable. Please ask staff for assistance.")
-                self.publish(state, onStateChange: onStateChange)
-                completion?(.failure(error))
             }
         }
     }
 
     private func sendWifiReceipt(
-        rasterizedImage: ThermalRasterizedImage,
+        envelope: PrintJobEnvelope,
         wifiHost: String,
         wifiPort: UInt16?,
-        onStateChange: StateHandler?,
-        completion: CompletionHandler?
-    ) {
+        onStateChange: StateHandler?
+    ) async -> Result<PhysicalPrintTransportResult, Error> {
         activeTransport = .wifi
 
         guard let wifiPort else {
-            finishActiveJob()
             let state = PrinterConnectionState.failure(PrinterNetworkError.invalidPort.userMessage)
             publish(state, onStateChange: onStateChange)
-            completion?(.failure(PrinterNetworkError.invalidPort))
-            return
+            return .failure(PrinterNetworkError.invalidPort)
         }
 
-        wifiService.printPhoto(
-            heading: ThermalImageRasterizer.receiptPrintHeading(),
-            rasterCommand: rasterizedImage.rasterCommand,
-            finishing: ThermalImageRasterizer.photoTestFinishing(),
-            imageWidth: rasterizedImage.width,
-            imageHeight: rasterizedImage.height,
-            rasterDataByteCount: rasterizedImage.rasterData.count,
-            sanitizationReport: rasterizedImage.sanitizationReport,
-            yL: rasterizedImage.yL,
-            yH: rasterizedImage.yH,
-            host: wifiHost,
-            port: wifiPort
-        ) { [weak self] state in
-            self?.publish(state, onStateChange: onStateChange)
-        } completion: { [weak self] result in
-            guard let self else { return }
-            self.finishActiveJob()
+        return await withCheckedContinuation { continuation in
+            wifiService.printFrozenReceipt(
+                envelope: envelope,
+                host: wifiHost,
+                port: wifiPort
+            ) { [weak self] state in
+                self?.publish(state, onStateChange: onStateChange)
+            } completion: { result in
+                let transportResult = PhysicalPrintTransportResult(
+                    transport: .wifi,
+                    bluetoothMode: nil,
+                    chunkSize: nil,
+                    chunkCount: nil,
+                    flowControlPauseCount: nil,
+                    writeTimeout: nil,
+                    bytesStarted: true,
+                    transportFinishedAt: Date()
+                )
 
-            switch result {
-            case .success:
-                self.publish(.success("Your receipt is ready."), onStateChange: onStateChange)
-                completion?(.success(()))
-            case .failure(let error):
-                completion?(.failure(error))
+                switch result {
+                case .success:
+                    continuation.resume(returning: .success(transportResult))
+                case .failure(let error):
+                    continuation.resume(returning: .failure(PrintTransportFailure(
+                        underlyingError: error,
+                        bytesStarted: true,
+                        transportResult: transportResult
+                    )))
+                }
             }
         }
     }
@@ -364,8 +450,10 @@ final class PrinterCoordinator: ObservableObject {
         self.state = state
         onStateChange?(state)
     }
+}
 
-    private func finishActiveJob() {
-        isJobActive = false
-    }
+private func debugLog(_ message: String) {
+#if DEBUG
+    print(message)
+#endif
 }

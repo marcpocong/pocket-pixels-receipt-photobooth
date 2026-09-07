@@ -16,7 +16,7 @@ struct BluetoothPrinterCandidate: Identifiable, Equatable {
     let isLikelyPrinter: Bool
 }
 
-enum BluetoothPrinterRasterMode: String, CaseIterable, Identifiable {
+enum BluetoothPrinterRasterMode: String, CaseIterable, Identifiable, Codable, Sendable {
     case reliable
     case balanced
     case fast
@@ -349,9 +349,9 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
     private let scanDuration: TimeInterval = 10
     private let printerProcessingDelay: TimeInterval = 1.5
     private let postCutHandoffDelay: TimeInterval = 0.75
-    private let estimatedThermalPrintMillimetersPerSecond: Double = 42
-    private let estimatedCutAndSettleDelay: TimeInterval = 1.25
-    private let maximumEstimatedPhysicalHandoffDelay: TimeInterval = 8
+    private let conservativeThermalPrintMillimetersPerSecond: Double = 34
+    private let estimatedCutAndSettleDelay: TimeInterval = 1.75
+    private let reliableWriteAcknowledgementTimeout: TimeInterval = 6
     private var centralManager: CBCentralManager?
     private var scanStopTask: Task<Void, Never>?
     private var peripheralsByID: [UUID: CBPeripheral] = [:]
@@ -379,6 +379,8 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
     private var intentionalPacingPauseCount = 0
     private var pacingPauseTask: Task<Void, Never>?
     private var postSendCompletionTask: Task<Void, Never>?
+    private var reliableWriteWatchdogTask: Task<Void, Never>?
+    private var lastWriteTimeoutDuration: TimeInterval?
     private var shouldPrepareWhenPoweredOn = false
     private var scanShouldConnectFirstCandidate = false
     private var reconnectAttemptsRemaining = 0
@@ -416,6 +418,10 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
 
     var isConnectedAndReady: Bool {
         connectedPeripheral?.state == .connected && writeCharacteristic != nil
+    }
+
+    var lastReliableWriteTimeout: TimeInterval? {
+        lastWriteTimeoutDuration
     }
 
     var hasSavedPrinter: Bool {
@@ -658,6 +664,20 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         startReceiptRasterJob(
             receiptLabel: "Customer Receipt",
             rasterizedImage: rasterizedImage,
+            mode: mode,
+            balancedProfile: balancedProfile,
+            completion: completion
+        )
+    }
+
+    func printEnvelope(
+        _ envelope: PrintJobEnvelope,
+        mode: BluetoothPrinterRasterMode,
+        balancedProfile: BalancedBluetoothPrinterProfile,
+        completion: CompletionHandler? = nil
+    ) {
+        startEnvelopeRasterJob(
+            envelope: envelope,
             mode: mode,
             balancedProfile: balancedProfile,
             completion: completion
@@ -1145,6 +1165,124 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         sendNextChunk()
     }
 
+    private func startEnvelopeRasterJob(
+        envelope: PrintJobEnvelope,
+        mode: BluetoothPrinterRasterMode,
+        balancedProfile: BalancedBluetoothPrinterProfile,
+        completion: CompletionHandler?
+    ) {
+        guard let jobID = beginJob() else {
+            completion?(.failure(.jobAlreadyActive), false)
+            return
+        }
+
+        pendingCompletion = completion
+
+        do {
+            try envelope.verifyPayloadIntegrity()
+        } catch {
+            finishJob(expectedJobID: jobID, result: .failure(.invalidRaster(error.localizedDescription)))
+            return
+        }
+
+        guard let peripheral = connectedPeripheral, peripheral.state == .connected else {
+            finishJob(expectedJobID: jobID, result: .failure(.printerNotConnected))
+            return
+        }
+
+        guard let writeCharacteristic else {
+            finishJob(expectedJobID: jobID, result: .failure(.knownCharacteristicUnavailable))
+            return
+        }
+
+        if mode == .reliable && !writeCharacteristic.properties.contains(.write) {
+            finishJob(expectedJobID: jobID, result: .failure(.sendFailed("Characteristic 2AF1 does not support response-based writes.")))
+            return
+        }
+
+        if mode != .reliable && !writeCharacteristic.properties.contains(.writeWithoutResponse) {
+            finishJob(expectedJobID: jobID, result: .failure(.sendFailed("Characteristic 2AF1 does not support writeWithoutResponse.")))
+            return
+        }
+
+        let writeType = mode.writeType
+        let maximumLength = max(1, peripheral.maximumWriteValueLength(for: writeType))
+        let modeLimit: Int
+        switch mode {
+        case .reliable:
+            modeLimit = Self.reliableChunkLimit
+        case .balanced:
+            modeLimit = balancedProfile.chunkLimit
+        case .fast:
+            modeLimit = Self.fastInitialChunkLimit
+        }
+        let chunkSize = max(1, min(modeLimit, maximumLength))
+        let chunks = envelope.payload.chunked(maximumLength: chunkSize)
+        let rasterStartChunkIndex = max(0, min(chunks.count, envelope.rasterDataRange.lowerBound / chunkSize))
+        let finishingStartChunkIndex = max(0, min(chunks.count, envelope.rasterDataRange.upperBound / chunkSize))
+
+        pendingJob = PendingJob(
+            id: jobID,
+            label: "\(envelope.source.displayName) Receipt",
+            mode: mode,
+            balancedProfile: mode == .balanced ? balancedProfile : nil,
+            photoCalibrationProfileName: nil,
+            payloadFingerprint: envelope.payloadFingerprint,
+            chunks: chunks,
+            totalBytes: envelope.payloadByteCount,
+            rasterByteCount: envelope.rasterByteCount,
+            rasterDataStartByteOffset: envelope.rasterDataRange.lowerBound,
+            maximumWriteLength: maximumLength,
+            chunkSize: chunkSize,
+            chunkCount: chunks.count,
+            imageHeight: envelope.imageHeight,
+            startedAt: Date(),
+            rasterStartChunkIndex: rasterStartChunkIndex,
+            finishingStartChunkIndex: finishingStartChunkIndex,
+            transportCompletionScheduled: false
+        )
+        pendingChunkIndex = 0
+        transferredBytes = 0
+        rasterTransmissionBegan = false
+        printBytesStarted = false
+        flowControlPauseCount = 0
+        currentFlowControlPauseStartedAt = nil
+        currentFlowControlPausePosition = nil
+        flowControlPauseEvents = []
+        longestFlowControlPause = nil
+        lastJobStartedAt = Date()
+        chunksSentInCurrentBurst = 0
+        burstCount = chunks.isEmpty ? 0 : 1
+        intentionalPacingPauseCount = 0
+        metrics = BluetoothPrinterMetrics(
+            mode: mode,
+            balancedProfileName: mode == .balanced ? balancedProfile.displayName : nil,
+            photoCalibrationProfileName: nil,
+            payloadByteCount: envelope.payloadByteCount,
+            rasterByteCount: envelope.rasterByteCount,
+            maximumWriteLength: maximumLength,
+            chunkSize: chunkSize,
+            chunkCount: chunks.count,
+            burstChunkCount: mode == .balanced ? balancedProfile.burstChunkCount : nil,
+            interBurstDelayMilliseconds: mode == .balanced ? balancedProfile.interBurstDelayMilliseconds : nil,
+            burstCount: burstCount,
+            transferredBytes: 0,
+            duration: nil,
+            throughputBytesPerSecond: nil,
+            flowControlPauseCount: 0,
+            longestFlowControlPause: nil,
+            flowControlPauseEvents: [],
+            intentionalPacingPauseCount: 0,
+            physicalPrintDuration: nil
+        )
+
+        appendJobLog(jobID: jobID, "\(envelope.source.displayName) envelope job started. App job: \(envelope.jobID.uuidString). Batch: \(envelope.batchID.uuidString). Copy: \(envelope.copyIndex)/\(envelope.copyCount). Session: \(envelope.sessionIdentifier).")
+        appendJobLog(jobID: jobID, "Frozen payload: \(envelope.payloadFingerprint.prefix(12)). Bytes: \(envelope.payloadByteCount). Image: \(envelope.imageWidth)x\(envelope.imageHeight).")
+        appendJobLog(jobID: jobID, "Mode: \(mode.displayName). Write type: \(writeType.logName). Max: \(maximumLength). Chunk size: \(chunkSize). Chunks: \(chunks.count).")
+        jobState = .preparing
+        sendNextChunk()
+    }
+
     private func beginJob() -> UInt64? {
         guard !isJobActive else {
             jobState = .failure(BluetoothPrinterServiceError.jobAlreadyActive.localizedDescription)
@@ -1165,6 +1303,9 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         pacingPauseTask = nil
         postSendCompletionTask?.cancel()
         postSendCompletionTask = nil
+        reliableWriteWatchdogTask?.cancel()
+        reliableWriteWatchdogTask = nil
+        lastWriteTimeoutDuration = nil
         guard let jobID = jobLifecycle.beginJob() else {
             jobState = .failure(BluetoothPrinterServiceError.jobAlreadyActive.localizedDescription)
             return nil
@@ -1263,6 +1404,12 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         let chunk = pendingJob.chunks[pendingChunkIndex]
         appendJobLog(jobID: pendingJob.id, "Writing chunk \(pendingChunkIndex + 1)/\(pendingJob.chunkCount), \(chunk.count) bytes.")
         printBytesStarted = true
+        scheduleReliableWriteWatchdog(
+            expectedJobID: pendingJob.id,
+            expectedChunkIndex: pendingChunkIndex,
+            peripheralID: peripheral.identifier,
+            characteristicID: writeCharacteristic.uuid
+        )
         peripheral.writeValue(chunk, for: writeCharacteristic, type: .withResponse)
     }
 
@@ -1382,6 +1529,8 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         let duration = Date().timeIntervalSince(pendingJob.startedAt)
         let processingDelay = postTransportProcessingDelay(for: pendingJob, transportDuration: duration)
         updateMetrics(duration: duration)
+        reliableWriteWatchdogTask?.cancel()
+        reliableWriteWatchdogTask = nil
         appendJobLog(jobID: expectedJobID, "\(pendingJob.mode.progressLabel) all BLE chunks in \(String(format: "%.2f", duration)) seconds. Waiting \(String(format: "%.2f", processingDelay))s processing + \(String(format: "%.2f", postCutHandoffDelay))s handoff.")
         appendJobLog(jobID: expectedJobID, "transport completion scheduled.")
         jobState = .printerProcessing
@@ -1408,14 +1557,57 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         }
 
         let estimatedReceiptLengthMillimeters = Double(imageHeight) / 8.0
-        let estimatedPhysicalDuration = (estimatedReceiptLengthMillimeters / estimatedThermalPrintMillimetersPerSecond) + estimatedCutAndSettleDelay
+        let estimatedPhysicalDuration = (estimatedReceiptLengthMillimeters / conservativeThermalPrintMillimetersPerSecond) + estimatedCutAndSettleDelay
         let remainingPhysicalDuration = estimatedPhysicalDuration - transportDuration - postCutHandoffDelay
-        let boundedRemaining = min(maximumEstimatedPhysicalHandoffDelay, max(printerProcessingDelay, remainingPhysicalDuration))
+        let boundedRemaining = max(printerProcessingDelay, remainingPhysicalDuration)
         appendJobLog(
             jobID: job.id,
-            "physical handoff estimate length=\(String(format: "%.1f", estimatedReceiptLengthMillimeters))mm speed=\(String(format: "%.1f", estimatedThermalPrintMillimetersPerSecond))mm/s transport=\(String(format: "%.2f", transportDuration))s remaining=\(String(format: "%.2f", boundedRemaining))s"
+            "physical handoff estimate length=\(String(format: "%.1f", estimatedReceiptLengthMillimeters))mm conservativeSpeed=\(String(format: "%.1f", conservativeThermalPrintMillimetersPerSecond))mm/s transport=\(String(format: "%.2f", transportDuration))s remaining=\(String(format: "%.2f", boundedRemaining))s"
         )
         return boundedRemaining
+    }
+
+    private func scheduleReliableWriteWatchdog(
+        expectedJobID: UInt64,
+        expectedChunkIndex: Int,
+        peripheralID: UUID,
+        characteristicID: CBUUID
+    ) {
+        reliableWriteWatchdogTask?.cancel()
+        reliableWriteWatchdogTask = Task { [weak self, reliableWriteAcknowledgementTimeout, expectedJobID, expectedChunkIndex, peripheralID, characteristicID] in
+            try? await Task.sleep(nanoseconds: UInt64(reliableWriteAcknowledgementTimeout * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.handleReliableWriteWatchdog(
+                expectedJobID: expectedJobID,
+                expectedChunkIndex: expectedChunkIndex,
+                peripheralID: peripheralID,
+                characteristicID: characteristicID,
+                timeout: reliableWriteAcknowledgementTimeout
+            )
+        }
+    }
+
+    private func handleReliableWriteWatchdog(
+        expectedJobID: UInt64,
+        expectedChunkIndex: Int,
+        peripheralID: UUID,
+        characteristicID: CBUUID,
+        timeout: TimeInterval
+    ) {
+        guard let pendingJob,
+              pendingJob.id == expectedJobID,
+              pendingJob.mode == .reliable,
+              pendingChunkIndex == expectedChunkIndex,
+              connectedPeripheral?.identifier == peripheralID,
+              writeCharacteristic?.uuid == characteristicID,
+              isJobActive else {
+            appendStaleJobLog(expectedJobID: expectedJobID, "ignored stale reliable-write watchdog for chunk \(expectedChunkIndex + 1).")
+            return
+        }
+
+        lastWriteTimeoutDuration = timeout
+        appendJobLog(jobID: expectedJobID, "reliable write acknowledgement watchdog fired at chunk \(expectedChunkIndex + 1)/\(pendingJob.chunkCount) after \(String(format: "%.1f", timeout))s.")
+        failJob(expectedJobID: expectedJobID, message: "Timed out waiting for BLE write acknowledgement at chunk \(expectedChunkIndex + 1).")
     }
 
     private func finishJob(expectedJobID: UInt64, result: Result<Void, BluetoothPrinterServiceError>) {
@@ -1468,6 +1660,8 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         pacingPauseTask = nil
         postSendCompletionTask?.cancel()
         postSendCompletionTask = nil
+        reliableWriteWatchdogTask?.cancel()
+        reliableWriteWatchdogTask = nil
         completion?(result, bytesStarted)
     }
 
@@ -1811,6 +2005,11 @@ extension PrinterBluetoothService: CBPeripheralDelegate {
             return
         }
 
+        guard writeCharacteristic?.uuid == characteristic.uuid else {
+            appendLog("Ignored write acknowledgement for unexpected characteristic \(characteristic.uuid.uuidString).")
+            return
+        }
+
         if let error {
             failActiveJob(message: "Write failed at chunk \(pendingChunkIndex + 1). \(error.localizedDescription)")
             return
@@ -1824,6 +2023,8 @@ extension PrinterBluetoothService: CBPeripheralDelegate {
             return
         }
 
+        reliableWriteWatchdogTask?.cancel()
+        reliableWriteWatchdogTask = nil
         transferredBytes += pendingJob.chunks[pendingChunkIndex].count
         pendingChunkIndex += 1
         metrics = BluetoothPrinterMetrics(
@@ -1946,13 +2147,6 @@ private extension CBCharacteristicWriteType {
 }
 
 private extension Data {
-    var shortSHA256Fingerprint: String {
-        SHA256.hash(data: self)
-            .prefix(6)
-            .map { String(format: "%02X", $0) }
-            .joined()
-    }
-
     var hexString: String {
         map { String(format: "%02X", $0) }.joined(separator: " ")
     }

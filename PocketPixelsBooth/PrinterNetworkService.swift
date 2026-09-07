@@ -223,6 +223,30 @@ final class PrinterNetworkService {
         )
     }
 
+    func printFrozenReceipt(
+        envelope: PrintJobEnvelope,
+        host: String,
+        port: UInt16,
+        onStateChange: @escaping StateHandler,
+        completion: @escaping CompletionHandler
+    ) {
+        do {
+            try envelope.verifyPayloadIntegrity()
+        } catch {
+            complete(.failure(.developmentError(error.localizedDescription)), onStateChange: onStateChange, completion: completion)
+            return
+        }
+
+        performFrozenReceiptPrint(
+            envelope: envelope,
+            host: host,
+            port: port,
+            timeout: 30,
+            onStateChange: onStateChange,
+            completion: completion
+        )
+    }
+
     private func perform(
         host: String,
         port: UInt16,
@@ -478,6 +502,128 @@ final class PrinterNetworkService {
 
             case .failed(let error):
                 finish(.failure(.connectionFailed(error.localizedDescription)))
+
+            case .cancelled:
+                break
+
+            case .waiting, .setup, .preparing:
+                break
+
+            @unknown default:
+                break
+            }
+        }
+
+        connection.start(queue: queue)
+    }
+
+    private func performFrozenReceiptPrint(
+        envelope: PrintJobEnvelope,
+        host: String,
+        port: UInt16,
+        timeout: TimeInterval,
+        onStateChange: @escaping StateHandler,
+        completion: @escaping CompletionHandler
+    ) {
+        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedHost.isEmpty else {
+            complete(.failure(.invalidHost), onStateChange: onStateChange, completion: completion)
+            return
+        }
+
+        guard let endpointPort = NWEndpoint.Port(rawValue: port) else {
+            complete(.failure(.invalidPort), onStateChange: onStateChange, completion: completion)
+            return
+        }
+
+        let jobGate = beginJob(isConnectionTest: false, isRasterPrint: true)
+
+        guard case .allowed = jobGate else {
+            complete(.failure(jobGate.error), onStateChange: onStateChange, completion: completion)
+            return
+        }
+
+        let queue = DispatchQueue(label: "com.pocketpixels.printer-frozen-network")
+        let connection = NWConnection(host: NWEndpoint.Host(trimmedHost), port: endpointPort, using: .tcp)
+        var didFinish = false
+        var bytesStarted = false
+        var timeoutWorkItem: DispatchWorkItem?
+        storeActiveConnection(connection)
+
+        debugLog("Frozen receipt Wi-Fi job \(envelope.jobID.uuidString) started. Session: \(envelope.sessionIdentifier). Copy: \(envelope.copyIndex)/\(envelope.copyCount). Payload: \(envelope.payloadFingerprint.prefix(12)). Bytes: \(envelope.payloadByteCount).")
+
+        func update(_ state: PrinterConnectionState) {
+            DispatchQueue.main.async {
+                onStateChange(state)
+            }
+        }
+
+        func cleanup(result: Result<Void, PrinterNetworkError>) {
+            guard !didFinish else {
+                return
+            }
+
+            didFinish = true
+            timeoutWorkItem?.cancel()
+            connection.stateUpdateHandler = nil
+            connection.cancel()
+
+            let shouldActivateRecovery = result.isFailure && bytesStarted
+            if shouldActivateRecovery {
+                self.activateRecoveryLockout()
+                debugLog("Frozen receipt Wi-Fi job \(envelope.jobID.uuidString) activated recovery lockout after bytes started.")
+            }
+
+            update(.coolingDown)
+
+            queue.asyncAfter(deadline: .now() + 2) {
+                self.clearActiveJob()
+                DispatchQueue.main.async {
+                    switch result {
+                    case .success:
+                        onStateChange(.success("Receipt sent. Physical completion still requires the printer handoff window."))
+                    case .failure(let error):
+                        if shouldActivateRecovery {
+                            onStateChange(.recoveryRequired(PrinterNetworkError.printerRecoveryRequired.userMessage))
+                        } else {
+                            onStateChange(.failure(error.userMessage))
+                        }
+                    }
+
+                    completion(result)
+                }
+            }
+        }
+
+        let timeoutItem = DispatchWorkItem {
+            cleanup(result: .failure(.timedOut(host: trimmedHost, port: port)))
+        }
+        timeoutWorkItem = timeoutItem
+        queue.asyncAfter(deadline: .now() + timeout, execute: timeoutItem)
+
+        update(.connecting)
+
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                update(.connected)
+                update(.sendingPhotograph)
+                bytesStarted = true
+                connection.send(content: envelope.payload, completion: .contentProcessed { error in
+                    if let error {
+                        cleanup(result: .failure(.sendFailed(error.localizedDescription)))
+                        return
+                    }
+
+                    update(.printerProcessing)
+                    queue.asyncAfter(deadline: .now() + 1.5) {
+                        cleanup(result: .success(()))
+                    }
+                })
+
+            case .failed(let error):
+                cleanup(result: .failure(.connectionFailed(error.localizedDescription)))
 
             case .cancelled:
                 break

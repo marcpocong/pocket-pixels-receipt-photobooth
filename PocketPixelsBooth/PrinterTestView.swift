@@ -61,9 +61,17 @@ struct PrinterTestView: View {
     @State private var photoQualityCalibrationStatusMessage = "Print each profile separately with the same normalized source photo."
     @State private var photoQualityCalibrationMetricsSummary: String?
     @State private var isProcessingUnifiedQuality = false
+    @State private var stressJobCount = 10
+    @State private var stressCompletedCount = 0
+    @State private var stressFailedCount = 0
+    @State private var stressCurrentFingerprint = ""
+    @State private var spoolerSelfCheckSummary = "Not run."
+    @State private var isStressTestRunning = false
+    @State private var stopStressAfterCurrentJob = false
 #endif
 
     private let printerService = PrinterNetworkService()
+    private let printerCoordinator = PrinterCoordinator.shared
     private let discoveryService = PrinterDiscoveryService()
     private let actionGridColumns = [
         GridItem(.adaptive(minimum: 170, maximum: 260), spacing: 12, alignment: .leading)
@@ -400,6 +408,8 @@ struct PrinterTestView: View {
             }
 
             bluetoothRasterActions
+            printerStressTestSection
+            printAuditSection
 
             if !bluetoothPrinterService.diagnosticLog.isEmpty {
                 DisclosureGroup("Bluetooth Transport Log") {
@@ -614,6 +624,79 @@ struct PrinterTestView: View {
                 }
                 .buttonStyle(.bordered)
             }
+        }
+    }
+
+    private var printerStressTestSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Sequential Print Stress Test")
+                .font(.headline)
+
+            Picker("Jobs", selection: $stressJobCount) {
+                ForEach([10, 25, 50, 100], id: \.self) { count in
+                    Text("\(count)").tag(count)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 320)
+            .disabled(isStressTestRunning)
+
+            HStack(spacing: 12) {
+                Button {
+                    runSequentialStressTest()
+                } label: {
+                    Label("Run Stress Test", systemImage: "printer.filled.and.paper")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isStressTestRunning || isAnyPrinterBusy)
+
+                Button {
+                    stopStressAfterCurrentJob = true
+                } label: {
+                    Label("Stop After Current", systemImage: "stop.circle")
+                }
+                .buttonStyle(.bordered)
+                .disabled(!isStressTestRunning)
+            }
+
+            Button {
+                spoolerSelfCheckSummary = PrintSpoolerDebugSelfChecks.run().summary
+            } label: {
+                Label("Run Spooler Self-Check", systemImage: "checklist.checked")
+            }
+            .buttonStyle(.bordered)
+            .disabled(isStressTestRunning || isAnyPrinterBusy)
+
+            Text("Progress \(stressCompletedCount + stressFailedCount) / \(stressJobCount). Pass \(stressCompletedCount). Fail \(stressFailedCount). Mode \(ProductionPrintTransportPolicy.safeIntegrity.displayName).")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+
+            Text(spoolerSelfCheckSummary)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+
+            if !stressCurrentFingerprint.isEmpty {
+                Text("Current \(stressCurrentFingerprint)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var printAuditSection: some View {
+        DisclosureGroup("Recent Print Audit") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(printerCoordinator.auditExportText)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.top, 8)
         }
     }
 
@@ -1258,7 +1341,7 @@ struct PrinterTestView: View {
 
 #if DEBUG
     private var isBluetoothPrinterBusy: Bool {
-        bluetoothPrinterService.jobState.isWorking
+        bluetoothPrinterService.jobState.isWorking || printerCoordinator.isWorking
     }
 
     private var bluetoothRasterStatusColor: Color {
@@ -1474,13 +1557,11 @@ struct PrinterTestView: View {
             return
         }
 
-        bluetoothPrinterService.printPhoto(
+        printDiagnosticEnvelope(
+            heading: ThermalImageRasterizer.photoTestHeading(),
             rasterizedImage: selectedRasterizedImage,
-            mode: bluetoothRasterMode,
-            balancedProfile: balancedBluetoothProfile,
-            calibrationProfileName: bluetoothRasterMode == .fast
-                ? thermalPhotoCalibrationProfile.displayName
-                : ThermalPhotoCalibrationProfile.original.displayName
+            sessionIdentifier: "DEBUG-PHOTO-\(ReceiptComposer.makeSessionIdentifier(date: Date()))",
+            policy: policy(for: bluetoothRasterMode)
         )
     }
 
@@ -1502,10 +1583,16 @@ struct PrinterTestView: View {
                 photoQualityProfile: .customerPrintDefault
             )
 
-            bluetoothPrinterService.printReceipt(
-                receipt,
-                mode: bluetoothRasterMode,
-                balancedProfile: balancedBluetoothProfile
+            let image = UIImage(data: receipt.imagePNGData)
+            guard let image else {
+                throw ReceiptComposerError.renderFailed
+            }
+            let rasterized = try ThermalImageRasterizer.rasterize(image, purpose: .completeReceipt)
+            printDiagnosticEnvelope(
+                heading: ThermalImageRasterizer.receiptPrintHeading(),
+                rasterizedImage: rasterized,
+                sessionIdentifier: receipt.sessionIdentifier,
+                policy: policy(for: bluetoothRasterMode)
             )
         } catch {
             photoStatusMessage = error.localizedDescription
@@ -1518,10 +1605,11 @@ struct PrinterTestView: View {
             return
         }
 
-        bluetoothPrinterService.printRasterizedReceipt(
+        printDiagnosticEnvelope(
+            heading: ThermalImageRasterizer.receiptPrintHeading(),
             rasterizedImage: duoConsistencyRasterizedImage,
-            mode: .fast,
-            balancedProfile: balancedBluetoothProfile
+            sessionIdentifier: "DEBUG-DUO-\(ReceiptComposer.makeSessionIdentifier(date: Date()))",
+            policy: .fastDiagnostic
         )
     }
 
@@ -1619,11 +1707,160 @@ struct PrinterTestView: View {
             return
         }
 
-        bluetoothPrinterService.printRasterizedReceipt(
+        printDiagnosticEnvelope(
+            heading: ThermalImageRasterizer.receiptPrintHeading(),
             rasterizedImage: stripProgressionRasterizedImage,
-            mode: .fast,
-            balancedProfile: balancedBluetoothProfile
+            sessionIdentifier: "DEBUG-STRIP-\(ReceiptComposer.makeSessionIdentifier(date: Date()))",
+            policy: .fastDiagnostic
         )
+    }
+
+    private func policy(for mode: BluetoothPrinterRasterMode) -> ProductionPrintTransportPolicy {
+        switch mode {
+        case .reliable:
+            .safeIntegrity
+        case .balanced:
+            .experimentalBalanced
+        case .fast:
+            .fastDiagnostic
+        }
+    }
+
+    private func printDiagnosticEnvelope(
+        heading: Data,
+        rasterizedImage: ThermalRasterizedImage,
+        sessionIdentifier: String,
+        policy: ProductionPrintTransportPolicy,
+        batchID: UUID = UUID(),
+        copyIndex: Int = 1,
+        copyCount: Int = 1,
+        completion: ((Result<Void, Error>) -> Void)? = nil
+    ) {
+        do {
+            let envelope = try PrintJobEnvelope.diagnostic(
+                heading: heading,
+                rasterizedImage: rasterizedImage,
+                finishing: ThermalImageRasterizer.photoTestFinishing(),
+                sessionIdentifier: sessionIdentifier,
+                copyIndex: copyIndex,
+                copyCount: copyCount,
+                batchID: batchID,
+                transportPolicy: policy
+            )
+            stressCurrentFingerprint = String(envelope.payloadFingerprint.prefix(12))
+            printerCoordinator.printEnvelope(
+                envelope,
+                wifiHost: printerIP,
+                wifiPort: parsedPort
+            ) { state in
+                connectionState = state
+            } completion: { result in
+                completion?(result)
+            }
+        } catch {
+            connectionState = .failure(error.localizedDescription)
+            completion?(.failure(error))
+        }
+    }
+
+    private func runSequentialStressTest() {
+        guard !isStressTestRunning else { return }
+
+        let total = stressJobCount
+        let batchID = UUID()
+        isStressTestRunning = true
+        stopStressAfterCurrentJob = false
+        stressCompletedCount = 0
+        stressFailedCount = 0
+        stressCurrentFingerprint = ""
+
+        Task {
+            for index in 1...total {
+                guard !stopStressAfterCurrentJob else { break }
+
+                do {
+                    let raster = try Self.makeStressRaster(index: index, total: total)
+                    let result = await printStressJob(
+                        rasterizedImage: raster,
+                        batchID: batchID,
+                        index: index,
+                        total: total
+                    )
+
+                    switch result {
+                    case .success:
+                        stressCompletedCount += 1
+                    case .failure(let error):
+                        stressFailedCount += 1
+                        photoStatusMessage = error.localizedDescription
+                        break
+                    }
+                } catch {
+                    stressFailedCount += 1
+                    photoStatusMessage = error.localizedDescription
+                    break
+                }
+            }
+
+            isStressTestRunning = false
+            stopStressAfterCurrentJob = false
+        }
+    }
+
+    private func printStressJob(
+        rasterizedImage: ThermalRasterizedImage,
+        batchID: UUID,
+        index: Int,
+        total: Int
+    ) async -> Result<Void, Error> {
+        await withCheckedContinuation { continuation in
+            printDiagnosticEnvelope(
+                heading: ThermalImageRasterizer.receiptPrintHeading(),
+                rasterizedImage: rasterizedImage,
+                sessionIdentifier: String(format: "STRESS-%03d", index),
+                policy: .safeIntegrity,
+                batchID: batchID,
+                copyIndex: index,
+                copyCount: total
+            ) { result in
+                continuation.resume(returning: result)
+            }
+        }
+    }
+
+    private static func makeStressRaster(index: Int, total: Int) throws -> ThermalRasterizedImage {
+        let size = CGSize(width: ThermalImageRasterizer.printWidth, height: 620)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+
+            let title = String(format: "STRESS %03d / %03d", index, total)
+            let marker = String(repeating: index.isMultiple(of: 2) ? "# " : "* ", count: 20)
+            let text = "\(title)\nPocket Pixels Print Spooler\n\(marker)\n\(UUID().uuidString.prefix(8))"
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.monospacedSystemFont(ofSize: 34, weight: .bold),
+                .foregroundColor: UIColor.black,
+                .paragraphStyle: paragraph
+            ]
+            text.draw(
+                in: CGRect(x: 20, y: 70, width: size.width - 40, height: 250),
+                withAttributes: attributes
+            )
+
+            UIColor.black.setFill()
+            for row in 0..<12 {
+                for column in 0..<12 where (row + column + index).isMultiple(of: 2) {
+                    context.fill(CGRect(x: 96 + column * 32, y: 350 + row * 18, width: 22, height: 10))
+                }
+            }
+        }
+
+        return try ThermalImageRasterizer.rasterize(image, purpose: .completeReceipt)
     }
 
     private func printPhotoQualityCalibration(profile: PocketPixelsThermalPhotoProfile) {
@@ -1645,10 +1882,11 @@ struct PrinterTestView: View {
                 }.value
 
                 photoQualityCalibrationStatusMessage = result.summary
-                bluetoothPrinterService.printRasterizedReceipt(
+                self.printDiagnosticEnvelope(
+                    heading: ThermalImageRasterizer.receiptPrintHeading(),
                     rasterizedImage: result.rasterizedImage,
-                    mode: .fast,
-                    balancedProfile: balancedBluetoothProfile
+                    sessionIdentifier: "DEBUG-CAL-\(ReceiptComposer.makeSessionIdentifier(date: Date()))",
+                    policy: .fastDiagnostic
                 )
             } catch {
                 photoQualityCalibrationStatusMessage = error.localizedDescription
@@ -1669,10 +1907,11 @@ struct PrinterTestView: View {
                 }.value
 
                 photoQualityCalibrationStatusMessage = result.summary
-                bluetoothPrinterService.printRasterizedReceipt(
+                self.printDiagnosticEnvelope(
+                    heading: ThermalImageRasterizer.receiptPrintHeading(),
                     rasterizedImage: result.rasterizedImage,
-                    mode: .fast,
-                    balancedProfile: balancedBluetoothProfile
+                    sessionIdentifier: "DEBUG-TONE-\(ReceiptComposer.makeSessionIdentifier(date: Date()))",
+                    policy: .fastDiagnostic
                 )
             } catch {
                 photoQualityCalibrationStatusMessage = error.localizedDescription

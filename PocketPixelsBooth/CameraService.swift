@@ -35,10 +35,17 @@ enum CameraServiceError: Error, LocalizedError {
     }
 }
 
+enum CameraServiceEvent {
+    case interrupted(String)
+    case interruptionEnded
+    case runtimeError(String, shouldRestart: Bool)
+}
+
 final class CameraService: NSObject {
     typealias Completion = (Result<Void, CameraServiceError>) -> Void
     typealias PhotoCompletion = (Result<UIImage, CameraServiceError>) -> Void
     typealias MessageHandler = (String) -> Void
+    typealias EventHandler = (CameraServiceEvent) -> Void
 
     let session = AVCaptureSession()
 
@@ -55,6 +62,7 @@ final class CameraService: NSObject {
     private var notificationTokens: [NSObjectProtocol] = []
 
     var onSessionMessage: MessageHandler?
+    var onEvent: EventHandler?
 
     override init() {
         super.init()
@@ -103,6 +111,25 @@ final class CameraService: NSObject {
         sessionQueue.async {
             if self.session.isRunning {
                 self.session.stopRunning()
+            }
+        }
+    }
+
+    func restartSession(completion: @escaping Completion) {
+        sessionQueue.async {
+            if self.session.isRunning {
+                self.session.stopRunning()
+            }
+            self.isCaptureInProgress = false
+
+            do {
+                try self.configureSessionIfNeeded()
+                self.session.startRunning()
+                self.completeOnMain(.success(()), completion: completion)
+            } catch let error as CameraServiceError {
+                self.completeOnMain(.failure(error), completion: completion)
+            } catch {
+                self.completeOnMain(.failure(.configurationFailed(error.localizedDescription)), completion: completion)
             }
         }
     }
@@ -262,7 +289,9 @@ final class CameraService: NSObject {
                 object: session,
                 queue: .main
             ) { [weak self] notification in
-                self?.onSessionMessage?(Self.interruptionMessage(from: notification))
+                let message = Self.interruptionMessage(from: notification)
+                self?.onSessionMessage?(message)
+                self?.onEvent?(.interrupted(message))
             }
         )
 
@@ -273,6 +302,7 @@ final class CameraService: NSObject {
                 queue: .main
             ) { [weak self] _ in
                 self?.onSessionMessage?("Camera session resumed.")
+                self?.onEvent?(.interruptionEnded)
             }
         )
 
@@ -283,7 +313,10 @@ final class CameraService: NSObject {
                 queue: .main
             ) { [weak self] notification in
                 let error = notification.userInfo?[AVCaptureSessionErrorKey] as? NSError
-                self?.onSessionMessage?("Camera session error: \(error?.localizedDescription ?? "Unknown error")")
+                let message = error?.localizedDescription ?? "Unknown error"
+                let shouldRestart = error?.code == AVError.mediaServicesWereReset.rawValue
+                self?.onSessionMessage?("Camera is getting ready...")
+                self?.onEvent?(.runtimeError(message, shouldRestart: shouldRestart))
             }
         )
     }

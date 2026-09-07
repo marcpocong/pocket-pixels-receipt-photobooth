@@ -90,6 +90,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
     private func uploadPendingPayload(_ payload: GalleryPreparedUploadPayload, deviceToken: String) async throws -> GalleryUploadResult {
         try beginUpload(galleryToken: payload.galleryToken)
         defer { endUpload(galleryToken: payload.galleryToken) }
+        try? pendingStore?.recordAttempt(galleryToken: payload.galleryToken)
         let configuration = try configurationProvider()
         return try await postQueuedPayload(payload, deviceToken: deviceToken, configuration: configuration)
     }
