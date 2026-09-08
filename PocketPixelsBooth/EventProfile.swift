@@ -11,6 +11,9 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
     nonisolated static let subtitleLimit = 60
     nonisolated static let locationLimit = 56
     nonisolated static let shortMessageLimit = 80
+    nonisolated static let customerTitleLimit = 52
+    nonisolated static let customerSubtitleLimit = 72
+    nonisolated static let customerMessageLimit = 100
 
     var isEnabled: Bool
     var eventName: String
@@ -19,6 +22,12 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
     var eventDate: Date
     var location: String
     var shortMessage: String
+    var customerScreenEnabled: Bool
+    var customerTitle: String
+    var customerSubtitle: String
+    var customerWelcomeMessage: String
+    var customerThankYouMessage: String
+    var customerTheme: CustomerScreenTheme
 
     nonisolated init(
         isEnabled: Bool,
@@ -27,7 +36,13 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         includeEventDate: Bool,
         eventDate: Date,
         location: String = "",
-        shortMessage: String
+        shortMessage: String,
+        customerScreenEnabled: Bool = false,
+        customerTitle: String = "",
+        customerSubtitle: String = "",
+        customerWelcomeMessage: String = "",
+        customerThankYouMessage: String = "",
+        customerTheme: CustomerScreenTheme = .classic
     ) {
         self.isEnabled = isEnabled
         self.eventName = eventName
@@ -36,6 +51,12 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         self.eventDate = eventDate
         self.location = location
         self.shortMessage = shortMessage
+        self.customerScreenEnabled = customerScreenEnabled
+        self.customerTitle = customerTitle
+        self.customerSubtitle = customerSubtitle
+        self.customerWelcomeMessage = customerWelcomeMessage
+        self.customerThankYouMessage = customerThankYouMessage
+        self.customerTheme = customerTheme
     }
 
     enum CodingKeys: String, CodingKey {
@@ -46,6 +67,12 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         case eventDate
         case location
         case shortMessage
+        case customerScreenEnabled
+        case customerTitle
+        case customerSubtitle
+        case customerWelcomeMessage
+        case customerThankYouMessage
+        case customerTheme
     }
 
     init(from decoder: Decoder) throws {
@@ -57,6 +84,12 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         eventDate = try container.decode(Date.self, forKey: .eventDate)
         location = try container.decodeIfPresent(String.self, forKey: .location) ?? ""
         shortMessage = try container.decode(String.self, forKey: .shortMessage)
+        customerScreenEnabled = try container.decodeIfPresent(Bool.self, forKey: .customerScreenEnabled) ?? false
+        customerTitle = try container.decodeIfPresent(String.self, forKey: .customerTitle) ?? ""
+        customerSubtitle = try container.decodeIfPresent(String.self, forKey: .customerSubtitle) ?? ""
+        customerWelcomeMessage = try container.decodeIfPresent(String.self, forKey: .customerWelcomeMessage) ?? ""
+        customerThankYouMessage = try container.decodeIfPresent(String.self, forKey: .customerThankYouMessage) ?? ""
+        customerTheme = try container.decodeIfPresent(CustomerScreenTheme.self, forKey: .customerTheme) ?? .classic
     }
 
     nonisolated static var pocketPixelsDefault: EventProfile {
@@ -67,7 +100,13 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
             includeEventDate: false,
             eventDate: Date(),
             location: "",
-            shortMessage: ""
+            shortMessage: "",
+            customerScreenEnabled: false,
+            customerTitle: "",
+            customerSubtitle: "",
+            customerWelcomeMessage: "",
+            customerThankYouMessage: "",
+            customerTheme: .classic
         )
     }
 
@@ -88,8 +127,29 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
             includeEventDate: includeEventDate,
             eventDate: eventDate,
             location: Self.normalizedSingleLine(location, limit: Self.locationLimit),
-            shortMessage: Self.normalizedSingleLine(shortMessage, limit: Self.shortMessageLimit)
+            shortMessage: Self.normalizedSingleLine(shortMessage, limit: Self.shortMessageLimit),
+            customerScreenEnabled: customerScreenEnabled,
+            customerTitle: Self.normalizedSingleLine(customerTitle, limit: Self.customerTitleLimit),
+            customerSubtitle: Self.normalizedSingleLine(customerSubtitle, limit: Self.customerSubtitleLimit),
+            customerWelcomeMessage: Self.normalizedSingleLine(customerWelcomeMessage, limit: Self.customerMessageLimit),
+            customerThankYouMessage: Self.normalizedSingleLine(customerThankYouMessage, limit: Self.customerMessageLimit),
+            customerTheme: customerTheme
         )
+    }
+
+    nonisolated var activeCustomerSnapshot: EventProfile? {
+        let value = normalized()
+        return value.customerScreenEnabled ? value : nil
+    }
+
+    nonisolated var customerDisplayTitle: String {
+        let value = normalized()
+        return value.customerTitle.isEmpty ? value.eventName : value.customerTitle
+    }
+
+    nonisolated var customerDisplaySubtitle: String {
+        let value = normalized()
+        return value.customerSubtitle.isEmpty ? value.subtitle : value.customerSubtitle
     }
 
     nonisolated var receiptBlockContent: EventReceiptBlockContent? {
@@ -143,6 +203,7 @@ struct EventReceiptBlockContent: Equatable, Sendable {
 
 enum EventProfileStore {
     private static let storageKey = "pocketPixels.eventProfile.v1"
+    static let didChangeNotification = Notification.Name("pocketPixels.eventProfile.didChange")
 
     static func load() -> EventProfile {
         guard let data = UserDefaults.standard.data(forKey: storageKey),
@@ -159,6 +220,7 @@ enum EventProfileStore {
         }
 
         UserDefaults.standard.set(data, forKey: storageKey)
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
 }
 
@@ -168,12 +230,8 @@ struct EventSetupView: View {
 
     var body: some View {
         Form {
-            Section("Event Profile") {
-                Toggle("Event Branding", isOn: $draft.isEnabled)
-                    .accessibilityHint("When enabled, new customer receipts include the saved event text.")
-
+            Section("Event Identity") {
                 limitedTextField("Event Name", text: $draft.eventName, limit: EventProfile.eventNameLimit)
-                    .accessibilityHint("Required when event branding is enabled.")
 
                 limitedTextField("Subtitle / Host", text: $draft.subtitle, limit: EventProfile.subtitleLimit)
 
@@ -184,9 +242,45 @@ struct EventSetupView: View {
                 }
 
                 limitedTextField("Location", text: $draft.location, limit: EventProfile.locationLimit)
-                    .accessibilityHint("Optional event location printed compactly with the date on new receipts.")
+            }
 
-                limitedTextField("Short Message", text: $draft.shortMessage, limit: EventProfile.shortMessageLimit, autocapitalization: .sentences)
+            Section("Customer Screens") {
+                Toggle("Event Screen Branding", isOn: $draft.customerScreenEnabled)
+                    .accessibilityHint("Shows event wording and the selected theme on customer screens. It does not change the printed receipt.")
+
+                limitedTextField("Screen Title", text: $draft.customerTitle, limit: EventProfile.customerTitleLimit)
+                    .accessibilityHint("Optional. Event Name is used when this is blank.")
+
+                limitedTextField("Screen Subtitle", text: $draft.customerSubtitle, limit: EventProfile.customerSubtitleLimit)
+                    .accessibilityHint("Optional. Subtitle or Host is used when this is blank.")
+
+                limitedTextField("Welcome Message", text: $draft.customerWelcomeMessage, limit: EventProfile.customerMessageLimit, autocapitalization: .sentences)
+                limitedTextField("Thank-you Message", text: $draft.customerThankYouMessage, limit: EventProfile.customerMessageLimit, autocapitalization: .sentences)
+
+                Picker("Screen Theme", selection: $draft.customerTheme) {
+                    ForEach(CustomerScreenTheme.allCases) { theme in
+                        Text(theme.displayName).tag(theme)
+                    }
+                }
+
+                Text(draft.customerTheme.summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Customer Experience Preview") {
+                CustomerExperiencePreviewView(profile: draft.normalized())
+            }
+
+            Section("Printed Receipt") {
+                Toggle("Receipt Event Branding", isOn: $draft.isEnabled)
+                    .accessibilityHint("When enabled, new customer receipts include the saved event text.")
+
+                Text("Uses Event Name, Subtitle / Host, Date and Location from Event Identity above.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                limitedTextField("Receipt Message", text: $draft.shortMessage, limit: EventProfile.shortMessageLimit, autocapitalization: .sentences)
             }
 
             Section("Event Receipt Preview") {
@@ -202,8 +296,10 @@ struct EventSetupView: View {
 
                 Button("Use Pocket Pixels Default") {
                     draft.isEnabled = false
+                    draft.customerScreenEnabled = false
+                    draft.customerTheme = .classic
                     EventProfileStore.save(draft)
-                    statusMessage = "Event branding is off for future sessions."
+                    statusMessage = "Screen and receipt branding are off for future sessions."
                 }
             } footer: {
                 Text(statusMessage)
@@ -248,8 +344,72 @@ struct EventSetupView: View {
 
         draft = normalized
         EventProfileStore.save(normalized)
-        statusMessage = normalized.isEnabled ? "Event profile saved for future sessions." : "Event branding is off for future sessions."
+        statusMessage = normalized.isEnabled || normalized.customerScreenEnabled
+            ? "Event profile saved for future sessions."
+            : "Event branding is off for future sessions."
     }
+}
+
+struct CustomerExperiencePreviewView: View {
+    let profile: EventProfile
+
+    private var activeProfile: EventProfile? { profile.activeCustomerSnapshot }
+    private var theme: CustomerScreenTheme { activeProfile?.customerTheme ?? .classic }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            previewCard(title: "WELCOME", message: welcomeText, icon: "camera.fill")
+            previewCard(title: "THANK YOU", message: thankYouText, icon: "qrcode")
+
+            Text("Static preview only. It does not start a session, create a gallery, save an archive, change counters or print.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private func previewCard(title: String, message: String, icon: String) -> some View {
+        VStack(spacing: 8) {
+            Label(title, systemImage: icon)
+                .font(.caption.bold())
+                .tracking(1.2)
+            Text(eventTitle)
+                .font(.title3.bold())
+                .multilineTextAlignment(.center)
+            if !eventSubtitle.isEmpty {
+                Text(eventSubtitle)
+                    .font(.subheadline)
+                    .multilineTextAlignment(.center)
+            }
+            Text(message)
+                .font(.footnote)
+                .multilineTextAlignment(.center)
+        }
+        .foregroundStyle(theme.customerTextColor)
+        .frame(maxWidth: .infinity)
+        .padding(18)
+        .background(
+            LinearGradient(colors: theme.backgroundColors, startPoint: .topLeading, endPoint: .bottomTrailing)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(theme.customerTextColor.opacity(0.16), lineWidth: 1)
+        }
+    }
+
+    private var eventTitle: String {
+        guard let activeProfile, !activeProfile.customerDisplayTitle.isEmpty else { return "Pocket Pixels" }
+        return activeProfile.customerDisplayTitle
+    }
+
+    private var eventSubtitle: String { activeProfile?.customerDisplaySubtitle ?? "Receipt Photobooth" }
+    private var welcomeText: String { activeProfile?.customerWelcomeMessage.nonEmpty ?? "Make your moment. Print your keepsake." }
+    private var thankYouText: String { activeProfile?.customerThankYouMessage.nonEmpty ?? "Thanks for making memories with us." }
+}
+
+private extension String {
+    var nonEmpty: String? { isEmpty ? nil : self }
 }
 
 private struct EventReceiptComposerPreview: View {

@@ -45,6 +45,7 @@ final class BoothSessionViewModel: ObservableObject {
     }
     @Published var currentPrintCopy = 0
     @Published var completedPrintCopies = 0
+    @Published private(set) var customerEventProfile = EventProfileStore.load().normalized()
 
     let cameraService = CameraService()
 
@@ -138,6 +139,20 @@ final class BoothSessionViewModel: ObservableObject {
         return "\(composedReceipt.format.displayName) receipt"
     }
 
+    var customerTheme: CustomerScreenTheme {
+        customerEventProfile.activeCustomerSnapshot?.customerTheme ?? .classic
+    }
+
+    var isCustomerResetSafe: Bool {
+        CustomerIdleResetPolicy.isEligible(
+            state: state,
+            printerWorking: printerState.isWorking,
+            printBatchActive: isPrintBatchActive,
+            recoveryLocked: printerCoordinator.requiresRecovery,
+            unresolvedPrint: operationalState.hasUnresolvedPrint
+        )
+    }
+
     init() {
         cameraService.onSessionMessage = { [weak self] message in
             self?.statusMessage = message
@@ -159,6 +174,7 @@ final class BoothSessionViewModel: ObservableObject {
         }
 
         operationalState.refresh()
+        refreshCustomerExperience()
         guard !printerCoordinator.requiresRecovery, !operationalState.hasUnresolvedPrint else {
             state = .recoveryRequired("Printer needs operator attention.")
             return
@@ -180,7 +196,7 @@ final class BoothSessionViewModel: ObservableObject {
         let sessionDate = Date()
         sessionCreatedAt = sessionDate
         sessionIdentifier = ReceiptComposer.makeSessionIdentifier(date: sessionDate)
-        sessionEventProfile = EventProfileStore.load().activeReceiptSnapshot
+        sessionEventProfile = customerEventProfile
         do {
             let token = try GalleryTokenGenerator.makeGalleryToken()
             let url = try GalleryURLBuilder.makeGalleryURL(customerGalleryBaseURL: CustomerGalleryConfiguration.load().baseURL, galleryToken: token)
@@ -604,6 +620,18 @@ final class BoothSessionViewModel: ObservableObject {
 
     func resetAfterDone() {
         resetToWelcome()
+    }
+
+    func refreshCustomerExperience() {
+        guard state == .welcome || state == .choosingFormat else { return }
+        customerEventProfile = EventProfileStore.load().normalized()
+    }
+
+    @discardableResult
+    func resetAbandonedSessionIfSafe() -> Bool {
+        guard isCustomerResetSafe else { return false }
+        resetToWelcome()
+        return true
     }
 
     func retryQueuedGalleryUploads() {

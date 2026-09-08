@@ -41,6 +41,13 @@ struct SystemHealthView: View {
                     .disabled(operations.customerSessionActive || operations.isPreflightRunning || printer.isWorking)
                 NavigationLink("Gallery Credentials") { OperatorGallerySettingsView() }
                 NavigationLink("Event Profile") { EventSetupView() }
+                NavigationLink("Preview Customer Experience") {
+                    ScrollView {
+                        CustomerExperiencePreviewView(profile: EventProfileStore.load())
+                            .padding()
+                    }
+                    .navigationTitle("Customer Preview")
+                }
                 NavigationLink("Printer Connection Setup") { ScrollView { PrinterSetupView() } }
                     .disabled(printer.isWorking)
             }

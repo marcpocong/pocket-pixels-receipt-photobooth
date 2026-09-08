@@ -25,6 +25,9 @@ struct BoothSessionView: View {
     @State private var progressMotionActive = false
     @State private var thankYouMotionActive = false
     @State private var shutterFlashActive = false
+    @State private var idleResetTask: Task<Void, Never>?
+    @State private var showsIdleWarning = false
+    @State private var idleSecondsRemaining = CustomerIdleResetPolicy.warningDuration
 #if DEBUG
     @State private var showingEndNoPrintConfirmation = false
     @State private var showingReceiptDebugTools = false
@@ -57,6 +60,12 @@ struct BoothSessionView: View {
                 boothContent
                     .id(customerScreenTransitionKey)
                     .transition(customerScreenTransition)
+
+                if showsIdleWarning {
+                    idleWarningOverlay
+                        .transition(.opacity)
+                        .zIndex(10)
+                }
             }
             .animation(customerScreenAnimation, value: customerScreenTransitionKey)
             .navigationTitle(usesCustomerChromeHidden ? "" : "Booth Session")
@@ -88,12 +97,24 @@ struct BoothSessionView: View {
             }
             .onChange(of: scenePhase) { _, newPhase in
                 viewModel.handleScenePhase(newPhase)
+                if newPhase == .active {
+                    scheduleIdleReset()
+                } else {
+                    cancelIdleReset()
+                }
             }
             .onChange(of: viewModel.state) { oldState, newState in
                 if onAdminAccessRequested != nil {
                     operations.customerSessionActive = newState != .welcome && newState != .thankYou
                 }
                 handleCustomerStateChange(from: oldState, to: newState)
+                scheduleIdleReset()
+            }
+            .onChange(of: viewModel.selectedPrintCopies) { _, _ in
+                scheduleIdleReset()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: EventProfileStore.didChangeNotification)) { _ in
+                viewModel.refreshCustomerExperience()
             }
 #if DEBUG
             .onChange(of: viewModel.state) { _, newState in
@@ -104,9 +125,12 @@ struct BoothSessionView: View {
 #endif
             .task {
                 handleCustomerStateChange(from: nil, to: viewModel.state)
+                viewModel.refreshCustomerExperience()
                 viewModel.preparePrinter()
                 viewModel.retryQueuedGalleryUploads()
+                scheduleIdleReset()
             }
+            .onDisappear { cancelIdleReset() }
         }
         .preferredColorScheme(.light)
     }
@@ -114,11 +138,7 @@ struct BoothSessionView: View {
     @ViewBuilder
     private var boothBackground: some View {
         LinearGradient(
-            colors: [
-                PocketPixelsTheme.ColorPalette.paper,
-                PocketPixelsTheme.ColorPalette.brandBlush.opacity(0.34),
-                PocketPixelsTheme.ColorPalette.paperWarm.opacity(0.72)
-            ],
+            colors: viewModel.customerTheme.backgroundColors,
             startPoint: .top,
             endPoint: .bottom
         )
@@ -211,11 +231,7 @@ struct BoothSessionView: View {
                                 .padding(.leading, 28)
                         }
 
-                    Text("make your moment. print your keepsake.")
-                        .font(.system(size: 23, weight: .regular, design: .serif))
-                        .foregroundStyle(PocketPixelsTheme.ColorPalette.maroonMuted.opacity(0.94))
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
+                    customerWelcomeIdentity
                 }
                 .frame(width: contentWidth)
                 .pocketPixelsEntrance(active: welcomeMotionActive, reduceMotion: reduceMotion)
@@ -291,6 +307,38 @@ struct BoothSessionView: View {
         .onDisappear {
             welcomeMotionActive = false
             welcomeReceiptFloatActive = false
+        }
+    }
+
+    @ViewBuilder
+    private var customerWelcomeIdentity: some View {
+        if let profile = viewModel.customerEventProfile.activeCustomerSnapshot {
+            VStack(spacing: 6) {
+                if !profile.customerDisplayTitle.isEmpty {
+                    Text(profile.customerDisplayTitle)
+                        .font(.system(size: 34, weight: .bold, design: .serif))
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.72)
+                }
+                if !profile.customerDisplaySubtitle.isEmpty {
+                    Text(profile.customerDisplaySubtitle)
+                        .font(.system(size: 20, weight: .semibold))
+                        .lineLimit(2)
+                }
+                Text(profile.customerWelcomeMessage.isEmpty ? "Make your moment. Print your keepsake." : profile.customerWelcomeMessage)
+                    .font(.system(size: 18, weight: .regular, design: .serif))
+                    .lineLimit(2)
+            }
+            .foregroundStyle(viewModel.customerTheme.customerTextColor)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: 600)
+            .accessibilityElement(children: .combine)
+        } else {
+            Text("make your moment. print your keepsake.")
+                .font(.system(size: 23, weight: .regular, design: .serif))
+                .foregroundStyle(PocketPixelsTheme.ColorPalette.maroonMuted.opacity(0.94))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -1231,6 +1279,16 @@ struct BoothSessionView: View {
                     .padding(.top, 14)
                     .pocketPixelsEntrance(active: thankYouMotionActive, reduceMotion: reduceMotion, delay: 0.22, offset: 8)
 
+                if let message = customerThankYouMessage {
+                    Text(message)
+                        .font(.system(size: 18, weight: .medium, design: .serif))
+                        .foregroundStyle(viewModel.customerTheme.customerTextColor)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(3)
+                        .frame(width: contentWidth * 0.82)
+                        .padding(.top, 14)
+                }
+
                 Button {
                     viewModel.resetAfterDone()
                 } label: {
@@ -1344,7 +1402,8 @@ struct BoothSessionView: View {
     }
 
     private func errorScreen(message: String) -> some View {
-        GeometryReader { proxy in
+        let customerError = customerErrorKind(for: message)
+        return GeometryReader { proxy in
             let contentWidth = clampedContentWidth(for: proxy, maximum: 620)
 
             VStack(spacing: 18) {
@@ -1352,12 +1411,12 @@ struct BoothSessionView: View {
 
                 PocketPixelsLightboxLockup(scale: .compact)
 
-                Text("Something needs attention")
+                Text(customerError.title)
                     .font(.system(size: 46, weight: .black))
                     .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
                     .multilineTextAlignment(.center)
 
-                Text("Please ask the booth operator for help.")
+                Text(customerError.guidance)
                     .font(.system(size: 20, weight: .medium))
                     .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
                     .multilineTextAlignment(.center)
@@ -1378,6 +1437,81 @@ struct BoothSessionView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(PocketPixelsTheme.Spacing.screenPadding)
+    }
+
+    private var customerThankYouMessage: String? {
+        guard let profile = viewModel.customerEventProfile.activeCustomerSnapshot else { return nil }
+        return profile.customerThankYouMessage.isEmpty ? nil : profile.customerThankYouMessage
+    }
+
+    private func customerErrorKind(for technicalMessage: String) -> CustomerErrorKind {
+        CustomerErrorKind.classify(technicalMessage: technicalMessage)
+    }
+
+    private var idleWarningOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.42)
+                .ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                Text("Still there?")
+                    .font(.system(size: 42, weight: .black))
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
+
+                Text("Session resets in \(idleSecondsRemaining) seconds")
+                    .font(.system(size: 21, weight: .medium))
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+
+                Button("Continue Session") {
+                    scheduleIdleReset()
+                }
+                .buttonStyle(PocketPixelsPrimaryButtonStyle())
+                .frame(minWidth: 300)
+                .padding(.top, 8)
+            }
+            .padding(38)
+            .background(PocketPixelsTheme.ColorPalette.acrylic)
+            .clipShape(RoundedRectangle(cornerRadius: 18))
+            .shadow(radius: 24)
+            .accessibilityElement(children: .contain)
+        }
+    }
+
+    private func scheduleIdleReset() {
+        cancelIdleReset()
+        guard scenePhase == .active, viewModel.isCustomerResetSafe else { return }
+
+        let state = viewModel.state
+        let initialDelay = CustomerIdleResetPolicy.initialDelay(for: state)
+        idleResetTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .seconds(initialDelay))
+                guard viewModel.isCustomerResetSafe, viewModel.state == state else { return }
+
+                idleSecondsRemaining = CustomerIdleResetPolicy.warningDuration
+                showsIdleWarning = true
+                while idleSecondsRemaining > 0 {
+                    try await Task.sleep(for: .seconds(1))
+                    guard viewModel.isCustomerResetSafe, viewModel.state == state else {
+                        showsIdleWarning = false
+                        return
+                    }
+                    idleSecondsRemaining -= 1
+                }
+
+                showsIdleWarning = false
+                _ = viewModel.resetAbandonedSessionIfSafe()
+            } catch {
+                showsIdleWarning = false
+            }
+        }
+    }
+
+    private func cancelIdleReset() {
+        idleResetTask?.cancel()
+        idleResetTask = nil
+        showsIdleWarning = false
+        idleSecondsRemaining = CustomerIdleResetPolicy.warningDuration
     }
 
     private var sessionTopBar: some View {
