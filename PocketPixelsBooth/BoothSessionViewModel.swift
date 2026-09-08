@@ -61,6 +61,7 @@ final class BoothSessionViewModel: ObservableObject {
     private var queueRetryTask: Task<Void, Never>?
     private var isTransitionActive = false
     private var retakeIndex: Int?
+    private var isOperatorCameraRestartRunning = false
     private var sessionCreatedAt: Date?
     private var sessionEventProfile: EventProfile?
     private var committedGallerySession: CommittedGallerySession?
@@ -153,10 +154,15 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     func startSession() {
-        guard !isTransitionActive else {
+        guard state == .welcome, !isTransitionActive else {
             return
         }
 
+        operationalState.refresh()
+        guard !printerCoordinator.requiresRecovery, !operationalState.hasUnresolvedPrint else {
+            state = .recoveryRequired("Printer needs operator attention.")
+            return
+        }
         cancelTasks()
         clearCustomerData()
         beginNewCustomerSession()
@@ -247,6 +253,11 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     func cancelSession() {
+        guard !printerState.isWorking, !isPrintBatchActive,
+              !printerCoordinator.requiresRecovery, !operationalState.hasUnresolvedPrint else {
+            statusMessage = "Printer needs operator attention before this session can be cleared."
+            return
+        }
         debugLog("Session \(sessionIdentifier ?? "unknown") cancelled.")
         recoveryStore?.clear(sessionIdentifier: sessionIdentifier)
         resetToWelcome()
@@ -518,25 +529,30 @@ final class BoothSessionViewModel: ObservableObject {
         selectedPrintCopies += 1
     }
 
-    func confirmPrinterRestarted() {
-        printerCoordinator.confirmPrinterRestarted()
+    func resumeAfterOperatorRecovery() {
+        guard case .recoveryRequired = state,
+              !printerCoordinator.requiresRecovery, !printerCoordinator.isWorking,
+              !operationalState.hasUnresolvedPrint else { return }
+        guard receiptRasterizedImage != nil else { resetToWelcome(); return }
         printerState = .disconnected
         state = .receiptPreview
-        statusMessage = "Ask the operator to reconnect and test the printer before printing again."
+        statusMessage = "Operator recovery confirmed. Reconnect the printer before choosing to print."
     }
 
     func restartCameraForOperator() {
-        guard !printerState.isWorking else {
-            statusMessage = "Wait for printing to finish before restarting the camera."
+        guard !printerState.isWorking, !isOperatorCameraRestartRunning else {
+            statusMessage = "Wait for the current operation before restarting the camera."
             return
         }
 
+        isOperatorCameraRestartRunning = true
         operationalState.recordCameraRestart()
         state = .preparingCamera
         statusMessage = "Camera is getting ready..."
         let sessionGeneration = customerSessionGeneration
         cameraService.restartSession { [weak self] result in
             guard let self else { return }
+            self.isOperatorCameraRestartRunning = false
             guard self.isCurrentCustomerSession(sessionGeneration) else {
                 debugLog("[Camera] ignored stale operator restart result")
                 return
@@ -1073,6 +1089,7 @@ final class BoothSessionViewModel: ObservableObject {
     private func handleCameraEvent(_ event: CameraServiceEvent) {
         switch event {
         case .interrupted:
+            operationalState.invalidateCameraCheck(message: "Camera interrupted. Run preflight after the customer session.")
             if state == .cameraReady || isCameraRunning {
                 isCameraRunning = false
                 statusMessage = "Camera is getting ready..."
@@ -1082,6 +1099,7 @@ final class BoothSessionViewModel: ObservableObject {
                 restartCameraForOperator()
             }
         case .runtimeError(_, let shouldRestart):
+            operationalState.invalidateCameraCheck(message: "Camera needs attention. Run preflight after the customer session.")
             isCameraRunning = false
             if shouldRestart, state == .cameraReady || state == .preparingCamera {
                 restartCameraForOperator()

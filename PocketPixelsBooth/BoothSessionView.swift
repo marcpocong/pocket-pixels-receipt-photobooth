@@ -11,6 +11,7 @@ import UIKit
 
 struct BoothSessionView: View {
     @StateObject private var viewModel = BoothSessionViewModel()
+    @ObservedObject private var operations = EventOperationalState.shared
     private let onAdminAccessRequested: (() -> Void)?
     private let showsReceiptDebugTools: Bool
     @State private var selectedSamplePhotoItem: PhotosPickerItem?
@@ -79,6 +80,9 @@ struct BoothSessionView: View {
                 Text("This clears only the current booth screen state. Pending gallery uploads remain queued.")
             }
 #endif
+            .onChange(of: operations.recoveryConfirmation) { _, _ in
+                viewModel.resumeAfterOperatorRecovery()
+            }
             .onChange(of: selectedSamplePhotoItem) { _, newItem in
                 loadSamplePhoto(from: newItem)
             }
@@ -86,6 +90,9 @@ struct BoothSessionView: View {
                 viewModel.handleScenePhase(newPhase)
             }
             .onChange(of: viewModel.state) { oldState, newState in
+                if onAdminAccessRequested != nil {
+                    operations.customerSessionActive = newState != .welcome && newState != .thankYou
+                }
                 handleCustomerStateChange(from: oldState, to: newState)
             }
 #if DEBUG
@@ -1172,21 +1179,9 @@ struct BoothSessionView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(width: contentWidth)
 
-                Button("I Restarted the Printer") {
-                    viewModel.confirmPrinterRestarted()
-                }
-                .buttonStyle(PocketPixelsPrimaryButtonStyle())
-                .padding(.top, 18)
-
-#if DEBUG
-                Text(message)
-                    .font(.system(size: 15, weight: .medium))
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(width: contentWidth)
-                    .padding(.top, 8)
-#endif
+                Text("Staff assistance required")
+                    .font(.footnote)
+                    .onLongPressGesture(minimumDuration: 2) { openAdminAccess() }
 
                 Spacer()
             }
@@ -1367,26 +1362,15 @@ struct BoothSessionView: View {
                     .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
                     .multilineTextAlignment(.center)
 
-#if DEBUG
-                Text(message)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(width: contentWidth)
-                    .padding(.top, 4)
-#endif
-
                 Button("Cancel") {
                     showingCancelConfirmation = true
                 }
                 .buttonStyle(PocketPixelsSecondaryButtonStyle())
                 .padding(.top, 16)
 
-                Button("Restart Camera") {
-                    viewModel.restartCameraForOperator()
-                }
-                .buttonStyle(PocketPixelsSecondaryButtonStyle())
+                Text("Staff assistance required")
+                    .font(.footnote)
+                    .onLongPressGesture(minimumDuration: 2) { openAdminAccess() }
 
                 Spacer()
             }

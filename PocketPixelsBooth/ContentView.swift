@@ -24,6 +24,7 @@ struct ContentView: View {
             }
             .onChange(of: scenePhase) { _, newPhase in
                 setIdleTimerDisabled(newPhase == .active)
+                if newPhase != .active { operationalState.invalidateCameraCheck() }
                 if newPhase == .active {
                     operationalState.handleScenePhaseActive()
                 }
@@ -47,12 +48,14 @@ struct ContentView: View {
 }
 
 private struct PocketPixelsAdminView: View {
+    @ObservedObject private var operations = EventOperationalState.shared
+    @ObservedObject private var printer = PrinterCoordinator.shared
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Pocket Pixels Admin")
+                Text("Event Operations")
                     .font(.headline)
 
                 Spacer()
@@ -61,6 +64,7 @@ private struct PocketPixelsAdminView: View {
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(operations.isPreflightRunning || printer.isWorking)
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 12)
@@ -68,48 +72,10 @@ private struct PocketPixelsAdminView: View {
 
             Divider()
 
-            TabView {
-                NavigationStack {
-                    SystemHealthView()
-                }
-                .tabItem {
-                    Label("Health", systemImage: "heart.text.square")
-                }
-
-                NavigationStack {
-                    EventSetupView()
-                }
-                .tabItem {
-                    Label("Event Setup", systemImage: "calendar.badge.clock")
-                }
-
-                NavigationStack {
-                    RecentSessionsView()
-                }
-                .tabItem {
-                    Label("Recent Sessions", systemImage: "clock.arrow.circlepath")
-                }
-
-                BoothSessionView(showsReceiptDebugTools: true)
-                    .tabItem {
-                        Label("Booth Debug", systemImage: "rectangle.stack.person.crop")
-                    }
-
-                CameraTestView()
-                    .tabItem {
-                        Label("Camera Test", systemImage: "camera")
-                    }
-
-                PrinterTestView()
-                    .tabItem {
-                        Label("Printer Test", systemImage: "printer")
-                    }
-
-                GalleryUploadTestView()
-                    .tabItem {
-                        Label("Cloud Test", systemImage: "icloud.and.arrow.up")
-                    }
+            NavigationStack {
+                SystemHealthView()
             }
+
         }
     }
 }

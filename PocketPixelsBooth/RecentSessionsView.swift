@@ -213,19 +213,23 @@ final class ArchivedReceiptReprintController: ObservableObject {
     private var reprintTask: Task<Void, Never>?
 
     var canReprint: Bool {
-        !isReprinting
+        OperatorPrintPolicy.canReprint(
+            busy: printerCoordinator.isWorking,
+            recoveryLocked: printerCoordinator.requiresRecovery,
+            unresolvedPrint: EventOperationalState.shared.hasUnresolvedPrint)
+            && !isReprinting
             && !printerCoordinator.isWorking
             && !PrinterBluetoothService.shared.jobState.isWorking
             && !printerState.requiresPrinterRestart
     }
 
     var buttonTitle: String {
-        quantity == 1 ? "Reprint Receipt" : "Reprint \(quantity) Copies"
+        quantity == 1 ? "Operator Reprint" : "Operator Reprint \(quantity) Copies"
     }
 
     var reprintUnavailableMessage: String? {
         guard !isReprinting else { return nil }
-        if printerState.requiresPrinterRestart {
+        if printerState.requiresPrinterRestart || printerCoordinator.requiresRecovery || EventOperationalState.shared.hasUnresolvedPrint {
             return "Printer recovery is required before reprinting."
         }
         if printerCoordinator.isWorking || PrinterBluetoothService.shared.jobState.isWorking {
@@ -252,6 +256,7 @@ final class ArchivedReceiptReprintController: ObservableObject {
         wifiPort: UInt16?,
         completion: @escaping (Int) -> Void
     ) {
+        EventOperationalState.shared.refresh()
         guard canReprint else {
             statusMessage = "Printer is busy or needs recovery."
             return
@@ -383,8 +388,8 @@ final class ArchivedReceiptReprintController: ObservableObject {
 }
 
 struct RecentSessionsView: View {
+    var initialSearch = ""
     @StateObject private var viewModel = RecentSessionsViewModel()
-    @State private var isConfirmingClearAll = false
 
     var body: some View {
         List {
@@ -419,26 +424,6 @@ struct RecentSessionsView: View {
         .refreshable {
             viewModel.refresh()
         }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Clear") {
-                    isConfirmingClearAll = true
-                }
-                .disabled(viewModel.summaries.isEmpty)
-            }
-        }
-        .confirmationDialog(
-            "Clear all recent sessions from this iPad?",
-            isPresented: $isConfirmingClearAll,
-            titleVisibility: .visible
-        ) {
-            Button("Clear Recent Sessions", role: .destructive) {
-                viewModel.clearAll()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This removes only local reprint archives. It does not delete online galleries, pending uploads, Event Profile, or printer settings.")
-        }
         .safeAreaInset(edge: .bottom) {
             if !viewModel.statusMessage.isEmpty {
                 Text(viewModel.statusMessage)
@@ -451,12 +436,15 @@ struct RecentSessionsView: View {
             }
         }
         .onAppear {
+            viewModel.searchText = initialSearch
+            EventOperationalState.shared.refresh()
             viewModel.refresh()
         }
     }
 }
 
 private struct RecentSessionRow: View {
+    @ObservedObject private var operations = EventOperationalState.shared
     let summary: RecentSessionArchiveSummary
     let viewModel: RecentSessionsViewModel
 
@@ -480,6 +468,9 @@ private struct RecentSessionRow: View {
                 Text(summary.sessionIdentifier)
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
+
+                Text(operations.printContext(sessionID: summary.sessionIdentifier)).font(.caption)
+                Text(operations.galleryContext(sessionID: summary.sessionIdentifier)).font(.caption).foregroundStyle(.secondary)
 
                 if summary.rasterFingerprint == "CORRUPT" {
                     Text("Archive needs attention")
@@ -532,6 +523,8 @@ private struct RecentSessionRow: View {
 }
 
 private struct ArchivedSessionDetailView: View {
+    @ObservedObject private var operations = EventOperationalState.shared
+    @ObservedObject private var printer = PrinterCoordinator.shared
     let summary: RecentSessionArchiveSummary
     @ObservedObject var rootViewModel: RecentSessionsViewModel
 
@@ -543,7 +536,6 @@ private struct ArchivedSessionDetailView: View {
     @State private var loadError: String?
     @State private var isLoadingArchive = false
     @State private var isConfirmingReprint = false
-    @State private var isConfirmingDelete = false
     @State private var isShowingFullReceiptPreview = false
 
     var body: some View {
@@ -561,10 +553,6 @@ private struct ArchivedSessionDetailView: View {
                         description: Text(loadError)
                     )
 
-                    Button("Delete Archive", role: .destructive) {
-                        isConfirmingDelete = true
-                    }
-                    .buttonStyle(.borderedProminent)
                 } else {
                     ProgressView("Loading archived receipt...")
                 }
@@ -573,29 +561,8 @@ private struct ArchivedSessionDetailView: View {
         }
         .navigationTitle(summary.sessionIdentifier)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Delete", role: .destructive) {
-                    isConfirmingDelete = true
-                }
-                .disabled(reprintController.isReprinting)
-            }
-        }
         .confirmationDialog(
-            "Delete this archived session?",
-            isPresented: $isConfirmingDelete,
-            titleVisibility: .visible
-        ) {
-            Button("Delete This Session", role: .destructive) {
-                rootViewModel.delete(summary.archiveID)
-                dismiss()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This removes the local reprint copy from this iPad. It does not delete the customer's online gallery.")
-        }
-        .confirmationDialog(
-            "Reprint this exact receipt?",
+            "Create a new OPERATOR REPRINT of this archived receipt?",
             isPresented: $isConfirmingReprint,
             titleVisibility: .visible
         ) {
@@ -612,9 +579,10 @@ private struct ArchivedSessionDetailView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("\(summary.sessionIdentifier)\n\(reprintController.quantity) \(reprintController.quantity == 1 ? "copy" : "copies")")
+            Text("Inspect any previous paper output first. This is a new batch, never automatic recovery.\n\(operations.printContext(sessionID: summary.sessionIdentifier))\n\(summary.sessionIdentifier)\n\(reprintController.quantity) \(reprintController.quantity == 1 ? "copy" : "copies")")
         }
         .onAppear {
+            operations.refresh()
             loadArchive()
         }
         .sheet(isPresented: $isShowingFullReceiptPreview) {
@@ -683,10 +651,11 @@ private struct ArchivedSessionDetailView: View {
             Text("Fingerprint \(archive.summary.rasterFingerprint)")
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
-            Text(archive.galleryURL.absoluteString)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
+            Text(operations.printContext(sessionID: summary.sessionIdentifier))
+            Text(operations.galleryContext(sessionID: summary.sessionIdentifier))
+            Link("Open Gallery", destination: archive.galleryURL)
+            NavigationLink("Manage Gallery Upload") { PendingUploadsView() }
+
         }
     }
 
@@ -713,7 +682,7 @@ private struct ArchivedSessionDetailView: View {
 
     private func reprintControls(_ archive: RecentSessionArchive) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Reprint")
+            Text("OPERATOR REPRINT")
                 .font(.headline)
 
             HStack(spacing: 0) {
@@ -743,7 +712,7 @@ private struct ArchivedSessionDetailView: View {
                 isConfirmingReprint = true
             }
             .buttonStyle(.borderedProminent)
-            .disabled(!reprintController.canReprint)
+            .disabled(!reprintController.canReprint || printer.requiresRecovery || operations.hasUnresolvedPrint)
 
             if reprintController.isReprinting {
                 ProgressView(reprintController.statusMessage)

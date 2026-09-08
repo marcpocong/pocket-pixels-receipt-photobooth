@@ -70,7 +70,7 @@ struct PrinterSetupView: View {
                     Label("Reconnect Printer", systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(bluetoothService.jobState.isWorking)
+                .disabled(bluetoothService.jobState.isWorking || printerCoordinator.isWorking)
 
                 Button {
                     bluetoothService.startScan()
@@ -84,7 +84,7 @@ struct PrinterSetupView: View {
                     printerCoordinator.forgetBluetoothPrinter()
                 }
                 .buttonStyle(.bordered)
-                .disabled(!bluetoothService.hasSavedPrinter && !bluetoothService.isConnectedAndReady)
+                .disabled(printerCoordinator.isWorking || bluetoothService.jobState.isWorking || (!bluetoothService.hasSavedPrinter && !bluetoothService.isConnectedAndReady))
             }
 
             if !bluetoothService.candidates.isEmpty {

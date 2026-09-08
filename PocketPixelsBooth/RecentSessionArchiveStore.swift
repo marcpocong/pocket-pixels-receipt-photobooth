@@ -89,8 +89,8 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
         }
 
         try ensureArchiveDirectory()
-        try cleanupStagingDirectories()
-        try prune()
+        // A concurrent archive save may own a staging directory; reads must not remove it.
+        // Event archives are retained until an explicit, delivery-aware cleanup is available.
     }
 
     nonisolated var storagePath: String {
@@ -136,7 +136,7 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
             try applyStorageAttributes(to: stagingURL)
             try fileManager.moveItem(at: stagingURL, to: finalURL)
             try applyStorageAttributes(to: finalURL)
-            try prune(excluding: [archiveID])
+            // Never automatically remove customer archives during an event.
         } catch {
             try? fileManager.removeItem(at: stagingURL)
             throw error

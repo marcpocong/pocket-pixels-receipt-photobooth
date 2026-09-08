@@ -34,15 +34,24 @@ struct EventReadinessReport: Sendable {
     let checks: [EventReadinessCheck]
     let generatedAt: Date
 
-    var isReadyForEvent: Bool {
-        checks.allSatisfy { check in
-            check.severity != .critical || check.status == .pass
-        }
+    enum Readiness: String { case ready, attention, notReady }
+
+    var readiness: Readiness {
+        guard !checks.isEmpty else { return .notReady }
+        if checks.contains(where: { $0.severity == .critical && $0.status != .pass }) { return .notReady }
+        return checks.contains(where: { $0.status != .pass }) ? .attention : .ready
     }
 
+    var isReadyForEvent: Bool { readiness != .notReady }
     var title: String {
-        isReadyForEvent ? "READY FOR EVENT" : "NOT READY"
+        switch readiness {
+        case .ready: "READY FOR EVENT"
+        case .attention: "READY WITH ATTENTION"
+        case .notReady: "NOT READY"
+        }
     }
+    var reasons: [EventReadinessCheck] { checks.filter { $0.status != .pass } }
+
 }
 
 @MainActor
@@ -59,6 +68,19 @@ final class EventOperationalState: ObservableObject {
     @Published private(set) var uploadFailuresThisLaunch = 0
     @Published private(set) var appStartedAt = Date()
     @Published private(set) var readinessReport = EventReadinessReport(checks: [], generatedAt: Date())
+
+    @Published private(set) var isPreflightRunning = false
+    @Published private(set) var cameraCheckPassed = false
+    @Published private(set) var cameraCheckMessage = "Run preflight to check camera initialization."
+    @Published private(set) var auditRecords: [PrintAuditRecord] = []
+    @Published private(set) var archiveCount = 0
+    @Published private(set) var availableBytes: Int64 = 0
+    @Published private(set) var queueError: String?
+    @Published private(set) var recoveryConfirmation = 0
+    @Published var customerSessionActive = false
+    private let preflightCamera = CameraService()
+    private var preflightGeneration = 0
+    private var acknowledgedPrintIdentity: String?
 
     private let monitor = NWPathMonitor()
     private let monitorQueue = DispatchQueue(label: "com.pocketpixels.event-network-monitor")
@@ -106,8 +128,16 @@ final class EventOperationalState: ObservableObject {
     }
 
     func refresh() {
-        pendingUploads = uploadService.pendingUploadSummaries()
+        do {
+            pendingUploads = try GalleryPendingUploadStore().summaries()
+            queueError = nil
+        } catch {
+            queueError = "Pending gallery storage needs operator inspection. Data has been retained."
+        }
         recoverableSession = recoveryStore?.load()
+        auditRecords = (try? PrintAuditStore().load()) ?? []
+        archiveCount = (try? RecentSessionArchiveStore().summaries().count) ?? 0
+        availableBytes = Self.freeDiskSpaceBytes()
         readinessReport = makeReadinessReport()
     }
 
@@ -120,7 +150,7 @@ final class EventOperationalState: ObservableObject {
     }
 
     func retryPendingUploads(reason: String) {
-        guard retryTask == nil else {
+        guard retryTask == nil, networkPathStatus == "Online" else {
             return
         }
 
@@ -152,19 +182,81 @@ final class EventOperationalState: ObservableObject {
                     : "Uploaded \(results.count) pending \(results.count == 1 ? "gallery" : "galleries")."
             } catch {
                 uploadFailuresThisLaunch += 1
-                lastUploadWorkerMessage = error.localizedDescription
+                lastUploadWorkerMessage = "Upload paused. Photos remain saved locally. Check connection and gallery settings."
             }
         }
     }
 
-    func dismissRecoverableSession() {
-        recoveryStore?.clear()
-        recoverableSession = nil
-        readinessReport = makeReadinessReport()
+    var hasUnresolvedPrint: Bool {
+        guard let snapshot = recoverableSession, snapshot.stage == .printStatusUnknown else { return false }
+        return OperatorPrintPolicy.requiresAcknowledgement(stage: snapshot.stage, snapshotIdentity: recoveryIdentity(snapshot), acknowledgedIdentity: acknowledgedPrintIdentity)
+    }
+
+    private func recoveryIdentity(_ snapshot: AppRecoverySnapshot) -> String {
+        "\(snapshot.sessionIdentifier)|\(snapshot.updatedAt.timeIntervalSince1970)"
+    }
+
+    func confirmPhysicalPrinterRecovery() {
+        let printer = PrinterCoordinator.shared
+        guard !printer.isWorking, printer.requiresRecovery || hasUnresolvedPrint else { return }
+        printer.confirmPrinterRestarted()
+        if let snapshot = recoverableSession, snapshot.stage == .printStatusUnknown {
+            acknowledgedPrintIdentity = recoveryIdentity(snapshot)
+        }
+        recoveryConfirmation += 1
+        refresh()
+    }
+
+    func invalidateCameraCheck(message: String = "Run preflight after returning to the app.") {
+        preflightGeneration += 1
+        isPreflightRunning = false
+        cameraCheckPassed = false
+        cameraCheckMessage = message
+        preflightCamera.stopSession()
+        refresh()
     }
 
     func runEventPreflight() {
+        guard !isPreflightRunning, !customerSessionActive, !PrinterCoordinator.shared.isWorking else { return }
+        isPreflightRunning = true
+        cameraCheckPassed = false
+        cameraCheckMessage = "Checking camera initialization…"
         refresh()
+        let generation = preflightGeneration
+        if AVCaptureDevice.authorizationStatus(for: .video) == .notDetermined {
+            Task { [weak self] in
+                guard let self else { return }
+                _ = await self.preflightCamera.requestAccess()
+                guard generation == self.preflightGeneration else { return }
+                self.finishCameraPreflight(generation: generation)
+            }
+            return
+        }
+        finishCameraPreflight(generation: generation)
+    }
+
+    private func finishCameraPreflight(generation: Int) {
+        guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else {
+            cameraCheckMessage = "Camera permission required. Enable Camera in iPad Settings."
+            isPreflightRunning = false
+            refresh()
+            return
+        }
+        preflightCamera.configureAndStart { [weak self] result in
+            guard let self else { return }
+            guard generation == self.preflightGeneration else { return }
+            self.preflightCamera.stopSession()
+            switch result {
+            case .success:
+                self.cameraCheckPassed = true
+                self.cameraCheckMessage = "Camera initialized. Verify live preview before guests arrive."
+            case .failure:
+                self.cameraCheckPassed = false
+                self.cameraCheckMessage = "Camera unavailable. Check on the physical iPad."
+            }
+            self.isPreflightRunning = false
+            self.refresh()
+        }
     }
 
     private func makeReadinessReport() -> EventReadinessReport {
@@ -174,6 +266,10 @@ final class EventOperationalState: ObservableObject {
         let freeDiskSpace = Self.freeDiskSpaceBytes()
         let eventProfile = EventProfileStore.load()
 
+        checks.append(EventReadinessCheck(severity: .critical, title: "Camera Initialization",
+            status: cameraCheckPassed ? .pass : .fail, detail: cameraCheckMessage))
+        checks.append(EventReadinessCheck(severity: .critical, title: "Pending Gallery Storage",
+            status: queueError == nil ? .pass : .fail, detail: queueError ?? "Accessible"))
         checks.append(EventReadinessCheck(
             severity: .critical,
             title: "Camera Authorization",
@@ -183,8 +279,8 @@ final class EventOperationalState: ObservableObject {
         checks.append(EventReadinessCheck(
             severity: .critical,
             title: "Printer",
-            status: printerCoordinator.isBluetoothReady ? .pass : .fail,
-            detail: printerCoordinator.bluetoothSummary
+            status: printerCoordinator.preferredMode != .wifi && PrinterBluetoothService.shared.canPrintRaster ? .pass : .fail,
+            detail: printerCoordinator.preferredMode == .wifi ? "Wi-Fi readiness is not verified by this preflight." : (PrinterBluetoothService.shared.canPrintRaster ? printerCoordinator.bluetoothSummary : "Connect printer and complete any required operator text-test check in Recovery Center.")
         ))
         checks.append(EventReadinessCheck(
             severity: .critical,
@@ -201,14 +297,23 @@ final class EventOperationalState: ObservableObject {
         checks.append(EventReadinessCheck(
             severity: .critical,
             title: "Unsafe Print State",
-            status: recoverableSession?.stage == .printStatusUnknown ? .fail : .pass,
-            detail: recoverableSession?.stage == .printStatusUnknown ? "Print Status Unknown" : "None"
+            status: hasUnresolvedPrint ? .fail : .pass,
+            detail: hasUnresolvedPrint ? "Receipt may already have printed. Operator recovery required." : "Clear / acknowledged"
         ))
         checks.append(storageCheck(title: "Archive Storage", severity: .critical) {
-            _ = try RecentSessionArchiveStore().summaries()
+            let store = try RecentSessionArchiveStore()
+            try OperatorStorageProbe.verify(directory: URL(fileURLWithPath: store.storagePath))
+            if try store.summaries().contains(where: { $0.rasterFingerprint == "CORRUPT" }) {
+                throw CocoaError(.fileReadCorruptFile)
+            }
         })
         checks.append(storageCheck(title: "Recovery Storage", severity: .critical) {
-            _ = try AppRecoveryStore().load()
+            let store = try AppRecoveryStore()
+            let file = URL(fileURLWithPath: store.storagePath)
+            try OperatorStorageProbe.verify(directory: file.deletingLastPathComponent())
+            if FileManager.default.fileExists(atPath: file.path), store.load() == nil {
+                throw CocoaError(.fileReadCorruptFile)
+            }
         })
         checks.append(EventReadinessCheck(
             severity: .important,
@@ -229,15 +334,15 @@ final class EventOperationalState: ObservableObject {
             detail: credentialStore.hasDeviceToken() ? "Saved" : "Missing"
         ))
         checks.append(EventReadinessCheck(
-            severity: .important,
+            severity: StorageHealth(bytes: freeDiskSpace) == .critical ? .critical : .important,
             title: "Free Disk Space",
-            status: freeDiskSpace > 500_000_000 ? .pass : .warning,
-            detail: Self.freeDiskSpaceText(bytes: freeDiskSpace)
+            status: StorageHealth(bytes: freeDiskSpace).checkStatus,
+            detail: "\(StorageHealth(bytes: freeDiskSpace).rawValue) — \(Self.freeDiskSpaceText(bytes: freeDiskSpace))"
         ))
         checks.append(EventReadinessCheck(
             severity: .optional,
             title: "Event Profile",
-            status: eventProfile.activeReceiptSnapshot != nil ? .pass : .warning,
+            status: eventProfile.isEnabled && eventProfile.activeReceiptSnapshot == nil ? .warning : .pass,
             detail: eventProfile.activeReceiptSnapshot?.eventName ?? "Pocket Pixels default"
         ))
         checks.append(EventReadinessCheck(
@@ -315,191 +420,5 @@ final class EventOperationalState: ObservableObject {
     private static func freeDiskSpaceText(bytes: Int64) -> String {
         let megabytes = bytes / 1_000_000
         return megabytes > 0 ? "\(megabytes) MB" : "Unknown"
-    }
-}
-
-struct SystemHealthView: View {
-    @StateObject private var operationalState = EventOperationalState.shared
-    @StateObject private var printerCoordinator = PrinterCoordinator.shared
-    @State private var recentSessionCount = 0
-    @State private var recentSessionError: String?
-
-    var body: some View {
-        List {
-            Section("Event Readiness") {
-                HStack {
-                    Text(operationalState.readinessReport.title)
-                        .font(.headline)
-                        .foregroundStyle(operationalState.readinessReport.isReadyForEvent ? Color.green : Color.red)
-                    Spacer()
-                    Text(operationalState.readinessReport.generatedAt.formatted(date: .omitted, time: .standard))
-                        .foregroundStyle(.secondary)
-                }
-
-                ForEach(operationalState.readinessReport.checks) { check in
-                    readinessRow(check)
-                }
-
-                Button("Run Event Preflight") {
-                    operationalState.runEventPreflight()
-                    loadRecentSessionCount()
-                }
-            }
-
-            Section("System Status") {
-                healthRow("Camera", value: "Use Camera Test for live preview status")
-                healthRow("Printer", value: printerCoordinator.requiresRecovery ? "Recovery Required" : printerCoordinator.bluetoothSummary)
-                healthRow("Print Queue", value: printerCoordinator.isWorking ? "Busy" : "Idle")
-                healthRow("Internet", value: operationalState.networkPathStatus)
-                healthRow("Pending Uploads", value: "\(operationalState.pendingUploadCount)")
-                healthRow("Upload Worker", value: operationalState.isUploadWorkerRunning ? "Uploading" : operationalState.lastUploadWorkerMessage)
-                healthRow("Recent Sessions", value: recentSessionError ?? "\(recentSessionCount)")
-                healthRow("Sessions This Launch", value: "\(operationalState.sessionsCompletedThisLaunch)")
-                healthRow("Camera Restarts", value: "\(operationalState.cameraRestartCountThisLaunch)")
-                healthRow("Upload Failures", value: "\(operationalState.uploadFailuresThisLaunch)")
-                healthRow("App Uptime", value: operationalState.uptimeText)
-            }
-
-            if let snapshot = operationalState.recoverableSession {
-                Section("Recoverable Session") {
-                    healthRow("Session", value: snapshot.sessionIdentifier)
-                    healthRow("Stage", value: snapshot.stage.rawValue)
-                    healthRow("Format", value: snapshot.format.displayName)
-                    healthRow("Photos", value: "\(snapshot.photoJPEGData.count)")
-                    if snapshot.stage == .printStatusUnknown {
-                        Text("Print Status Unknown. Do not auto-reprint; use Recent Sessions or operator judgement after checking the physical receipt.")
-                            .foregroundStyle(.orange)
-                    }
-                    Button("Dismiss Recovery Notice", role: .destructive) {
-                        operationalState.dismissRecoverableSession()
-                    }
-                }
-            }
-
-            Section("Operator Actions") {
-                Button("Retry Pending Uploads Now") {
-                    operationalState.retryPendingUploads(reason: "Operator requested retry.")
-                }
-                .disabled(operationalState.isUploadWorkerRunning || operationalState.pendingUploads.isEmpty)
-
-                NavigationLink("Recent Sessions") {
-                    RecentSessionsView()
-                }
-
-                NavigationLink("Printer Diagnostics") {
-                    PrinterTestView()
-                }
-
-                NavigationLink("Camera Test") {
-                    CameraTestView()
-                }
-
-#if DEBUG
-                NavigationLink("Endurance Harness") {
-                    EventEnduranceHarnessView()
-                }
-#endif
-            }
-
-            Section("Pending Uploads") {
-                if operationalState.pendingUploads.isEmpty {
-                    Text("No pending uploads.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(operationalState.pendingUploads) { upload in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(upload.sessionID)
-                                .font(.headline.monospacedDigit())
-                            Text("\(upload.metrics.files.count - 1) photos • \(upload.deliveryState.displayName) • Retry \(upload.retryAttemptCount)")
-                                .foregroundStyle(.secondary)
-                            if let lastAttemptAt = upload.lastAttemptAt {
-                                Text("Last attempt \(lastAttemptAt.formatted(date: .numeric, time: .standard))")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            if let lastSafeError = upload.lastSafeError {
-                                Text(lastSafeError)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        .navigationTitle("System Health")
-        .navigationBarTitleDisplayMode(.inline)
-        .task {
-            operationalState.start()
-            loadRecentSessionCount()
-        }
-        .refreshable {
-            operationalState.refresh()
-            loadRecentSessionCount()
-        }
-    }
-
-    private func healthRow(_ title: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(title)
-            Spacer()
-            Text(value)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.trailing)
-        }
-    }
-
-    private func readinessRow(_ check: EventReadinessCheck) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(check.title)
-                Text(check.severity.rawValue.capitalized)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(check.status.rawValue.uppercased())
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(color(for: check.status))
-                Text(check.detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.trailing)
-            }
-        }
-    }
-
-    private func color(for status: EventReadinessCheck.Status) -> Color {
-        switch status {
-        case .pass:
-            .green
-        case .warning:
-            .orange
-        case .fail:
-            .red
-        }
-    }
-
-    private func loadRecentSessionCount() {
-        do {
-            recentSessionCount = try RecentSessionArchiveStore().summaries().count
-            recentSessionError = nil
-        } catch {
-            recentSessionError = error.localizedDescription
-        }
-    }
-}
-
-private extension GalleryDeliveryState {
-    var displayName: String {
-        switch self {
-        case .notStarted:
-            "Pending"
-        case .posted:
-            "Posted"
-        case .deliveryUnknown:
-            "Delivery Unknown"
-        }
     }
 }
