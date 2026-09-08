@@ -255,11 +255,15 @@ struct EventSetupView: View {
                 Text(savedProfile.eventModeSummary)
                     .font(.headline)
 
-                Toggle("Enable Event on Screens and Receipts", isOn: eventModeBinding)
+                if draft.isEnabled != draft.customerScreenEnabled {
+                    Text("Screens and receipts currently use different settings. Turn on the switch below to enable both.")
+                        .font(.caption)
+                }
+                Toggle("Event Mode · Screens & Receipts", isOn: eventModeBinding)
                     .font(.headline)
 
                 if hasUnsavedChanges {
-                    Label("Changes are not active until you tap Save Event Profile.", systemImage: "exclamationmark.triangle.fill")
+                    Label("Unsaved changes — tap Save above to apply them.", systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
                 } else {
                     Text("Saved settings apply to the next customer session. A session already in progress keeps its original frozen receipt.")
@@ -270,6 +274,11 @@ struct EventSetupView: View {
 
             Section("Event Identity") {
                 limitedTextField("Event Name", text: $draft.eventName, limit: EventProfile.eventNameLimit)
+                if !canSave {
+                    Text("Enter an event name to enable event receipts.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
 
                 limitedTextField("Subtitle / Host", text: $draft.subtitle, limit: EventProfile.subtitleLimit)
 
@@ -282,7 +291,7 @@ struct EventSetupView: View {
                 limitedTextField("Location", text: $draft.location, limit: EventProfile.locationLimit)
             }
 
-            Section("Customer Screens") {
+            DisclosureGroup("Customize Guest Screens (Optional)") {
                 Toggle("Event Screen Branding", isOn: $draft.customerScreenEnabled)
                     .accessibilityHint("Shows event wording and the selected theme on customer screens. It does not change the printed receipt.")
 
@@ -306,11 +315,11 @@ struct EventSetupView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Customer Experience Preview") {
+            DisclosureGroup("Preview Guest Screens") {
                 CustomerExperiencePreviewView(profile: draft.normalized())
             }
 
-            Section("Printed Receipt") {
+            DisclosureGroup("Customize Printed Receipt (Optional)") {
                 Toggle("Receipt Event Branding", isOn: $draft.isEnabled)
                     .accessibilityHint("When enabled, new customer receipts include the saved event text.")
 
@@ -321,7 +330,7 @@ struct EventSetupView: View {
                 limitedTextField("Receipt Message", text: $draft.shortMessage, limit: EventProfile.shortMessageLimit, autocapitalization: .sentences)
             }
 
-            Section("Event Receipt Preview") {
+            DisclosureGroup("Preview Printed Receipt") {
                 EventReceiptComposerPreview(profile: draft.normalized())
                     .padding(.vertical, 6)
             }
@@ -344,8 +353,15 @@ struct EventSetupView: View {
                 Text(statusMessage)
             }
         }
-        .navigationTitle("Event Setup")
+        .navigationTitle("Edit Event")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save") { saveDraft() }
+                    .fontWeight(.bold)
+                    .disabled(!canSave || !hasUnsavedChanges)
+            }
+        }
     }
 
     private var canSave: Bool {

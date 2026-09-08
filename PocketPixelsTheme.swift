@@ -59,7 +59,7 @@ enum PocketPixelsTheme {
         static let shutterFlashDuration: TimeInterval = 0.14
         static let idleFloatDistance: CGFloat = 3
         static let idleFloatDuration: TimeInterval = 3.4
-        static let printerFeedDuration: TimeInterval = 10
+        static let printerFeedDuration: TimeInterval = 5
 
         static let quickAnimation = Animation.easeOut(duration: quick)
         static let standardAnimation = Animation.easeOut(duration: standard)

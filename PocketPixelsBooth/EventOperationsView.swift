@@ -31,6 +31,7 @@ struct SystemHealthView: View {
                 .font(.title3.bold())
                 .foregroundStyle(eventProfile.isEventModeActive ? .green : .secondary)
                 Text(eventProfile.eventModeSummary).font(.headline)
+                NavigationLink("Edit Event & Activation") { EventSetupView() }
                 LabeledContent("Event", value: eventProfile.eventName.isEmpty ? "No event name" : eventProfile.eventName)
                 LabeledContent("Guest screens", value: eventProfile.activeCustomerSnapshot == nil ? "Standard" : "Event branded")
                 LabeledContent("Printed receipts", value: eventProfile.activeReceiptSnapshot == nil ? "Standard" : "Event branded")
@@ -49,7 +50,6 @@ struct SystemHealthView: View {
                 NavigationLink("Camera Check") { OperatorCameraCheckView() }
                     .disabled(operations.customerSessionActive || operations.isPreflightRunning || printer.isWorking)
                 NavigationLink("Gallery Credentials") { OperatorGallerySettingsView() }
-                NavigationLink("Event Profile") { EventSetupView() }
                 NavigationLink("Preview Customer Experience") {
                     ScrollView {
                         CustomerExperiencePreviewView(profile: EventProfileStore.load())

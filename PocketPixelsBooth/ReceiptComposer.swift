@@ -1500,7 +1500,7 @@ enum ReceiptComposer {
                 drawCenteredWrapped(content.eyebrow, in: frame, font: eventEyebrowFont)
             }
             if let frame = layout.eventTitleFrame {
-                let titleFont = UIFont.systemFont(ofSize: layout.eventTitleFontSize ?? 17, weight: .bold)
+                let titleFont = eventSerifFont(size: layout.eventTitleFontSize ?? 17, weight: .bold)
                 drawCenteredWrapped(content.eventName, in: frame, font: titleFont)
             }
             if let frame = layout.eventSubtitleFrame {
@@ -2134,7 +2134,12 @@ enum ReceiptComposer {
     }
 
     nonisolated private static var eventSubtitleFont: UIFont {
-        .systemFont(ofSize: 13, weight: .semibold)
+        eventSerifFont(size: 13, weight: .semibold)
+    }
+
+    nonisolated private static func eventSerifFont(size: CGFloat, weight: UIFont.Weight) -> UIFont {
+        let base = UIFont.systemFont(ofSize: size, weight: weight)
+        return base.fontDescriptor.withDesign(.serif).map { UIFont(descriptor: $0, size: size) } ?? base
     }
 
     nonisolated private static var eventMetadataFont: UIFont {
@@ -2179,14 +2184,14 @@ enum ReceiptComposer {
 
     nonisolated private static func eventTitleFont(for title: String, width: Int) -> UIFont {
         for size in [22, 20, 18] as [CGFloat] {
-            let font = UIFont.systemFont(ofSize: size, weight: .bold)
+            let font = eventSerifFont(size: size, weight: .bold)
             let height = measuredWrappedTextHeight(title, font: font, width: width, lineSpacing: 1, lineBreakMode: .byCharWrapping)
             if height <= Int(ceil(font.lineHeight * 2.35)) {
                 return font
             }
         }
 
-        return .systemFont(ofSize: 17, weight: .bold)
+        return eventSerifFont(size: 17, weight: .bold)
     }
 
     nonisolated private static func drawRule(fromX: Int, toX: Int, y: Int) {
