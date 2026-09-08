@@ -21,7 +21,6 @@ struct BoothSessionView: View {
     @State private var formatMotionActive = false
     @State private var reviewMotionActive = false
     @State private var receiptMotionActive = false
-    @State private var receiptFeedMotionActive = false
     @State private var progressMotionActive = false
     @State private var thankYouMotionActive = false
     @State private var shutterFlashActive = false
@@ -800,13 +799,6 @@ struct BoothSessionView: View {
         .padding(PocketPixelsTheme.Spacing.screenPadding)
         .onAppear {
             startReceiptMotion()
-            updateReceiptFeedMotion()
-        }
-        .onChange(of: viewModel.state) { _, _ in
-            updateReceiptFeedMotion()
-        }
-        .onDisappear {
-            receiptFeedMotionActive = false
         }
     }
 
@@ -842,14 +834,12 @@ struct BoothSessionView: View {
 
     private func customerReceiptPreview(maxWidth: CGFloat, maxHeight: CGFloat, showsPrinterSlot: Bool) -> some View {
         VStack(spacing: 0) {
-            if showsPrinterSlot {
-                printerOutputSlot(width: min(maxWidth * 0.62, 280))
-                    .padding(.bottom, 6)
-                    .transition(.opacity)
-            }
 
             Group {
-                if let previewImage = viewModel.receiptImage {
+                if let previewImage = viewModel.receiptImage, showsPrinterSlot {
+                    FeedingReceiptView(image: previewImage, maxWidth: maxWidth, maxHeight: maxHeight,
+                                       isPrinting: viewModel.state == .printing)
+                } else if let previewImage = viewModel.receiptImage {
                     let previewLayout = receiptPreviewLayout(for: previewImage, maxWidth: maxWidth, maxHeight: maxHeight)
                     Group {
                         if previewLayout.requiresScrolling {
@@ -873,10 +863,10 @@ struct BoothSessionView: View {
                         .background(PocketPixelsTheme.ColorPalette.surface)
                 }
             }
-            .background(PocketPixelsTheme.ColorPalette.surface)
+            .background(showsPrinterSlot ? Color.clear : PocketPixelsTheme.ColorPalette.surface)
             .overlay {
                 RoundedRectangle(cornerRadius: 10)
-                    .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.58), lineWidth: 1)
+                    .stroke(PocketPixelsTheme.ColorPalette.border.opacity(showsPrinterSlot ? 0 : 0.58), lineWidth: 1)
             }
             .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.12), radius: 18, x: 0, y: 8)
             .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.10), radius: 14, x: 0, y: 7)
@@ -889,8 +879,6 @@ struct BoothSessionView: View {
             .resizable()
             .interpolation(.high)
             .frame(width: size.width, height: size.height)
-            .offset(y: receiptFeedOffset)
-            .animation(receiptFeedAnimation, value: receiptFeedMotionActive)
     }
 
     private func receiptScrollAffordance(width: CGFloat) -> some View {
@@ -912,14 +900,6 @@ struct BoothSessionView: View {
         }
         .frame(width: width)
         .allowsHitTesting(false)
-    }
-
-    private func printerOutputSlot(width: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: 3)
-            .fill(PocketPixelsTheme.ColorPalette.charcoal.opacity(0.70))
-            .frame(width: width, height: 7)
-            .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.10), radius: 4, x: 0, y: 2)
-            .accessibilityHidden(true)
     }
 
     private func receiptPreviewLayout(for image: UIImage, maxWidth: CGFloat, maxHeight: CGFloat) -> ReceiptPreviewLayout {
@@ -1674,22 +1654,6 @@ struct BoothSessionView: View {
         }
     }
 
-    private var receiptFeedOffset: CGFloat {
-        guard !reduceMotion, viewModel.state == .printing else {
-            return 0
-        }
-
-        return receiptFeedMotionActive ? 16 : 4
-    }
-
-    private var receiptFeedAnimation: Animation? {
-        guard !reduceMotion, viewModel.state == .printing else {
-            return nil
-        }
-
-        return .easeInOut(duration: 1.15).repeatForever(autoreverses: true)
-    }
-
     private var receiptDetailsText: String {
         guard let receipt = viewModel.composedReceipt else {
             return "Receipt is not ready."
@@ -1839,18 +1803,6 @@ struct BoothSessionView: View {
         receiptMotionActive = false
         DispatchQueue.main.async {
             receiptMotionActive = true
-        }
-    }
-
-    private func updateReceiptFeedMotion() {
-        guard !reduceMotion, viewModel.state == .printing else {
-            receiptFeedMotionActive = false
-            return
-        }
-
-        receiptFeedMotionActive = false
-        DispatchQueue.main.async {
-            receiptFeedMotionActive = true
         }
     }
 
@@ -2182,4 +2134,46 @@ nonisolated private func adminDebugLog(_ message: String) {
 #if DEBUG
     print("[BoothSessionView][Admin] \(message)")
 #endif
+}
+
+/// Visual paper feed only; it never schedules or controls a physical print job.
+private struct FeedingReceiptView: View {
+    let image: UIImage
+    let maxWidth: CGFloat
+    let maxHeight: CGFloat
+    let isPrinting: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var feedStartedAt: Date?
+
+    var body: some View {
+        let scale = min(maxWidth / max(1, image.size.width), maxHeight / max(1, image.size.height))
+        let width = image.size.width * scale
+        let height = image.size.height * scale
+        VStack(spacing: 0) {
+            RoundedRectangle(cornerRadius: 4)
+                .fill(PocketPixelsTheme.ColorPalette.charcoal)
+                .frame(width: width + 16, height: 8)
+                .zIndex(1)
+            TimelineView(.animation(paused: !isPrinting || reduceMotion || scenePhase != .active)) { context in
+                let elapsed = feedStartedAt.map { max(0, context.date.timeIntervalSince($0)) } ?? 0
+                let progress = min(1, elapsed / PocketPixelsTheme.Motion.printerFeedDuration)
+                // Move the actual paper once, from behind the slot into a fixed viewport.
+                // At the end it stays out: there is no loop or upward reset.
+                let visibleFraction = reduceMotion ? 1 : (isPrinting ? progress : 0.025)
+                Image(uiImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: width, height: height)
+                    .offset(y: -height * (1 - visibleFraction))
+                    .frame(width: width, height: height, alignment: .top)
+                    .clipped()
+            }
+        }
+        .frame(width: width + 16, height: height + 8, alignment: .top)
+        .onChange(of: isPrinting, initial: true) { _, printing in
+            feedStartedAt = printing ? Date() : nil
+        }
+        .accessibilityLabel(isPrinting ? "Receipt feeding out of printer" : "Receipt ready at printer")
+    }
 }

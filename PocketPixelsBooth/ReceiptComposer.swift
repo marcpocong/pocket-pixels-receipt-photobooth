@@ -218,6 +218,8 @@ enum ReceiptComposerError: Error, LocalizedError {
 }
 
 enum ReceiptComposer {
+    nonisolated static let mastheadEstablishedText = "EST. 2024"
+
     nonisolated static let sessionIdentifierTimeZone = TimeZone(identifier: "Asia/Manila") ?? TimeZone(secondsFromGMT: 8 * 60 * 60)!
     nonisolated static let receiptQRCodeSize = 177
     nonisolated static let landscapePresentationCropAspectRatio = CGSize(width: 4, height: 3)
@@ -462,7 +464,7 @@ enum ReceiptComposer {
         eventProfile: EventProfile?
     ) -> ReceiptTextSnapshot {
         ReceiptTextSnapshot(
-            established: "EST. 2026",
+            established: mastheadEstablishedText,
             wordmark: "Pocket Pixels",
             descriptor: "RECEIPT PHOTOBOOTH",
             eventContent: eventProfile?.activeReceiptSnapshot?.receiptBlockContent,
@@ -809,7 +811,7 @@ enum ReceiptComposer {
         let textWidth = mastheadTextWidth(margin: BoothConfiguration.receiptHorizontalMargin, width: BoothConfiguration.receiptWidth)
         let wordmarkBounds = measuredTextBounds("Pocket Pixels", font: mastheadWordmarkFont)
         let labelBounds = measuredTextBounds("RECEIPT PHOTOBOOTH", font: mastheadLabelFont, tracking: 4.0)
-        let establishedBounds = measuredTextBounds("EST. 2026", font: mastheadEstablishedFont, tracking: 1.4)
+        let establishedBounds = measuredTextBounds(mastheadEstablishedText, font: mastheadEstablishedFont, tracking: 1.4)
 
         guard wordmarkBounds.width >= CGFloat(textWidth) * 0.70,
               wordmarkBounds.width <= CGFloat(textWidth) * 0.82,

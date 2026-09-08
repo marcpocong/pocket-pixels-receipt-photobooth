@@ -4,6 +4,10 @@ import UIKit
 @testable import PocketPixelsBooth
 
 final class ReceiptAndRasterRegressionTests: XCTestCase {
+    func testReceiptMastheadUsesEstablished2024Branding() {
+        XCTAssertEqual(ReceiptComposer.mastheadEstablishedText, "EST. 2024")
+    }
+
     func testReceiptLayoutValidForEveryBoothFormat() throws {
         for format in BoothFormat.allCases {
             let plan = try ReceiptComposer.makeLayoutPlan(format: format, includesGalleryQRCode: true)
