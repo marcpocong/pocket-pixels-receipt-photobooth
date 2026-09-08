@@ -8,6 +8,7 @@ struct SystemHealthView: View {
     @StateObject private var spooler = PrintSpooler.shared
     @State private var showCloseSummary = false
     @State private var copied = false
+    @State private var eventProfile = EventProfileStore.load()
 
     var body: some View {
         List {
@@ -23,8 +24,16 @@ struct SystemHealthView: View {
                 NavigationLink("Run Event Preflight") { EventPreflightView() }
             }
             Section("Event Status") {
-                LabeledContent("Event", value: EventProfileStore.load().activeReceiptSnapshot?.eventName ?? "Pocket Pixels default")
-                LabeledContent("Receipt mode", value: EventProfileStore.load().activeReceiptSnapshot == nil ? "Standard Pocket Pixels" : "Event profile")
+                Label(
+                    eventProfile.isEventModeActive ? "EVENT MODE ACTIVE" : "EVENT MODE OFF",
+                    systemImage: eventProfile.isEventModeActive ? "checkmark.circle.fill" : "circle"
+                )
+                .font(.title3.bold())
+                .foregroundStyle(eventProfile.isEventModeActive ? .green : .secondary)
+                Text(eventProfile.eventModeSummary).font(.headline)
+                LabeledContent("Event", value: eventProfile.eventName.isEmpty ? "No event name" : eventProfile.eventName)
+                LabeledContent("Guest screens", value: eventProfile.activeCustomerSnapshot == nil ? "Standard" : "Event branded")
+                LabeledContent("Printed receipts", value: eventProfile.activeReceiptSnapshot == nil ? "Standard" : "Event branded")
                 LabeledContent("Gallery setup", value: DeviceCredentialStore().hasDeviceToken() ? "Credential saved · delivery deferred when offline" : "Needs credential · photos remain local")
                 LabeledContent("Printer", value: printer.requiresRecovery ? "Operator recovery required" : printer.bluetoothSummary)
                 LabeledContent("Camera", value: operations.cameraCheckPassed ? "Initialization checked" : "Needs preflight")
@@ -86,6 +95,11 @@ struct SystemHealthView: View {
         }
         .navigationTitle("Event Operations")
         .task { operations.start() }
+        .onAppear { eventProfile = EventProfileStore.load() }
+        .onReceive(NotificationCenter.default.publisher(for: EventProfileStore.didChangeNotification)) { _ in
+            eventProfile = EventProfileStore.load()
+            operations.refresh()
+        }
         .onChange(of: printer.state) { _, _ in operations.refresh() }
         .onChange(of: bluetooth.isConnectedAndReady) { _, _ in operations.refresh() }
         .onChange(of: bluetooth.canPrintRaster) { _, _ in operations.refresh() }

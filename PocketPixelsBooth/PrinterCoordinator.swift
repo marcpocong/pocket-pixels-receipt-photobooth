@@ -42,6 +42,36 @@ enum PrinterTransportSelection: String, Codable, Sendable {
     }
 }
 
+nonisolated enum ReceiptBluetoothTransferMode: String, CaseIterable, Identifiable, Sendable {
+    case balanced
+    case compatibility
+
+    nonisolated var id: String { rawValue }
+
+    nonisolated var displayName: String {
+        switch self {
+        case .balanced: "Balanced (Recommended)"
+        case .compatibility: "Compatibility (Slower)"
+        }
+    }
+
+    nonisolated var detail: String {
+        switch self {
+        case .balanced:
+            "Uses the printer's existing BLE flow control with short paced bursts for faster, more continuous output."
+        case .compatibility:
+            "Waits for an acknowledgement after every small write. Use only if Balanced output is incomplete."
+        }
+    }
+
+    nonisolated var transportPolicy: ProductionPrintTransportPolicy {
+        switch self {
+        case .balanced: .experimentalBalanced
+        case .compatibility: .safeIntegrity
+        }
+    }
+}
+
 @MainActor
 final class PrinterCoordinator: ObservableObject {
     typealias StateHandler = (PrinterConnectionState) -> Void
@@ -52,8 +82,14 @@ final class PrinterCoordinator: ObservableObject {
     @Published private(set) var state = PrinterConnectionState.disconnected
     @Published private(set) var activeTransport = PrinterTransportSelection.none
     @Published private(set) var fallbackReason: String?
+    @Published var receiptBluetoothTransferMode: ReceiptBluetoothTransferMode {
+        didSet {
+            UserDefaults.standard.set(receiptBluetoothTransferMode.rawValue, forKey: Self.receiptBluetoothTransferModeKey)
+        }
+    }
 
     private static let modeKey = "printerConnectionMode"
+    private static let receiptBluetoothTransferModeKey = "receiptBluetoothTransferMode"
     private let bluetoothService: PrinterBluetoothService
     private let wifiService: PrinterNetworkService
     private let spooler = PrintSpooler.shared
@@ -61,6 +97,12 @@ final class PrinterCoordinator: ObservableObject {
     private init() {
         bluetoothService = PrinterBluetoothService.shared
         wifiService = PrinterNetworkService()
+        receiptBluetoothTransferMode = UserDefaults.standard.string(forKey: Self.receiptBluetoothTransferModeKey)
+            .flatMap(ReceiptBluetoothTransferMode.init(rawValue:)) ?? .balanced
+    }
+
+    var productionReceiptTransportPolicy: ProductionPrintTransportPolicy {
+        receiptBluetoothTransferMode.transportPolicy
     }
 
     var preferredMode: PrinterConnectionMode {

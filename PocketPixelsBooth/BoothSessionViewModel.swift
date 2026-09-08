@@ -67,7 +67,7 @@ final class BoothSessionViewModel: ObservableObject {
     private var sessionEventProfile: EventProfile?
     private var committedGallerySession: CommittedGallerySession?
     private var customerSessionGeneration = 0
-    private let customerPrintPhotoProfile = PocketPixelsThermalPhotoProfile.customerPrintDefault
+    private var customerPrintPhotoProfile = CustomerReceiptPhotoToneStore.load().profile
     private static let printCopyRange = 1...10
 #if DEBUG
     private var debugSessionSequence = 0
@@ -181,6 +181,7 @@ final class BoothSessionViewModel: ObservableObject {
         }
         cancelTasks()
         clearCustomerData()
+        customerPrintPhotoProfile = CustomerReceiptPhotoToneStore.load().profile
         beginNewCustomerSession()
         errorMessage = nil
         statusMessage = "Choose your format."
@@ -196,7 +197,9 @@ final class BoothSessionViewModel: ObservableObject {
         let sessionDate = Date()
         sessionCreatedAt = sessionDate
         sessionIdentifier = ReceiptComposer.makeSessionIdentifier(date: sessionDate)
-        sessionEventProfile = customerEventProfile
+        let savedEventProfile = EventProfileStore.load().normalized()
+        customerEventProfile = savedEventProfile
+        sessionEventProfile = savedEventProfile.activeReceiptSnapshot
         do {
             let token = try GalleryTokenGenerator.makeGalleryToken()
             let url = try GalleryURLBuilder.makeGalleryURL(customerGalleryBaseURL: CustomerGalleryConfiguration.load().baseURL, galleryToken: token)
@@ -1073,7 +1076,7 @@ final class BoothSessionViewModel: ObservableObject {
                 copyIndex: copy,
                 copyCount: requestedCopies,
                 batchID: batchID ?? UUID(),
-                transportPolicy: .safeIntegrity
+                transportPolicy: printerCoordinator.productionReceiptTransportPolicy
             ) { [weak self] printerState in
                 guard let self else { return }
                 guard self.isCurrentCustomerSession(sessionGeneration) else {

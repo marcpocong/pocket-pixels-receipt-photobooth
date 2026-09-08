@@ -83,3 +83,40 @@ struct PocketPixelsThermalPhotoProfile: Identifiable, Equatable, Hashable, Senda
         brightness == 0 && contrast == 1 && gammaPower == 1
     }
 }
+
+nonisolated enum CustomerReceiptPhotoTone: String, CaseIterable, Identifiable, Sendable {
+    case natural
+    case lighter
+    case lightest
+
+    nonisolated var id: String { rawValue }
+
+    nonisolated var displayName: String {
+        switch self {
+        case .natural: "Natural"
+        case .lighter: "Lighter (Recommended)"
+        case .lightest: "Lightest"
+        }
+    }
+
+    nonisolated var profile: PocketPixelsThermalPhotoProfile {
+        switch self {
+        case .natural: .productionPortrait
+        case .lighter: .light1
+        case .lightest: .light2
+        }
+    }
+}
+
+enum CustomerReceiptPhotoToneStore {
+    static let storageKey = "customerReceiptPhotoTone"
+
+    static func load() -> CustomerReceiptPhotoTone {
+        UserDefaults.standard.string(forKey: storageKey)
+            .flatMap(CustomerReceiptPhotoTone.init(rawValue:)) ?? .lighter
+    }
+
+    static func save(_ tone: CustomerReceiptPhotoTone) {
+        UserDefaults.standard.set(tone.rawValue, forKey: storageKey)
+    }
+}

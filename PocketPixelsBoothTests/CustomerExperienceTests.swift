@@ -52,6 +52,31 @@ final class CustomerExperienceTests: XCTestCase {
         XCTAssertEqual(profile.activeCustomerSnapshot?.customerWelcomeMessage, "Screen-only message")
     }
 
+    func testEventModeSummaryClearlyDistinguishesScreenAndReceiptActivation() {
+        var profile = EventProfile.pocketPixelsDefault
+        XCTAssertFalse(profile.isEventModeActive)
+        XCTAssertEqual(profile.eventModeSummary, "Pocket Pixels standard mode")
+
+        profile.eventName = "Wedding Night"
+        profile.customerScreenEnabled = true
+        XCTAssertEqual(profile.eventModeSummary, "Guest screens only")
+
+        profile.customerScreenEnabled = false
+        profile.isEnabled = true
+        XCTAssertEqual(profile.eventModeSummary, "Printed receipts only")
+
+        profile.customerScreenEnabled = true
+        XCTAssertTrue(profile.isEventModeActive)
+        XCTAssertEqual(profile.eventModeSummary, "Guest screens and printed receipts")
+    }
+
+    func testReceiptOutputSelectionsUseControlledProductionProfiles() {
+        XCTAssertEqual(ReceiptBluetoothTransferMode.balanced.transportPolicy, .experimentalBalanced)
+        XCTAssertEqual(ReceiptBluetoothTransferMode.compatibility.transportPolicy, .safeIntegrity)
+        XCTAssertEqual(CustomerReceiptPhotoTone.lighter.profile, .light1)
+        XCTAssertEqual(CustomerReceiptPhotoTone.lightest.profile, .light2)
+    }
+
     func testOlderPersistedProfileDecodesWithSafeCustomerDefaults() throws {
         let oldJSON = """
         {

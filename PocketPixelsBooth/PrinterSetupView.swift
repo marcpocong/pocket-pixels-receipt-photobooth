@@ -11,6 +11,7 @@ struct PrinterSetupView: View {
     @AppStorage("printerIP") private var printerIP = BoothConfiguration.defaultPrinterIP
     @AppStorage("printerPort") private var printerPort = BoothConfiguration.defaultPrinterPort
     @State private var wifiState = PrinterConnectionState.disconnected
+    @State private var customerPhotoTone = CustomerReceiptPhotoToneStore.load()
 
     private let wifiService = PrinterNetworkService()
 
@@ -22,6 +23,7 @@ struct PrinterSetupView: View {
 
             modeSection
             bluetoothSection
+            receiptOutputSection
             wifiSection
             activeTransportSection
         }
@@ -31,6 +33,44 @@ struct PrinterSetupView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .onAppear {
             printerCoordinator.prepare()
+        }
+    }
+
+    private var receiptOutputSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Receipt Output")
+                .font(.headline)
+
+            Picker("Bluetooth Transfer", selection: $printerCoordinator.receiptBluetoothTransferMode) {
+                ForEach(ReceiptBluetoothTransferMode.allCases) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .disabled(printerCoordinator.isWorking)
+
+            Text(printerCoordinator.receiptBluetoothTransferMode.detail)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            Picker("Photo Tone", selection: $customerPhotoTone) {
+                ForEach(CustomerReceiptPhotoTone.allCases) { tone in
+                    Text(tone.displayName).tag(tone)
+                }
+            }
+            .pickerStyle(.segmented)
+            .disabled(printerCoordinator.isWorking)
+            .onChange(of: customerPhotoTone) { _, tone in
+                CustomerReceiptPhotoToneStore.save(tone)
+            }
+
+            Text("The lighter settings preserve more facial detail on dark thermal output. Changes apply to new sessions; archived reprints keep their frozen raster data.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            Label("If regular horizontal lines remain, clean the print head and roller and try a fresh paper roll before changing software settings.", systemImage: "info.circle")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 

@@ -142,6 +142,19 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         return value.customerScreenEnabled ? value : nil
     }
 
+    nonisolated var isEventModeActive: Bool {
+        activeReceiptSnapshot != nil || activeCustomerSnapshot != nil
+    }
+
+    nonisolated var eventModeSummary: String {
+        switch (activeCustomerSnapshot != nil, activeReceiptSnapshot != nil) {
+        case (true, true): "Guest screens and printed receipts"
+        case (true, false): "Guest screens only"
+        case (false, true): "Printed receipts only"
+        case (false, false): "Pocket Pixels standard mode"
+        }
+    }
+
     nonisolated var customerDisplayTitle: String {
         let value = normalized()
         return value.customerTitle.isEmpty ? value.eventName : value.customerTitle
@@ -226,10 +239,35 @@ enum EventProfileStore {
 
 struct EventSetupView: View {
     @State private var draft = EventProfileStore.load()
+    @State private var savedProfile = EventProfileStore.load()
     @State private var statusMessage = "Event profile loaded."
 
     var body: some View {
         Form {
+            Section("Current Mode") {
+                Label(
+                    savedProfile.isEventModeActive ? "EVENT MODE ACTIVE" : "EVENT MODE OFF",
+                    systemImage: savedProfile.isEventModeActive ? "checkmark.circle.fill" : "circle"
+                )
+                .font(.title3.bold())
+                .foregroundStyle(savedProfile.isEventModeActive ? .green : .secondary)
+
+                Text(savedProfile.eventModeSummary)
+                    .font(.headline)
+
+                Toggle("Enable Event on Screens and Receipts", isOn: eventModeBinding)
+                    .font(.headline)
+
+                if hasUnsavedChanges {
+                    Label("Changes are not active until you tap Save Event Profile.", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                } else {
+                    Text("Saved settings apply to the next customer session. A session already in progress keeps its original frozen receipt.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Section("Event Identity") {
                 limitedTextField("Event Name", text: $draft.eventName, limit: EventProfile.eventNameLimit)
 
@@ -299,6 +337,7 @@ struct EventSetupView: View {
                     draft.customerScreenEnabled = false
                     draft.customerTheme = .classic
                     EventProfileStore.save(draft)
+                    savedProfile = draft.normalized()
                     statusMessage = "Screen and receipt branding are off for future sessions."
                 }
             } footer: {
@@ -311,6 +350,20 @@ struct EventSetupView: View {
 
     private var canSave: Bool {
         !draft.isEnabled || !draft.normalized().eventName.isEmpty
+    }
+
+    private var hasUnsavedChanges: Bool {
+        draft.normalized() != savedProfile.normalized()
+    }
+
+    private var eventModeBinding: Binding<Bool> {
+        Binding(
+            get: { draft.isEnabled && draft.customerScreenEnabled },
+            set: { enabled in
+                draft.isEnabled = enabled
+                draft.customerScreenEnabled = enabled
+            }
+        )
     }
 
     private func limitedTextField(
@@ -344,6 +397,7 @@ struct EventSetupView: View {
 
         draft = normalized
         EventProfileStore.save(normalized)
+        savedProfile = normalized
         statusMessage = normalized.isEnabled || normalized.customerScreenEnabled
             ? "Event profile saved for future sessions."
             : "Event branding is off for future sessions."

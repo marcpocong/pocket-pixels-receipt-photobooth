@@ -367,7 +367,7 @@ final class ArchivedReceiptReprintController: ObservableObject {
                 copyIndex: copy,
                 copyCount: copies,
                 batchID: batchID,
-                transportPolicy: .safeIntegrity
+                transportPolicy: printerCoordinator.productionReceiptTransportPolicy
             ) { [weak self] state in
                 guard let self else { return }
                 self.printerState = state
