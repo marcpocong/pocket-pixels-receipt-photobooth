@@ -112,7 +112,18 @@ final class EventOperationsTests: XCTestCase {
         let imageData = try XCTUnwrap(image.pngData())
         let date = Date(timeIntervalSince1970: 1_000)
         let token = String(repeating: "a", count: 64)
-        let committed = CommittedGallerySession(sessionIdentifier: "old-session", createdAt: date, galleryToken: token, galleryURL: URL(string: "https://example.com/g/\(token)")!, photos: [image], format: .solo, eventProfile: nil)
+        var archivedProfile = EventProfile(
+            isEnabled: true,
+            eventName: "ARCHIVED WEDDING",
+            subtitle: "",
+            includeEventDate: false,
+            eventDate: date,
+            shortMessage: "",
+            showEventTextBlock: false
+        )
+        archivedProfile.receiptHeader.mode = .customEventHeader
+        archivedProfile.receiptHeader.assetIdentifier = UUID().uuidString.lowercased()
+        let committed = CommittedGallerySession(sessionIdentifier: "old-session", createdAt: date, galleryToken: token, galleryURL: URL(string: "https://example.com/g/\(token)")!, photos: [image], format: .solo, eventProfile: archivedProfile)
         let receipt = ComposedReceipt(imagePNGData: imageData, width: raster.width, height: raster.height, previewContentHeight: raster.height, sessionIdentifier: "old-session", createdAt: date, format: .solo, photoQualityProfile: .customerPrintDefault)
         try store.save(RecentSessionArchivePayload(committedSession: committed, composedReceipt: receipt, receiptPreviewPNGData: imageData, thermalPreviewPNGData: imageData, rasterizedImage: raster, photoThumbnailData: [imageData]))
         let activeStaging = directory.appendingPathComponent("staging-active-customer")
@@ -122,7 +133,10 @@ final class EventOperationsTests: XCTestCase {
         let reopened = try RecentSessionArchiveStore(directoryURL: directory)
         XCTAssertEqual(try Data(contentsOf: stagedPhoto), imageData, "Opening the operator archive must not remove another save's in-flight files")
         XCTAssertEqual(try reopened.summaries().count, 1)
-        XCTAssertEqual(try reopened.load(archiveID: token).rasterizedImage.rasterData, raster.rasterData)
+        let loaded = try reopened.load(archiveID: token)
+        XCTAssertEqual(loaded.rasterizedImage.rasterData, raster.rasterData)
+        XCTAssertEqual(loaded.eventProfile?.receiptHeader.assetIdentifier, archivedProfile.receiptHeader.assetIdentifier)
+        XCTAssertEqual(RecentSessionArchiveStore.rasterFingerprint(for: loaded.rasterizedImage), RecentSessionArchiveStore.rasterFingerprint(for: raster))
     }
     private func audit(batch: UUID, copies: Int, result: PrintAuditRecord.TerminalResult = .completed) -> PrintAuditRecord {
         PrintAuditRecord(id: UUID(), timestamp: Date(), jobID: UUID(), batchID: batch,

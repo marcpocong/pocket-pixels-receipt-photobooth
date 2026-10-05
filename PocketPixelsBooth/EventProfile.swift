@@ -22,6 +22,8 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
     var eventDate: Date
     var location: String
     var shortMessage: String
+    var receiptHeader: ReceiptHeaderConfiguration
+    var showEventTextBlock: Bool
     var customerScreenEnabled: Bool
     var customerTitle: String
     var customerSubtitle: String
@@ -37,6 +39,8 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         eventDate: Date,
         location: String = "",
         shortMessage: String,
+        receiptHeader: ReceiptHeaderConfiguration = .default,
+        showEventTextBlock: Bool = true,
         customerScreenEnabled: Bool = false,
         customerTitle: String = "",
         customerSubtitle: String = "",
@@ -51,6 +55,8 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         self.eventDate = eventDate
         self.location = location
         self.shortMessage = shortMessage
+        self.receiptHeader = receiptHeader
+        self.showEventTextBlock = showEventTextBlock
         self.customerScreenEnabled = customerScreenEnabled
         self.customerTitle = customerTitle
         self.customerSubtitle = customerSubtitle
@@ -67,6 +73,8 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         case eventDate
         case location
         case shortMessage
+        case receiptHeader
+        case showEventTextBlock
         case customerScreenEnabled
         case customerTitle
         case customerSubtitle
@@ -84,6 +92,8 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         eventDate = try container.decode(Date.self, forKey: .eventDate)
         location = try container.decodeIfPresent(String.self, forKey: .location) ?? ""
         shortMessage = try container.decode(String.self, forKey: .shortMessage)
+        receiptHeader = try container.decodeIfPresent(ReceiptHeaderConfiguration.self, forKey: .receiptHeader) ?? .default
+        showEventTextBlock = try container.decodeIfPresent(Bool.self, forKey: .showEventTextBlock) ?? true
         customerScreenEnabled = try container.decodeIfPresent(Bool.self, forKey: .customerScreenEnabled) ?? false
         customerTitle = try container.decodeIfPresent(String.self, forKey: .customerTitle) ?? ""
         customerSubtitle = try container.decodeIfPresent(String.self, forKey: .customerSubtitle) ?? ""
@@ -101,6 +111,8 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
             eventDate: Date(),
             location: "",
             shortMessage: "",
+            receiptHeader: .default,
+            showEventTextBlock: true,
             customerScreenEnabled: false,
             customerTitle: "",
             customerSubtitle: "",
@@ -112,7 +124,8 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
 
     nonisolated var activeReceiptSnapshot: EventProfile? {
         let normalized = normalized()
-        guard normalized.isEnabled, !normalized.eventName.isEmpty else {
+        guard normalized.isEnabled,
+              !normalized.showEventTextBlock || !normalized.eventName.isEmpty else {
             return nil
         }
 
@@ -128,6 +141,8 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
             eventDate: eventDate,
             location: Self.normalizedSingleLine(location, limit: Self.locationLimit),
             shortMessage: Self.normalizedSingleLine(shortMessage, limit: Self.shortMessageLimit),
+            receiptHeader: receiptHeader.normalized(),
+            showEventTextBlock: showEventTextBlock,
             customerScreenEnabled: customerScreenEnabled,
             customerTitle: Self.normalizedSingleLine(customerTitle, limit: Self.customerTitleLimit),
             customerSubtitle: Self.normalizedSingleLine(customerSubtitle, limit: Self.customerSubtitleLimit),
@@ -170,6 +185,7 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         guard let snapshot else {
             return nil
         }
+        guard snapshot.showEventTextBlock else { return nil }
 
         let dateText = snapshot.includeEventDate ? Self.eventDateFormatter.string(from: snapshot.eventDate).uppercased() : nil
         let locationText = snapshot.location.isEmpty ? nil : snapshot.location.uppercased()
@@ -323,7 +339,12 @@ struct EventSetupView: View {
                 Toggle("Receipt Event Branding", isOn: $draft.isEnabled)
                     .accessibilityHint("When enabled, new customer receipts include the saved event text.")
 
-                Text("Uses Event Name, Subtitle / Host, Date and Location from Event Identity above.")
+                Text("Receipt Header")
+                    .font(.headline)
+
+                EventHeaderEditorView(profile: $draft, statusMessage: $statusMessage)
+
+                Text("The optional event text uses Event Name, Subtitle / Host, Date and Location from Event Identity above.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -365,7 +386,7 @@ struct EventSetupView: View {
     }
 
     private var canSave: Bool {
-        !draft.isEnabled || !draft.normalized().eventName.isEmpty
+        !draft.isEnabled || !draft.showEventTextBlock || !draft.normalized().eventName.isEmpty
     }
 
     private var hasUnsavedChanges: Bool {
@@ -406,7 +427,7 @@ struct EventSetupView: View {
 
     private func saveDraft() {
         let normalized = draft.normalized()
-        guard !normalized.isEnabled || !normalized.eventName.isEmpty else {
+        guard !normalized.isEnabled || !normalized.showEventTextBlock || !normalized.eventName.isEmpty else {
             statusMessage = "Event Name is required when Event Branding is on."
             return
         }
@@ -555,7 +576,18 @@ private struct EventReceiptComposerPreview: View {
             normalized.includeEventDate.description,
             String(normalized.eventDate.timeIntervalSince1970),
             normalized.location,
-            normalized.shortMessage
+            normalized.shortMessage,
+            normalized.showEventTextBlock.description,
+            normalized.receiptHeader.mode.rawValue,
+            normalized.receiptHeader.assetIdentifier ?? "",
+            String(normalized.receiptHeader.scale),
+            String(normalized.receiptHeader.topSpacing),
+            String(normalized.receiptHeader.bottomSpacing),
+            normalized.receiptHeader.alignment.rawValue,
+            normalized.receiptHeader.layoutMode.rawValue,
+            String(normalized.receiptHeader.cropPositionX),
+            String(normalized.receiptHeader.cropPositionY),
+            String(normalized.receiptHeader.cropZoom)
         ].joined(separator: "|")
     }
 
