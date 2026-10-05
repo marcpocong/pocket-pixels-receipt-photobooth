@@ -1,151 +1,116 @@
 import SwiftUI
 import UIKit
 
-struct SystemHealthView: View {
-    @StateObject private var operations = EventOperationalState.shared
-    @StateObject private var printer = PrinterCoordinator.shared
-    @StateObject private var bluetooth = PrinterBluetoothService.shared
-    @StateObject private var spooler = PrintSpooler.shared
-    @State private var showCloseSummary = false
-    @State private var copied = false
-    @State private var eventProfile = EventProfileStore.load()
-
-    var body: some View {
-        List {
-            Section("Can the booth operate?") {
-                Text(operations.readinessReport.title)
-                    .font(.title2.bold())
-                    .foregroundStyle(readinessColor)
-                if operations.readinessReport.checks.isEmpty { Text("Run event preflight before welcoming guests.") }
-                ForEach(operations.readinessReport.reasons) { check in
-                    Label("\(check.title): \(check.detail)", systemImage: check.severity == .critical ? "xmark.circle" : "exclamationmark.circle")
-                        .font(.subheadline)
-                }
-                NavigationLink("Run Event Preflight") { EventPreflightView() }
-            }
-            Section("Event Status") {
-                Label(
-                    eventProfile.isEventModeActive ? "EVENT MODE ACTIVE" : "EVENT MODE OFF",
-                    systemImage: eventProfile.isEventModeActive ? "checkmark.circle.fill" : "circle"
-                )
-                .font(.title3.bold())
-                .foregroundStyle(eventProfile.isEventModeActive ? .green : .secondary)
-                Text(eventProfile.eventModeSummary).font(.headline)
-                NavigationLink("Edit Event & Activation") { EventSetupView() }
-                LabeledContent("Event", value: eventProfile.eventName.isEmpty ? "No event name" : eventProfile.eventName)
-                LabeledContent("Guest screens", value: eventProfile.activeCustomerSnapshot == nil ? "Standard" : "Event branded")
-                LabeledContent("Printed receipts", value: eventProfile.activeReceiptSnapshot == nil ? "Standard" : "Event branded")
-                LabeledContent("Gallery setup", value: DeviceCredentialStore().hasDeviceToken() ? "Credential saved · delivery deferred when offline" : "Needs credential · photos remain local")
-                LabeledContent("Printer", value: printer.requiresRecovery ? "Operator recovery required" : printer.bluetoothSummary)
-                LabeledContent("Camera", value: operations.cameraCheckPassed ? "Initialization checked" : "Needs preflight")
-                LabeledContent("Internet", value: operations.networkPathStatus)
-                LabeledContent("Pending galleries", value: "\(operations.pendingUploadCount)")
-                LabeledContent("Recovery", value: operations.hasUnresolvedPrint ? "Print status unknown" : (operations.recoverableSession == nil ? "None" : "Saved session retained"))
-            }
-            Section("Quick Actions") {
-                NavigationLink("Recovery Center") { OperatorRecoveryView() }
-                NavigationLink("Recent Sessions") { RecentSessionsView() }
-                NavigationLink("Pending Uploads") { PendingUploadsView() }
-                NavigationLink("Print Audit") { OperatorPrintAuditView() }
-                NavigationLink("Camera Check") { OperatorCameraCheckView() }
-                    .disabled(operations.customerSessionActive || operations.isPreflightRunning || printer.isWorking)
-                NavigationLink("Gallery Credentials") { OperatorGallerySettingsView() }
-                NavigationLink("Preview Customer Experience") {
-                    ScrollView {
-                        CustomerExperiencePreviewView(profile: EventProfileStore.load())
-                            .padding()
-                    }
-                    .navigationTitle("Customer Preview")
-                }
-                NavigationLink("Printer Connection Setup") { ScrollView { PrinterSetupView() } }
-                    .disabled(printer.isWorking)
-            }
-            Section("Storage — no automatic cleanup") {
-                Text(operations.storageText)
-                LabeledContent("Archives stored", value: "\(operations.archiveCount)")
-                LabeledContent("Pending gallery storage", value: ByteCountFormatter.string(fromByteCount: Int64(operations.pendingUploads.reduce(0) { $0 + $1.payloadSizeBytes }), countStyle: .file))
-                Text("Customer archives and pending uploads are retained. Cleanup is deferred until delivery and recovery can be verified safely.").font(.caption)
-            }
-            Section("This App Launch") {
-                LabeledContent("Sessions completed", value: "\(operations.sessionsCompletedThisLaunch)")
-                TimelineView(.periodic(from: .now, by: 30)) { _ in LabeledContent("App uptime", value: operations.uptimeText) }
-                LabeledContent("Camera restarts", value: "\(operations.cameraRestartCountThisLaunch)")
-                LabeledContent("Copies requested in retained audit", value: "\(operations.launchAuditSummary.requestedCopies)")
-                LabeledContent("Recovery events in retained audit", value: "\(operations.launchAuditSummary.recoveryEvents)")
-                Text("Audit counters cover retained jobs only (up to 200). Session counters reset when the app relaunches.").font(.caption)
-                Button("Review End-of-Event Summary") { operations.refresh(); showCloseSummary = true }
-            }
-            Section("Support") {
-                Button(copied ? "Diagnostic Report Copied" : "Copy Diagnostic Report") {
-                    operations.refresh()
-                    UIPasteboard.general.string = operations.diagnosticReport
-                    copied = true
-                }
-                Text("No customer images, gallery links or access tokens are included.").font(.caption)
-            }
-#if DEBUG
-            Section("Developer Tools") {
-                NavigationLink("Endurance / Chaos Harness") { EventEnduranceHarnessView() }
-                NavigationLink("Printer Deep Diagnostics / Explicit Test Print") { PrinterTestView() }
-                NavigationLink("Camera Development Tools") { CameraTestView() }
-                NavigationLink("Gallery Development Tools") { GalleryUploadTestView() }
-                NavigationLink("Booth Development Tools") { BoothSessionView(showsReceiptDebugTools: true) }
-            }
-#endif
-        }
-        .navigationTitle("Event Operations")
-        .task { operations.start() }
-        .onAppear { eventProfile = EventProfileStore.load() }
-        .onReceive(NotificationCenter.default.publisher(for: EventProfileStore.didChangeNotification)) { _ in
-            eventProfile = EventProfileStore.load()
-            operations.refresh()
-        }
-        .onChange(of: printer.state) { _, _ in operations.refresh() }
-        .onChange(of: bluetooth.isConnectedAndReady) { _, _ in operations.refresh() }
-        .onChange(of: bluetooth.canPrintRaster) { _, _ in operations.refresh() }
-        .onChange(of: spooler.requiresRecovery) { _, _ in operations.refresh() }
-        .refreshable { operations.refresh() }
-        .sheet(isPresented: $showCloseSummary) {
-            NavigationStack {
-                List {
-                    Text("End-of-Event Review").font(.title2.bold())
-                    Text("\(operations.sessionsCompletedThisLaunch) sessions completed this launch · \(operations.uptimeText)")
-                    Text("\(operations.launchAuditSummary.requestedCopies) requested copies and \(operations.launchAuditSummary.recoveryEvents) recovery events in retained audit.")
-                    if operations.customerSessionActive || printer.isWorking { Label("A customer session or print is active. Finish it before closing.", systemImage: "exclamationmark.triangle") }
-                    if operations.hasUnresolvedPrint || printer.requiresRecovery { Text("Resolve unknown print status with the operator before closing.").foregroundStyle(.red) }
-                    if operations.pendingUploadCount > 0 { Text("\(operations.pendingUploadCount) galleries remain on this iPad. Keep the app open with internet to finish delivery.") }
-                    Text("This review does not reset counters or delete archives, recovery data, or pending uploads.")
-                }.toolbar { Button("Done") { showCloseSummary = false } }
-            }
-        }
-    }
-    private var readinessColor: Color {
-        switch operations.readinessReport.readiness { case .ready: .green; case .attention: .orange; case .notReady: .red }
-    }
-}
-
+/// Booth Check: runs the existing event preflight and presents its checks in operator wording.
 struct EventPreflightView: View {
     @StateObject private var operations = EventOperationalState.shared
     @StateObject private var printer = PrinterCoordinator.shared
+
     var body: some View {
+        let status = OperatorStatusSummary(
+            report: operations.readinessReport,
+            hasUnresolvedPrint: operations.hasUnresolvedPrint,
+            printerRequiresRecovery: printer.requiresRecovery,
+            pendingUploadCount: operations.pendingUploadCount,
+            galleryStorageError: operations.queueError != nil
+        )
+        let needsAttention = operations.readinessReport.reasons
+        let passed = operations.readinessReport.checks.filter { $0.status == .pass }
+
         List {
             Section {
-                Text(operations.readinessReport.title).font(.headline)
-                Text("No paper is printed. Checks cannot prove physical receipt completion, paper feed or cutter operation.")
-                Button(operations.isPreflightRunning ? "Checking…" : "Run Event Preflight") { operations.runEventPreflight() }
-                    .disabled(operations.isPreflightRunning || operations.customerSessionActive || printer.isWorking)
-                if operations.customerSessionActive { Text("Finish the customer session before initializing the preflight camera.") }
-                if operations.isPreflightRunning { ProgressView() }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(status.headline)
+                        .font(.title.bold())
+                        .foregroundStyle(readinessColor)
+                    Text(status.summary)
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 6)
+
+                Button {
+                    operations.runEventPreflight()
+                } label: {
+                    HStack {
+                        if operations.isPreflightRunning { ProgressView() }
+                        Text(operations.isPreflightRunning ? "Checking…" : "Run Booth Check")
+                            .font(.headline)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(operations.isPreflightRunning || operations.customerSessionActive || printer.isWorking)
+
+                if operations.customerSessionActive {
+                    Text("Finish the customer session before checking the camera.")
+                        .foregroundStyle(.orange)
+                }
+            } footer: {
+                Text("No paper is printed. Booth Check cannot prove physical receipt output, paper feed or cutter operation.")
             }
-            Section("Checks") {
-                ForEach(operations.readinessReport.checks) { check in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("\(check.status == .pass ? "PASS" : (check.status == .warning ? "ATTENTION" : "FAIL")) · \(check.title)").font(.headline)
-                        Text(check.detail).font(.subheadline)
+
+            if !needsAttention.isEmpty {
+                Section("Needs Attention") {
+                    ForEach(needsAttention) { check in
+                        checkRow(check)
                     }
                 }
             }
-        }.navigationTitle("Event Preflight")
+
+            if !passed.isEmpty {
+                Section {
+                    DisclosureGroup("Passed (\(passed.count))") {
+                        ForEach(passed) { check in
+                            checkRow(check)
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Booth Check")
+        .task { operations.refresh() }
+    }
+
+    private func checkRow(_ check: EventReadinessCheck) -> some View {
+        Label {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(OperatorStatusSummary.displayName(forCheckTitle: check.title))
+                    .font(.headline)
+                Text(check.detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        } icon: {
+            Image(systemName: icon(for: check))
+                .foregroundStyle(color(for: check))
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func icon(for check: EventReadinessCheck) -> String {
+        switch check.status {
+        case .pass: "checkmark.circle.fill"
+        case .warning: "exclamationmark.circle.fill"
+        case .fail: "xmark.circle.fill"
+        }
+    }
+
+    private func color(for check: EventReadinessCheck) -> Color {
+        switch check.status {
+        case .pass: .green
+        case .warning: .orange
+        case .fail: .red
+        }
+    }
+
+    private var readinessColor: Color {
+        switch operations.readinessReport.readiness {
+        case .ready: .green
+        case .attention: .orange
+        case .notReady: .red
+        }
     }
 }
 
@@ -166,7 +131,7 @@ struct OperatorRecoveryView: View {
                 Text("Inspect the receipt and paper path, then restart the printer. Automatic retry is disabled after bytes may have started. Confirmation never sends a print job.")
                 Button("Confirm Printer Restarted and Receipt Checked") { confirming = true }
                     .disabled(printer.isWorking || (!printer.requiresRecovery && !operations.hasUnresolvedPrint))
-                NavigationLink("Reconnect / Printer Setup") { ScrollView { PrinterSetupView() } }
+                NavigationLink("Reconnect / Printer Setup") { OperatorPrinterSetupView() }
                     .disabled(printer.isWorking)
                 Button("Print Diagnostic Text — Uses Paper") { confirmingTest = true }
                     .disabled(testRunning || printer.isWorking || printer.requiresRecovery || operations.hasUnresolvedPrint || !bluetooth.isConnectedAndReady)
@@ -175,7 +140,7 @@ struct OperatorRecoveryView: View {
                         .disabled(printer.isWorking || printer.requiresRecovery || !bluetooth.isConnectedAndReady)
                 }
                 if !testMessage.isEmpty { Text(testMessage) }
-                NavigationLink("View Print Audit") { OperatorPrintAuditView() }
+                NavigationLink("View Print History") { OperatorPrintAuditView() }
                 NavigationLink("Open Recent Sessions") { RecentSessionsView() }
                 Text("After confirmation, reconnect the printer. Any archived reprint is a separate, intentional operator print; inspect previous output first.")
             }
@@ -186,7 +151,7 @@ struct OperatorRecoveryView: View {
                     Text("Recovery data is retained. No automatic reprint or deletion.")
                 }
             }
-        }.navigationTitle("Recovery Center")
+        }.navigationTitle("Recovery")
         .task { operations.refresh() }
         .onChange(of: bluetooth.isConnectedAndReady) { _, ready in if !ready { textTestSent = false } }
         .confirmationDialog("Print one diagnostic text test on paper?", isPresented: $confirmingTest, titleVisibility: .visible) {
@@ -227,9 +192,9 @@ struct PendingUploadsView: View {
     var body: some View {
         List {
             Section {
-                LabeledContent("Pending", value: "\(operations.pendingUploadCount)")
+                LabeledContent("Waiting", value: "\(operations.pendingUploadCount)")
                 LabeledContent("Network", value: operations.networkPathStatus)
-                if let first = operations.pendingUploads.first { LabeledContent("Oldest pending", value: first.createdAt) }
+                if let first = operations.pendingUploads.first { LabeledContent("Oldest waiting", value: first.createdAt) }
                 Text("Photos saved locally. Uploads wait for internet; receipt printing does not need to wait.")
                 if let error = operations.queueError { Text(error).foregroundStyle(.red) }
                 Button(operations.isUploadWorkerRunning ? "Uploading…" : "Retry All") { operations.retryPendingUploads(reason: "Operator requested retry.") }
@@ -245,7 +210,7 @@ struct PendingUploadsView: View {
                     NavigationLink("View Session") { RecentSessionsView(initialSearch: upload.sessionID) }
                 }
             }
-        }.navigationTitle("Pending Uploads")
+        }.navigationTitle("Waiting Galleries")
         .task { operations.refresh() }
         .refreshable { operations.refresh() }
     }
@@ -257,7 +222,7 @@ struct OperatorPrintAuditView: View {
     var body: some View {
         List {
             Text("Recent transport history (up to 200 jobs). Transport completion is not proof of paper output.").font(.caption)
-            if failed { Text("Print audit could not be read. Keep recovery locked and inspect storage.").foregroundStyle(.red) }
+            if failed { Text("Print history could not be read. Keep recovery locked and inspect storage.").foregroundStyle(.red) }
             ForEach(records.reversed()) { record in
                 Section(record.sessionIdentifier) {
                     Text(record.timestamp.formatted())
@@ -268,7 +233,7 @@ struct OperatorPrintAuditView: View {
                     if record.recoveryReason != nil { Text("Recovery reason: transport ended with uncertain physical output. Automatic retry disabled.") }
                 }
             }
-        }.navigationTitle("Print Audit")
+        }.navigationTitle("Print History")
         .task { load() }.refreshable { load() }
     }
     private func load() {

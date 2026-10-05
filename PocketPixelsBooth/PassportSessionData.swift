@@ -123,6 +123,21 @@ nonisolated struct PassportConfiguration: Codable, Equatable, Sendable {
         )
     }
 
+    /// Simple Event Setup switch. On means event branding (automatic unless an advanced override
+    /// is already saved); off forces Pocket Passport branding. Turning it on from off restores
+    /// `.automatic`, and an existing `.eventText` / `.eventHeaderGraphic` override is never rewritten
+    /// just by reading or re-enabling the switch.
+    nonisolated var usesEventBranding: Bool {
+        get { titleSource != .pocketPixels }
+        set {
+            if newValue {
+                if titleSource == .pocketPixels { titleSource = .automatic }
+            } else {
+                titleSource = .pocketPixels
+            }
+        }
+    }
+
     /// Passport customization belongs to printed-receipt event branding. Standard mode always
     /// uses the deterministic Pocket Pixels default.
     nonisolated static func effective(for eventProfile: EventProfile?) -> PassportConfiguration {

@@ -55,8 +55,13 @@ private struct PocketPixelsAdminView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Event Operations")
-                    .font(.headline)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Pocket Pixels")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("Operator")
+                        .font(.title3.bold())
+                }
 
                 Spacer()
 
@@ -73,7 +78,7 @@ private struct PocketPixelsAdminView: View {
             Divider()
 
             NavigationStack {
-                SystemHealthView()
+                OperatorDashboardView()
             }
 
         }

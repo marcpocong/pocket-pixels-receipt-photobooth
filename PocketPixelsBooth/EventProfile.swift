@@ -261,131 +261,175 @@ enum EventProfileStore {
 }
 
 struct EventSetupView: View {
-    @State private var draft = EventProfileStore.load()
-    @State private var savedProfile = EventProfileStore.load()
+    @State private var draft: EventProfile
+    @State private var savedProfile: EventProfile
     @State private var statusMessage = "Event profile loaded."
+
+    init() {
+        // Load once so an unsaved default profile (which stamps the current date) does not
+        // immediately read as having unsaved changes.
+        let profile = EventProfileStore.load()
+        _draft = State(initialValue: profile)
+        _savedProfile = State(initialValue: profile)
+    }
 
     var body: some View {
         Form {
-            Section("Current Mode") {
-                Label(
-                    savedProfile.isEventModeActive ? "EVENT MODE ACTIVE" : "EVENT MODE OFF",
-                    systemImage: savedProfile.isEventModeActive ? "checkmark.circle.fill" : "circle"
-                )
-                .font(.title3.bold())
-                .foregroundStyle(savedProfile.isEventModeActive ? .green : .secondary)
-
-                Text(savedProfile.eventModeSummary)
-                    .font(.headline)
-
-                if draft.isEnabled != draft.customerScreenEnabled {
-                    Text("Screens and receipts currently use different settings. Turn on the switch below to enable both.")
-                        .font(.caption)
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label(
+                        savedProfile.isEventModeActive ? "EVENT MODE ON" : "EVENT MODE OFF",
+                        systemImage: savedProfile.isEventModeActive ? "checkmark.circle.fill" : "circle"
+                    )
+                    .font(.title3.bold())
+                    .foregroundStyle(savedProfile.isEventModeActive ? .green : .secondary)
+                    Text(savedProfile.isEventModeActive ? savedProfile.eventModeSummary : "Guests see the standard Pocket Pixels booth.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
-                Toggle("Event Mode · Screens & Receipts", isOn: eventModeBinding)
-                    .font(.headline)
+                .padding(.vertical, 6)
+
+                NavigationLink {
+                    EventPreviewView(draft: draft)
+                } label: {
+                    Label("Preview Event", systemImage: "eye.fill")
+                        .font(.headline)
+                        .foregroundStyle(.tint)
+                        .frame(minHeight: 36)
+                }
+                .accessibilityHint("Shows guest screens, the receipt and Passport without printing.")
 
                 if hasUnsavedChanges {
-                    Label("Unsaved changes — tap Save above to apply them.", systemImage: "exclamationmark.triangle.fill")
+                    Label("Unsaved changes", systemImage: "pencil.circle.fill")
                         .foregroundStyle(.orange)
-                } else {
-                    Text("Saved settings apply to the next customer session. A session already in progress keeps its original frozen receipt.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
             }
 
-            Section("Event Identity") {
+            Section("Event") {
                 limitedTextField("Event Name", text: $draft.eventName, limit: EventProfile.eventNameLimit)
-                if !canSave {
-                    Text("Enter an event name to enable event receipts.")
+                if !canActivate {
+                    Text("Enter an event name to use event details on receipts.")
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
 
                 limitedTextField("Subtitle / Host", text: $draft.subtitle, limit: EventProfile.subtitleLimit)
 
-                Toggle("Include Event Date", isOn: $draft.includeEventDate)
+                Toggle("Show Date", isOn: $draft.includeEventDate)
 
                 if draft.includeEventDate {
-                    DatePicker("Event Date", selection: $draft.eventDate, displayedComponents: .date)
+                    DatePicker("Date", selection: $draft.eventDate, displayedComponents: .date)
                 }
 
                 limitedTextField("Location", text: $draft.location, limit: EventProfile.locationLimit)
             }
 
-            DisclosureGroup("Customize Guest Screens (Optional)") {
-                Toggle("Event Screen Branding", isOn: $draft.customerScreenEnabled)
-                    .accessibilityHint("Shows event wording and the selected theme on customer screens. It does not change the printed receipt.")
+            Section("Receipt") {
+                Text("Receipt Header")
+                    .font(.headline)
+                EventHeaderEditorView(profile: $draft, statusMessage: $statusMessage)
+                limitedTextField("Optional Message", text: $draft.shortMessage, limit: EventProfile.shortMessageLimit, autocapitalization: .sentences)
+            }
 
-                limitedTextField("Screen Title", text: $draft.customerTitle, limit: EventProfile.customerTitleLimit)
-                    .accessibilityHint("Optional. Event Name is used when this is blank.")
-
-                limitedTextField("Screen Subtitle", text: $draft.customerSubtitle, limit: EventProfile.customerSubtitleLimit)
-                    .accessibilityHint("Optional. Subtitle or Host is used when this is blank.")
-
-                limitedTextField("Welcome Message", text: $draft.customerWelcomeMessage, limit: EventProfile.customerMessageLimit, autocapitalization: .sentences)
-                limitedTextField("Thank-you Message", text: $draft.customerThankYouMessage, limit: EventProfile.customerMessageLimit, autocapitalization: .sentences)
-
-                Picker("Screen Theme", selection: $draft.customerTheme) {
+            Section("Guest Screens") {
+                Picker("Theme", selection: $draft.customerTheme) {
                     ForEach(CustomerScreenTheme.allCases) { theme in
                         Text(theme.displayName).tag(theme)
                     }
                 }
 
-                Text(draft.customerTheme.summary)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            DisclosureGroup("Preview Guest Screens") {
-                CustomerExperiencePreviewView(profile: draft.normalized())
-            }
-
-            DisclosureGroup("Customize Printed Receipt (Optional)") {
-                Toggle("Receipt Event Branding", isOn: $draft.isEnabled)
-                    .accessibilityHint("When enabled, new customer receipts include the saved event text.")
-
-                Text("Receipt Header")
-                    .font(.headline)
-
-                EventHeaderEditorView(profile: $draft, statusMessage: $statusMessage)
-
-                Text("The optional event text uses Event Name, Subtitle / Host, Date and Location from Event Identity above.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                limitedTextField("Receipt Message", text: $draft.shortMessage, limit: EventProfile.shortMessageLimit, autocapitalization: .sentences)
-
-                DisclosureGroup("Passport Format (Optional)") {
-                    passportSettings
+                DisclosureGroup("Customize Guest Screens") {
+                    limitedTextField("Title", text: $draft.customerTitle, limit: EventProfile.customerTitleLimit)
+                        .accessibilityHint("Optional. Event Name is used when this is blank.")
+                    limitedTextField("Subtitle", text: $draft.customerSubtitle, limit: EventProfile.customerSubtitleLimit)
+                        .accessibilityHint("Optional. Subtitle or Host is used when this is blank.")
+                    limitedTextField("Welcome Message", text: $draft.customerWelcomeMessage, limit: EventProfile.customerMessageLimit, autocapitalization: .sentences)
+                    limitedTextField("Thank-you Message", text: $draft.customerThankYouMessage, limit: EventProfile.customerMessageLimit, autocapitalization: .sentences)
                 }
-            }
-
-            DisclosureGroup("Preview Printed Receipt") {
-                EventReceiptComposerPreview(profile: draft.normalized())
-                    .padding(.vertical, 6)
             }
 
             Section {
-                Button("Save Event Profile") {
-                    saveDraft()
+                Picker("Theme", selection: $draft.passport.theme) {
+                    ForEach(PassportTheme.allCases) { theme in
+                        Text(theme.displayName).tag(theme)
+                    }
                 }
-                .disabled(!canSave)
+                Toggle("Use event branding", isOn: $draft.passport.usesEventBranding)
+                    .accessibilityHint("Uses the event image, otherwise the event name, otherwise Pocket Passport branding.")
 
-                Button("Use Pocket Pixels Default") {
-                    draft.isEnabled = false
-                    draft.customerScreenEnabled = false
-                    draft.customerTheme = .classic
-                    EventProfileStore.save(draft)
-                    savedProfile = draft.normalized()
-                    statusMessage = "Screen and receipt branding are off for future sessions."
+                DisclosureGroup("Customize Passport") {
+                    passportAdvancedSettings
                 }
+            } header: {
+                Text("Passport")
             } footer: {
-                Text(statusMessage)
+                Text(draft.passport.usesEventBranding
+                     ? "Uses the event image when set, otherwise the event name."
+                     : "Uses Pocket Passport branding.")
+            }
+
+            Section {
+                if !savedProfile.isEventModeActive {
+                    Button {
+                        draft.isEnabled = true
+                        draft.customerScreenEnabled = true
+                        saveDraft()
+                    } label: {
+                        Text("Save & Activate")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canActivate)
+                }
+
+                Button {
+                    saveDraft()
+                } label: {
+                    Text("Save Changes")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                .disabled(!canSave || !hasUnsavedChanges)
+
+                if savedProfile.isEventModeActive {
+                    Button(role: .destructive) {
+                        draft.isEnabled = false
+                        draft.customerScreenEnabled = false
+                        saveDraft()
+                    } label: {
+                        Text("Turn Off Event Mode")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                if draft.isEnabled != draft.customerScreenEnabled {
+                    Text("Event branding is currently on for \(draft.isEnabled ? "printed receipts" : "guest screens") only.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                DisclosureGroup("Advanced Activation") {
+                    Toggle("Event branding on printed receipts", isOn: $draft.isEnabled)
+                        .accessibilityHint("When on, new receipts use the event header, details and Passport settings.")
+                    Toggle("Event branding on guest screens", isOn: $draft.customerScreenEnabled)
+                        .accessibilityHint("When on, guest screens use event wording and the selected theme.")
+                    Text("Most events keep both on. Use Save Changes to apply.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Activation")
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(statusMessage)
+                    Text("Saved settings apply to the next customer. A session in progress keeps its frozen event settings.")
+                }
             }
         }
-        .navigationTitle("Edit Event")
+        .navigationTitle("Event Setup")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
@@ -397,21 +441,12 @@ struct EventSetupView: View {
     }
 
     @ViewBuilder
-    private var passportSettings: some View {
-        Text("Used only for Passport sessions while Receipt Event Branding is on. The passport cards replace the large receipt header, so the header, title and event text are never stacked.")
+    private var passportAdvancedSettings: some View {
+        Text("Automatic branding avoids stacking a receipt header, title and event text. Use an override only for unusual events.")
             .font(.caption)
             .foregroundStyle(.secondary)
 
-        Picker("Passport Theme", selection: $draft.passport.theme) {
-            ForEach(PassportTheme.allCases) { theme in
-                Text(theme.displayName).tag(theme)
-            }
-        }
-        Text(draft.passport.theme.summary)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
-        Picker("Passport Title Area", selection: $draft.passport.titleSource) {
+        Picker("Branding Source", selection: $draft.passport.titleSource) {
             ForEach(PassportTitleSource.allCases) { source in
                 Text(source.displayName).tag(source)
             }
@@ -419,34 +454,22 @@ struct EventSetupView: View {
         Text(draft.passport.titleSource.summary)
             .font(.caption)
             .foregroundStyle(.secondary)
-
         limitedTextField("Passport Title", text: $draft.passport.title, limit: PassportConfiguration.titleLimit, autocapitalization: .characters)
-            .accessibilityHint("Shown with Pocket Passport branding. Leave blank for POCKET PASSPORT.")
         limitedTextField("Passport Subtitle (Optional)", text: $draft.passport.subtitle, limit: PassportConfiguration.subtitleLimit, autocapitalization: .characters)
         limitedTextField("Event Label (Optional)", text: $draft.passport.eventLabel, limit: PassportConfiguration.eventLabelLimit, autocapitalization: .characters)
-            .accessibilityHint("Shown under the event name or header graphic, for example WEDDING PASSPORT. Defaults to EVENT PASSPORT.")
-
-        Text("Check the result in Preview Printed Receipt with Passport selected.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
     }
 
     private var canSave: Bool {
         !draft.isEnabled || !draft.showEventTextBlock || !draft.normalized().eventName.isEmpty
     }
 
-    private var hasUnsavedChanges: Bool {
-        draft.normalized() != savedProfile.normalized()
+    /// Activation turns on receipts, which require an event name whenever event details are shown.
+    private var canActivate: Bool {
+        !draft.showEventTextBlock || !draft.normalized().eventName.isEmpty
     }
 
-    private var eventModeBinding: Binding<Bool> {
-        Binding(
-            get: { draft.isEnabled && draft.customerScreenEnabled },
-            set: { enabled in
-                draft.isEnabled = enabled
-                draft.customerScreenEnabled = enabled
-            }
-        )
+    private var hasUnsavedChanges: Bool {
+        draft.normalized() != savedProfile.normalized()
     }
 
     private func limitedTextField(
@@ -474,7 +497,7 @@ struct EventSetupView: View {
     private func saveDraft() {
         let normalized = draft.normalized()
         guard !normalized.isEnabled || !normalized.showEventTextBlock || !normalized.eventName.isEmpty else {
-            statusMessage = "Event Name is required when Event Branding is on."
+            statusMessage = "Enter an event name, or turn off event details below the header."
             return
         }
 
@@ -484,6 +507,55 @@ struct EventSetupView: View {
         statusMessage = normalized.isEnabled || normalized.customerScreenEnabled
             ? "Event profile saved for future sessions."
             : "Event branding is off for future sessions."
+    }
+}
+
+/// Pure helpers behind Preview Event. Nothing here saves, prints, archives or uploads.
+enum EventSetupPreview {
+    /// The profile Preview Event renders. While Event Mode is off the operator is previewing what
+    /// Save & Activate will produce, so both outputs are shown as active. An explicit split
+    /// configuration (screens-only or receipts-only) is previewed exactly as configured.
+    nonisolated static func previewProfile(for draft: EventProfile) -> EventProfile {
+        var profile = draft.normalized()
+        if !profile.isEnabled && !profile.customerScreenEnabled {
+            profile.isEnabled = true
+            profile.customerScreenEnabled = true
+        }
+        return profile
+    }
+
+    nonisolated static func showsActivatedPreview(for draft: EventProfile) -> Bool {
+        let profile = draft.normalized()
+        return !profile.isEnabled && !profile.customerScreenEnabled
+    }
+}
+
+private struct EventPreviewView: View {
+    let draft: EventProfile
+
+    var body: some View {
+        let profile = EventSetupPreview.previewProfile(for: draft)
+        List {
+            if EventSetupPreview.showsActivatedPreview(for: draft) {
+                Section {
+                    Label("Event Mode is off. This shows how the booth will look after Save & Activate.", systemImage: "info.circle")
+                        .font(.subheadline)
+                }
+            }
+            Section("Guest Screens") {
+                CustomerExperiencePreviewView(profile: profile)
+            }
+            Section {
+                EventReceiptComposerPreview(profile: profile)
+                    .padding(.vertical, 6)
+            } header: {
+                Text("Receipt & Passport")
+            } footer: {
+                Text("Preview only. Nothing is printed, saved or uploaded.")
+            }
+        }
+        .navigationTitle("Preview Event")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -549,7 +621,7 @@ private extension String {
     var nonEmpty: String? { isEmpty ? nil : self }
 }
 
-private struct EventReceiptComposerPreview: View {
+struct EventReceiptComposerPreview: View {
     let profile: EventProfile
 
     @State private var selectedFormat: BoothFormat = .duo
@@ -676,7 +748,8 @@ private struct EventReceiptComposerPreview: View {
         }
     }
 
-    nonisolated private static func makePreviewReceipt(profile: EventProfile, format: BoothFormat) async throws -> ComposedReceipt {
+    /// Composes a sample receipt in memory only. It never touches the print spooler, audit, archive or gallery queue.
+    nonisolated static func makePreviewReceipt(profile: EventProfile, format: BoothFormat) async throws -> ComposedReceipt {
         let worker = Task.detached(priority: .utility) {
             try Task.checkCancellation()
             guard let galleryURL = URL(string: "https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/?g=event-preview") else {

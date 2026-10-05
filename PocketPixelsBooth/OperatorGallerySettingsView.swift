@@ -19,7 +19,7 @@ struct OperatorGallerySettingsView: View {
             }.disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).count < 24 || operations.isUploadWorkerRunning)
             Text(message)
             Text("Tokens are stored in Keychain and excluded from diagnostic reports. Changing credentials does not delete pending galleries.")
-        }.navigationTitle("Gallery Credentials")
+        }.navigationTitle("Gallery Setup")
         .onDisappear { token = "" }
     }
 }

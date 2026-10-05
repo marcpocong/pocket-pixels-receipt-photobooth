@@ -139,6 +139,54 @@ final class EventHeaderTests: XCTestCase {
         XCTAssertEqual(roundTrip, fill)
     }
 
+    func testSavedAdvancedEventImageAdjustmentsSurviveProfileRoundTrip() throws {
+        var profile = makeProfile()
+        profile.receiptHeader.mode = .customEventHeader
+        profile.receiptHeader.assetIdentifier = "existing-event-image"
+        profile.receiptHeader.scale = 0.78
+        profile.receiptHeader.alignment = .right
+        profile.receiptHeader.layoutMode = .fill
+        profile.receiptHeader.topSpacing = 19
+        profile.receiptHeader.bottomSpacing = 23
+        profile.receiptHeader.cropPositionX = 0.42
+        profile.receiptHeader.cropPositionY = -0.31
+        profile.receiptHeader.cropZoom = 1.7
+
+        let decoded = try JSONDecoder().decode(
+            EventProfile.self,
+            from: JSONEncoder().encode(profile)
+        )
+
+        XCTAssertEqual(decoded.receiptHeader, profile.receiptHeader)
+    }
+
+    func testNewEventImageResetUsesSafeDefaultsAndKeepsAsset() {
+        var configuration = ReceiptHeaderConfiguration.default
+        configuration.mode = .customEventHeader
+        configuration.assetIdentifier = "new-event-image"
+        configuration.scale = ReceiptHeaderConfiguration.maximumScale
+        configuration.alignment = .left
+        configuration.layoutMode = .fill
+        configuration.topSpacing = ReceiptHeaderConfiguration.maximumSpacing
+        configuration.bottomSpacing = ReceiptHeaderConfiguration.maximumSpacing
+        configuration.cropPositionX = 1
+        configuration.cropPositionY = -1
+        configuration.cropZoom = ReceiptHeaderConfiguration.maximumZoom
+
+        configuration.resetAdjustments()
+
+        XCTAssertEqual(configuration.mode, .customEventHeader)
+        XCTAssertEqual(configuration.assetIdentifier, "new-event-image")
+        XCTAssertEqual(configuration.scale, ReceiptHeaderConfiguration.default.scale)
+        XCTAssertEqual(configuration.alignment, .center)
+        XCTAssertEqual(configuration.layoutMode, .fit)
+        XCTAssertEqual(configuration.topSpacing, ReceiptHeaderConfiguration.default.topSpacing)
+        XCTAssertEqual(configuration.bottomSpacing, ReceiptHeaderConfiguration.default.bottomSpacing)
+        XCTAssertEqual(configuration.cropPositionX, 0)
+        XCTAssertEqual(configuration.cropPositionY, 0)
+        XCTAssertEqual(configuration.cropZoom, 1)
+    }
+
     func testEventTextBlockCanBeRemovedWithoutReservedHeight() throws {
         var shown = makeProfile()
         shown.showEventTextBlock = true

@@ -280,7 +280,7 @@ final class EventOperationalState: ObservableObject {
             severity: .critical,
             title: "Printer",
             status: printerCoordinator.preferredMode != .wifi && PrinterBluetoothService.shared.canPrintRaster ? .pass : .fail,
-            detail: printerCoordinator.preferredMode == .wifi ? "Wi-Fi readiness is not verified by this preflight." : (PrinterBluetoothService.shared.canPrintRaster ? printerCoordinator.bluetoothSummary : "Connect printer and complete any required operator text-test check in Recovery Center.")
+            detail: printerCoordinator.preferredMode == .wifi ? "Wi-Fi readiness is not verified by this preflight." : (PrinterBluetoothService.shared.canPrintRaster ? printerCoordinator.bluetoothSummary : "Connect printer and complete any required operator text-test check in Recovery.")
         ))
         checks.append(EventReadinessCheck(
             severity: .critical,
