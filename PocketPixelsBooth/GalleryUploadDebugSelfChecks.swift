@@ -87,8 +87,8 @@ enum GalleryUploadDebugSelfChecks {
         try validateQRCodeImage(qrImage)
         try runBoothFormatSelfChecks()
         try runPortraitProcessorSelfChecks()
-        try runReceiptLayoutSelfChecks(photos: [image, image, image, image], galleryURL: galleryURL)
-        try runReceiptLayoutReviewBuilderSelfChecks(photos: [image, image, image, image], galleryURL: galleryURL)
+        try runReceiptLayoutSelfChecks(photos: Array(repeating: image, count: BoothConfiguration.maximumPhotosPerSession), galleryURL: galleryURL)
+        try runReceiptLayoutReviewBuilderSelfChecks(photos: Array(repeating: image, count: BoothConfiguration.maximumPhotosPerSession), galleryURL: galleryURL)
 
         try assertThrows("zero photo count") {
             _ = try GoogleDriveGalleryUploadService.makeRequestBody(
@@ -103,7 +103,7 @@ enum GalleryUploadDebugSelfChecks {
 
         try assertThrows("too many photos") {
             _ = try GoogleDriveGalleryUploadService.makeRequestBody(
-                photos: [image, image, image, image, image],
+                photos: Array(repeating: image, count: BoothConfiguration.maximumPhotosPerSession + 1),
                 composedReceipt: image,
                 sessionID: "PP-20260830-120000",
                 createdAt: Date(),
@@ -702,7 +702,7 @@ enum GalleryUploadDebugSelfChecks {
                   !plan.displayedPhotoIndexes.contains(3) else {
                 throw GalleryUploadError.decoding("Strip geometry self-check failed.")
             }
-        case .solo, .duo, .grid:
+        case .solo, .duo, .grid, .gridSix:
             break
         }
     }
@@ -770,12 +770,13 @@ enum GalleryUploadDebugSelfChecks {
     }
 
     private static func runBoothFormatSelfChecks() throws {
-        guard BoothFormat.allCases.count == 4,
-              BoothFormat.allCases == [.solo, .duo, .grid, .strip],
+        guard BoothFormat.allCases.count == 5,
+              BoothFormat.allCases == [.solo, .duo, .grid, .strip, .gridSix],
               BoothFormat.solo.photoCount == 1,
               BoothFormat.duo.photoCount == 2,
               BoothFormat.grid.photoCount == 4,
-              BoothFormat.strip.photoCount == 3 else {
+              BoothFormat.strip.photoCount == 3,
+              BoothFormat.gridSix.photoCount == 6 else {
             throw GalleryUploadError.decoding("Booth format photo count self-check failed.")
         }
     }
@@ -810,10 +811,11 @@ enum GalleryUploadDebugSelfChecks {
             .solo: 1,
             .duo: 2,
             .grid: 4,
-            .strip: 3
+            .strip: 3,
+            .gridSix: 6
         ]
 
-        guard previews.map(\.format) == [.solo, .duo, .grid, .strip],
+        guard previews.map(\.format) == [.solo, .duo, .grid, .strip, .gridSix],
               previews.count == BoothFormat.allCases.count,
               previews.allSatisfy({ $0.receipt.width == BoothConfiguration.receiptWidth }),
               previews.allSatisfy({ $0.receipt.format.photoCount == expectedCounts[$0.format] }),

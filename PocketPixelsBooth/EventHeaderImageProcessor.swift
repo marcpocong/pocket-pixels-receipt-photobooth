@@ -53,7 +53,7 @@ enum EventHeaderImageProcessor {
     nonisolated static func frameSize(sourceSize: CGSize, configuration: ReceiptHeaderConfiguration, receiptWidth: CGFloat = CGFloat(BoothConfiguration.receiptWidth)) -> CGSize {
         let config = configuration.normalized()
         let maximumWidth = max(1, receiptWidth - horizontalInset * 2)
-        let width = max(1, floor(maximumWidth * config.scale))
+        let width = min(maximumWidth, max(1, floor(maximumWidth * config.scale)))
         guard sourceSize.width > 0, sourceSize.height > 0 else { return CGSize(width: width, height: minimumPrintedHeight) }
         let naturalHeight = width * sourceSize.height / sourceSize.width
         let requestedHeight = config.layoutMode == .fit ? naturalHeight : width / 3

@@ -38,8 +38,10 @@ struct BoothSessionView: View {
 
     init(
         onAdminAccessRequested: (() -> Void)? = nil,
-        showsReceiptDebugTools: Bool = false
+        showsReceiptDebugTools: Bool = false,
+        viewModel: BoothSessionViewModel? = nil
     ) {
+        _viewModel = StateObject(wrappedValue: viewModel ?? BoothSessionViewModel())
         self.onAdminAccessRequested = onAdminAccessRequested
         self.showsReceiptDebugTools = showsReceiptDebugTools
     }
@@ -357,8 +359,9 @@ struct BoothSessionView: View {
     private var formatSelectionScreen: some View {
         GeometryReader { proxy in
             let contentWidth = clampedContentWidth(for: proxy, maximum: PocketPixelsTheme.Layout.maxContentWidth)
-            let cardHeight = min(max(proxy.size.height * 0.285, 304), 320)
-            let previewHeight = min(max(cardHeight * 0.60, 184), 194)
+            let cardHeight = min(max((proxy.size.height - 220) / 2 - 10, 240), 320)
+            let cardWidth = max(1, (contentWidth - 40) / 3)
+            let previewHeight = cardHeight - 154
 
             let gridSpacing: CGFloat = 20
             let headerToGridSpacing: CGFloat = 8
@@ -366,53 +369,53 @@ struct BoothSessionView: View {
             let estimatedContentHeight = estimatedHeaderHeight + headerToGridSpacing + (cardHeight * 2) + gridSpacing
             let topPadding = max(((proxy.size.height - estimatedContentHeight) / 2) - 62, 24)
 
-            VStack(alignment: .leading, spacing: headerToGridSpacing) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 7) {
-                        PocketPixelsLightboxLockup(scale: .compact)
-                            .padding(.bottom, 10)
+            ScrollView {
+                VStack(alignment: .leading, spacing: headerToGridSpacing) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 7) {
+                            PocketPixelsLightboxLockup(scale: .compact)
+                                .padding(.bottom, 10)
 
-                        Text("Choose your format")
-                            .font(.system(size: 48, weight: .bold))
-                            .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
+                            Text("Choose your format")
+                                .font(.system(size: 48, weight: .bold))
+                                .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
 
-                        Text("Pick how your photos will print.")
-                            .font(.system(size: 20, weight: .medium))
-                            .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                            Text("Pick how your photos will print.")
+                                .font(.system(size: 20, weight: .medium))
+                                .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                        }
+
+                        Spacer()
+
+                        Button {
+                            viewModel.cancelSession()
+                        } label: {
+                            Label("Back", systemImage: "chevron.left")
+                                .font(.system(size: 18, weight: .semibold))
+                                .labelStyle(.titleAndIcon)
+                                .padding(.horizontal, 16)
+                                .frame(minHeight: 46)
+                        }
+                        .buttonStyle(FormatBackButtonStyle())
                     }
+                    .frame(width: contentWidth)
 
-                    Spacer()
-
-                    Button {
-                        viewModel.cancelSession()
-                    } label: {
-                        Label("Back", systemImage: "chevron.left")
-                            .font(.system(size: 18, weight: .semibold))
-                            .labelStyle(.titleAndIcon)
-                            .padding(.horizontal, 16)
-                            .frame(minHeight: 46)
+                    VStack(spacing: gridSpacing) {
+                        ForEach(0..<2, id: \.self) { row in
+                            HStack(spacing: gridSpacing) {
+                                ForEach(Array(BoothFormat.allCases.dropFirst(row * 3).prefix(3))) { format in
+                                    formatCard(format, cardHeight: cardHeight, previewHeight: previewHeight)
+                                        .frame(width: cardWidth)
+                                }
+                            }
+                        }
                     }
-                    .buttonStyle(FormatBackButtonStyle())
+                    .frame(width: contentWidth)
                 }
                 .frame(width: contentWidth)
-
-                LazyVGrid(columns: formatSelectionColumns, spacing: gridSpacing) {
-                    ForEach(Array(BoothFormat.allCases.enumerated()), id: \.element) { index, format in
-                        formatCard(format, cardHeight: cardHeight, previewHeight: previewHeight)
-                            .pocketPixelsEntrance(
-                                active: formatMotionActive,
-                                reduceMotion: reduceMotion,
-                                delay: Double(index) * PocketPixelsTheme.Motion.stagger,
-                                offset: 10,
-                                scale: PocketPixelsTheme.Motion.subtleScale
-                            )
-                    }
-                }
-                .frame(width: contentWidth)
+                .padding(.top, topPadding)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
-            .frame(width: contentWidth)
-            .padding(.top, topPadding)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .padding(PocketPixelsTheme.Spacing.screenPadding)
         .transition(.opacity)
@@ -545,19 +548,45 @@ struct BoothSessionView: View {
         GeometryReader { proxy in
             let contentWidth = clampedContentWidth(for: proxy, maximum: 700)
 
-            VStack(spacing: 0) {
-                reviewHeader
-                    .frame(width: contentWidth)
+            if viewModel.selectedBoothFormat == .gridSix && proxy.size.width > proxy.size.height {
+                HStack(spacing: 28) {
+                    VStack(spacing: 24) {
+                        reviewHeader
+                        reviewActionArea(width: contentWidth * 0.68)
+                        Spacer(minLength: 0)
+                    }
+                    .frame(width: proxy.size.width * 0.46)
+                    GeometryReader { photoArea in
+                        ScrollView {
+                            reviewGridSixLayout(width: photoArea.size.width, availableHeight: photoArea.size.height)
+                        }
+                    }
+                }
+            } else {
+                VStack(spacing: 0) {
+                    reviewHeader
+                        .frame(width: contentWidth)
 
-                reviewPhotoArea(width: contentWidth)
-                    .padding(.top, 24)
+                    if viewModel.selectedBoothFormat == .gridSix {
+                        GeometryReader { photoArea in
+                            ScrollView {
+                                reviewGridSixLayout(width: contentWidth, availableHeight: photoArea.size.height)
+                            }
+                        }
+                        .padding(.top, 24)
+                        reviewActionArea(width: contentWidth)
+                            .padding(.top, reviewPhotoToActionSpacing)
+                    } else {
+                        reviewPhotoArea(width: contentWidth, availableHeight: proxy.size.height)
+                            .padding(.top, 24)
+                        reviewActionArea(width: contentWidth)
+                            .padding(.top, reviewPhotoToActionSpacing)
+                    }
 
-                reviewActionArea(width: contentWidth)
-                    .padding(.top, reviewPhotoToActionSpacing)
-
-                Spacer(minLength: 0)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(PocketPixelsTheme.Spacing.screenPadding)
         .onAppear {
@@ -591,7 +620,7 @@ struct BoothSessionView: View {
     }
 
     @ViewBuilder
-    private func reviewPhotoArea(width: CGFloat) -> some View {
+    private func reviewPhotoArea(width: CGFloat, availableHeight: CGFloat) -> some View {
         switch viewModel.selectedBoothFormat {
         case .solo:
             reviewSoloLayout(width: width)
@@ -599,6 +628,8 @@ struct BoothSessionView: View {
             reviewDuoLayout(width: width)
         case .grid:
             reviewGridLayout(width: width)
+        case .gridSix:
+            reviewGridSixLayout(width: width, availableHeight: availableHeight)
         case .strip:
             reviewStripLayout(width: width)
         case nil:
@@ -650,6 +681,26 @@ struct BoothSessionView: View {
             }
         }
         .frame(width: width)
+    }
+
+    private func reviewGridSixLayout(width: CGFloat, availableHeight: CGFloat) -> some View {
+        let spacing: CGFloat = 12
+        // Three portrait rows, three 48-point retake controls, and established gaps.
+        let controlsAndGaps: CGFloat = 3 * (48 + 10) + 2 * spacing + 16
+        let photoWidth = max(1, min((width - spacing) / 2, 170, max(90, (availableHeight - controlsAndGaps) / 4)))
+        return VStack(spacing: spacing) {
+            ForEach(0..<3, id: \.self) { row in
+                HStack(alignment: .top, spacing: spacing) {
+                    ForEach(0..<2, id: \.self) { column in
+                        let index = row * 2 + column
+                        reviewPhotoItem(index: index, photoWidth: photoWidth)
+                            .reviewPhotoEntrance(index: index, active: reviewMotionActive, reduceMotion: reduceMotion)
+                    }
+                }
+            }
+        }
+        .frame(width: width)
+        .padding(.vertical, 8)
     }
 
     private func reviewStripLayout(width: CGFloat) -> some View {
@@ -1600,6 +1651,8 @@ struct BoothSessionView: View {
 
     private var reviewPhotoToActionSpacing: CGFloat {
         switch viewModel.selectedBoothFormat {
+        case .gridSix:
+            20
         case .grid:
             36
         case .duo:
@@ -1725,10 +1778,6 @@ struct BoothSessionView: View {
         }
 
         return viewModel.printerState.requiresPrinterRestart
-    }
-
-    private var formatSelectionColumns: [GridItem] {
-        Array(repeating: GridItem(.flexible(minimum: 320, maximum: 481), spacing: 18), count: 2)
     }
 
     private func handleCustomerStateChange(from oldState: BoothSessionState?, to newState: BoothSessionState) {
@@ -1955,6 +2004,17 @@ struct BoothSessionView: View {
                     previewPhoto(width: footprint.width * 0.33, height: footprint.width * 0.44)
                 }
             }
+        case .gridSix:
+            let gap = footprint.height * 0.04
+            let tileHeight = (footprint.height - gap * 2) / 3
+            VStack(spacing: gap) {
+                ForEach(0..<3, id: \.self) { _ in
+                    HStack(spacing: gap) {
+                        previewPhoto(width: tileHeight * 0.75, height: tileHeight)
+                        previewPhoto(width: tileHeight * 0.75, height: tileHeight)
+                    }
+                }
+            }
         case .strip:
             let spacing = footprint.height * 0.055
             let tileHeight = (footprint.height - (spacing * 2)) / 3
@@ -2008,8 +2068,15 @@ struct BoothSessionView: View {
     }
 
     private func formatPreviewFootprint(for format: BoothFormat, availableWidth: CGFloat, availableHeight: CGFloat) -> CGSize {
-        let height = min(availableHeight - 4, 188)
-        return CGSize(width: formatPreviewWidth(for: format, availableWidth: availableWidth), height: height)
+        let height = max(1, min(availableHeight - 4, 188))
+        let requestedWidth = formatPreviewWidth(for: format, availableWidth: max(1, availableWidth))
+        let width: CGFloat
+        switch format {
+        case .solo: width = min(requestedWidth, height / 0.88)
+        case .grid: width = min(requestedWidth, height / 0.95)
+        case .duo, .strip, .gridSix: width = requestedWidth
+        }
+        return CGSize(width: width, height: height)
     }
 
     private func formatPreviewWidth(for format: BoothFormat, availableWidth: CGFloat) -> CGFloat {
@@ -2018,7 +2085,7 @@ struct BoothSessionView: View {
             min(availableWidth * 0.48, 148)
         case .duo:
             min(availableWidth * 0.46, 142)
-        case .grid:
+        case .grid, .gridSix:
             min(availableWidth * 0.58, 174)
         case .strip:
             min(availableWidth * 0.34, 104)
@@ -2031,6 +2098,8 @@ struct BoothSessionView: View {
             "One portrait"
         case .duo:
             "Two moments"
+        case .gridSix:
+            "Six-photo collage"
         case .grid:
             "Four-photo collage"
         case .strip:

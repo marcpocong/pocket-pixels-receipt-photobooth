@@ -220,7 +220,7 @@ struct GalleryUploadTestView: View {
             Text(samplePhotoUsageStatus)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 14) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 100))], spacing: 14) {
                 ForEach(0..<BoothConfiguration.maximumPhotosPerSession, id: \.self) { index in
                     previewTile(title: "Photo \(index + 1)", image: selectedPhotos.indices.contains(index) ? selectedPhotos[index] : nil)
                 }
@@ -269,7 +269,7 @@ struct GalleryUploadTestView: View {
             }
 
             if selectedPhotos.count < BoothConfiguration.maximumPhotosPerSession {
-                Text("Select 4 sample photos to render Solo, Duo, Grid, and Strip together.")
+                Text("Select \(BoothConfiguration.maximumPhotosPerSession) sample photos to render every format together.")
                     .foregroundStyle(.secondary)
             }
 

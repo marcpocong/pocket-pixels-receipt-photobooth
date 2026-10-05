@@ -194,7 +194,7 @@ enum GalleryUploadError: Error, LocalizedError, Equatable {
         case .invalidDeviceToken:
             "The saved device token is invalid."
         case .invalidPhotoCount:
-            "A gallery upload requires 1 to 4 photos."
+            "A gallery upload requires 1 to 6 photos."
         case .missingReceipt:
             "Create the composed color receipt before uploading."
         case .invalidSessionID:

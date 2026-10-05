@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 import UIKit
+import CoreImage
 @testable import PocketPixelsBooth
 
 final class ReceiptAndRasterRegressionTests: XCTestCase {
@@ -78,6 +79,130 @@ final class ReceiptAndRasterRegressionTests: XCTestCase {
                 rasterDataRange: 8..<rasterized.rasterCommand.count
             )
         }
+    }
+
+    func testGridSixIdentityAndLegacyCodableValues() throws {
+        XCTAssertEqual(BoothFormat.gridSix.photoCount, 6)
+        XCTAssertEqual(BoothFormat.gridSix.displayName, "Grid 6")
+        XCTAssertEqual(BoothFormat.gridSix.shortDescription, "Six-photo grid")
+        XCTAssertEqual(BoothFormat.gridSix.reviewSummary, "GRID 6 · 6 PHOTOS")
+        XCTAssertEqual(BoothConfiguration.maximumPhotosPerSession, 6)
+        for format in BoothFormat.allCases {
+            XCTAssertEqual(try JSONDecoder().decode(BoothFormat.self, from: JSONEncoder().encode(format)), format)
+        }
+        for raw in ["solo", "duo", "grid", "strip"] {
+            XCTAssertEqual(try JSONDecoder().decode(BoothFormat.self, from: Data("\"\(raw)\"".utf8)).rawValue, raw)
+        }
+    }
+
+    func testGridSixUsesThreeRowsOfExistingGridTiles() throws {
+        let four = try ReceiptComposer.makeLayoutPlan(format: .grid)
+        let six = try ReceiptComposer.makeLayoutPlan(format: .gridSix)
+        try assertValidLayout(six)
+        XCTAssertEqual(six.displayedPhotoIndexes, [0, 1, 2, 3, 4, 5])
+        XCTAssertEqual(Array(six.photoFrames.prefix(4)).map(\.rect), four.photoFrames.map(\.rect))
+        XCTAssertEqual(Set(six.photoFrames.map { $0.rect.minX }).count, 2)
+        XCTAssertEqual(Set(six.photoFrames.map { $0.rect.minY }).count, 3)
+        let tile = six.photoFrames[0].rect
+        let gapX = six.photoFrames[1].rect.minX - tile.maxX
+        let gapY = six.photoFrames[2].rect.minY - tile.maxY
+        XCTAssertEqual(gapX, gapY)
+        for (index, frame) in six.photoFrames.enumerated() {
+            XCTAssertEqual(frame.rect.width, tile.width)
+            XCTAssertEqual(frame.rect.height, tile.height)
+            XCTAssertEqual(frame.rect.height, floor(tile.width * 4 / 3))
+            XCTAssertEqual(frame.rect.minY, tile.minY + CGFloat(index / 2) * (tile.height + gapY))
+            for other in six.photoFrames where other.photoIndex != frame.photoIndex {
+                XCTAssertFalse(frame.rect.intersects(other.rect))
+            }
+        }
+        XCTAssertEqual(six.height - four.height, Int(tile.height + gapY))
+        XCTAssertGreaterThan(six.previewContentHeight, Int(six.photoFrames[5].rect.maxY))
+        XCTAssertGreaterThan(six.height, six.previewContentHeight)
+    }
+
+    func testGridSixHeaderEventAndQRCombinationsAndDimensions() throws {
+        let headerImage = UIGraphicsImageRenderer(size: CGSize(width: 100, height: 2000)).image { context in
+            UIColor.black.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 100, height: 2000))
+        }
+        let assetStore = try EventHeaderAssetStore()
+        let identifier = try assetStore.importImageData(XCTUnwrap(headerImage.pngData()))
+        let date = Date(timeIntervalSince1970: 1_788_692_040)
+        let galleryURL = URL(string: "https://example.com/?g=\(String(repeating: "a", count: 64))")!
+        let sourcePhotos = photos(for: .gridSix, session: 6)
+        let standard = try ReceiptComposer.makeLayoutPlan(format: .gridSix, includesGalleryQRCode: true)
+        print("GRID6_DIMENSIONS standardQR=\(standard.width)x\(standard.height)")
+        let noQR = try ReceiptComposer.compose(photos: sourcePhotos, sessionIdentifier: "PP-GRID6-STANDARD", date: date, format: .gridSix)
+        print("GRID6_DIMENSIONS standardNoQR=\(noQR.width)x\(noQR.height)")
+        for mode in [ReceiptHeaderMode.pocketPixelsDefault, .none, .customEventHeader] {
+            for shown in [false, true] {
+                for qr in [false, true] {
+                    var profile = EventProfile(
+                        isEnabled: true,
+                        eventName: String(repeating: "W", count: EventProfile.eventNameLimit),
+                        subtitle: String(repeating: "W", count: EventProfile.subtitleLimit),
+                        includeEventDate: true,
+                        eventDate: date,
+                        location: String(repeating: "W", count: EventProfile.locationLimit),
+                        shortMessage: String(repeating: "W", count: EventProfile.shortMessageLimit)
+                    )
+                    profile.receiptHeader.mode = mode
+                    profile.receiptHeader.assetIdentifier = identifier
+                    profile.receiptHeader.scale = ReceiptHeaderConfiguration.maximumScale
+                    profile.receiptHeader.topSpacing = ReceiptHeaderConfiguration.maximumSpacing
+                    profile.receiptHeader.bottomSpacing = ReceiptHeaderConfiguration.maximumSpacing
+                    profile.showEventTextBlock = shown
+                    let plan = try ReceiptComposer.makeLayoutPlan(format: .gridSix, includesGalleryQRCode: qr, eventProfile: profile)
+                    try assertValidLayout(plan)
+                    XCTAssertEqual(plan.headerMode, mode)
+                    XCTAssertEqual(plan.showsEventTextBlock, shown)
+                    let receipt = try ReceiptComposer.compose(photos: sourcePhotos, sessionIdentifier: "PP-GRID6-EVENT", date: date, galleryURL: qr ? galleryURL : nil, format: .gridSix, eventProfile: profile)
+                    XCTAssertEqual(receipt.height, plan.height)
+                    XCTAssertEqual(receipt.width, 576)
+                    if shown && qr { print("GRID6_DIMENSIONS \(mode.rawValue)MaxEventQR=\(plan.width)x\(plan.height)") }
+                }
+            }
+        }
+    }
+
+    func testGridSixCompleteReceiptRasterAndArchiveReprintAreIdentical() throws {
+        let sourcePhotos = photos(for: .gridSix, session: 66)
+        let date = Date(timeIntervalSince1970: 1_788_692_040)
+        let token = String(repeating: "a", count: 64)
+        let url = URL(string: "https://example.com/?g=\(token)")!
+        let receipt = try ReceiptComposer.compose(photos: sourcePhotos, sessionIdentifier: "PP-GRID6-ARCHIVE", date: date, galleryURL: url, format: .gridSix)
+        let image = try XCTUnwrap(UIImage(data: receipt.imagePNGData))
+        let first = try ThermalImageRasterizer.rasterize(image, purpose: .completeReceipt)
+        let second = try ThermalImageRasterizer.rasterize(image, purpose: .completeReceipt)
+        XCTAssertEqual(first.rasterData, second.rasterData)
+        XCTAssertEqual(first.rasterCommand, second.rasterCommand)
+        XCTAssertEqual(first.height, receipt.height)
+        for preview in [image, try XCTUnwrap(UIImage(data: first.previewPNGData))] {
+            let detector = try XCTUnwrap(CIDetector(ofType: CIDetectorTypeQRCode, context: nil, options: [CIDetectorAccuracy: CIDetectorAccuracyHigh]))
+            let messages = detector.features(in: CIImage(cgImage: try XCTUnwrap(preview.cgImage)))
+                .compactMap { ($0 as? CIQRCodeFeature)?.messageString }
+            XCTAssertTrue(messages.contains(url.absoluteString))
+            let attachment = XCTAttachment(image: preview)
+            attachment.name = "Grid6-full-receipt"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try RecentSessionArchiveStore(directoryURL: directory)
+        let thumbnails = try sourcePhotos.map { try XCTUnwrap($0.pngData()) }
+        let committed = CommittedGallerySession(sessionIdentifier: receipt.sessionIdentifier, createdAt: date, galleryToken: token, galleryURL: url, photos: sourcePhotos, format: .gridSix, eventProfile: nil)
+        try store.save(RecentSessionArchivePayload(committedSession: committed, composedReceipt: receipt, receiptPreviewPNGData: receipt.imagePNGData, thermalPreviewPNGData: first.previewPNGData, rasterizedImage: first, photoThumbnailData: thumbnails))
+        let reopened = try RecentSessionArchiveStore(directoryURL: directory)
+        let loaded = try reopened.load(archiveID: token)
+        XCTAssertEqual(loaded.summary.format, .gridSix)
+        XCTAssertEqual(loaded.summary.photoCount, 6)
+        XCTAssertEqual(loaded.thumbnailData, thumbnails)
+        XCTAssertEqual(loaded.receiptPreviewPNGData, receipt.imagePNGData)
+        XCTAssertEqual(loaded.rasterizedImage.rasterCommand, first.rasterCommand)
+        try reopened.markReprinted(archiveID: token, copies: 3)
+        XCTAssertEqual(try reopened.load(archiveID: token).summary.reprintCount, 3)
     }
 
     private func assertValidLayout(_ plan: ReceiptLayoutPlan) throws {

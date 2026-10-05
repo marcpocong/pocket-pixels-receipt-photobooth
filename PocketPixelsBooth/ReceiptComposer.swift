@@ -412,19 +412,23 @@ enum ReceiptComposer {
                 ReceiptPhotoFrame(photoIndex: 1, rect: second)
             ]
             groupFrame = nil
-        case .grid:
+        case .grid, .gridSix:
             let gap = photoStackGap
             let photoWidth = (fullPhotoWidth - gap) / 2
             let photoHeight = portraitHeight(for: photoWidth)
             let totalWidth = photoWidth * 2 + gap
             let leftX = (width - totalWidth) / 2
-            let row2Y = top + photoHeight + gap
-            photoFrames = [
-                ReceiptPhotoFrame(photoIndex: 0, rect: CGRect(x: leftX, y: top, width: photoWidth, height: photoHeight)),
-                ReceiptPhotoFrame(photoIndex: 1, rect: CGRect(x: leftX + photoWidth + gap, y: top, width: photoWidth, height: photoHeight)),
-                ReceiptPhotoFrame(photoIndex: 2, rect: CGRect(x: leftX, y: row2Y, width: photoWidth, height: photoHeight)),
-                ReceiptPhotoFrame(photoIndex: 3, rect: CGRect(x: leftX + photoWidth + gap, y: row2Y, width: photoWidth, height: photoHeight))
-            ]
+            photoFrames = (0..<format.photoCount).map { index in
+                ReceiptPhotoFrame(
+                    photoIndex: index,
+                    rect: CGRect(
+                        x: leftX + (index % 2) * (photoWidth + gap),
+                        y: top + (index / 2) * (photoHeight + gap),
+                        width: photoWidth,
+                        height: photoHeight
+                    )
+                )
+            }
             groupFrame = nil
         case .strip:
             let photoWidth = fullPhotoWidth
@@ -1443,7 +1447,9 @@ enum ReceiptComposer {
             makeDebugReceiptPhoto(width: 900, height: 1_200, hue: 0.22),
             makeDebugReceiptPhoto(width: 1_200, height: 900, hue: 0.48),
             makeDebugReceiptPhoto(width: 900, height: 1_200, hue: 0.08),
-            makeDebugReceiptPhoto(width: 900, height: 1_200, hue: 0.75)
+            makeDebugReceiptPhoto(width: 900, height: 1_200, hue: 0.75),
+            makeDebugReceiptPhoto(width: 900, height: 1_200, hue: 0.35),
+            makeDebugReceiptPhoto(width: 900, height: 1_200, hue: 0.60)
         ]
     }
 
@@ -2345,7 +2351,7 @@ private extension BoothFormat {
 
     nonisolated var photoPresentationMode: ThermalPhotoPresentationMode {
         switch self {
-        case .solo, .grid:
+        case .solo, .grid, .gridSix:
             .portrait
         case .duo, .strip:
             .landscape

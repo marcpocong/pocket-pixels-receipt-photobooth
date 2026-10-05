@@ -9,7 +9,7 @@ import Foundation
 
 enum BoothConfiguration {
     nonisolated static let minimumPhotosPerSession = 1
-    nonisolated static let maximumPhotosPerSession = 4
+    nonisolated static let maximumPhotosPerSession = BoothFormat.allCases.map(\.photoCount).max() ?? 1
     nonisolated static let countdownSeconds = 5
     nonisolated static let interPhotoDelay: TimeInterval = 1.5
     nonisolated static let capturedPhotoDisplayDuration: TimeInterval = 0.8

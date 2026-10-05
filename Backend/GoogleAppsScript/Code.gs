@@ -8,7 +8,7 @@ const CUSTOMER_GALLERY_BASE_URL_PROPERTY = 'POCKET_PIXELS_CUSTOMER_GALLERY_BASE_
 
 const MIN_PHOTO_COUNT = 1;
 
-const MAX_PHOTO_COUNT = 4;
+const MAX_PHOTO_COUNT = 6;
 
 const MAX_IMAGE_DECODED_BYTES = 6 * 1024 * 1024;
 
@@ -630,7 +630,7 @@ function validateUploadPayload_(body) {
 
   if (!Array.isArray(body.photos) || body.photos.length < MIN_PHOTO_COUNT || body.photos.length > MAX_PHOTO_COUNT) {
 
-    return validationError_('INVALID_PHOTO_COUNT', 'Upload requires 1 to 4 photos.', 'photos');
+    return validationError_('INVALID_PHOTO_COUNT', 'Upload requires 1 to 6 photos.', 'photos');
 
   }
 

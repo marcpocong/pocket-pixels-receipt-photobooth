@@ -1,4 +1,6 @@
 import XCTest
+import SwiftUI
+import UIKit
 @testable import PocketPixelsBooth
 
 @MainActor
@@ -149,6 +151,38 @@ final class CustomerExperienceTests: XCTestCase {
         XCTAssertNil(model.sessionIdentifier)
         XCTAssertNil(model.galleryToken)
         XCTAssertEqual(model.selectedPrintCopies, 1)
+    }
+
+    func testGridSixCustomerScreensOnElevenInchIPad() async throws {
+        for size in [CGSize(width: 834, height: 1194), CGSize(width: 1194, height: 834)] {
+            for review in [false, true] {
+                let model = BoothSessionViewModel()
+                model.state = review ? .review : .choosingFormat
+                if review {
+                    model.selectedBoothFormat = .gridSix
+                    model.capturedPhotos = (0..<6).map {
+                        ReliabilityFixtures.syntheticPhoto(session: 600, photo: $0 + 1, format: .gridSix)
+                    }
+                }
+                let controller = UIHostingController(rootView: BoothSessionView(viewModel: model))
+                let window = UIWindow(frame: CGRect(origin: .zero, size: size))
+                window.rootViewController = controller
+                window.makeKeyAndVisible()
+                controller.view.frame = window.bounds
+                controller.view.layoutIfNeeded()
+                try await Task.sleep(for: .seconds(1))
+                controller.view.layoutIfNeeded()
+                let image = UIGraphicsImageRenderer(size: size).image { _ in
+                    controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true)
+                }
+                let attachment = XCTAttachment(image: image)
+                attachment.name = "Grid6-\(review ? "review" : "selection")-\(Int(size.width))x\(Int(size.height))"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+                XCTAssertEqual(model.capturedPhotos.count, review ? 6 : 0)
+                window.isHidden = true
+            }
+        }
     }
 
     private func isIdleEligible(

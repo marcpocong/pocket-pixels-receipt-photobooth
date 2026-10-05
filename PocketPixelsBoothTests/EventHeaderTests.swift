@@ -56,6 +56,17 @@ final class EventHeaderTests: XCTestCase {
         XCTAssertLessThan(centerPixel.2, 20)
     }
 
+    func testMaximumHeaderScaleStaysWithinPrintableWidth() {
+        var config = ReceiptHeaderConfiguration.default
+        config.scale = ReceiptHeaderConfiguration.maximumScale
+        for mode in ReceiptHeaderLayoutMode.allCases {
+            config.layoutMode = mode
+            let size = EventHeaderImageProcessor.frameSize(sourceSize: CGSize(width: 100, height: 2000), configuration: config)
+            XCTAssertLessThanOrEqual(size.width, CGFloat(BoothConfiguration.receiptWidth) - 2 * EventHeaderImageProcessor.horizontalInset)
+            XCTAssertLessThanOrEqual(size.height, EventHeaderImageProcessor.maximumPrintedHeight)
+        }
+    }
+
     func testExtremelyTallHeaderIsCapped() {
         let config = ReceiptHeaderConfiguration.default
         let size = EventHeaderImageProcessor.frameSize(sourceSize: CGSize(width: 100, height: 2_000), configuration: config)
