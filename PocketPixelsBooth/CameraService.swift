@@ -73,7 +73,14 @@ final class CameraService: NSObject {
         for token in notificationTokens {
             NotificationCenter.default.removeObserver(token)
         }
-        stopSession()
+        // Capture only the session: a block that retains `self` from deinit would run after
+        // this object is freed (use-after-free crash when a view model is released).
+        let session = self.session
+        sessionQueue.async {
+            if session.isRunning {
+                session.stopRunning()
+            }
+        }
     }
 
     func authorizationStatus() -> AVAuthorizationStatus {

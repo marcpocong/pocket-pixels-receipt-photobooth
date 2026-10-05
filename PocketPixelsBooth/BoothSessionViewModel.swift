@@ -46,6 +46,11 @@ final class BoothSessionViewModel: ObservableObject {
     @Published var currentPrintCopy = 0
     @Published var completedPrintCopies = 0
     @Published private(set) var customerEventProfile = EventProfileStore.load().normalized()
+    /// Passport keepsake details for the current customer only. Cleared with every reset.
+    @Published var passportDraft = PassportSessionData.empty
+    /// Rendered Passport cards shown on the preview screen; built once per visit, never per edit.
+    @Published private(set) var passportPreviewImage: UIImage?
+    @Published private(set) var passportPreviewFailed = false
 
     let cameraService = CameraService()
 
@@ -60,6 +65,7 @@ final class BoothSessionViewModel: ObservableObject {
     private var cameraWatchdogTask: Task<Void, Never>?
     private var galleryUploadTasks: [String: Task<Void, Never>] = [:]
     private var queueRetryTask: Task<Void, Never>?
+    private var passportPreviewTask: Task<Void, Never>?
     private var isTransitionActive = false
     private var retakeIndex: Int?
     private var isOperatorCameraRestartRunning = false
@@ -92,7 +98,17 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     var canContinueToReceipt: Bool {
+        guard canContinueFromReview else { return false }
+        // Passport commits only from its preview, after details and signature.
+        return selectedBoothFormat != .passport || state == .passportPreview
+    }
+
+    var canContinueFromReview: Bool {
         selectedBoothFormat != nil && capturedPhotos.count == requiredPhotoCount && !isTransitionActive && committedGallerySession == nil
+    }
+
+    var isPassportSession: Bool {
+        selectedBoothFormat == .passport
     }
 
     var canReturnToReview: Bool {
@@ -200,6 +216,10 @@ final class BoothSessionViewModel: ObservableObject {
         let savedEventProfile = EventProfileStore.load().normalized()
         customerEventProfile = savedEventProfile
         sessionEventProfile = savedEventProfile.activeReceiptSnapshot
+        passportDraft = format == .passport
+            ? PassportSessionData(configuration: PassportConfiguration.effective(for: sessionEventProfile))
+            : .empty
+        resetPassportPreview()
         do {
             let token = try GalleryTokenGenerator.makeGalleryToken()
             let url = try GalleryURLBuilder.makeGalleryURL(customerGalleryBaseURL: CustomerGalleryConfiguration.load().baseURL, galleryToken: token)
@@ -318,7 +338,7 @@ final class BoothSessionViewModel: ObservableObject {
             return
         }
 
-        capturedPhotos.append(BoothPhotoProcessor.normalizedPortraitPhoto(from: image))
+        capturedPhotos.append(Self.normalizedCapture(image, format: selectedBoothFormat))
         samplePhotoCount = capturedPhotos.count
         statusMessage = "Development sample photo \(samplePhotoCount) of \(requiredPhotoCount) loaded."
 
@@ -329,7 +349,60 @@ final class BoothSessionViewModel: ObservableObject {
         }
     }
 
+    /// Review's Continue: Passport moves on to its details step, other formats compose directly.
+    func continueFromReview() {
+        guard canContinueFromReview else { return }
+        if selectedBoothFormat == .passport {
+            showPassportDetails()
+        } else {
+            continueToReceipt()
+        }
+    }
+
+    func showPassportDetails() {
+        guard selectedBoothFormat == .passport, canContinueFromReview else { return }
+        resetPassportPreview()
+        statusMessage = "Add your passport details."
+        state = .passportDetails
+    }
+
+    func continueFromPassportDetails() {
+        guard state == .passportDetails, canContinueFromReview else { return }
+        passportDraft = passportDraft.normalized(referenceDate: sessionCreatedAt ?? Date())
+        statusMessage = "Add your signature."
+        state = .passportSignature
+    }
+
+    func redoPassportSignature() {
+        guard selectedBoothFormat == .passport, canContinueFromReview else { return }
+        resetPassportPreview()
+        passportDraft.signature = .empty
+        statusMessage = "Add your signature."
+        state = .passportSignature
+    }
+
+    func backToPassportDetails() {
+        guard state == .passportSignature || state == .passportPreview else { return }
+        showPassportDetails()
+    }
+
+    func updatePassportSignature(_ signature: PassportSignature) {
+        guard state == .passportSignature else { return }
+        passportDraft.signature = signature.normalized()
+    }
+
+    func continueFromPassportSignature() {
+        guard state == .passportSignature, canContinueFromReview else { return }
+        statusMessage = "Here's your Pocket Passport."
+        state = .passportPreview
+        renderPassportPreview()
+    }
+
     func continueToReceipt() {
+        if selectedBoothFormat == .passport, state != .passportPreview {
+            continueFromReview()
+            return
+        }
         guard canContinueToReceipt,
               let selectedBoothFormat,
               let sessionIdentifier,
@@ -348,8 +421,10 @@ final class BoothSessionViewModel: ObservableObject {
             galleryURL: galleryURL,
             photos: capturedPhotos,
             format: selectedBoothFormat,
-            eventProfile: sessionEventProfile
+            eventProfile: sessionEventProfile,
+            passport: selectedBoothFormat == .passport ? passportDraft.committed(at: receiptDate) : nil
         )
+        passportPreviewTask?.cancel()
         committedGallerySession = committedSession
         composeReceipt(for: committedSession, enqueueUpload: true)
     }
@@ -402,11 +477,18 @@ final class BoothSessionViewModel: ObservableObject {
                         galleryURL: committedSession.galleryURL,
                         format: committedSession.format,
                         eventProfile: committedSession.eventProfile,
+                        passport: committedSession.passport,
                         photoQualityProfile: customerPrintPhotoProfile
                     )
                     guard let receiptImage = UIImage(data: receipt.imagePNGData) else {
                         throw ReceiptComposerError.renderFailed
                     }
+                    try Task.checkCancellation()
+                    let galleryReceiptImage = try Self.galleryReceiptImage(
+                        for: committedSession,
+                        printedReceiptImage: receiptImage,
+                        photoQualityProfile: customerPrintPhotoProfile
+                    )
                     try Task.checkCancellation()
                     let receiptPhotoPreviewImage = ReceiptComposer.makePhotoSectionPreviewImage(
                         from: receiptImage,
@@ -418,7 +500,7 @@ final class BoothSessionViewModel: ObservableObject {
                         throw ThermalImageRasterizerError.renderFailed
                     }
                     try Task.checkCancellation()
-                    return (receipt, receiptImage, receiptPhotoPreviewImage, preview, rasterized)
+                    return (receipt, receiptImage, receiptPhotoPreviewImage, preview, rasterized, galleryReceiptImage)
                 }
                 let result = try await withTaskCancellationHandler {
                     try await worker.value
@@ -441,7 +523,7 @@ final class BoothSessionViewModel: ObservableObject {
                 state = .receiptPreview
                 statusMessage = "Receipt ready: \(result.0.width) x \(result.0.height) pixels. Photo profile: \(result.0.photoQualityProfile.displayName)."
                 if enqueueUpload {
-                    startGalleryUpload(committedSession: committedSession, receiptImage: result.1)
+                    startGalleryUpload(committedSession: committedSession, receiptImage: result.5)
                 }
                 archiveCommittedSession(
                     committedSession,
@@ -466,6 +548,90 @@ final class BoothSessionViewModel: ObservableObject {
 
             isTransitionActive = false
         }
+    }
+
+    /// The gallery copy of a Passport receipt keeps the photos and branding but never the
+    /// customer's name, birthday, nationality, profession, birthplace or signature.
+    nonisolated static func galleryReceiptImage(
+        for committedSession: CommittedGallerySession,
+        printedReceiptImage: UIImage,
+        photoQualityProfile: PocketPixelsThermalPhotoProfile
+    ) throws -> UIImage {
+        guard committedSession.format == .passport, let passport = committedSession.passport else {
+            return printedReceiptImage
+        }
+        let redacted = try ReceiptComposer.compose(
+            photos: committedSession.photos,
+            sessionIdentifier: committedSession.sessionIdentifier,
+            date: committedSession.createdAt,
+            galleryURL: committedSession.galleryURL,
+            format: committedSession.format,
+            eventProfile: committedSession.eventProfile,
+            passport: passport.redactedForGallery(),
+            photoQualityProfile: photoQualityProfile
+        )
+        guard let image = UIImage(data: redacted.imagePNGData) else {
+            throw ReceiptComposerError.renderFailed
+        }
+        return image
+    }
+
+    private func renderPassportPreview() {
+        resetPassportPreview()
+        guard selectedBoothFormat == .passport,
+              capturedPhotos.count == BoothFormat.passport.photoCount else {
+            passportPreviewFailed = true
+            return
+        }
+
+        let date = sessionCreatedAt ?? Date()
+
+        let photos = capturedPhotos
+        let passport = passportDraft
+        let eventProfile = sessionEventProfile
+        let photoProfile = customerPrintPhotoProfile
+        let sessionGeneration = customerSessionGeneration
+        passportPreviewTask = Task {
+            let worker = Task.detached(priority: .userInitiated) { () throws -> UIImage in
+                let receipt = try ReceiptComposer.compose(
+                    photos: photos,
+                    sessionIdentifier: "PASSPORT-PREVIEW",
+                    date: date,
+                    galleryURL: nil,
+                    format: .passport,
+                    eventProfile: eventProfile,
+                    passport: passport,
+                    photoQualityProfile: photoProfile
+                )
+                guard let image = UIImage(data: receipt.imagePNGData) else {
+                    throw ReceiptComposerError.renderFailed
+                }
+                try Task.checkCancellation()
+                // previewContentHeight is the card bottom + 12; stop above the footer divider (+10).
+                return ReceiptComposer.makePhotoSectionPreviewImage(from: image, previewContentHeight: receipt.previewContentHeight - 4)
+            }
+            let image = try? await withTaskCancellationHandler {
+                try await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+            guard !Task.isCancelled,
+                  isCurrentCustomerSession(sessionGeneration),
+                  state == .passportPreview,
+                  passportDraft == passport else {
+                debugLog("[Passport] ignored stale preview render")
+                return
+            }
+            passportPreviewImage = image
+            passportPreviewFailed = image == nil
+        }
+    }
+
+    private func resetPassportPreview() {
+        passportPreviewTask?.cancel()
+        passportPreviewTask = nil
+        passportPreviewImage = nil
+        passportPreviewFailed = false
     }
 
     func testPrinterConnection(host: String, port: UInt16?) {
@@ -889,16 +1055,25 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     private func capturePhoto() async throws -> UIImage {
-        try await withCheckedThrowingContinuation { continuation in
+        let format = selectedBoothFormat
+        return try await withCheckedThrowingContinuation { continuation in
             cameraService.capturePhoto { result in
                 switch result {
                 case .success(let image):
-                    continuation.resume(returning: BoothPhotoProcessor.normalizedPortraitPhoto(from: image))
+                    continuation.resume(returning: Self.normalizedCapture(image, format: format))
                 case .failure(let error):
                     continuation.resume(throwing: error)
                 }
             }
         }
+    }
+
+    /// Passport keeps the full orientation-normalized frame because its two cards crop
+    /// differently; every other format keeps the established 3:4 capture crop.
+    nonisolated private static func normalizedCapture(_ image: UIImage, format: BoothFormat?) -> UIImage {
+        format == .passport
+            ? PassportPhotoProcessor.normalizedSource(from: image)
+            : BoothPhotoProcessor.normalizedPortraitPhoto(from: image)
     }
 
     private func showThankYou() {
@@ -947,6 +1122,8 @@ final class BoothSessionViewModel: ObservableObject {
         selectedPrintCopies = 1
         currentPrintCopy = 0
         completedPrintCopies = 0
+        passportDraft = .empty
+        resetPassportPreview()
     }
 
     private func cancelTasks() {
@@ -956,6 +1133,8 @@ final class BoothSessionViewModel: ObservableObject {
         printBatchTask = nil
         cameraWatchdogTask?.cancel()
         cameraWatchdogTask = nil
+        passportPreviewTask?.cancel()
+        passportPreviewTask = nil
     }
 
     private func beginNewCustomerSession() {
@@ -1184,7 +1363,9 @@ final class BoothSessionViewModel: ObservableObject {
             thermalPreviewPNGData: receiptRasterizedImage?.previewPNGData,
             rasterFingerprint: receiptRasterizedImage.map { Self.receiptPayloadFingerprint(for: $0) },
             stage: stage,
-            updatedAt: Date()
+            updatedAt: Date(),
+            // Only committed Passport data is persisted; in-progress drafts never touch disk.
+            passport: committedGallerySession?.passport
         )
         recoveryStore?.save(snapshot)
         operationalState.refresh()
@@ -1338,6 +1519,8 @@ struct CommittedGallerySession {
     let photos: [UIImage]
     let format: BoothFormat
     let eventProfile: EventProfile?
+    /// Frozen Passport keepsake data; nil for every other format.
+    var passport: PassportSessionData? = nil
 }
 
 enum GalleryUploadSessionIsolationPolicy {

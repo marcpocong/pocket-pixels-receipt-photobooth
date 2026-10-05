@@ -11,6 +11,7 @@ enum BoothFormat: String, Codable, CaseIterable, Identifiable, Sendable {
     case grid
     case strip
     case gridSix
+    case passport
 
     nonisolated var id: String { rawValue }
 
@@ -26,6 +27,8 @@ enum BoothFormat: String, Codable, CaseIterable, Identifiable, Sendable {
             "Grid 6"
         case .strip:
             "Strip"
+        case .passport:
+            "Passport"
         }
     }
 
@@ -41,6 +44,8 @@ enum BoothFormat: String, Codable, CaseIterable, Identifiable, Sendable {
             "Six-photo grid"
         case .strip:
             "Three-photo classic strip"
+        case .passport:
+            "Two-photo passport keepsake"
         }
     }
 
@@ -56,11 +61,18 @@ enum BoothFormat: String, Codable, CaseIterable, Identifiable, Sendable {
             6
         case .strip:
             3
+        case .passport:
+            2
         }
     }
 
     nonisolated var photoCountLabel: String {
         photoCount == 1 ? "1 photo" : "\(photoCount) photos"
+    }
+
+    /// Passport adds keepsake details, a signature and a dedicated preview after photo review.
+    nonisolated var usesPassportFlow: Bool {
+        self == .passport
     }
 
     nonisolated var reviewSummary: String {

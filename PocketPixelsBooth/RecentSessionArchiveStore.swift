@@ -35,6 +35,8 @@ struct RecentSessionArchive: Sendable {
     let thermalPreviewPNGData: Data
     let thumbnailData: [Data]
     let rasterizedImage: ThermalRasterizedImage
+    /// Frozen Passport keepsake data stored locally with the archive; never uploaded.
+    var passport: PassportSessionData? = nil
 }
 
 struct RecentSessionArchivePayload: Sendable {
@@ -255,7 +257,8 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
             receiptPreviewPNGData: receiptPreview,
             thermalPreviewPNGData: thermalPreview,
             thumbnailData: thumbnails,
-            rasterizedImage: rasterizedImage
+            rasterizedImage: rasterizedImage,
+            passport: metadata.passport
         )
     }
 
@@ -361,7 +364,8 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
             sanitizationReport: raster.sanitizationReport,
             thumbnailFilenames: payload.photoThumbnailData.indices.map { Self.thumbnailFilename(index: $0) },
             lastReprintedAt: nil,
-            reprintCount: 0
+            reprintCount: 0,
+            passport: payload.committedSession.passport
         )
     }
 
@@ -449,6 +453,7 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
               storedMetadata.galleryToken == metadata.galleryToken,
               storedMetadata.galleryURL == metadata.galleryURL,
               storedMetadata.format == metadata.format,
+              storedMetadata.passport == metadata.passport,
               storedMetadata.rasterFingerprint == metadata.rasterFingerprint,
               storedMetadata.receiptWidth == metadata.receiptWidth,
               storedMetadata.receiptHeight == metadata.receiptHeight else {
@@ -524,6 +529,7 @@ nonisolated private struct RecentSessionArchiveMetadata: Codable, Equatable {
     let thumbnailFilenames: [String]
     var lastReprintedAt: Date?
     var reprintCount: Int
+    var passport: PassportSessionData? = nil
 }
 
 private extension JSONEncoder {

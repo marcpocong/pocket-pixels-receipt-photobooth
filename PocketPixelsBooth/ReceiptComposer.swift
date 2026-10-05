@@ -125,6 +125,11 @@ struct ReceiptLayoutPlan: Sendable {
     let headerMode: ReceiptHeaderMode
     let customHeaderFrame: CGRect?
     let showsEventTextBlock: Bool
+    /// Passport cards replace the masthead and the standard photo stack; nil for other formats.
+    let passportLayout: PassportReceiptLayout?
+    let passportContent: PassportReceiptContent?
+    /// Bottom of the photo/card section; the shared footer always starts here.
+    let contentBottom: Int
 }
 
 private struct ReceiptFooterLayout: Sendable {
@@ -262,6 +267,7 @@ enum ReceiptComposer {
         galleryURL: URL? = nil,
         format: BoothFormat,
         eventProfile: EventProfile? = nil,
+        passport: PassportSessionData? = nil,
         photoQualityProfile: PocketPixelsThermalPhotoProfile = .customerPrintDefault
     ) throws -> ComposedReceipt {
         try Task.checkCancellation()
@@ -278,7 +284,19 @@ enum ReceiptComposer {
             headerSourceSize: headerSourceImage?.size
         )
         let footerContent = try makeFooterContent(for: galleryURL)
-        let plan = try makeLayoutPlan(format: format, textSnapshot: textSnapshot, footerMode: footerContent.mode)
+        let passportContent = makePassportContent(
+            format: format,
+            passport: passport,
+            eventProfile: eventSnapshot,
+            textSnapshot: textSnapshot,
+            date: date
+        )
+        let plan = try makeLayoutPlan(
+            format: format,
+            textSnapshot: textSnapshot,
+            footerMode: footerContent.mode,
+            passportContent: passportContent
+        )
         try validateLayoutPlan(plan)
         try Task.checkCancellation()
 
@@ -307,20 +325,31 @@ enum ReceiptComposer {
             UIColor.white.setFill()
             cgContext.fill(CGRect(origin: .zero, size: size))
 
-            drawPocketPixelsMasthead(textSnapshot: textSnapshot, layout: plan.headerLayout, customSourceImage: headerSourceImage)
-
-            if let groupFrame = plan.groupFrame {
-                UIColor.black.setStroke()
-                cgContext.setLineWidth(2)
-                cgContext.stroke(groupFrame.insetBy(dx: 1, dy: 1))
-            }
-
-            for frame in plan.photoFrames {
-                drawPhoto(
-                    preparedPhotos[frame.photoIndex].image,
-                    in: frame.rect,
+            if let passportLayout = plan.passportLayout, let passportContent = plan.passportContent {
+                PassportReceiptRenderer.draw(
+                    content: passportContent,
+                    layout: passportLayout,
+                    portraitPhoto: preparedPhotos[PassportReceiptLayout.portraitPhotoIndex].image,
+                    heroPhoto: preparedPhotos[PassportReceiptLayout.heroPhotoIndex].image,
+                    headerGraphic: passportLayout.headerGraphicRect == nil ? nil : headerSourceImage,
                     context: cgContext
                 )
+            } else {
+                drawPocketPixelsMasthead(textSnapshot: textSnapshot, layout: plan.headerLayout, customSourceImage: headerSourceImage)
+
+                if let groupFrame = plan.groupFrame {
+                    UIColor.black.setStroke()
+                    cgContext.setLineWidth(2)
+                    cgContext.stroke(groupFrame.insetBy(dx: 1, dy: 1))
+                }
+
+                for frame in plan.photoFrames {
+                    drawPhoto(
+                        preparedPhotos[frame.photoIndex].image,
+                        in: frame.rect,
+                        context: cgContext
+                    )
+                }
             }
 
             switch (footerContent, plan.footerLayout) {
@@ -370,32 +399,64 @@ enum ReceiptComposer {
     nonisolated static func makeLayoutPlan(
         format: BoothFormat,
         includesGalleryQRCode: Bool = true,
-        eventProfile: EventProfile? = nil
+        eventProfile: EventProfile? = nil,
+        passport: PassportSessionData? = nil,
+        date: Date = Date(timeIntervalSince1970: 1_788_692_040)
     ) throws -> ReceiptLayoutPlan {
-        let date = Date(timeIntervalSince1970: 1_788_692_040)
+        let eventSnapshot = eventProfile?.activeReceiptSnapshot
         let textSnapshot = makeTextSnapshot(
             date: date,
             sessionIdentifier: "PP-20260907-161400",
-            eventProfile: eventProfile?.activeReceiptSnapshot,
-            headerSourceSize: loadEffectiveHeaderImage(for: eventProfile?.activeReceiptSnapshot)?.size
+            eventProfile: eventSnapshot,
+            headerSourceSize: loadEffectiveHeaderImage(for: eventSnapshot)?.size
         )
         let footerMode: ReceiptFooterMode = includesGalleryQRCode ? .galleryQRCode(qrSize: receiptQRCodeSize) : .metadataOnly
-        return try makeLayoutPlan(format: format, textSnapshot: textSnapshot, footerMode: footerMode)
+        let passportContent = makePassportContent(
+            format: format,
+            passport: passport,
+            eventProfile: eventSnapshot,
+            textSnapshot: textSnapshot,
+            date: date
+        )
+        return try makeLayoutPlan(format: format, textSnapshot: textSnapshot, footerMode: footerMode, passportContent: passportContent)
+    }
+
+    /// Resolves frozen Passport strings. A missing session value falls back to blank fields with
+    /// the effective event configuration, so diagnostics and previews always render.
+    nonisolated private static func makePassportContent(
+        format: BoothFormat,
+        passport: PassportSessionData?,
+        eventProfile: EventProfile?,
+        textSnapshot: ReceiptTextSnapshot,
+        date: Date
+    ) -> PassportReceiptContent? {
+        guard format == .passport else { return nil }
+        let data = passport ?? PassportSessionData(configuration: PassportConfiguration.effective(for: eventProfile))
+        return PassportReceiptContent.resolve(
+            passport: data,
+            eventProfile: eventProfile,
+            headerGraphicAvailable: textSnapshot.headerConfiguration.mode == .customEventHeader && textSnapshot.headerSourceSize != nil,
+            referenceDate: date
+        )
     }
 
     nonisolated private static func makeLayoutPlan(
         format: BoothFormat,
         textSnapshot: ReceiptTextSnapshot,
-        footerMode: ReceiptFooterMode
+        footerMode: ReceiptFooterMode,
+        passportContent: PassportReceiptContent? = nil
     ) throws -> ReceiptLayoutPlan {
         let width = BoothConfiguration.receiptWidth
         let margin = BoothConfiguration.receiptHorizontalMargin
         let fullPhotoWidth = width - (margin * 2)
-        let headerLayout = makeHeaderLayout(textSnapshot: textSnapshot, startY: receiptTopPadding, margin: margin, width: width)
+        let headerLayout = format == .passport
+            ? makeSuppressedHeaderLayout(textSnapshot: textSnapshot, startY: receiptTopPadding, margin: margin, width: width)
+            : makeHeaderLayout(textSnapshot: textSnapshot, startY: receiptTopPadding, margin: margin, width: width)
         let top = headerLayout.bottom
         let verticalPhotoGap = photoStackGap
         let photoFrames: [ReceiptPhotoFrame]
         let groupFrame: CGRect?
+        var passportLayout: PassportReceiptLayout?
 
         switch format {
         case .solo:
@@ -443,9 +504,21 @@ enum ReceiptComposer {
             }
             photoFrames = frames
             groupFrame = nil
+        case .passport:
+            guard let passportContent else {
+                throw ReceiptComposerError.invalidLayout("passport content is missing")
+            }
+            let layout = PassportReceiptLayout.make(
+                content: passportContent,
+                headerGraphicSourceSize: textSnapshot.headerSourceSize,
+                top: top
+            )
+            passportLayout = layout
+            photoFrames = layout.photoFrames
+            groupFrame = nil
         }
 
-        let photoBottom = Int(photoFrames.map(\.rect.maxY).max() ?? CGFloat(top))
+        let photoBottom = passportLayout?.bottom ?? Int(photoFrames.map(\.rect.maxY).max() ?? CGFloat(top))
         let previewContentHeight = photoBottom + 12
         let footerLayout: ReceiptFooterLayoutPlan
         let qrSize: Int
@@ -474,8 +547,42 @@ enum ReceiptComposer {
             previewContentHeight: previewContentHeight,
             qrSize: qrSize,
             headerMode: headerLayout.mode,
-            customHeaderFrame: headerLayout.customImageFrame,
-            showsEventTextBlock: textSnapshot.eventContent != nil
+            customHeaderFrame: passportLayout?.headerGraphicRect ?? headerLayout.customImageFrame,
+            showsEventTextBlock: textSnapshot.eventContent != nil,
+            passportLayout: passportLayout,
+            passportContent: passportLayout == nil ? nil : passportContent,
+            contentBottom: photoBottom
+        )
+    }
+
+    /// Passport carries its own title inside the upper card, so the standard masthead and event
+    /// text block are not stacked above it.
+    nonisolated private static func makeSuppressedHeaderLayout(
+        textSnapshot: ReceiptTextSnapshot,
+        startY: Int,
+        margin: Int,
+        width: Int
+    ) -> ReceiptHeaderLayout {
+        let textX = mastheadTextX(margin: margin)
+        let textWidth = mastheadTextWidth(margin: margin, width: width)
+        let zeroFrame = wrappedTextFrame(x: textX, y: startY, width: textWidth, height: 0)
+        return ReceiptHeaderLayout(
+            mode: textSnapshot.headerConfiguration.mode,
+            startY: startY,
+            textX: textX,
+            textWidth: textWidth,
+            establishedFrame: zeroFrame,
+            wordmarkFrame: zeroFrame,
+            descriptorFrame: zeroFrame,
+            customImageFrame: nil,
+            eventEyebrowFrame: nil,
+            eventTitleFrame: nil,
+            eventTitleFontSize: nil,
+            eventSubtitleFrame: nil,
+            eventMetadataFrame: nil,
+            eventMessageFrame: nil,
+            dividerY: startY,
+            bottom: startY
         )
     }
 
@@ -723,7 +830,13 @@ enum ReceiptComposer {
             previousFrame = frame.rect
         }
 
-        let photoBottom = Int(plan.photoFrames.map(\.rect.maxY).max() ?? 0)
+        let photoBottom = plan.contentBottom
+        guard photoBottom >= Int(plan.photoFrames.map(\.rect.maxY).max() ?? 0) else {
+            throw ReceiptComposerError.invalidLayout("content section ends above a photo")
+        }
+        if let passportLayout = plan.passportLayout {
+            try validatePassportLayout(passportLayout, contentBottom: photoBottom, canvas: canvas)
+        }
         switch (plan.footerMode, plan.footerLayout) {
         case (.galleryQRCode(let qrSize), .gallery(let layout)):
             guard layout.top == photoBottom,
@@ -756,6 +869,40 @@ enum ReceiptComposer {
             }
         default:
             throw ReceiptComposerError.invalidLayout("footer mode does not match footer layout")
+        }
+    }
+
+    nonisolated private static func validatePassportLayout(_ layout: PassportReceiptLayout, contentBottom: Int, canvas: CGRect) throws {
+        let contentLeft = CGFloat(BoothConfiguration.receiptHorizontalMargin)
+        let contentRight = CGFloat(BoothConfiguration.receiptWidth - BoothConfiguration.receiptHorizontalMargin)
+        for (name, card) in [("passport.upperCard", layout.upperCard), ("passport.lowerCard", layout.lowerCard)] {
+            try validateFrame(card, name: name, inside: canvas)
+            guard card.minX >= contentLeft, card.maxX <= contentRight, card.width > card.height else {
+                throw ReceiptComposerError.invalidLayout("\(name) must be a landscape card inside the content margins")
+            }
+        }
+        guard layout.upperCard.maxY <= layout.lowerCard.minY,
+              layout.lowerCard.maxY <= CGFloat(contentBottom),
+              layout.bottom == contentBottom,
+              layout.upperCard.contains(layout.heroPhotoRect),
+              layout.lowerCard.contains(layout.portraitPhotoRect),
+              layout.lowerCard.contains(layout.signatureBox),
+              !layout.heroPhotoRect.intersects(layout.titleColumn) else {
+            throw ReceiptComposerError.invalidLayout("passport cards overlap or contain misplaced elements")
+        }
+        for block in layout.upperTexts where !layout.upperCard.contains(block.rect) || block.rect.intersects(layout.heroPhotoRect) {
+            throw ReceiptComposerError.invalidLayout("passport upper text \(block.role) leaves its card")
+        }
+        for block in layout.lowerTexts where !layout.lowerCard.contains(block.rect) || block.rect.intersects(layout.portraitPhotoRect) {
+            throw ReceiptComposerError.invalidLayout("passport lower text \(block.role) leaves its card")
+        }
+        for rect in [layout.headerGraphicRect, layout.stampRect, layout.starBandRect].compactMap({ $0 }) where !layout.titleColumn.contains(rect) {
+            throw ReceiptComposerError.invalidLayout("passport decoration leaves the title column")
+        }
+        if let message = layout.message {
+            guard message.rect.minY >= layout.lowerCard.maxY, message.rect.maxY <= CGFloat(contentBottom) else {
+                throw ReceiptComposerError.invalidLayout("passport message overlaps the cards")
+            }
         }
     }
 
@@ -837,11 +984,12 @@ enum ReceiptComposer {
                 throw ReceiptComposerError.renderFailed
             }
 
+            let passportRole = plan.format == .passport ? PassportPhotoRole(photoIndex: index) : nil
             let prepared = try autoreleasepool {
                 try ThermalPhotoProcessor.prepare(
-                    photo,
+                    passportRole.map { PassportPhotoProcessor.presentationPhoto(from: photo, role: $0) } ?? photo,
                     targetPixelSize: frame.rect.size,
-                    presentationMode: plan.format.photoPresentationMode,
+                    presentationMode: passportRole?.thermalPresentationMode ?? plan.format.photoPresentationMode,
                     profile: profile
                 )
             }
@@ -2351,7 +2499,7 @@ private extension BoothFormat {
 
     nonisolated var photoPresentationMode: ThermalPhotoPresentationMode {
         switch self {
-        case .solo, .grid, .gridSix:
+        case .solo, .grid, .gridSix, .passport:
             .portrait
         case .duo, .strip:
             .landscape

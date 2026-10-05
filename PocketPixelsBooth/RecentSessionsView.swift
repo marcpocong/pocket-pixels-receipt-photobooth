@@ -646,6 +646,10 @@ private struct ArchivedSessionDetailView: View {
                 .font(.title3.weight(.semibold))
             Text(RecentSessionsViewModel.detailDateFormatter.string(from: archive.summary.createdAt))
             Text("\(archive.summary.format.displayName) • \(archive.summary.photoCount) photos • \(Int(archive.summary.estimatedLengthMillimeters.rounded())) mm")
+            if let passport = archive.passport {
+                Text("Passport · \(passport.configuration.theme.displayName) · \(passport.name.isEmpty ? "No name" : passport.name) · \(passport.signature.isEmpty ? "No signature" : "Signed")")
+                    .font(.callout)
+            }
             Text(archive.summary.sessionIdentifier)
                 .font(.callout.monospaced())
             Text("Fingerprint \(archive.summary.rasterFingerprint)")

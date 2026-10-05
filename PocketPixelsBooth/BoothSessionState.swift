@@ -17,6 +17,9 @@ enum BoothSessionState: Equatable {
     case betweenPhotos(nextPhotoIndex: Int)
     case review
     case retaking(photoIndex: Int)
+    case passportDetails
+    case passportSignature
+    case passportPreview
     case composingReceipt
     case receiptPreview
     case connectingToPrinter
@@ -29,7 +32,9 @@ enum BoothSessionState: Equatable {
         switch self {
         case .welcome, .choosingFormat, .thankYou:
             false
-        case .preparingCamera, .cameraReady, .countdown, .capturing, .betweenPhotos, .review, .retaking, .composingReceipt, .receiptPreview, .connectingToPrinter, .printing, .recoveryRequired, .error:
+        case .preparingCamera, .cameraReady, .countdown, .capturing, .betweenPhotos, .review, .retaking,
+             .passportDetails, .passportSignature, .passportPreview,
+             .composingReceipt, .receiptPreview, .connectingToPrinter, .printing, .recoveryRequired, .error:
             true
         }
     }
@@ -38,7 +43,9 @@ enum BoothSessionState: Equatable {
         switch self {
         case .welcome, .choosingFormat, .thankYou:
             false
-        case .preparingCamera, .cameraReady, .countdown, .capturing, .betweenPhotos, .review, .retaking, .composingReceipt, .receiptPreview, .connectingToPrinter, .printing, .recoveryRequired, .error:
+        case .preparingCamera, .cameraReady, .countdown, .capturing, .betweenPhotos, .review, .retaking,
+             .passportDetails, .passportSignature, .passportPreview,
+             .composingReceipt, .receiptPreview, .connectingToPrinter, .printing, .recoveryRequired, .error:
             true
         }
     }
@@ -63,6 +70,12 @@ enum BoothSessionState: Equatable {
             "Review"
         case .retaking(let index):
             "Retaking Photo \(index + 1)"
+        case .passportDetails:
+            "Passport Details"
+        case .passportSignature:
+            "Passport Signature"
+        case .passportPreview:
+            "Passport Preview"
         case .composingReceipt:
             "Building Receipt"
         case .receiptPreview:

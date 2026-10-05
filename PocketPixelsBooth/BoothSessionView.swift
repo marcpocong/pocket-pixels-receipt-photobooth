@@ -114,6 +114,10 @@ struct BoothSessionView: View {
             .onChange(of: viewModel.selectedPrintCopies) { _, _ in
                 scheduleIdleReset()
             }
+            .onChange(of: viewModel.passportDraft) { _, _ in
+                // Typing or signing counts as activity for the abandoned-session timer.
+                scheduleIdleReset()
+            }
             .onReceive(NotificationCenter.default.publisher(for: EventProfileStore.didChangeNotification)) { _ in
                 viewModel.refreshCustomerExperience()
             }
@@ -160,6 +164,12 @@ struct BoothSessionView: View {
             "camera"
         case .review:
             "review"
+        case .passportDetails:
+            "passportDetails"
+        case .passportSignature:
+            "passportSignature"
+        case .passportPreview:
+            "passportPreview"
         case .composingReceipt:
             "composingReceipt"
         case .receiptPreview, .connectingToPrinter, .printing:
@@ -199,6 +209,12 @@ struct BoothSessionView: View {
             cameraScreen
         case .review:
             reviewScreen
+        case .passportDetails:
+            PassportDetailsView(viewModel: viewModel, onCancel: { showingCancelConfirmation = true })
+        case .passportSignature:
+            PassportSignatureView(viewModel: viewModel, onCancel: { showingCancelConfirmation = true })
+        case .passportPreview:
+            PassportPreviewView(viewModel: viewModel, onCancel: { showingCancelConfirmation = true })
         case .composingReceipt:
             progressScreen(title: "Preparing your receipt", message: "This will just take a moment.")
         case .receiptPreview, .connectingToPrinter, .printing:
@@ -359,14 +375,17 @@ struct BoothSessionView: View {
     private var formatSelectionScreen: some View {
         GeometryReader { proxy in
             let contentWidth = clampedContentWidth(for: proxy, maximum: PocketPixelsTheme.Layout.maxContentWidth)
-            let cardHeight = min(max((proxy.size.height - 220) / 2 - 10, 240), 320)
-            let cardWidth = max(1, (contentWidth - 40) / 3)
+            let formats = BoothFormat.allCases
+            let columnCount = Self.formatColumnCount
+            let rowCount = max(1, Int((Double(formats.count) / Double(columnCount)).rounded(.up)))
+            let cardHeight = min(max((proxy.size.height - 220) / CGFloat(rowCount) - 10, 240), 320)
+            let cardWidth = max(1, (contentWidth - 20 * CGFloat(columnCount - 1)) / CGFloat(columnCount))
             let previewHeight = cardHeight - 154
 
             let gridSpacing: CGFloat = 20
             let headerToGridSpacing: CGFloat = 8
             let estimatedHeaderHeight: CGFloat = 150
-            let estimatedContentHeight = estimatedHeaderHeight + headerToGridSpacing + (cardHeight * 2) + gridSpacing
+            let estimatedContentHeight = estimatedHeaderHeight + headerToGridSpacing + (cardHeight * CGFloat(rowCount)) + gridSpacing * CGFloat(rowCount - 1)
             let topPadding = max(((proxy.size.height - estimatedContentHeight) / 2) - 62, 24)
 
             ScrollView {
@@ -400,10 +419,10 @@ struct BoothSessionView: View {
                     }
                     .frame(width: contentWidth)
 
-                    VStack(spacing: gridSpacing) {
-                        ForEach(0..<2, id: \.self) { row in
+                    VStack(alignment: .leading, spacing: gridSpacing) {
+                        ForEach(0..<rowCount, id: \.self) { row in
                             HStack(spacing: gridSpacing) {
-                                ForEach(Array(BoothFormat.allCases.dropFirst(row * 3).prefix(3))) { format in
+                                ForEach(Array(formats.dropFirst(row * columnCount).prefix(columnCount))) { format in
                                     formatCard(format, cardHeight: cardHeight, previewHeight: previewHeight)
                                         .frame(width: cardWidth)
                                 }
@@ -423,6 +442,8 @@ struct BoothSessionView: View {
             startFormatMotion()
         }
     }
+
+    private static let formatColumnCount = 3
 
     private var cameraScreen: some View {
         GeometryReader { proxy in
@@ -604,7 +625,9 @@ struct BoothSessionView: View {
                 .multilineTextAlignment(.center)
                 .padding(.top, 14)
 
-            Text("Retake any photo, or continue when you're ready.")
+            Text(viewModel.isPassportSession
+                 ? "Retake either photo, then add your passport details."
+                 : "Retake any photo, or continue when you're ready.")
                 .font(.system(size: 20, weight: .medium))
                 .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
                 .multilineTextAlignment(.center)
@@ -632,8 +655,51 @@ struct BoothSessionView: View {
             reviewGridSixLayout(width: width, availableHeight: availableHeight)
         case .strip:
             reviewStripLayout(width: width)
+        case .passport:
+            reviewPassportLayout(width: width)
         case nil:
             reviewGridLayout(width: width)
+        }
+    }
+
+    /// Portrait and hero side by side at equal heights, each labelled with its passport role.
+    private func reviewPassportLayout(width: CGFloat) -> some View {
+        let spacing: CGFloat = 20
+        // portraitWidth * 4/3 == heroWidth * 3/4  =>  heroWidth = portraitWidth * 16/9
+        let portraitWidth = min(floor((width - spacing) * 9 / 25), 250)
+        let heroWidth = floor(portraitWidth * 16 / 9)
+
+        return HStack(alignment: .top, spacing: spacing) {
+            reviewPassportItem(role: .portrait, photoWidth: portraitWidth)
+                .reviewPhotoEntrance(index: 0, active: reviewMotionActive, reduceMotion: reduceMotion)
+            reviewPassportItem(role: .hero, photoWidth: heroWidth)
+                .reviewPhotoEntrance(index: 1, active: reviewMotionActive, reduceMotion: reduceMotion)
+        }
+        .frame(width: width)
+    }
+
+    private func reviewPassportItem(role: PassportPhotoRole, photoWidth: CGFloat) -> some View {
+        let index = role.rawValue
+        return VStack(spacing: 10) {
+            VStack(spacing: 2) {
+                Text("PHOTO \(index + 1)")
+                    .font(.system(size: 14, weight: .bold, design: .monospaced))
+                    .tracking(1.4)
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.maroon)
+                Text(role.title)
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
+            }
+
+            reviewPhoto(index: index, presentation: role == .hero ? .landscape : .portrait, passportRole: role)
+                .frame(width: photoWidth)
+
+            Button("Retake Photo \(index + 1)") {
+                viewModel.retakePhoto(at: index)
+            }
+            .buttonStyle(PocketPixelsSecondaryButtonStyle())
+            .disabled(!viewModel.capturedPhotos.indices.contains(index) || !viewModel.canReturnToReview)
+            .accessibilityLabel("Retake Photo \(index + 1), \(role.title)")
         }
     }
 
@@ -732,15 +798,20 @@ struct BoothSessionView: View {
         }
     }
 
-    private func reviewPhoto(index: Int, presentation: ReviewPhotoPresentation = .portrait) -> some View {
+    private func reviewPhoto(index: Int, presentation: ReviewPhotoPresentation = .portrait, passportRole: PassportPhotoRole? = nil) -> some View {
         ZStack {
             RoundedRectangle(cornerRadius: 14)
                 .fill(PocketPixelsTheme.ColorPalette.acrylic)
 
             if viewModel.capturedPhotos.indices.contains(index) {
-                let image = presentation == .landscape
-                    ? ReceiptComposer.makeLandscapePresentationPhoto(from: viewModel.capturedPhotos[index])
-                    : viewModel.capturedPhotos[index]
+                let image = if let passportRole {
+                    // Same crop the receipt uses, so review matches the printed card.
+                    PassportPhotoProcessor.presentationPhoto(from: viewModel.capturedPhotos[index], role: passportRole)
+                } else if presentation == .landscape {
+                    ReceiptComposer.makeLandscapePresentationPhoto(from: viewModel.capturedPhotos[index])
+                } else {
+                    viewModel.capturedPhotos[index]
+                }
 
                 Image(uiImage: image)
                     .resizable()
@@ -762,21 +833,21 @@ struct BoothSessionView: View {
         }
         .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.10), radius: 12, x: 0, y: 5)
         .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.08), radius: 9, x: 0, y: 5)
-        .accessibilityLabel("Photo \(index + 1)")
+        .accessibilityLabel(passportRole.map { "Photo \(index + 1), \($0.title)" } ?? "Photo \(index + 1)")
         .animation(PocketPixelsTheme.Motion.standardAnimation, value: reviewPhotoIdentifier(at: index))
     }
 
     private func reviewActionArea(width: CGFloat) -> some View {
         VStack(spacing: 0) {
             Button {
-                viewModel.continueToReceipt()
+                viewModel.continueFromReview()
             } label: {
-                Text("Continue")
+                Text(viewModel.isPassportSession ? "Continue to Details" : "Continue")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(PocketPixelsPrimaryButtonStyle())
             .frame(width: width * 0.74)
-            .disabled(!viewModel.canContinueToReceipt)
+            .disabled(!viewModel.canContinueFromReview)
 
             Button("Retake All") {
                 viewModel.retakeAll()
@@ -1638,8 +1709,27 @@ struct BoothSessionView: View {
         return nil
     }
 
-    private var photoCounterText: String {
+    /// Photo index the camera screen is currently framing.
+    private var cameraPhotoIndex: Int {
         switch viewModel.state {
+        case .countdown(let index, _), .capturing(let index), .retaking(let index):
+            index
+        case .betweenPhotos(let nextIndex):
+            nextIndex
+        default:
+            viewModel.nextPhotoIndex
+        }
+    }
+
+    private var cameraPassportRole: PassportPhotoRole? {
+        viewModel.isPassportSession ? PassportPhotoRole(photoIndex: cameraPhotoIndex) : nil
+    }
+
+    private var photoCounterText: String {
+        if let role = cameraPassportRole {
+            return "Photo \(role.rawValue + 1) of 2 · \(role.title)"
+        }
+        return switch viewModel.state {
         case .countdown(let index, _), .capturing(let index), .retaking(let index):
             "Photo \(index + 1) of \(viewModel.requiredPhotoCount)"
         case .betweenPhotos(let nextIndex):
@@ -1659,17 +1749,25 @@ struct BoothSessionView: View {
             34
         case .strip:
             30
+        case .passport:
+            30
         case .solo, nil:
             44
         }
     }
 
     private var usesLandscapeCompositionGuide: Bool {
-        viewModel.selectedBoothFormat == .duo || viewModel.selectedBoothFormat == .strip
+        if let role = cameraPassportRole {
+            return role == .hero
+        }
+        return viewModel.selectedBoothFormat == .duo || viewModel.selectedBoothFormat == .strip
     }
 
     private var cameraCustomerStatusText: String {
-        switch viewModel.state {
+        if let role = cameraPassportRole, let text = passportCameraStatusText(role: role) {
+            return text
+        }
+        return switch viewModel.state {
         case .preparingCamera:
             "Getting camera ready."
         case .cameraReady:
@@ -1684,6 +1782,19 @@ struct BoothSessionView: View {
             "Retaking photo."
         default:
             viewModel.statusMessage
+        }
+    }
+
+    private func passportCameraStatusText(role: PassportPhotoRole) -> String? {
+        switch viewModel.state {
+        case .cameraReady where !viewModel.isCameraUnavailable, .countdown, .retaking:
+            role == .portrait
+                ? "Passport portrait. Look at the camera and make it yours."
+                : "One more! Give us your best passport moment."
+        case .betweenPhotos:
+            "Nice! Next up: your hero photo."
+        default:
+            nil
         }
     }
 
@@ -1947,6 +2058,8 @@ struct BoothSessionView: View {
                     Text(format.displayName.uppercased())
                         .font(.system(size: 26, weight: .bold))
                         .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
 
                     Text(format.photoCountLabel)
                         .font(.system(size: 18, weight: .semibold))
@@ -1959,14 +2072,37 @@ struct BoothSessionView: View {
             }
             .padding(PocketPixelsTheme.Spacing.card)
             .frame(maxWidth: .infinity, minHeight: cardHeight, alignment: .topLeading)
+            .overlay(alignment: .topTrailing) {
+                if format == .passport {
+                    Text("KEEPSAKE")
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .tracking(1.2)
+                        .foregroundStyle(PocketPixelsTheme.ColorPalette.lightText)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(PocketPixelsTheme.ColorPalette.brandMaroon))
+                        .padding(12)
+                        .accessibilityHidden(true)
+                }
+            }
             .background(PocketPixelsTheme.ColorPalette.acrylic.opacity(0.94))
             .overlay {
                 RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card)
-                    .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.22), lineWidth: 1)
+                    .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(format == .passport ? 0.42 : 0.22), lineWidth: format == .passport ? 1.5 : 1)
             }
             .clipShape(RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card))
         }
         .buttonStyle(FormatCardButtonStyle())
+        .accessibilityLabel(formatAccessibilityLabel(for: format))
+    }
+
+    private func formatAccessibilityLabel(for format: BoothFormat) -> String {
+        switch format {
+        case .passport:
+            "Passport, 2 photos. Your own Pocket Passport: a keepsake with two passport-style cards, a few fun details and your signature."
+        default:
+            "\(format.displayName), \(format.photoCountLabel). \(customerFormatDescription(for: format))"
+        }
     }
 
     private func formatPreview(_ format: BoothFormat) -> some View {
@@ -2024,6 +2160,8 @@ struct BoothSessionView: View {
                     previewPhoto(width: tileWidth, height: tileHeight)
                 }
             }
+        case .passport:
+            PassportFormatPreview(size: footprint)
         }
     }
 
@@ -2075,6 +2213,7 @@ struct BoothSessionView: View {
         case .solo: width = min(requestedWidth, height / 0.88)
         case .grid: width = min(requestedWidth, height / 0.95)
         case .duo, .strip, .gridSix: width = requestedWidth
+        case .passport: width = min(requestedWidth, height * 1.25)
         }
         return CGSize(width: width, height: height)
     }
@@ -2089,6 +2228,8 @@ struct BoothSessionView: View {
             min(availableWidth * 0.58, 174)
         case .strip:
             min(availableWidth * 0.34, 104)
+        case .passport:
+            min(availableWidth * 0.80, 232)
         }
     }
 
@@ -2104,6 +2245,8 @@ struct BoothSessionView: View {
             "Four-photo collage"
         case .strip:
             "Classic photo strip"
+        case .passport:
+            "Your own Pocket Passport"
         }
     }
 

@@ -30,6 +30,7 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
     var customerWelcomeMessage: String
     var customerThankYouMessage: String
     var customerTheme: CustomerScreenTheme
+    var passport: PassportConfiguration
 
     nonisolated init(
         isEnabled: Bool,
@@ -46,7 +47,8 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         customerSubtitle: String = "",
         customerWelcomeMessage: String = "",
         customerThankYouMessage: String = "",
-        customerTheme: CustomerScreenTheme = .classic
+        customerTheme: CustomerScreenTheme = .classic,
+        passport: PassportConfiguration = .default
     ) {
         self.isEnabled = isEnabled
         self.eventName = eventName
@@ -63,6 +65,7 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         self.customerWelcomeMessage = customerWelcomeMessage
         self.customerThankYouMessage = customerThankYouMessage
         self.customerTheme = customerTheme
+        self.passport = passport
     }
 
     enum CodingKeys: String, CodingKey {
@@ -81,6 +84,7 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         case customerWelcomeMessage
         case customerThankYouMessage
         case customerTheme
+        case passport
     }
 
     init(from decoder: Decoder) throws {
@@ -100,6 +104,7 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         customerWelcomeMessage = try container.decodeIfPresent(String.self, forKey: .customerWelcomeMessage) ?? ""
         customerThankYouMessage = try container.decodeIfPresent(String.self, forKey: .customerThankYouMessage) ?? ""
         customerTheme = try container.decodeIfPresent(CustomerScreenTheme.self, forKey: .customerTheme) ?? .classic
+        passport = try container.decodeIfPresent(PassportConfiguration.self, forKey: .passport) ?? .default
     }
 
     nonisolated static var pocketPixelsDefault: EventProfile {
@@ -118,7 +123,8 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
             customerSubtitle: "",
             customerWelcomeMessage: "",
             customerThankYouMessage: "",
-            customerTheme: .classic
+            customerTheme: .classic,
+            passport: .default
         )
     }
 
@@ -148,7 +154,8 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
             customerSubtitle: Self.normalizedSingleLine(customerSubtitle, limit: Self.customerSubtitleLimit),
             customerWelcomeMessage: Self.normalizedSingleLine(customerWelcomeMessage, limit: Self.customerMessageLimit),
             customerThankYouMessage: Self.normalizedSingleLine(customerThankYouMessage, limit: Self.customerMessageLimit),
-            customerTheme: customerTheme
+            customerTheme: customerTheme,
+            passport: passport.normalized()
         )
     }
 
@@ -349,6 +356,10 @@ struct EventSetupView: View {
                     .foregroundStyle(.secondary)
 
                 limitedTextField("Receipt Message", text: $draft.shortMessage, limit: EventProfile.shortMessageLimit, autocapitalization: .sentences)
+
+                DisclosureGroup("Passport Format (Optional)") {
+                    passportSettings
+                }
             }
 
             DisclosureGroup("Preview Printed Receipt") {
@@ -383,6 +394,41 @@ struct EventSetupView: View {
                     .disabled(!canSave || !hasUnsavedChanges)
             }
         }
+    }
+
+    @ViewBuilder
+    private var passportSettings: some View {
+        Text("Used only for Passport sessions while Receipt Event Branding is on. The passport cards replace the large receipt header, so the header, title and event text are never stacked.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+        Picker("Passport Theme", selection: $draft.passport.theme) {
+            ForEach(PassportTheme.allCases) { theme in
+                Text(theme.displayName).tag(theme)
+            }
+        }
+        Text(draft.passport.theme.summary)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+        Picker("Passport Title Area", selection: $draft.passport.titleSource) {
+            ForEach(PassportTitleSource.allCases) { source in
+                Text(source.displayName).tag(source)
+            }
+        }
+        Text(draft.passport.titleSource.summary)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+        limitedTextField("Passport Title", text: $draft.passport.title, limit: PassportConfiguration.titleLimit, autocapitalization: .characters)
+            .accessibilityHint("Shown with Pocket Passport branding. Leave blank for POCKET PASSPORT.")
+        limitedTextField("Passport Subtitle (Optional)", text: $draft.passport.subtitle, limit: PassportConfiguration.subtitleLimit, autocapitalization: .characters)
+        limitedTextField("Event Label (Optional)", text: $draft.passport.eventLabel, limit: PassportConfiguration.eventLabelLimit, autocapitalization: .characters)
+            .accessibilityHint("Shown under the event name or header graphic, for example WEDDING PASSPORT. Defaults to EVENT PASSPORT.")
+
+        Text("Check the result in Preview Printed Receipt with Passport selected.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
     }
 
     private var canSave: Bool {
@@ -587,7 +633,12 @@ private struct EventReceiptComposerPreview: View {
             normalized.receiptHeader.layoutMode.rawValue,
             String(normalized.receiptHeader.cropPositionX),
             String(normalized.receiptHeader.cropPositionY),
-            String(normalized.receiptHeader.cropZoom)
+            String(normalized.receiptHeader.cropZoom),
+            normalized.passport.theme.rawValue,
+            normalized.passport.titleSource.rawValue,
+            normalized.passport.title,
+            normalized.passport.subtitle,
+            normalized.passport.eventLabel
         ].joined(separator: "|")
     }
 
@@ -639,7 +690,10 @@ private struct EventReceiptComposerPreview: View {
                 date: date,
                 galleryURL: galleryURL,
                 format: format,
-                eventProfile: profile.activeReceiptSnapshot
+                eventProfile: profile.activeReceiptSnapshot,
+                passport: format == .passport
+                    ? .operatorPreviewSample(configuration: PassportConfiguration.effective(for: profile))
+                    : nil
             )
         }
         return try await withTaskCancellationHandler {

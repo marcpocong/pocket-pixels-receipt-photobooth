@@ -702,7 +702,7 @@ enum GalleryUploadDebugSelfChecks {
                   !plan.displayedPhotoIndexes.contains(3) else {
                 throw GalleryUploadError.decoding("Strip geometry self-check failed.")
             }
-        case .solo, .duo, .grid, .gridSix:
+        case .solo, .duo, .grid, .gridSix, .passport:
             break
         }
     }
@@ -770,13 +770,14 @@ enum GalleryUploadDebugSelfChecks {
     }
 
     private static func runBoothFormatSelfChecks() throws {
-        guard BoothFormat.allCases.count == 5,
-              BoothFormat.allCases == [.solo, .duo, .grid, .strip, .gridSix],
+        guard BoothFormat.allCases.count == 6,
+              BoothFormat.allCases == [.solo, .duo, .grid, .strip, .gridSix, .passport],
               BoothFormat.solo.photoCount == 1,
               BoothFormat.duo.photoCount == 2,
               BoothFormat.grid.photoCount == 4,
               BoothFormat.strip.photoCount == 3,
-              BoothFormat.gridSix.photoCount == 6 else {
+              BoothFormat.gridSix.photoCount == 6,
+              BoothFormat.passport.photoCount == 2 else {
             throw GalleryUploadError.decoding("Booth format photo count self-check failed.")
         }
     }
@@ -812,10 +813,11 @@ enum GalleryUploadDebugSelfChecks {
             .duo: 2,
             .grid: 4,
             .strip: 3,
-            .gridSix: 6
+            .gridSix: 6,
+            .passport: 2
         ]
 
-        guard previews.map(\.format) == [.solo, .duo, .grid, .strip, .gridSix],
+        guard previews.map(\.format) == [.solo, .duo, .grid, .strip, .gridSix, .passport],
               previews.count == BoothFormat.allCases.count,
               previews.allSatisfy({ $0.receipt.width == BoothConfiguration.receiptWidth }),
               previews.allSatisfy({ $0.receipt.format.photoCount == expectedCounts[$0.format] }),

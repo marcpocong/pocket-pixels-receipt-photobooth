@@ -29,6 +29,8 @@ nonisolated struct AppRecoverySnapshot: Codable, Sendable {
     let rasterFingerprint: String?
     let stage: AppRecoveryStage
     let updatedAt: Date
+    /// Committed Passport keepsake data, retained only for the session that owns this snapshot.
+    var passport: PassportSessionData? = nil
 }
 
 nonisolated struct AppRecoveryStore: Sendable {
