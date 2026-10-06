@@ -8,6 +8,30 @@
 import Foundation
 import Network
 
+/// How far a Wi-Fi receipt job got before it ended.
+///
+/// Anything from `sendStarted` onward may have reached the printer, so a failure there is an
+/// uncertain print that requires operator recovery and must never be retried automatically.
+nonisolated enum NetworkPrintTransmission: String, Sendable, CaseIterable {
+    /// Failed before a TCP connection existed (invalid host, unreachable, timeout, job gate).
+    case notConnected
+    /// Connected, but the payload send was never issued.
+    case connectedBeforeSend
+    /// The payload send was issued; physical output is uncertain until it completes.
+    case sendStarted
+    /// The socket accepted the whole payload.
+    case sendCompleted
+
+    var bytesMayHaveStarted: Bool {
+        switch self {
+        case .notConnected, .connectedBeforeSend: false
+        case .sendStarted, .sendCompleted: true
+        }
+    }
+}
+
+typealias FrozenReceiptCompletionHandler = (Result<Void, PrinterNetworkError>, NetworkPrintTransmission) -> Void
+
 enum PrinterConnectionState: Equatable {
     case disconnected
     case connecting
@@ -223,17 +247,19 @@ final class PrinterNetworkService {
         )
     }
 
+    /// Prints a frozen receipt envelope. The completion reports how far transmission got so the
+    /// caller can tell a safe pre-bytes failure from an uncertain partial print.
     func printFrozenReceipt(
         envelope: PrintJobEnvelope,
         host: String,
         port: UInt16,
         onStateChange: @escaping StateHandler,
-        completion: @escaping CompletionHandler
+        completion: @escaping FrozenReceiptCompletionHandler
     ) {
         do {
             try envelope.verifyPayloadIntegrity()
         } catch {
-            complete(.failure(.developmentError(error.localizedDescription)), onStateChange: onStateChange, completion: completion)
+            complete(.failure(.developmentError(error.localizedDescription)), onStateChange: onStateChange) { completion($0, .notConnected) }
             return
         }
 
@@ -523,31 +549,33 @@ final class PrinterNetworkService {
         port: UInt16,
         timeout: TimeInterval,
         onStateChange: @escaping StateHandler,
-        completion: @escaping CompletionHandler
+        completion: @escaping FrozenReceiptCompletionHandler
     ) {
         let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmedHost.isEmpty else {
-            complete(.failure(.invalidHost), onStateChange: onStateChange, completion: completion)
+            complete(.failure(.invalidHost), onStateChange: onStateChange) { completion($0, .notConnected) }
             return
         }
 
         guard let endpointPort = NWEndpoint.Port(rawValue: port) else {
-            complete(.failure(.invalidPort), onStateChange: onStateChange, completion: completion)
+            complete(.failure(.invalidPort), onStateChange: onStateChange) { completion($0, .notConnected) }
             return
         }
 
         let jobGate = beginJob(isConnectionTest: false, isRasterPrint: true)
 
         guard case .allowed = jobGate else {
-            complete(.failure(jobGate.error), onStateChange: onStateChange, completion: completion)
+            complete(.failure(jobGate.error), onStateChange: onStateChange) { completion($0, .notConnected) }
             return
         }
 
         let queue = DispatchQueue(label: "com.pocketpixels.printer-frozen-network")
         let connection = NWConnection(host: NWEndpoint.Host(trimmedHost), port: endpointPort, using: .tcp)
         var didFinish = false
-        var bytesStarted = false
+        // Mutated only on `queue`. Conservative: becomes `.sendStarted` before the payload send is
+        // issued, so any failure from that point is treated as possibly printed.
+        var transmission = NetworkPrintTransmission.notConnected
         var timeoutWorkItem: DispatchWorkItem?
         storeActiveConnection(connection)
 
@@ -569,7 +597,9 @@ final class PrinterNetworkService {
             connection.stateUpdateHandler = nil
             connection.cancel()
 
-            let shouldActivateRecovery = result.isFailure && bytesStarted
+            if case .success = result { transmission = .sendCompleted }
+            let finalTransmission = transmission
+            let shouldActivateRecovery = result.isFailure && finalTransmission.bytesMayHaveStarted
             if shouldActivateRecovery {
                 self.activateRecoveryLockout()
                 debugLog("Frozen receipt Wi-Fi job \(envelope.jobID.uuidString) activated recovery lockout after bytes started.")
@@ -591,7 +621,7 @@ final class PrinterNetworkService {
                         }
                     }
 
-                    completion(result)
+                    completion(result, finalTransmission)
                 }
             }
         }
@@ -608,8 +638,9 @@ final class PrinterNetworkService {
             switch state {
             case .ready:
                 update(.connected)
+                transmission = .connectedBeforeSend
                 update(.sendingPhotograph)
-                bytesStarted = true
+                transmission = .sendStarted
                 connection.send(content: envelope.payload, completion: .contentProcessed { error in
                     if let error {
                         cleanup(result: .failure(.sendFailed(error.localizedDescription)))

@@ -497,6 +497,8 @@ struct OperatorEquipmentView: View {
                     systemImage: "printer.fill",
                     ready: !printer.requiresRecovery && bluetooth.canPrintRaster
                 )
+                LabeledContent("Receipt transfer", value: printer.receiptBluetoothTransferMode.operatorSummary)
+                    .font(.subheadline)
                 NavigationLink("Printer Setup") { OperatorPrinterSetupView() }
                     .disabled(printer.isWorking)
                 if printer.requiresRecovery || operations.hasUnresolvedPrint {
@@ -584,6 +586,15 @@ struct OperatorAdvancedView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Backend Configuration") {
+                NavigationLink("Gallery Backend Override") {
+                    GalleryBackendOverrideView()
+                }
+                Text("Advanced event support only. Defaults come from the app configuration; upload credentials stay in Keychain.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
 #if DEBUG
             Section("Developer Tools") {
                 NavigationLink("Endurance / Chaos Harness") { EventEnduranceHarnessView() }
@@ -596,6 +607,57 @@ struct OperatorAdvancedView: View {
         }
         .navigationTitle("Advanced")
         .task { operations.refresh() }
+    }
+}
+
+private struct GalleryBackendOverrideView: View {
+    @State private var uploadURL = ""
+    @State private var customerURL = ""
+    @State private var message = ""
+    private let store = GalleryBackendOverrideStore()
+
+    var body: some View {
+        Form {
+            Section("Optional Local Overrides") {
+                TextField("Apps Script upload URL", text: $uploadURL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                TextField("Customer gallery base URL", text: $customerURL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Text("Leave either field blank to use its Info.plist default. Only validated HTTPS endpoints are accepted.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Button("Save Overrides") { save() }
+                Button("Reset to Defaults", role: .destructive) {
+                    store.reset()
+                    uploadURL = ""
+                    customerURL = ""
+                    message = "Using packaged defaults."
+                }
+                if !message.isEmpty {
+                    Text(message)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .navigationTitle("Gallery Backend")
+        .onAppear {
+            uploadURL = store.uploadURLOverride() ?? ""
+            customerURL = store.customerURLOverride() ?? ""
+        }
+    }
+
+    private func save() {
+        do {
+            try store.save(uploadURL: uploadURL, customerURL: customerURL)
+            message = "Saved. New sessions and queued upload attempts will use this configuration."
+        } catch {
+            message = error.localizedDescription
+        }
     }
 }
 

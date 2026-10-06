@@ -3,6 +3,7 @@
 //  PocketPixelsBooth
 //
 
+import OSLog
 import Foundation
 import UIKit
 
@@ -33,6 +34,22 @@ nonisolated struct AppRecoverySnapshot: Codable, Sendable {
     var passport: PassportSessionData? = nil
 }
 
+nonisolated enum AppRecoveryStoreError: Error, LocalizedError, Equatable {
+    case unavailable
+    case encodingFailed(String)
+    case writeFailed(String)
+    case verificationFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable: "Recovery storage is unavailable."
+        case .encodingFailed(let detail): "Recovery state could not be encoded: \(detail)"
+        case .writeFailed(let detail): "Recovery state could not be written: \(detail)"
+        case .verificationFailed: "Recovery state did not read back correctly after writing."
+        }
+    }
+}
+
 nonisolated struct AppRecoveryStore: Sendable {
     nonisolated(unsafe) private let fileManager: FileManager
     private let directoryURL: URL
@@ -59,16 +76,36 @@ nonisolated struct AppRecoveryStore: Sendable {
         fileURL.path
     }
 
-    nonisolated func save(_ snapshot: AppRecoverySnapshot) {
+    /// Durability-critical save. Returns only after the snapshot is flushed to stable storage and
+    /// read back byte-for-byte; throws otherwise. The pre-print `printStatusUnknown` checkpoint
+    /// must use this so a failed write blocks printing (fail-closed).
+    nonisolated func saveCritical(_ snapshot: AppRecoverySnapshot) throws {
+        let data: Data
+        do {
+            data = try JSONEncoder.recoveryEncoder.encode(snapshot)
+        } catch {
+            throw AppRecoveryStoreError.encodingFailed(error.localizedDescription)
+        }
         do {
             try ensureDirectory()
-            let data = try JSONEncoder.recoveryEncoder.encode(snapshot)
-            try data.write(to: fileURL, options: .atomic)
-            try applyStorageAttributes(to: fileURL)
+            try DurableFileWriter.write(data, to: fileURL, fileManager: fileManager)
         } catch {
-#if DEBUG
-            print("[AppRecoveryStore] save failed: \(error.localizedDescription)")
-#endif
+            throw AppRecoveryStoreError.writeFailed(error.localizedDescription)
+        }
+        // Storage attributes (backup exclusion, data protection) do not affect durability.
+        applyStorageAttributes(to: fileURL)
+        guard let stored = try? Data(contentsOf: fileURL), stored == data else {
+            throw AppRecoveryStoreError.verificationFailed
+        }
+    }
+
+    /// Best-effort save for non-critical progress checkpoints (format chosen, photos captured,
+    /// receipt composed). Failures are logged; they never block the customer flow.
+    nonisolated func save(_ snapshot: AppRecoverySnapshot) {
+        do {
+            try saveCritical(snapshot)
+        } catch {
+            BoothDiagnostics.recovery.error("Non-critical recovery save failed stage=\(snapshot.stage.rawValue, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -107,14 +144,14 @@ nonisolated struct AppRecoveryStore: Sendable {
 
     private func ensureDirectory() throws {
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        try applyStorageAttributes(to: directoryURL)
+        applyStorageAttributes(to: directoryURL)
     }
 
-    private func applyStorageAttributes(to url: URL) throws {
+    private func applyStorageAttributes(to url: URL) {
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
         var mutableURL = url
-        try mutableURL.setResourceValues(values)
+        try? mutableURL.setResourceValues(values)
 #if os(iOS)
         try? fileManager.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: url.path)
 #endif

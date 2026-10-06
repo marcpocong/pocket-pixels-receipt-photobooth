@@ -89,6 +89,7 @@ extension EventOperationalState {
             "Sessions this launch: \(sessionsCompletedThisLaunch)",
             "Camera: \(cameraCheckMessage)",
             "Printer ready: \(PrinterCoordinator.shared.isBluetoothReady)",
+            "Bluetooth transfer: \(PrinterCoordinator.shared.receiptBluetoothTransferMode.operatorSummary)",
             "Printer recovery: \(PrinterCoordinator.shared.requiresRecovery)",
             "Unresolved print: \(hasUnresolvedPrint)",
             "Print queue busy: \(PrinterCoordinator.shared.isWorking)",

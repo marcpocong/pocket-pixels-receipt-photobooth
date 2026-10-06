@@ -31,6 +31,7 @@ private struct ReceiptTextSnapshot: Sendable {
     let wordmark: String
     let descriptor: String
     let eventContent: EventReceiptBlockContent?
+    let eventTypography: ResolvedEventTypography
     let headerConfiguration: ReceiptHeaderConfiguration
     let headerSourceSize: CGSize?
     let cta: String
@@ -57,12 +58,8 @@ private struct ReceiptHeaderLayout: Sendable {
     let wordmarkFrame: ReceiptWrappedTextFrame
     let descriptorFrame: ReceiptWrappedTextFrame
     let customImageFrame: CGRect?
-    let eventEyebrowFrame: ReceiptWrappedTextFrame?
-    let eventTitleFrame: ReceiptWrappedTextFrame?
-    let eventTitleFontSize: CGFloat?
-    let eventSubtitleFrame: ReceiptWrappedTextFrame?
-    let eventMetadataFrame: ReceiptWrappedTextFrame?
-    let eventMessageFrame: ReceiptWrappedTextFrame?
+    /// Event text block, laid out by EventTextBlockLayout with the frozen session typography.
+    let eventTextFrames: [EventTextBlockFrame]
     let dividerY: Int
     let bottom: Int
 }
@@ -125,6 +122,8 @@ struct ReceiptLayoutPlan: Sendable {
     let headerMode: ReceiptHeaderMode
     let customHeaderFrame: CGRect?
     let showsEventTextBlock: Bool
+    /// Event text block frames (empty when the block is hidden or for Passport).
+    let eventTextFrames: [EventTextBlockFrame]
     /// Passport cards replace the masthead and the standard photo stack; nil for other formats.
     let passportLayout: PassportReceiptLayout?
     let passportContent: PassportReceiptContent?
@@ -242,9 +241,6 @@ enum ReceiptComposer {
     nonisolated private static let mastheadWordmarkBottomGap = 3
     nonisolated private static let mastheadBottomGap = 12
     nonisolated private static let eventHeaderHorizontalInset = 28
-    nonisolated private static let eventHeaderKickerBottomGap = 5
-    nonisolated private static let eventHeaderTitleBottomGap = 5
-    nonisolated private static let eventHeaderDetailGap = 4
     nonisolated private static let eventHeaderBottomPadding = 12
     nonisolated private static let eventHeaderPhotoGap = 12
     nonisolated private static let photoStackGap = 8
@@ -276,12 +272,12 @@ enum ReceiptComposer {
         }
 
         let eventSnapshot = eventProfile?.activeReceiptSnapshot
-        let headerSourceImage = loadEffectiveHeaderImage(for: eventSnapshot)
+        let headerArtwork = loadEffectiveHeaderArtwork(for: eventSnapshot)
         let textSnapshot = makeTextSnapshot(
             date: date,
             sessionIdentifier: sessionIdentifier,
             eventProfile: eventSnapshot,
-            headerSourceSize: headerSourceImage?.size
+            headerSourceSize: headerArtwork?.size
         )
         let footerContent = try makeFooterContent(for: galleryURL)
         let passportContent = makePassportContent(
@@ -331,11 +327,14 @@ enum ReceiptComposer {
                     layout: passportLayout,
                     portraitPhoto: preparedPhotos[PassportReceiptLayout.portraitPhotoIndex].image,
                     heroPhoto: preparedPhotos[PassportReceiptLayout.heroPhotoIndex].image,
-                    headerGraphic: passportLayout.headerGraphicRect == nil ? nil : headerSourceImage,
+                    headerGraphic: passportLayout.headerGraphicRect.flatMap { rect in
+                        // Vector artwork is rendered at the card's exact dot size to stay sharp.
+                        headerArtwork.map { $0.kind == .vector ? $0.image(pixelSize: rect.size) : $0.image() }
+                    },
                     context: cgContext
                 )
             } else {
-                drawPocketPixelsMasthead(textSnapshot: textSnapshot, layout: plan.headerLayout, customSourceImage: headerSourceImage)
+                drawPocketPixelsMasthead(textSnapshot: textSnapshot, layout: plan.headerLayout, customArtwork: headerArtwork)
 
                 if let groupFrame = plan.groupFrame {
                     UIColor.black.setStroke()
@@ -408,7 +407,7 @@ enum ReceiptComposer {
             date: date,
             sessionIdentifier: "PP-20260907-161400",
             eventProfile: eventSnapshot,
-            headerSourceSize: loadEffectiveHeaderImage(for: eventSnapshot)?.size
+            headerSourceSize: loadEffectiveHeaderArtwork(for: eventSnapshot)?.size
         )
         let footerMode: ReceiptFooterMode = includesGalleryQRCode ? .galleryQRCode(qrSize: receiptQRCodeSize) : .metadataOnly
         let passportContent = makePassportContent(
@@ -549,6 +548,7 @@ enum ReceiptComposer {
             headerMode: headerLayout.mode,
             customHeaderFrame: passportLayout?.headerGraphicRect ?? headerLayout.customImageFrame,
             showsEventTextBlock: textSnapshot.eventContent != nil,
+            eventTextFrames: headerLayout.eventTextFrames,
             passportLayout: passportLayout,
             passportContent: passportLayout == nil ? nil : passportContent,
             contentBottom: photoBottom
@@ -575,12 +575,7 @@ enum ReceiptComposer {
             wordmarkFrame: zeroFrame,
             descriptorFrame: zeroFrame,
             customImageFrame: nil,
-            eventEyebrowFrame: nil,
-            eventTitleFrame: nil,
-            eventTitleFontSize: nil,
-            eventSubtitleFrame: nil,
-            eventMetadataFrame: nil,
-            eventMessageFrame: nil,
+            eventTextFrames: [],
             dividerY: startY,
             bottom: startY
         )
@@ -602,6 +597,7 @@ enum ReceiptComposer {
             wordmark: "Pocket Pixels",
             descriptor: "RECEIPT PHOTOBOOTH",
             eventContent: eventProfile?.activeReceiptSnapshot?.receiptBlockContent,
+            eventTypography: eventProfile?.activeReceiptSnapshot?.receiptDesign.typography.resolved ?? .preset(.classic),
             headerConfiguration: configuration,
             headerSourceSize: headerSourceSize,
             cta: "SCAN TO VIEW",
@@ -679,57 +675,29 @@ enum ReceiptComposer {
         case .customEventHeader:
             let config = textSnapshot.headerConfiguration
             y += Int(config.topSpacing.rounded())
-            let size = EventHeaderImageProcessor.frameSize(sourceSize: textSnapshot.headerSourceSize ?? .zero, configuration: config, receiptWidth: CGFloat(width))
-            let x: CGFloat
-            switch config.alignment {
-            case .left: x = EventHeaderImageProcessor.horizontalInset
-            case .center: x = (CGFloat(width) - size.width) / 2
-            case .right: x = CGFloat(width) - EventHeaderImageProcessor.horizontalInset - size.width
-            }
-            customImageFrame = CGRect(x: floor(x), y: CGFloat(y), width: size.width, height: size.height)
-            y += Int(size.height.rounded()) + Int(config.bottomSpacing.rounded())
+            let frame = EventHeaderImageProcessor.frameRect(
+                sourceSize: textSnapshot.headerSourceSize ?? .zero,
+                configuration: config,
+                y: CGFloat(y),
+                receiptWidth: CGFloat(width)
+            )
+            customImageFrame = frame
+            y += Int(frame.height.rounded()) + Int(config.bottomSpacing.rounded())
         case .none:
             y += 6
         }
 
-        var eventEyebrowFrame: ReceiptWrappedTextFrame?
-        var eventTitleFrame: ReceiptWrappedTextFrame?
-        var eventTitleFontSize: CGFloat?
-        var eventSubtitleFrame: ReceiptWrappedTextFrame?
-        var eventMetadataFrame: ReceiptWrappedTextFrame?
-        var eventMessageFrame: ReceiptWrappedTextFrame?
-
+        var eventTextFrames: [EventTextBlockFrame] = []
         if let content = textSnapshot.eventContent {
-            let eyebrowHeight = measuredWrappedTextHeight(content.eyebrow, font: eventEyebrowFont, width: textWidth, tracking: 1.8)
-            eventEyebrowFrame = wrappedTextFrame(x: textX, y: y, width: textWidth, height: eyebrowHeight, tracking: 1.8)
-            y += eyebrowHeight + eventHeaderKickerBottomGap
-
-            let titleFont = eventTitleFont(for: content.eventName, width: textWidth)
-            let titleHeight = measuredWrappedTextHeight(content.eventName, font: titleFont, width: textWidth, lineSpacing: 1, lineBreakMode: .byCharWrapping)
-            eventTitleFrame = wrappedTextFrame(x: textX, y: y, width: textWidth, height: titleHeight, lineSpacing: 1, lineBreakMode: .byCharWrapping)
-            eventTitleFontSize = titleFont.pointSize
-            y += titleHeight + eventHeaderTitleBottomGap
-
-            if !content.subtitle.isEmpty {
-                let subtitleHeight = measuredWrappedTextHeight(content.subtitle, font: eventSubtitleFont, width: textWidth)
-                eventSubtitleFrame = wrappedTextFrame(x: textX, y: y, width: textWidth, height: subtitleHeight)
-                y += subtitleHeight + eventHeaderDetailGap
-            }
-
-            if !content.metadata.isEmpty {
-                let metadataHeight = measuredWrappedTextHeight(content.metadata, font: eventMetadataFont, width: textWidth, tracking: 0.4)
-                eventMetadataFrame = wrappedTextFrame(x: textX, y: y, width: textWidth, height: metadataHeight, tracking: 0.4)
-                y += metadataHeight + eventHeaderDetailGap
-            }
-
-            if !content.message.isEmpty {
-                let message = content.message.uppercased()
-                let messageHeight = measuredWrappedTextHeight(message, font: eventMessageFont, width: textWidth, tracking: 0.8)
-                eventMessageFrame = wrappedTextFrame(x: textX, y: y, width: textWidth, height: messageHeight, tracking: 0.8)
-                y += messageHeight
-            }
-
-            y += eventHeaderBottomPadding
+            let block = EventTextBlockLayout.make(
+                content: content,
+                typography: textSnapshot.eventTypography,
+                x: textX,
+                y: y,
+                width: textWidth
+            )
+            eventTextFrames = block.frames
+            y = block.bottom + eventHeaderBottomPadding
         }
 
         let dividerY = y
@@ -743,12 +711,7 @@ enum ReceiptComposer {
             wordmarkFrame: wordmarkFrame,
             descriptorFrame: descriptorFrame,
             customImageFrame: customImageFrame,
-            eventEyebrowFrame: eventEyebrowFrame,
-            eventTitleFrame: eventTitleFrame,
-            eventTitleFontSize: eventTitleFontSize,
-            eventSubtitleFrame: eventSubtitleFrame,
-            eventMetadataFrame: eventMetadataFrame,
-            eventMessageFrame: eventMessageFrame,
+            eventTextFrames: eventTextFrames,
             dividerY: dividerY,
             bottom: bottom
         )
@@ -792,16 +755,22 @@ enum ReceiptComposer {
                 throw ReceiptComposerError.invalidLayout("custom header exceeds its safe maximum height")
             }
         }
-        for (name, frame) in [
-            ("header.eventEyebrow", plan.headerLayout.eventEyebrowFrame),
-            ("header.eventTitle", plan.headerLayout.eventTitleFrame),
-            ("header.eventSubtitle", plan.headerLayout.eventSubtitleFrame),
-            ("header.eventMetadata", plan.headerLayout.eventMetadataFrame),
-            ("header.eventMessage", plan.headerLayout.eventMessageFrame)
-        ] {
-            if let frame {
-                try validateFrame(frame.rect, name: name, inside: canvas)
+        var previousEventFrame: CGRect?
+        for frame in plan.headerLayout.eventTextFrames {
+            try validateFrame(frame.rect, name: "header.event.\(frame.role.rawValue)", inside: canvas)
+            guard frame.rect.width > 0, frame.rect.height > 0, frame.fontSize.isFinite, frame.fontSize > 0 else {
+                throw ReceiptComposerError.invalidLayout("event \(frame.role.rawValue) text has no usable size")
             }
+            if let previousEventFrame, frame.rect.minY < previousEventFrame.maxY {
+                throw ReceiptComposerError.invalidLayout("event text sections overlap")
+            }
+            if let customImageFrame = plan.headerLayout.customImageFrame, frame.rect.intersects(customImageFrame) {
+                throw ReceiptComposerError.invalidLayout("event text overlaps the header artwork")
+            }
+            previousEventFrame = frame.rect
+        }
+        if let lastEventFrame = previousEventFrame, Int(ceil(lastEventFrame.maxY)) > plan.headerLayout.dividerY {
+            throw ReceiptComposerError.invalidLayout("event text extends past the header divider")
         }
         guard plan.headerLayout.dividerY >= 0,
               plan.headerLayout.bottom <= Int(plan.photoFrames.first?.rect.minY ?? CGFloat(plan.height)) else {
@@ -949,7 +918,7 @@ enum ReceiptComposer {
             date: Date(timeIntervalSince1970: 1_788_692_040),
             sessionIdentifier: "PP-20260907-161400",
             eventProfile: activeProfile,
-            headerSourceSize: loadEffectiveHeaderImage(for: activeProfile)?.size
+            headerSourceSize: loadEffectiveHeaderArtwork(for: activeProfile)?.size
         )
         let layout = makeHeaderLayout(textSnapshot: snapshot, startY: 0, margin: margin, width: width)
         return layout.bottom
@@ -1703,7 +1672,7 @@ enum ReceiptComposer {
     nonisolated private static func drawPocketPixelsMasthead(
         textSnapshot: ReceiptTextSnapshot,
         layout: ReceiptHeaderLayout,
-        customSourceImage: UIImage?
+        customArtwork: EventArtwork?
     ) {
         switch layout.mode {
         case .pocketPixelsDefault:
@@ -1711,9 +1680,9 @@ enum ReceiptComposer {
             drawCenteredWrapped(textSnapshot.wordmark, in: layout.wordmarkFrame, font: mastheadWordmarkFont)
             drawCenteredWrapped(textSnapshot.descriptor, in: layout.descriptorFrame, font: mastheadLabelFont)
         case .customEventHeader:
-            if let customSourceImage, let frame = layout.customImageFrame {
+            if let customArtwork, let frame = layout.customImageFrame {
                 let rendered = EventHeaderImageProcessor.renderedHeader(
-                    source: customSourceImage,
+                    source: customArtwork,
                     configuration: textSnapshot.headerConfiguration,
                     receiptWidth: CGFloat(BoothConfiguration.receiptWidth)
                 )
@@ -1723,33 +1692,16 @@ enum ReceiptComposer {
             break
         }
 
-        if let content = textSnapshot.eventContent {
-            if let frame = layout.eventEyebrowFrame {
-                drawCenteredWrapped(content.eyebrow, in: frame, font: eventEyebrowFont)
-            }
-            if let frame = layout.eventTitleFrame {
-                let titleFont = eventSerifFont(size: layout.eventTitleFontSize ?? 17, weight: .bold)
-                drawCenteredWrapped(content.eventName, in: frame, font: titleFont)
-            }
-            if let frame = layout.eventSubtitleFrame {
-                drawCenteredWrapped(content.subtitle, in: frame, font: eventSubtitleFont)
-            }
-            if let frame = layout.eventMetadataFrame {
-                drawCenteredWrapped(content.metadata, in: frame, font: eventMetadataFont)
-            }
-            if let frame = layout.eventMessageFrame {
-                drawCenteredWrapped(content.message.uppercased(), in: frame, font: eventMessageFont)
-            }
-        }
+        EventTextBlockLayout.draw(layout.eventTextFrames)
 
         drawDivider(y: layout.dividerY, margin: BoothConfiguration.receiptHorizontalMargin, width: BoothConfiguration.receiptWidth)
     }
 
-    nonisolated private static func loadEffectiveHeaderImage(for eventProfile: EventProfile?) -> UIImage? {
+    nonisolated private static func loadEffectiveHeaderArtwork(for eventProfile: EventProfile?) -> EventArtwork? {
         guard let eventProfile,
               eventProfile.receiptHeader.mode == .customEventHeader,
               let store = try? EventHeaderAssetStore() else { return nil }
-        return store.loadImage(identifier: eventProfile.receiptHeader.assetIdentifier)
+        return store.loadArtwork(identifier: eventProfile.receiptHeader.assetIdentifier)
     }
 
     nonisolated private static func makeCompactGalleryFooterLayout(
@@ -2364,27 +2316,6 @@ enum ReceiptComposer {
         .systemFont(ofSize: 17, weight: .semibold)
     }
 
-    nonisolated private static var eventEyebrowFont: UIFont {
-        .monospacedSystemFont(ofSize: 11, weight: .semibold)
-    }
-
-    nonisolated private static var eventSubtitleFont: UIFont {
-        eventSerifFont(size: 13, weight: .semibold)
-    }
-
-    nonisolated private static func eventSerifFont(size: CGFloat, weight: UIFont.Weight) -> UIFont {
-        let base = UIFont.systemFont(ofSize: size, weight: weight)
-        return base.fontDescriptor.withDesign(.serif).map { UIFont(descriptor: $0, size: size) } ?? base
-    }
-
-    nonisolated private static var eventMetadataFont: UIFont {
-        .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
-    }
-
-    nonisolated private static var eventMessageFont: UIFont {
-        .systemFont(ofSize: 12, weight: .semibold)
-    }
-
     nonisolated private static var footerCTAFont: UIFont {
         .systemFont(ofSize: 30, weight: .bold)
     }
@@ -2415,18 +2346,6 @@ enum ReceiptComposer {
 
     nonisolated private static var footerClosingFont: UIFont {
         .monospacedSystemFont(ofSize: 13, weight: .semibold)
-    }
-
-    nonisolated private static func eventTitleFont(for title: String, width: Int) -> UIFont {
-        for size in [22, 20, 18] as [CGFloat] {
-            let font = eventSerifFont(size: size, weight: .bold)
-            let height = measuredWrappedTextHeight(title, font: font, width: width, lineSpacing: 1, lineBreakMode: .byCharWrapping)
-            if height <= Int(ceil(font.lineHeight * 2.35)) {
-                return font
-            }
-        }
-
-        return eventSerifFont(size: 17, weight: .bold)
     }
 
     nonisolated private static func drawRule(fromX: Int, toX: Int, y: Int) {

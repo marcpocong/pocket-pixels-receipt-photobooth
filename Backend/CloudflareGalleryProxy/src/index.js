@@ -3,6 +3,8 @@ const ALLOWED_UPSTREAM_HOSTS = new Set([
   "script.google.com",
   "script.googleusercontent.com",
 ]);
+const COMPLETED_GALLERY_MARKER = 'data-pocket-pixels-gallery-status="complete"';
+const COMPLETED_GALLERY_TTL_SECONDS = 3600;
 
 export default {
   async fetch(request, env) {
@@ -32,6 +34,15 @@ export default {
         request.method,
         "INVALID_GALLERY_TOKEN"
       );
+    }
+
+    const cache = globalThis.caches && globalThis.caches.default;
+    const cacheKey = canonicalCacheRequest(requestURL, token);
+    if (cache) {
+      const cached = await cache.match(cacheKey);
+      if (cached) {
+        return responseForMethod(cached, request.method, "HIT");
+      }
     }
 
     const originCheck = validateOrigin(env.APPS_SCRIPT_GALLERY_ORIGIN);
@@ -88,16 +99,40 @@ export default {
       return temporaryError(request.method, "UNEXPECTED_UPSTREAM_PAGE");
     }
 
-    const headers = securityHeaders();
+    const isCompletedGallery = html.includes(COMPLETED_GALLERY_MARKER);
+    const headers = securityHeaders(isCompletedGallery);
     headers.set("Content-Type", "text/html; charset=utf-8");
     headers.set("X-Pocket-Pixels-Proxy", "ok");
+    headers.set("X-Pocket-Pixels-Cache", isCompletedGallery ? "MISS" : "BYPASS");
 
-    return new Response(request.method === "HEAD" ? null : html, {
+    const response = new Response(html, {
       status: 200,
       headers,
     });
+
+    if (isCompletedGallery && cache) {
+      await cache.put(cacheKey, response.clone());
+    }
+
+    return responseForMethod(response, request.method, headers.get("X-Pocket-Pixels-Cache"));
   },
 };
+
+function canonicalCacheRequest(requestURL, token) {
+  const canonical = new URL(requestURL.origin + requestURL.pathname);
+  canonical.searchParams.set("g", token);
+  return new Request(canonical.toString(), { method: "GET" });
+}
+
+function responseForMethod(response, method, cacheStatus) {
+  const headers = new Headers(response.headers);
+  headers.set("X-Pocket-Pixels-Cache", cacheStatus);
+  return new Response(method === "HEAD" ? null : response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
 
 function validateOrigin(rawValue) {
   const raw = String(rawValue || "").trim();
@@ -275,10 +310,14 @@ async function proxyDiagnostic(env) {
   });
 }
 
-function securityHeaders() {
+function securityHeaders(isCompletedGallery = false) {
   const headers = new Headers();
-  headers.set("Cache-Control", "no-store, max-age=0");
-  headers.set("Pragma", "no-cache");
+  if (isCompletedGallery) {
+    headers.set("Cache-Control", `public, max-age=${COMPLETED_GALLERY_TTL_SECONDS}`);
+  } else {
+    headers.set("Cache-Control", "no-store, max-age=0");
+    headers.set("Pragma", "no-cache");
+  }
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("Referrer-Policy", "no-referrer");
   headers.set("X-Robots-Tag", "noindex, nofollow");

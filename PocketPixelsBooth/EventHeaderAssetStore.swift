@@ -12,15 +12,25 @@ enum EventHeaderAssetStoreError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .unsupportedOrCorruptImage: "That file is not a readable PNG or JPEG image."
-        case .encodingFailed: "The header image could not be saved."
+        case .unsupportedOrCorruptImage: "That file is not a readable PNG, JPEG or PDF."
+        case .encodingFailed: "The artwork could not be saved."
         }
     }
 }
 
-/// Immutable-by-identifier storage. Replacing an image creates a new file so frozen sessions
+/// Immutable-by-identifier storage. Replacing artwork creates a new file so frozen sessions
 /// can continue resolving the exact bytes they started with.
+///
+/// Bitmaps are normalized once and stored as `<id>.png` (alpha preserved). Single-page PDFs are
+/// stored unmodified as `<id>.pdf` so they can be rendered at receipt resolution every time.
 nonisolated struct EventHeaderAssetStore: Sendable {
+    /// Decoded artwork keyed by directory + identifier. Safe because identifiers never change content.
+    nonisolated(unsafe) private static let artworkCache: NSCache<NSString, EventArtwork> = {
+        let cache = NSCache<NSString, EventArtwork>()
+        cache.countLimit = 8
+        return cache
+    }()
+
     nonisolated(unsafe) private let fileManager: FileManager
     private let directoryURL: URL
 
@@ -35,6 +45,17 @@ nonisolated struct EventHeaderAssetStore: Sendable {
         try ensureDirectory()
     }
 
+    /// Imports PNG, JPEG or single-page PDF artwork and returns its new immutable identifier.
+    func importArtworkData(_ data: Data) throws -> String {
+        guard data.count <= EventArtwork.maximumFileSize else { throw EventArtworkError.fileTooLarge }
+        guard EventArtwork.isPDF(data) else { return try importImageData(data) }
+        _ = try EventArtwork.makeVector(pdfData: data)
+        try ensureDirectory()
+        let identifier = UUID().uuidString.lowercased()
+        try data.write(to: url(for: identifier, fileExtension: "pdf"), options: .atomic)
+        return identifier
+    }
+
     func importImageData(_ data: Data) throws -> String {
         guard let source = UIImage(data: data), source.size.width > 0, source.size.height > 0 else {
             throw EventHeaderAssetStoreError.unsupportedOrCorruptImage
@@ -43,23 +64,41 @@ nonisolated struct EventHeaderAssetStore: Sendable {
         guard let png = normalized.pngData() else { throw EventHeaderAssetStoreError.encodingFailed }
         try ensureDirectory()
         let identifier = UUID().uuidString.lowercased()
-        try png.write(to: url(for: identifier), options: .atomic)
+        try png.write(to: url(for: identifier, fileExtension: "png"), options: .atomic)
         return identifier
     }
 
+    /// Loads bitmap or vector artwork. Returns nil for unknown, missing or unreadable assets so
+    /// callers fall back to the Pocket Pixels header.
+    func loadArtwork(identifier: String?) -> EventArtwork? {
+        guard let identifier, Self.isValid(identifier) else { return nil }
+        let key = "\(directoryURL.path)/\(identifier)" as NSString
+        if let cached = Self.artworkCache.object(forKey: key) { return cached }
+
+        let artwork: EventArtwork?
+        if let data = try? Data(contentsOf: url(for: identifier, fileExtension: "png")) {
+            artwork = UIImage(data: data).map(EventArtwork.init(image:))
+        } else if let data = try? Data(contentsOf: url(for: identifier, fileExtension: "pdf")) {
+            artwork = try? EventArtwork.makeVector(pdfData: data)
+        } else {
+            artwork = nil
+        }
+        if let artwork { Self.artworkCache.setObject(artwork, forKey: key) }
+        return artwork
+    }
+
+    /// Bitmap view of the artwork (vectors are rendered for display). Prefer `loadArtwork`.
     func loadImage(identifier: String?) -> UIImage? {
-        guard let identifier, Self.isValid(identifier),
-              let data = try? Data(contentsOf: url(for: identifier)) else { return nil }
-        return UIImage(data: data)
+        loadArtwork(identifier: identifier)?.image()
     }
 
     func contains(identifier: String?) -> Bool {
         guard let identifier, Self.isValid(identifier) else { return false }
-        return fileManager.fileExists(atPath: url(for: identifier).path)
+        return ["png", "pdf"].contains { fileManager.fileExists(atPath: url(for: identifier, fileExtension: $0).path) }
     }
 
-    private func url(for identifier: String) -> URL {
-        directoryURL.appendingPathComponent(identifier).appendingPathExtension("png")
+    private func url(for identifier: String, fileExtension: String) -> URL {
+        directoryURL.appendingPathComponent(identifier).appendingPathExtension(fileExtension)
     }
 
     private func ensureDirectory() throws {

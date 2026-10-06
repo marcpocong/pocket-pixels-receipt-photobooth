@@ -76,7 +76,10 @@ nonisolated struct PrintAuditStore: Sendable {
             if records.count > Self.retentionCount {
                 records.removeFirst(records.count - Self.retentionCount)
             }
-            let data = try JSONEncoder.auditEncoder.encode(records)
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(records)
             try data.write(to: fileURL, options: .atomic)
         } catch {
 #if DEBUG
@@ -90,7 +93,9 @@ nonisolated struct PrintAuditStore: Sendable {
             return []
         }
         let data = try Data(contentsOf: fileURL)
-        return try JSONDecoder.auditDecoder.decode([PrintAuditRecord].self, from: data)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode([PrintAuditRecord].self, from: data)
     }
 
     nonisolated func exportText(limit: Int = 200) -> String {
@@ -121,22 +126,5 @@ nonisolated struct PrintAuditStore: Sendable {
         } catch {
             return "Print audit unavailable: \(error.localizedDescription)"
         }
-    }
-}
-
-private extension JSONEncoder {
-    static var auditEncoder: JSONEncoder {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return encoder
-    }
-}
-
-private extension JSONDecoder {
-    static var auditDecoder: JSONDecoder {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return decoder
     }
 }

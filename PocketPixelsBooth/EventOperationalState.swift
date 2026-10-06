@@ -349,7 +349,7 @@ final class EventOperationalState: ObservableObject {
             severity: .optional,
             title: "Printer Mode",
             status: .pass,
-            detail: printerCoordinator.preferredMode.displayName
+            detail: "\(printerCoordinator.preferredMode.displayName) · Bluetooth transfer: \(printerCoordinator.receiptBluetoothTransferMode.operatorSummary)"
         ))
         checks.append(EventReadinessCheck(
             severity: .optional,

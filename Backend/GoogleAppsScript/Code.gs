@@ -6,6 +6,8 @@ const DEVICE_TOKEN_PROPERTY = 'POCKET_PIXELS_DEVICE_TOKEN';
 
 const CUSTOMER_GALLERY_BASE_URL_PROPERTY = 'POCKET_PIXELS_CUSTOMER_GALLERY_BASE_URL';
 
+const GALLERY_FOLDER_INDEX_PREFIX = 'POCKET_PIXELS_GALLERY_FOLDER_';
+
 const MIN_PHOTO_COUNT = 1;
 
 const MAX_PHOTO_COUNT = 6;
@@ -234,7 +236,7 @@ function runPocketPixelsSelfTest() {
 
   assert_(validateUploadToken_('').code === 'MISSING_DEVICE_TOKEN', 'Missing token should fail.');
 
-  assert_(validateUploadToken_('wrong').code === 'INVALID_FIELD_TYPE', 'Incorrect token should fail when script property is configured.');
+  assert_(validateUploadToken_('wrong').code === 'INVALID_DEVICE_TOKEN', 'Incorrect token should have a specific auth error.');
 
   assert_(!GALLERY_TOKEN_PATTERN.test('../bad'), 'Invalid token format should fail.');
 
@@ -552,7 +554,7 @@ function validateUploadToken_(suppliedToken) {
 
   if (suppliedToken !== expectedToken) {
 
-    return { code: 'INVALID_FIELD_TYPE', message: 'Upload is not authorized.' };
+    return { code: 'INVALID_DEVICE_TOKEN', message: 'Upload is not authorized.' };
 
   }
 
@@ -801,6 +803,8 @@ function createOrReturnGallery_(root, body) {
 
     createManifestFile_(folder, body);
 
+    saveGalleryFolderIndex_(body.galleryToken, folder.getId());
+
     console.log('Created Pocket Pixels gallery for session ' + body.sessionID + ' with token ' + redactToken_(body.galleryToken));
 
     return { status: 'created', fileCount: expectedFileCount };
@@ -834,6 +838,8 @@ function createOrReturnGallery_(root, body) {
       if (manifest.galleryToken === body.galleryToken && manifest.sessionID === body.sessionID && manifestHasExpectedFiles_(manifest, body.photos.length) && hasExactlyExpectedImages_(inspection, expected)) {
 
         console.log('Returned existing Pocket Pixels gallery for session ' + body.sessionID + ' with token ' + redactToken_(body.galleryToken));
+
+        saveGalleryFolderIndex_(body.galleryToken, folder.getId());
 
         return { status: 'existingComplete', fileCount: expectedFileCount };
 
@@ -890,6 +896,8 @@ function createOrReturnGallery_(root, body) {
   }
 
   console.log('Completed pending Pocket Pixels gallery for session ' + body.sessionID + ' with token ' + redactToken_(body.galleryToken));
+
+  saveGalleryFolderIndex_(body.galleryToken, folder.getId());
 
   return { status: 'completedIncomplete', fileCount: expectedFileCount };
 
@@ -1114,7 +1122,8 @@ function findCompleteGalleryByToken_(token, timings) {
 
   const folderStartedAt = Date.now();
 
-  const folders = collectFoldersByName_(root, 'gallery-' + token);
+  const indexedFolder = loadIndexedGalleryFolder_(token);
+  const folders = indexedFolder ? [indexedFolder] : collectFoldersByName_(root, 'gallery-' + token);
 
   if (timings) {
 
@@ -1142,6 +1151,11 @@ function findCompleteGalleryByToken_(token, timings) {
 
   if (!inspection.safe || inspection.manifests.length !== 1) {
 
+    if (indexedFolder) {
+      removeGalleryFolderIndex_(token);
+      return findCompleteGalleryByNameFallback_(root, token, timings);
+    }
+
     return null;
 
   }
@@ -1158,6 +1172,11 @@ function findCompleteGalleryByToken_(token, timings) {
 
   if (manifest.galleryToken !== token || manifest.status !== 'complete' || !manifestHasExpectedFiles_(manifest)) {
 
+    if (indexedFolder) {
+      removeGalleryFolderIndex_(token);
+      return findCompleteGalleryByNameFallback_(root, token, timings);
+    }
+
     return null;
 
   }
@@ -1167,12 +1186,77 @@ function findCompleteGalleryByToken_(token, timings) {
 
   if (!exactInspection.safe || !hasExactlyExpectedImages_(exactInspection, expected) || exactInspection.manifests.length !== 1) {
 
+    if (indexedFolder) {
+      removeGalleryFolderIndex_(token);
+      return findCompleteGalleryByNameFallback_(root, token, timings);
+    }
+
     return null;
 
   }
 
+  saveGalleryFolderIndex_(token, folder.getId());
+
   return { folder: folder, manifest: manifest, filesByName: exactInspection.filesByName };
 
+}
+
+function galleryFolderIndexKey_(token) {
+  return GALLERY_FOLDER_INDEX_PREFIX + token;
+}
+
+function saveGalleryFolderIndex_(token, folderID) {
+  if (GALLERY_TOKEN_PATTERN.test(String(token || '')) && folderID) {
+    PropertiesService.getScriptProperties().setProperty(galleryFolderIndexKey_(token), String(folderID));
+  }
+}
+
+function removeGalleryFolderIndex_(token) {
+  PropertiesService.getScriptProperties().deleteProperty(galleryFolderIndexKey_(token));
+}
+
+function loadIndexedGalleryFolder_(token) {
+  const folderID = PropertiesService.getScriptProperties().getProperty(galleryFolderIndexKey_(token));
+  if (!folderID) {
+    return null;
+  }
+
+  try {
+    return DriveApp.getFolderById(folderID);
+  } catch (error) {
+    removeGalleryFolderIndex_(token);
+    return null;
+  }
+}
+
+function findCompleteGalleryByNameFallback_(root, token, timings) {
+  const folders = collectFoldersByName_(root, 'gallery-' + token);
+  if (folders.length !== 1) {
+    return null;
+  }
+
+  const folder = folders[0];
+  const inspection = inspectGalleryFolder_(folder, expectedFilenames_(MAX_PHOTO_COUNT));
+  if (!inspection.safe || inspection.manifests.length !== 1) {
+    return null;
+  }
+
+  const manifest = readManifest_(inspection.manifests[0]);
+  if (manifest.galleryToken !== token || manifest.status !== 'complete' || !manifestHasExpectedFiles_(manifest)) {
+    return null;
+  }
+
+  const expected = expectedFilenames_(manifest.photos.length);
+  const exactInspection = inspectGalleryFolder_(folder, expected);
+  if (!exactInspection.safe || !hasExactlyExpectedImages_(exactInspection, expected) || exactInspection.manifests.length !== 1) {
+    return null;
+  }
+
+  saveGalleryFolderIndex_(token, folder.getId());
+  if (timings) {
+    timings.galleryFolderIndexSelfHealed = true;
+  }
+  return { folder: folder, manifest: manifest, filesByName: exactInspection.filesByName };
 }
 
 function pocketPixelsMonogramDataURI_() {
@@ -1253,7 +1337,7 @@ function renderGalleryPage_(gallery, timings, startedAt) {
 
   let body = '';
 
-  body += '<main class="gallery-shell">';
+  body += '<main class="gallery-shell" data-pocket-pixels-gallery-status="complete">';
 
   body += '<header class="gallery-hero">' + pocketPixelsBrandLockupHTML_() + '<h1>your photos are ready.</h1><p class="lede">save the moments you made at the receipt photobooth.</p></header>';
 

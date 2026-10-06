@@ -138,6 +138,81 @@ test("Cache-Control no-store", async () => {
   });
 });
 
+test("completed gallery is fetched once and then served from edge cache", async () => {
+  await withMemoryCache(async () => {
+    await withMockFetch([
+      completedGalleryResponse(),
+    ], async (calls) => {
+      const request = new Request(`https://gallery.example.com/?g=${token}`);
+      const first = await worker.fetch(request, env);
+      assert.equal(first.headers.get("X-Pocket-Pixels-Cache"), "MISS");
+      assert.equal(first.headers.get("Cache-Control"), "public, max-age=3600");
+
+      const second = await worker.fetch(request, env);
+      assert.equal(second.headers.get("X-Pocket-Pixels-Cache"), "HIT");
+      assert.match(await second.text(), /your photos are ready/);
+      assert.equal(calls.length, 1);
+    });
+  });
+});
+
+test("pending and error responses are never cached", async () => {
+  await withMemoryCache(async () => {
+    await withMockFetch([
+      new Response("<!doctype html><title>Pocket Pixels Gallery</title><p>still being prepared</p>"),
+      new Response("<!doctype html><title>Pocket Pixels Gallery</title><p>still being prepared</p>"),
+    ], async (calls) => {
+      const request = new Request(`https://gallery.example.com/?g=${token}`);
+      const first = await worker.fetch(request, env);
+      const second = await worker.fetch(request, env);
+      assert.equal(first.headers.get("X-Pocket-Pixels-Cache"), "BYPASS");
+      assert.equal(second.headers.get("X-Pocket-Pixels-Cache"), "BYPASS");
+      assert.equal(first.headers.get("Cache-Control"), "no-store, max-age=0");
+      assert.equal(calls.length, 2);
+    });
+  });
+
+  await withMemoryCache(async () => {
+    await withMockFetch([
+      new Response("upstream error", { status: 500 }),
+      new Response("upstream error", { status: 500 }),
+    ], async (calls) => {
+      const request = new Request(`https://gallery.example.com/?g=${token}`);
+      assert.equal((await worker.fetch(request, env)).status, 503);
+      assert.equal((await worker.fetch(request, env)).status, 503);
+      assert.equal(calls.length, 2);
+    });
+  });
+});
+
+test("HEAD uses completed GET cache without returning a body", async () => {
+  await withMemoryCache(async () => {
+    await withMockFetch([completedGalleryResponse()], async (calls) => {
+      await worker.fetch(new Request(`https://gallery.example.com/?g=${token}`), env);
+      const head = await worker.fetch(new Request(`https://gallery.example.com/?g=${token}`, { method: "HEAD" }), env);
+      assert.equal(head.status, 200);
+      assert.equal(head.headers.get("X-Pocket-Pixels-Cache"), "HIT");
+      assert.equal(await head.text(), "");
+      assert.equal(calls.length, 1);
+    });
+  });
+});
+
+test("completed cache strips sensitive upstream headers and keeps security headers", async () => {
+  await withMemoryCache(async () => {
+    await withMockFetch([completedGalleryResponse({
+      "Set-Cookie": "SID=secret",
+      Authorization: "secret",
+    })], async () => {
+      const response = await worker.fetch(new Request(`https://gallery.example.com/?g=${token}`), env);
+      assert.equal(response.headers.get("Set-Cookie"), null);
+      assert.equal(response.headers.get("Authorization"), null);
+      assert.equal(response.headers.get("X-Robots-Tag"), "noindex, nofollow");
+      assert.equal(response.headers.get("Referrer-Policy"), "no-referrer");
+    });
+  });
+});
+
 test("customer token is not logged in full", async () => {
   const logs = [];
   const originalLog = console.log;
@@ -201,5 +276,38 @@ async function withMockFetch(responses, operation) {
     return calls;
   } finally {
     globalThis.fetch = originalFetch;
+  }
+}
+
+function completedGalleryResponse(headers = {}) {
+  return new Response(
+    '<!doctype html><title>Pocket Pixels Gallery</title><main data-pocket-pixels-gallery-status="complete">your photos are ready</main>',
+    { status: 200, headers }
+  );
+}
+
+async function withMemoryCache(operation) {
+  const originalCaches = globalThis.caches;
+  const entries = new Map();
+  globalThis.caches = {
+    default: {
+      async match(request) {
+        const response = entries.get(request.url);
+        return response ? response.clone() : undefined;
+      },
+      async put(request, response) {
+        entries.set(request.url, response.clone());
+      },
+    },
+  };
+
+  try {
+    await operation();
+  } finally {
+    if (originalCaches === undefined) {
+      delete globalThis.caches;
+    } else {
+      globalThis.caches = originalCaches;
+    }
   }
 }

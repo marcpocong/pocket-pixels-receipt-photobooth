@@ -222,7 +222,7 @@ enum GalleryUploadError: Error, LocalizedError, Equatable {
         case .deliveryUnknown:
             "The server may have received this upload. Check Google Drive before retrying."
         case .unauthorized:
-            "The gallery backend rejected the saved device token."
+            "Gallery authentication failed. Re-enter the device upload token in Gallery Setup."
         case .conflictManualInspection(let message):
             message
         case .stalePendingUpload:

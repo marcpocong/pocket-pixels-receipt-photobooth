@@ -3,6 +3,7 @@
 //  PocketPixelsBooth
 //
 
+import OSLog
 import Combine
 import Foundation
 
@@ -15,6 +16,30 @@ struct PhysicalPrintTransportResult: Sendable {
     let writeTimeout: TimeInterval?
     let bytesStarted: Bool
     let transportFinishedAt: Date
+}
+
+/// Wraps a pre-print checkpoint so it is never confused with trailing state/completion closures.
+struct PrePrintCheckpointGate {
+    let persist: PrintSpooler.PrePrintCheckpoint
+}
+
+/// The durable pre-print safety checkpoint could not be written, so no bytes were sent.
+enum PrintCheckpointError: Error, LocalizedError, Equatable {
+    case persistenceFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .persistenceFailed:
+            "Nothing was printed. The iPad could not save its print safety checkpoint. Check free storage, then try printing again."
+        }
+    }
+
+    /// Technical detail for diagnostics only (never shown to customers).
+    var diagnosticDetail: String {
+        switch self {
+        case .persistenceFailed(let detail): detail
+        }
+    }
 }
 
 enum PrintSpoolerError: Error, LocalizedError {
@@ -34,6 +59,9 @@ enum PrintSpoolerError: Error, LocalizedError {
 @MainActor
 final class PrintSpooler: ObservableObject {
     typealias TransportOperation = @MainActor (PrintJobEnvelope) async -> Result<PhysicalPrintTransportResult, Error>
+    /// Must durably persist crash-recovery state for this job. Throwing blocks the job before any
+    /// bytes are sent (fail-closed).
+    typealias PrePrintCheckpoint = @MainActor (PrintJobEnvelope) throws -> Void
 
     static let shared = PrintSpooler()
 
@@ -79,6 +107,7 @@ final class PrintSpooler: ObservableObject {
 
     func submit(
         envelope: PrintJobEnvelope,
+        prePrintCheckpoint: PrePrintCheckpoint? = nil,
         transport: @escaping TransportOperation
     ) async -> Result<PhysicalPrintTransportResult, Error> {
         let previousTail = tailTask
@@ -87,7 +116,7 @@ final class PrintSpooler: ObservableObject {
 
         let currentTask = Task { @MainActor [weak self] in
             await waiter.value
-            return await self?.run(envelope: envelope, transport: transport)
+            return await self?.run(envelope: envelope, prePrintCheckpoint: prePrintCheckpoint, transport: transport)
                 ?? .failure(PrintSpoolerError.physicalPrinterBusy)
         }
 
@@ -97,6 +126,7 @@ final class PrintSpooler: ObservableObject {
 
     private func run(
         envelope: PrintJobEnvelope,
+        prePrintCheckpoint: PrePrintCheckpoint?,
         transport: @escaping TransportOperation
     ) async -> Result<PhysicalPrintTransportResult, Error> {
         if let recoveryReason {
@@ -127,6 +157,29 @@ final class PrintSpooler: ObservableObject {
                 writeTimeout: nil
             )
             return .failure(error)
+        }
+
+        // Fail-closed: the crash-recovery checkpoint is written after this job reaches the front
+        // of the queue and immediately before transport. If it cannot be persisted, the
+        // transport is never invoked, so zero bytes reach the printer and no recovery lock is set.
+        if let prePrintCheckpoint {
+            do {
+                try prePrintCheckpoint(envelope)
+            } catch {
+                queuedJobCount = max(0, queuedJobCount - 1)
+                let failure = (error as? PrintCheckpointError) ?? .persistenceFailed(error.localizedDescription)
+                audit(
+                    envelope: envelope,
+                    startedAt: Date(),
+                    transportResult: nil,
+                    releasedAt: Date(),
+                    terminalResult: .failedBeforeBytes,
+                    recoveryReason: "Pre-print checkpoint not persisted: \(failure.diagnosticDetail)",
+                    writeTimeout: nil
+                )
+                BoothDiagnostics.recovery.error("Pre-print checkpoint failed; job blocked before bytes. detail=\(failure.diagnosticDetail, privacy: .public)")
+                return .failure(failure)
+            }
         }
 
         queuedJobCount = max(0, queuedJobCount - 1)

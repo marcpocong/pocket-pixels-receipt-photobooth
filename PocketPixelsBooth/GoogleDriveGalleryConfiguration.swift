@@ -14,6 +14,9 @@ struct GoogleDriveGalleryConfiguration: Sendable {
     nonisolated static let placeholder = "YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL"
 
     nonisolated static func load() throws -> GoogleDriveGalleryConfiguration {
+        if let override = GalleryBackendOverrideStore().uploadURLOverride() {
+            return try validate(rawValue: override)
+        }
         guard let rawValue = Bundle.main.object(forInfoDictionaryKey: infoPlistKey) as? String else {
             throw GalleryUploadError.configuration("GOOGLE_GALLERY_WEB_APP_URL is missing from Info.plist.")
         }
@@ -77,6 +80,9 @@ struct CustomerGalleryConfiguration: Sendable {
     nonisolated static let placeholder = "https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/"
 
     nonisolated static func load() throws -> CustomerGalleryConfiguration {
+        if let override = GalleryBackendOverrideStore().customerURLOverride() {
+            return try validate(rawValue: override)
+        }
         guard let rawValue = Bundle.main.object(forInfoDictionaryKey: infoPlistKey) as? String else {
             throw GalleryUploadError.configuration("POCKET_PIXELS_CUSTOMER_GALLERY_BASE_URL is missing from Info.plist.")
         }

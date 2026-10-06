@@ -50,17 +50,17 @@ nonisolated enum ReceiptBluetoothTransferMode: String, CaseIterable, Identifiabl
 
     nonisolated var displayName: String {
         switch self {
-        case .balanced: "Balanced (Recommended)"
-        case .compatibility: "Compatibility (Slower)"
+        case .balanced: "Balanced (Default)"
+        case .compatibility: "Compatibility (Safe, Slower)"
         }
     }
 
     nonisolated var detail: String {
         switch self {
         case .balanced:
-            "Uses the printer's existing BLE flow control with short paced bursts for faster, more continuous output."
+            "Paced BLE bursts using the printer's flow control for faster, more continuous output. Tuned on the VOZY G80 but still an experimental transport policy until the release hardware qualification passes. Switch to Compatibility if any receipt is incomplete."
         case .compatibility:
-            "Waits for an acknowledgement after every small write. Use only if Balanced output is incomplete."
+            "Waits for an acknowledgement after every small write (Safe / Integrity policy). Slower, but the most conservative option."
         }
     }
 
@@ -70,6 +70,23 @@ nonisolated enum ReceiptBluetoothTransferMode: String, CaseIterable, Identifiabl
         case .compatibility: .safeIntegrity
         }
     }
+
+    /// One line for Equipment and diagnostic reports so operators can see the active behavior.
+    nonisolated var operatorSummary: String {
+        "\(self == .balanced ? "Balanced" : "Compatibility") · \(transportPolicy.displayName) policy"
+    }
+}
+
+/// Production receipt transport decision — the single source of truth.
+///
+/// Customer receipts default to Balanced (`.experimentalBalanced`) because it was tuned on the
+/// VOZY G80 and prints noticeably faster. The policy keeps its "experimental" name on purpose:
+/// it is conditional on the physical release-candidate qualification in
+/// Docs/ReleaseQualification.md. Compatibility (`.safeIntegrity`) is always available in Printer
+/// Setup. Neither mode retries automatically after bytes may have started.
+nonisolated enum ProductionReceiptTransportDecision {
+    nonisolated static let defaultMode: ReceiptBluetoothTransferMode = .balanced
+    nonisolated static let safeFallbackMode: ReceiptBluetoothTransferMode = .compatibility
 }
 
 @MainActor
@@ -98,7 +115,7 @@ final class PrinterCoordinator: ObservableObject {
         bluetoothService = PrinterBluetoothService.shared
         wifiService = PrinterNetworkService()
         receiptBluetoothTransferMode = UserDefaults.standard.string(forKey: Self.receiptBluetoothTransferModeKey)
-            .flatMap(ReceiptBluetoothTransferMode.init(rawValue:)) ?? .balanced
+            .flatMap(ReceiptBluetoothTransferMode.init(rawValue:)) ?? ProductionReceiptTransportDecision.defaultMode
     }
 
     var productionReceiptTransportPolicy: ProductionPrintTransportPolicy {
@@ -217,6 +234,7 @@ final class PrinterCoordinator: ObservableObject {
         copyCount: Int = 1,
         batchID: UUID = UUID(),
         transportPolicy: ProductionPrintTransportPolicy = .safeIntegrity,
+        prePrintCheckpoint: PrePrintCheckpointGate? = nil,
         onStateChange: StateHandler? = nil,
         completion: CompletionHandler? = nil
     ) {
@@ -242,6 +260,7 @@ final class PrinterCoordinator: ObservableObject {
                 envelope,
                 wifiHost: wifiHost,
                 wifiPort: wifiPort,
+                prePrintCheckpoint: prePrintCheckpoint,
                 onStateChange: onStateChange,
                 completion: completion
             )
@@ -272,6 +291,7 @@ final class PrinterCoordinator: ObservableObject {
         _ envelope: PrintJobEnvelope,
         wifiHost: String,
         wifiPort: UInt16?,
+        prePrintCheckpoint: PrePrintCheckpointGate? = nil,
         onStateChange: StateHandler?,
         completion: CompletionHandler?
     ) {
@@ -294,11 +314,7 @@ final class PrinterCoordinator: ObservableObject {
         fallbackReason = nil
 
         Task {
-            let result = await spooler.submit(envelope: envelope) { [weak self] envelope in
-                guard let self else {
-                    return .failure(PrintSpoolerError.physicalPrinterBusy)
-                }
-
+            let result = await spooler.submit(envelope: envelope, prePrintCheckpoint: prePrintCheckpoint?.persist) { envelope in
                 return await self.printReceiptWithSelectedTransport(
                     envelope: envelope,
                     wifiHost: wifiHost,
@@ -448,29 +464,42 @@ final class PrinterCoordinator: ObservableObject {
                 port: wifiPort
             ) { [weak self] state in
                 self?.publish(state, onStateChange: onStateChange)
-            } completion: { result in
-                let transportResult = PhysicalPrintTransportResult(
-                    transport: .wifi,
-                    bluetoothMode: nil,
-                    chunkSize: nil,
-                    chunkCount: nil,
-                    flowControlPauseCount: nil,
-                    writeTimeout: nil,
-                    bytesStarted: true,
-                    transportFinishedAt: Date()
-                )
-
-                switch result {
-                case .success:
-                    continuation.resume(returning: .success(transportResult))
-                case .failure(let error):
-                    continuation.resume(returning: .failure(PrintTransportFailure(
-                        underlyingError: error,
-                        bytesStarted: true,
-                        transportResult: transportResult
-                    )))
-                }
+            } completion: { result, transmission in
+                continuation.resume(returning: Self.wifiTransportOutcome(result: result, transmission: transmission))
             }
+        }
+    }
+
+    /// Maps a Wi-Fi job result to the spooler contract using the transmission state actually
+    /// reached. Only failures at or after `sendStarted` are uncertain prints that lock recovery;
+    /// a failure before any bytes is a safe, retryable failure.
+    nonisolated static func wifiTransportOutcome(
+        result: Result<Void, PrinterNetworkError>,
+        transmission: NetworkPrintTransmission,
+        finishedAt: Date = Date()
+    ) -> Result<PhysicalPrintTransportResult, Error> {
+        let succeeded: Bool
+        if case .success = result { succeeded = true } else { succeeded = false }
+        let transportResult = PhysicalPrintTransportResult(
+            transport: .wifi,
+            bluetoothMode: nil,
+            chunkSize: nil,
+            chunkCount: nil,
+            flowControlPauseCount: nil,
+            writeTimeout: nil,
+            // A reported success always sent bytes, whatever stage was recorded.
+            bytesStarted: succeeded || transmission.bytesMayHaveStarted,
+            transportFinishedAt: finishedAt
+        )
+        switch result {
+        case .success:
+            return .success(transportResult)
+        case .failure(let error):
+            return .failure(PrintTransportFailure(
+                underlyingError: error,
+                bytesStarted: transmission.bytesMayHaveStarted,
+                transportResult: transportResult
+            ))
         }
     }
 

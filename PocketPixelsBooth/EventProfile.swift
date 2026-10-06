@@ -31,6 +31,8 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
     var customerThankYouMessage: String
     var customerTheme: CustomerScreenTheme
     var passport: PassportConfiguration
+    /// Typography and future receipt design modules. Artwork remains in `receiptHeader`.
+    var receiptDesign: EventReceiptDesignConfiguration
 
     nonisolated init(
         isEnabled: Bool,
@@ -48,7 +50,8 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         customerWelcomeMessage: String = "",
         customerThankYouMessage: String = "",
         customerTheme: CustomerScreenTheme = .classic,
-        passport: PassportConfiguration = .default
+        passport: PassportConfiguration = .default,
+        receiptDesign: EventReceiptDesignConfiguration = .default
     ) {
         self.isEnabled = isEnabled
         self.eventName = eventName
@@ -66,6 +69,7 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         self.customerThankYouMessage = customerThankYouMessage
         self.customerTheme = customerTheme
         self.passport = passport
+        self.receiptDesign = receiptDesign
     }
 
     enum CodingKeys: String, CodingKey {
@@ -85,6 +89,7 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         case customerThankYouMessage
         case customerTheme
         case passport
+        case receiptDesign
     }
 
     init(from decoder: Decoder) throws {
@@ -105,6 +110,9 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         customerThankYouMessage = try container.decodeIfPresent(String.self, forKey: .customerThankYouMessage) ?? ""
         customerTheme = try container.decodeIfPresent(CustomerScreenTheme.self, forKey: .customerTheme) ?? .classic
         passport = try container.decodeIfPresent(PassportConfiguration.self, forKey: .passport) ?? .default
+        // Added after the first release. Missing or unreadable design data must never make the
+        // whole profile unreadable, so it falls back to the Classic design the event used before.
+        receiptDesign = (try? container.decodeIfPresent(EventReceiptDesignConfiguration.self, forKey: .receiptDesign)) ?? .default
     }
 
     nonisolated static var pocketPixelsDefault: EventProfile {
@@ -155,7 +163,8 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
             customerWelcomeMessage: Self.normalizedSingleLine(customerWelcomeMessage, limit: Self.customerMessageLimit),
             customerThankYouMessage: Self.normalizedSingleLine(customerThankYouMessage, limit: Self.customerMessageLimit),
             customerTheme: customerTheme,
-            passport: passport.normalized()
+            passport: passport.normalized(),
+            receiptDesign: receiptDesign.normalized()
         )
     }
 
@@ -330,6 +339,8 @@ struct EventSetupView: View {
                 EventHeaderEditorView(profile: $draft, statusMessage: $statusMessage)
                 limitedTextField("Optional Message", text: $draft.shortMessage, limit: EventProfile.shortMessageLimit, autocapitalization: .sentences)
             }
+
+            EventTypographySection(typography: $draft.receiptDesign.typography)
 
             Section("Guest Screens") {
                 Picker("Theme", selection: $draft.customerTheme) {
@@ -629,6 +640,7 @@ struct EventReceiptComposerPreview: View {
     @State private var previewReceipt: ComposedReceipt?
     @State private var previewError: String?
     @State private var renderTask: Task<Void, Never>?
+    @State private var renderGeneration = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -675,7 +687,10 @@ struct EventReceiptComposerPreview: View {
         .onAppear {
             scheduleRender()
         }
-        .onChange(of: previewIdentity) { _, _ in
+        .onChange(of: profile.normalized()) { _, _ in
+            scheduleRender()
+        }
+        .onChange(of: selectedFormat) { _, _ in
             scheduleRender()
         }
         .onDisappear {
@@ -684,40 +699,14 @@ struct EventReceiptComposerPreview: View {
         .frame(maxWidth: .infinity)
     }
 
-    private var previewIdentity: String {
-        let normalized = profile.normalized()
-        return [
-            selectedFormat.rawValue,
-            normalized.isEnabled.description,
-            normalized.eventName,
-            normalized.subtitle,
-            normalized.includeEventDate.description,
-            String(normalized.eventDate.timeIntervalSince1970),
-            normalized.location,
-            normalized.shortMessage,
-            normalized.showEventTextBlock.description,
-            normalized.receiptHeader.mode.rawValue,
-            normalized.receiptHeader.assetIdentifier ?? "",
-            String(normalized.receiptHeader.scale),
-            String(normalized.receiptHeader.topSpacing),
-            String(normalized.receiptHeader.bottomSpacing),
-            normalized.receiptHeader.alignment.rawValue,
-            normalized.receiptHeader.layoutMode.rawValue,
-            String(normalized.receiptHeader.cropPositionX),
-            String(normalized.receiptHeader.cropPositionY),
-            String(normalized.receiptHeader.cropZoom),
-            normalized.passport.theme.rawValue,
-            normalized.passport.titleSource.rawValue,
-            normalized.passport.title,
-            normalized.passport.subtitle,
-            normalized.passport.eventLabel
-        ].joined(separator: "|")
-    }
-
+    /// Debounced, cancellable and generation-checked: a slow render for older settings can never
+    /// replace the preview of newer settings.
     @MainActor
     private func scheduleRender() {
         renderTask?.cancel()
         previewError = nil
+        renderGeneration += 1
+        let generation = renderGeneration
         let profile = profile.normalized()
         let format = selectedFormat
         renderTask = Task {
@@ -733,6 +722,7 @@ struct EventReceiptComposerPreview: View {
                 }
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
+                    guard generation == renderGeneration else { return }
                     previewReceipt = receipt
                     previewImage = image
                 }
@@ -740,6 +730,7 @@ struct EventReceiptComposerPreview: View {
                 return
             } catch {
                 await MainActor.run {
+                    guard generation == renderGeneration else { return }
                     previewReceipt = nil
                     previewImage = nil
                     previewError = error.localizedDescription

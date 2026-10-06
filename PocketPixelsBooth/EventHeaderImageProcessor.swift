@@ -54,29 +54,42 @@ enum EventHeaderImageProcessor {
         let config = configuration.normalized()
         let maximumWidth = max(1, receiptWidth - horizontalInset * 2)
         let width = min(maximumWidth, max(1, floor(maximumWidth * config.scale)))
-        guard sourceSize.width > 0, sourceSize.height > 0 else { return CGSize(width: width, height: minimumPrintedHeight) }
+        guard sourceSize.width.isFinite, sourceSize.height.isFinite,
+              sourceSize.width > 0, sourceSize.height > 0 else {
+            return CGSize(width: width, height: minimumPrintedHeight)
+        }
         let naturalHeight = width * sourceSize.height / sourceSize.width
-        let requestedHeight = config.layoutMode == .fit ? naturalHeight : width / 3
+        let requestedHeight = config.layoutMode == .fit ? naturalHeight : width * config.effectiveFillHeightRatio
         let height = min(maximumPrintedHeight, max(minimumPrintedHeight, floor(requestedHeight)))
         return CGSize(width: width, height: height)
     }
 
+    /// Placement of the artwork frame on the receipt. Shared by ReceiptComposer and the editor so
+    /// the editor canvas is pixel-identical to the printed header.
+    nonisolated static func frameRect(
+        sourceSize: CGSize,
+        configuration: ReceiptHeaderConfiguration,
+        y: CGFloat,
+        receiptWidth: CGFloat = CGFloat(BoothConfiguration.receiptWidth)
+    ) -> CGRect {
+        let size = frameSize(sourceSize: sourceSize, configuration: configuration, receiptWidth: receiptWidth)
+        let available = max(0, receiptWidth - horizontalInset * 2 - size.width)
+        let position = configuration.normalized().effectiveHorizontalPosition
+        let x = horizontalInset + available * CGFloat(position + 1) / 2
+        return CGRect(x: floor(x), y: y, width: size.width, height: size.height)
+    }
+
     nonisolated static func renderedHeader(source: UIImage, configuration: ReceiptHeaderConfiguration, receiptWidth: CGFloat = CGFloat(BoothConfiguration.receiptWidth)) -> EventHeaderRenderResult {
+        renderedHeader(source: EventArtwork(image: source), configuration: configuration, receiptWidth: receiptWidth)
+    }
+
+    /// Renders the artwork into its frame on opaque white paper. Transparent artwork composites
+    /// against white here, before any thermal conversion.
+    nonisolated static func renderedHeader(source: EventArtwork, configuration: ReceiptHeaderConfiguration, receiptWidth: CGFloat = CGFloat(BoothConfiguration.receiptWidth)) -> EventHeaderRenderResult {
         let config = configuration.normalized()
         let size = frameSize(sourceSize: source.size, configuration: config, receiptWidth: receiptWidth)
         let frame = CGRect(origin: .zero, size: size)
-        let baseScale: CGFloat = config.layoutMode == .fit
-            ? min(size.width / source.size.width, size.height / source.size.height)
-            : max(size.width / source.size.width, size.height / source.size.height)
-        let scale = baseScale * CGFloat(config.cropZoom)
-        let drawSize = CGSize(width: source.size.width * scale, height: source.size.height * scale)
-        let overflowX = max(0, drawSize.width - size.width)
-        let overflowY = max(0, drawSize.height - size.height)
-        let center = CGPoint(
-            x: size.width / 2 - CGFloat(config.cropPositionX) * overflowX / 2,
-            y: size.height / 2 - CGFloat(config.cropPositionY) * overflowY / 2
-        )
-        let drawRect = CGRect(x: center.x - drawSize.width / 2, y: center.y - drawSize.height / 2, width: drawSize.width, height: drawSize.height)
+        let drawRect = sourceDrawRect(sourceSize: source.size, frameSize: size, configuration: config)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
@@ -85,16 +98,72 @@ enum EventHeaderImageProcessor {
             context.fill(frame)
             context.cgContext.clip(to: frame)
             context.cgContext.interpolationQuality = .high
-            source.draw(in: drawRect, blendMode: .normal, alpha: 1)
+            source.draw(in: drawRect, context: context.cgContext)
         }
         return EventHeaderRenderResult(image: image, frameSize: size, sourceDrawRect: drawRect)
     }
 
+    /// Where the artwork is drawn inside its frame for the given fit, zoom and crop position.
+    nonisolated static func sourceDrawRect(sourceSize: CGSize, frameSize size: CGSize, configuration: ReceiptHeaderConfiguration) -> CGRect {
+        let config = configuration.normalized()
+        guard sourceSize.width > 0, sourceSize.height > 0 else { return CGRect(origin: .zero, size: size) }
+        let baseScale: CGFloat = config.layoutMode == .fit
+            ? min(size.width / sourceSize.width, size.height / sourceSize.height)
+            : max(size.width / sourceSize.width, size.height / sourceSize.height)
+        let scale = baseScale * CGFloat(config.cropZoom)
+        let drawSize = CGSize(width: sourceSize.width * scale, height: sourceSize.height * scale)
+        let overflowX = max(0, drawSize.width - size.width)
+        let overflowY = max(0, drawSize.height - size.height)
+        let center = CGPoint(
+            x: size.width / 2 - CGFloat(config.cropPositionX) * overflowX / 2,
+            y: size.height / 2 - CGFloat(config.cropPositionY) * overflowY / 2
+        )
+        return CGRect(x: center.x - drawSize.width / 2, y: center.y - drawSize.height / 2, width: drawSize.width, height: drawSize.height)
+    }
+
+    /// The header band exactly as it appears at the top of the receipt: full 576-dot width,
+    /// top spacing, the rendered frame, and bottom spacing on white paper.
+    nonisolated static func receiptStrip(source: EventArtwork, configuration: ReceiptHeaderConfiguration) -> (image: UIImage, frame: CGRect) {
+        let config = configuration.normalized()
+        let width = CGFloat(BoothConfiguration.receiptWidth)
+        let top = CGFloat(Int(config.topSpacing.rounded()))
+        let frame = frameRect(sourceSize: source.size, configuration: config, y: top, receiptWidth: width)
+        let height = top + frame.height + CGFloat(Int(config.bottomSpacing.rounded()))
+        let rendered = renderedHeader(source: source, configuration: config, receiptWidth: width)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let image = UIGraphicsImageRenderer(size: CGSize(width: width, height: max(1, height)), format: format).image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: width, height: max(1, height)))
+            rendered.image.draw(in: frame)
+        }
+        return (image, frame)
+    }
+
     nonisolated static func thermalPreview(source: UIImage, configuration: ReceiptHeaderConfiguration) throws -> UIImage {
-        let rendered = renderedHeader(source: source, configuration: configuration)
-        let raster = try ThermalImageRasterizer.rasterize(rendered.image, purpose: .photoTest)
+        try thermalPreview(source: EventArtwork(image: source), configuration: configuration)
+    }
+
+    /// Thermal view of the header band using the production complete-receipt rasterizer. The band
+    /// starts on white paper, so its dithering matches the same rows of a printed receipt.
+    nonisolated static func thermalPreview(source: EventArtwork, configuration: ReceiptHeaderConfiguration) throws -> UIImage {
+        let strip = receiptStrip(source: source, configuration: configuration).image
+        let raster = try ThermalImageRasterizer.rasterize(strip, purpose: .completeReceipt)
         guard let image = UIImage(data: raster.previewPNGData) else { throw ThermalImageRasterizerError.renderFailed }
         return image
+    }
+
+    /// Vector artwork has no source resolution limit, so resolution-based warnings are skipped.
+    nonisolated static func qualityWarnings(for artwork: EventArtwork, configuration: ReceiptHeaderConfiguration) -> [EventHeaderQualityWarning] {
+        switch artwork.kind {
+        case .bitmap:
+            return qualityWarnings(for: artwork.image(), configuration: configuration)
+        case .vector:
+            let sample = artwork.image(fitting: 1_200)
+            return qualityWarnings(for: sample, configuration: configuration)
+                .filter { $0 != .lowResolution && $0 != .fineDetails }
+        }
     }
 
     nonisolated static func qualityWarnings(for image: UIImage, configuration: ReceiptHeaderConfiguration) -> [EventHeaderQualityWarning] {

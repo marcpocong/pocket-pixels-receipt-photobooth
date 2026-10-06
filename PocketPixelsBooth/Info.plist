@@ -6,11 +6,5 @@
 	<string>https://script.google.com/macros/s/AKfycbxFc4wpaRipbj-xEXt-zW6m5GoaJ1QkJtnw8Ryg4aH5rDeZDXXctXDTCWCWJwK1SwRSdQ/exec</string>
 	<key>POCKET_PIXELS_CUSTOMER_GALLERY_BASE_URL</key>
 	<string>https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/</string>
-	<key>NSCameraUsageDescription</key>
-	<string>Pocket Pixels uses the iPad camera to take your photobooth photo.</string>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>Pocket Pixels connects to the thermal printer on your local Wi-Fi network.</string>
-	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Pocket Pixels uses Bluetooth to connect to the receipt printer.</string>
 </dict>
 </plist>

@@ -23,14 +23,14 @@ enum PrintJobSource: String, Codable, Sendable, CaseIterable {
     }
 }
 
-enum ProductionPrintTransportPolicy: String, Codable, Sendable, CaseIterable, Identifiable {
+nonisolated enum ProductionPrintTransportPolicy: String, Codable, Sendable, CaseIterable, Identifiable {
     case safeIntegrity
     case experimentalBalanced
     case fastDiagnostic
 
-    var id: String { rawValue }
+    nonisolated var id: String { rawValue }
 
-    var bluetoothMode: BluetoothPrinterRasterMode {
+    nonisolated var bluetoothMode: BluetoothPrinterRasterMode {
         switch self {
         case .safeIntegrity:
             .reliable
@@ -41,7 +41,7 @@ enum ProductionPrintTransportPolicy: String, Codable, Sendable, CaseIterable, Id
         }
     }
 
-    var displayName: String {
+    nonisolated var displayName: String {
         switch self {
         case .safeIntegrity:
             "Safe / Integrity"

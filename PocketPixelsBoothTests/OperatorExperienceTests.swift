@@ -5,6 +5,26 @@ import XCTest
 
 @MainActor
 final class OperatorExperienceTests: XCTestCase {
+    func testBackendOverridesValidatePersistAndResetWithoutStoringCredentials() throws {
+        let suiteName = "GalleryBackendOverrideTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = GalleryBackendOverrideStore(defaults: defaults)
+
+        try store.save(
+            uploadURL: "https://script.google.com/macros/s/TEST_DEPLOYMENT/exec",
+            customerURL: "https://gallery.example.com/"
+        )
+        XCTAssertEqual(store.uploadURLOverride(), "https://script.google.com/macros/s/TEST_DEPLOYMENT/exec")
+        XCTAssertEqual(store.customerURLOverride(), "https://gallery.example.com/")
+        let persistedKeys = defaults.persistentDomain(forName: suiteName).map { Array($0.keys) } ?? []
+        XCTAssertTrue(persistedKeys.allSatisfy { !$0.localizedCaseInsensitiveContains("token") })
+
+        XCTAssertThrowsError(try store.save(uploadURL: "http://script.google.com/macros/s/TEST/exec", customerURL: ""))
+        store.reset()
+        XCTAssertNil(store.uploadURLOverride())
+        XCTAssertNil(store.customerURLOverride())
+    }
     private let date = Date(timeIntervalSince1970: 1_780_000_000)
 
     // MARK: Saved profile compatibility
@@ -43,7 +63,7 @@ final class OperatorExperienceTests: XCTestCase {
 
     func testOperatorFacingHeaderNames() {
         XCTAssertEqual(ReceiptHeaderMode.pocketPixelsDefault.displayName, "Pocket Pixels")
-        XCTAssertEqual(ReceiptHeaderMode.customEventHeader.displayName, "Event Image")
+        XCTAssertEqual(ReceiptHeaderMode.customEventHeader.displayName, "Event Artwork")
         XCTAssertEqual(ReceiptHeaderMode.none.displayName, "None")
     }
 

@@ -1,0 +1,35 @@
+name: Production Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select an available iPad simulator
+        run: |
+          DEVICE_ID=$(xcrun simctl list devices available -j | ruby -rjson -e 'data=JSON.parse(STDIN.read); devices=data["devices"].values.flatten; device=devices.find { |d| d["name"].include?("iPad") }; abort "No iPad simulator available" unless device; puts device["udid"]')
+          echo "DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+      - name: Build for testing
+        run: xcodebuild build-for-testing -project PocketPixelsBooth.xcodeproj -scheme PocketPixelsBooth -destination "platform=iOS Simulator,id=$DEVICE_ID" CODE_SIGNING_ALLOWED=NO
+      - name: Run XCTest production suite
+        run: xcodebuild test-without-building -project PocketPixelsBooth.xcodeproj -scheme PocketPixelsBooth -destination "platform=iOS Simulator,id=$DEVICE_ID" CODE_SIGNING_ALLOWED=NO
+
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Worker tests
+        working-directory: Backend/CloudflareGalleryProxy
+        run: npm test
+      - name: Apps Script pure checks
+        run: node Backend/GoogleAppsScript/GridSixValidation.test.cjs

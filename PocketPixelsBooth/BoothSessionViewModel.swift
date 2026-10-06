@@ -5,6 +5,7 @@
 //  Created by marc on 8/30/26.
 //
 
+import OSLog
 import AVFoundation
 import Combine
 import SwiftUI
@@ -59,6 +60,10 @@ final class BoothSessionViewModel: ObservableObject {
     private let uploadService = GoogleDriveGalleryUploadService()
     private let credentialStore = DeviceCredentialStore()
     private let recoveryStore = try? AppRecoveryStore()
+    /// Durable archive commit for the current session; resolves to nil on success or an error
+    /// description on failure. See SessionArchiveCommitter for the durability contract.
+    private var archiveCommitTask: Task<String?, Never>?
+    private var archiveCommitPayload: RecentSessionArchivePayload?
     private let operationalState = EventOperationalState.shared
     private var activeTask: Task<Void, Never>?
     private var printBatchTask: Task<Void, Never>?
@@ -525,7 +530,7 @@ final class BoothSessionViewModel: ObservableObject {
                 if enqueueUpload {
                     startGalleryUpload(committedSession: committedSession, receiptImage: result.5)
                 }
-                archiveCommittedSession(
+                startArchiveCommit(
                     committedSession,
                     composedReceipt: result.0,
                     receiptPreviewPNGData: result.0.imagePNGData,
@@ -849,8 +854,8 @@ final class BoothSessionViewModel: ObservableObject {
             Task {
                 let granted = await cameraService.requestAccess()
                 if granted {
-                    self.cameraService.configureAndStart { [weak self] result in
-                        self?.cancelCameraReadinessWatchdog()
+                    self.cameraService.configureAndStart { result in
+                        self.cancelCameraReadinessWatchdog()
                         completion(result)
                     }
                 } else {
@@ -1124,6 +1129,10 @@ final class BoothSessionViewModel: ObservableObject {
         completedPrintCopies = 0
         passportDraft = .empty
         resetPassportPreview()
+        // The detached archive commit is never cancelled (it owns immutable session values); the
+        // reference is dropped so a later session can never await another session's archive.
+        archiveCommitTask = nil
+        archiveCommitPayload = nil
     }
 
     private func cancelTasks() {
@@ -1175,6 +1184,17 @@ final class BoothSessionViewModel: ObservableObject {
             }
         }
 
+        // Durability gate: the frozen reprint record must be committed before any bytes.
+        if let archiveFailure = await ensureArchiveCommitted() {
+            guard isCurrentCustomerSession(sessionGeneration) else { return }
+            BoothDiagnostics.archive.error("Print blocked: archive not committed session=\(self.sessionIdentifier ?? "unknown", privacy: .public) error=\(archiveFailure, privacy: .public)")
+            let message = "Nothing was printed. This session's reprint record could not be saved. Check iPad storage, then try again."
+            state = .receiptPreview
+            printerState = .failure(message)
+            statusMessage = message
+            return
+        }
+
         for copy in 1...requestedCopies {
             guard !Task.isCancelled else { return }
             guard isCurrentCustomerSession(sessionGeneration) else {
@@ -1215,6 +1235,13 @@ final class BoothSessionViewModel: ObservableObject {
                 if copy < requestedCopies {
                     debugLog("[PrintBatch] copy \(copy + 1) requested immediately after copy \(copy) completion")
                 }
+            case .failure(let error) where error is PrintCheckpointError:
+                // Fail-closed checkpoint: no bytes for this copy, no recovery lock, data kept.
+                let message = "\(completedPrintCopies) of \(requestedCopies) copies printed. \(error.localizedDescription)"
+                state = .receiptPreview
+                printerState = .failure(message)
+                statusMessage = message
+                return
             case .failure:
                 let message = "\(completedPrintCopies) of \(requestedCopies) copies printed. Printer needs attention before continuing."
                 debugLog("[MULTI-COPY] failedCopy=\(copy) completedCopies=\(completedPrintCopies) requestedCopies=\(requestedCopies)")
@@ -1245,7 +1272,6 @@ final class BoothSessionViewModel: ObservableObject {
     ) async -> Result<Void, Error> {
         await withCheckedContinuation { continuation in
             debugLog("[PrintBatch] copy \(copy) transport start after \(Self.formatDuration(Date().timeIntervalSince(copyRequestedAt)))")
-            persistRecoverySnapshot(stage: .printStatusUnknown)
             printerCoordinator.printReceipt(
                 rasterizedImage: rasterizedImage,
                 wifiHost: wifiHost,
@@ -1255,7 +1281,15 @@ final class BoothSessionViewModel: ObservableObject {
                 copyIndex: copy,
                 copyCount: requestedCopies,
                 batchID: batchID ?? UUID(),
-                transportPolicy: printerCoordinator.productionReceiptTransportPolicy
+                transportPolicy: printerCoordinator.productionReceiptTransportPolicy,
+                prePrintCheckpoint: PrePrintCheckpointGate { [weak self] _ in
+                    // Runs inside the print spooler immediately before transport. A stale session
+                    // or a failed durable write blocks the job before any bytes are sent.
+                    guard let self, self.isCurrentCustomerSession(sessionGeneration) else {
+                        throw PrintCheckpointError.persistenceFailed("Customer session changed before printing.")
+                    }
+                    try self.persistCriticalRecoverySnapshot(stage: .printStatusUnknown)
+                }
             ) { [weak self] printerState in
                 guard let self else { return }
                 guard self.isCurrentCustomerSession(sessionGeneration) else {
@@ -1343,10 +1377,32 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     private func persistRecoverySnapshot(stage: AppRecoveryStage) {
+        guard let snapshot = makeRecoverySnapshot(stage: stage) else { return }
+        recoveryStore?.save(snapshot)
+        operationalState.refresh()
+    }
+
+    /// Fail-closed variant for the pre-print `printStatusUnknown` checkpoint.
+    private func persistCriticalRecoverySnapshot(stage: AppRecoveryStage) throws {
+        guard let recoveryStore else {
+            throw PrintCheckpointError.persistenceFailed(AppRecoveryStoreError.unavailable.localizedDescription)
+        }
+        guard let snapshot = makeRecoverySnapshot(stage: stage) else {
+            throw PrintCheckpointError.persistenceFailed("Session details are incomplete.")
+        }
+        do {
+            try recoveryStore.saveCritical(snapshot)
+        } catch {
+            throw PrintCheckpointError.persistenceFailed(error.localizedDescription)
+        }
+        operationalState.refresh()
+    }
+
+    private func makeRecoverySnapshot(stage: AppRecoveryStage) -> AppRecoverySnapshot? {
         guard let sessionIdentifier,
               let selectedBoothFormat,
               let createdAt = sessionCreatedAt else {
-            return
+            return nil
         }
 
         let photos = capturedPhotos.compactMap { AppRecoveryStore.photoData(from: $0) }
@@ -1367,45 +1423,66 @@ final class BoothSessionViewModel: ObservableObject {
             // Only committed Passport data is persisted; in-progress drafts never touch disk.
             passport: committedGallerySession?.passport
         )
-        recoveryStore?.save(snapshot)
-        operationalState.refresh()
+        return snapshot
     }
 
-    private func archiveCommittedSession(
+    private func startArchiveCommit(
         _ committedSession: CommittedGallerySession,
         composedReceipt: ComposedReceipt,
         receiptPreviewPNGData: Data,
         thermalPreviewPNGData: Data,
         rasterizedImage: ThermalRasterizedImage
     ) {
-        Task.detached(priority: .utility) {
+        let payload = RecentSessionArchivePayload(
+            committedSession: committedSession,
+            composedReceipt: composedReceipt,
+            receiptPreviewPNGData: receiptPreviewPNGData,
+            thermalPreviewPNGData: thermalPreviewPNGData,
+            rasterizedImage: rasterizedImage,
+            photoThumbnailData: []
+        )
+        archiveCommitPayload = payload
+        archiveCommitTask = Task.detached(priority: .userInitiated) {
             do {
-                let thumbnails = try committedSession.photos.map {
-                    try Self.makeRecentSessionThumbnailData(from: $0)
-                }
-                let payload = RecentSessionArchivePayload(
-                    committedSession: committedSession,
-                    composedReceipt: composedReceipt,
-                    receiptPreviewPNGData: receiptPreviewPNGData,
-                    thermalPreviewPNGData: thermalPreviewPNGData,
-                    rasterizedImage: rasterizedImage,
-                    photoThumbnailData: thumbnails
-                )
-                try RecentSessionArchiveStore().save(payload)
-                debugLog("[RecentSessions] archived \(committedSession.sessionIdentifier) fingerprint=\(RecentSessionArchiveStore.rasterFingerprint(for: rasterizedImage))")
+                try SessionArchiveCommitter.commitPrintPayload(payload)
             } catch {
-                debugLog("[RecentSessions] archive failed for \(committedSession.sessionIdentifier): \(error.localizedDescription)")
+                BoothDiagnostics.archive.error("Archive commit failed session=\(committedSession.sessionIdentifier, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+                return error.localizedDescription
             }
+            // Thumbnails are display-only and never delay printing.
+            Task.detached(priority: .utility) {
+                SessionArchiveCommitter.attachThumbnails(for: committedSession)
+            }
+            return nil
         }
     }
 
-    nonisolated private static func makeRecentSessionThumbnailData(from image: UIImage, maxLongestSide: Int = 220) throws -> Data {
-        let normalized = image.normalizedForGalleryUpload()
-        let resized = normalized.resizedForGalleryUpload(maxLongestSide: maxLongestSide)
-        guard let data = resized.jpegData(compressionQuality: 0.72) else {
-            throw GalleryUploadError.imageEncoding("Recent session thumbnail could not be encoded.")
+    /// Awaits the current session's durable archive commit, retrying once if it failed.
+    /// Returns nil when the frozen reprint record is committed, otherwise an error description.
+    private func ensureArchiveCommitted() async -> String? {
+        guard let task = archiveCommitTask,
+              let payload = archiveCommitPayload,
+              payload.committedSession.sessionIdentifier == sessionIdentifier else {
+            return SessionArchiveCommitter.CommitError.missingPayload.localizedDescription
         }
-        return data
+        guard let failure = await task.value else { return nil }
+        BoothDiagnostics.archive.notice("Retrying archive commit before printing: \(failure, privacy: .public)")
+        let retry = Task.detached(priority: .userInitiated) { () -> String? in
+            do {
+                try SessionArchiveCommitter.commitPrintPayload(payload)
+                Task.detached(priority: .utility) {
+                    SessionArchiveCommitter.attachThumbnails(for: payload.committedSession)
+                }
+                return nil
+            } catch {
+                return error.localizedDescription
+            }
+        }
+        let result = await retry.value
+        if result == nil, payload.committedSession.sessionIdentifier == sessionIdentifier {
+            archiveCommitTask = Task { nil }
+        }
+        return result
     }
 
     private static func receiptPayloadFingerprint(for rasterizedImage: ThermalRasterizedImage) -> String {

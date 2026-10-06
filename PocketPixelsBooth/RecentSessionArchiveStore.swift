@@ -123,17 +123,19 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
         try applyStorageAttributes(to: stagingURL)
 
         do {
-            try payload.receiptPreviewPNGData.write(to: stagingURL.appendingPathComponent(Self.receiptPreviewFilename), options: .atomic)
-            try payload.thermalPreviewPNGData.write(to: stagingURL.appendingPathComponent(Self.thermalPreviewFilename), options: .atomic)
-            try payload.rasterizedImage.rasterData.write(to: stagingURL.appendingPathComponent(Self.rasterDataFilename), options: .atomic)
-            try payload.rasterizedImage.rasterCommand.write(to: stagingURL.appendingPathComponent(Self.rasterCommandFilename), options: .atomic)
+            // The frozen reprint payload and metadata are flushed to stable storage before the
+            // archive becomes visible, so a committed archive is always complete.
+            try DurableFileWriter.write(payload.receiptPreviewPNGData, to: stagingURL.appendingPathComponent(Self.receiptPreviewFilename), fileManager: fileManager)
+            try DurableFileWriter.write(payload.thermalPreviewPNGData, to: stagingURL.appendingPathComponent(Self.thermalPreviewFilename), fileManager: fileManager)
+            try DurableFileWriter.write(payload.rasterizedImage.rasterData, to: stagingURL.appendingPathComponent(Self.rasterDataFilename), fileManager: fileManager)
+            try DurableFileWriter.write(payload.rasterizedImage.rasterCommand, to: stagingURL.appendingPathComponent(Self.rasterCommandFilename), fileManager: fileManager)
 
             for (index, thumbnailData) in payload.photoThumbnailData.enumerated() {
                 try thumbnailData.write(to: stagingURL.appendingPathComponent(Self.thumbnailFilename(index: index)), options: .atomic)
             }
 
             let metadataData = try JSONEncoder.archiveEncoder.encode(metadata)
-            try metadataData.write(to: stagingURL.appendingPathComponent(Self.metadataFilename), options: Data.WritingOptions.atomic)
+            try DurableFileWriter.write(metadataData, to: stagingURL.appendingPathComponent(Self.metadataFilename), fileManager: fileManager)
             try validateArchive(at: stagingURL)
             try applyStorageAttributes(to: stagingURL)
             try fileManager.moveItem(at: stagingURL, to: finalURL)
@@ -260,6 +262,32 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
             rasterizedImage: rasterizedImage,
             passport: metadata.passport
         )
+    }
+
+    /// Adds photo thumbnails to an already committed archive. Thumbnails are display-only and are
+    /// written after the durable print payload, so a failure here never affects reprints.
+    /// Idempotent: an archive that already lists thumbnails is left unchanged.
+    nonisolated func attachThumbnails(archiveID: String, thumbnails: [Data]) throws {
+        guard isValidArchiveID(archiveID) else {
+            throw RecentSessionArchiveError.invalidArchiveID
+        }
+        let directory = archiveDirectoryURL(for: archiveID)
+        guard fileManager.fileExists(atPath: directory.path) else {
+            throw RecentSessionArchiveError.archiveNotFound
+        }
+        var metadata = try loadMetadata(from: directory)
+        guard metadata.thumbnailFilenames.isEmpty, !thumbnails.isEmpty else { return }
+        let filenames = thumbnails.indices.map { Self.thumbnailFilename(index: $0) }
+        for (filename, data) in zip(filenames, thumbnails) {
+            try data.write(to: directory.appendingPathComponent(filename), options: .atomic)
+        }
+        metadata.thumbnailFilenames = filenames
+        try DurableFileWriter.write(JSONEncoder.archiveEncoder.encode(metadata), to: directory.appendingPathComponent(Self.metadataFilename), fileManager: fileManager)
+    }
+
+    /// True when a complete, loadable archive for this session already exists.
+    nonisolated func containsCommittedArchive(galleryToken: String) -> Bool {
+        (try? load(archiveID: galleryToken)) != nil
     }
 
     nonisolated func markReprinted(archiveID: String, date: Date = Date(), copies: Int) throws {
@@ -526,7 +554,7 @@ nonisolated private struct RecentSessionArchiveMetadata: Codable, Equatable {
     let yL: UInt8
     let yH: UInt8
     let sanitizationReport: RasterSanitizationReport
-    let thumbnailFilenames: [String]
+    var thumbnailFilenames: [String]
     var lastReprintedAt: Date?
     var reprintCount: Int
     var passport: PassportSessionData? = nil

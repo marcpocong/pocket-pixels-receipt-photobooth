@@ -368,6 +368,9 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         guard (200...299).contains(httpResponse.statusCode) else {
             if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 { throw GalleryUploadError.unauthorized }
             if let serverResponse = try? JSONDecoder().decode(GalleryUploadResponse.self, from: responseData), let error = serverResponse.error {
+                if Self.isAuthenticationFailure(serverResponse) {
+                    throw GalleryUploadError.unauthorized
+                }
                 if Self.isTemporaryServerResponse(serverResponse, httpStatus: httpResponse.statusCode) {
                     throw GalleryUploadError.network(Self.safeServerMessage(response: serverResponse, fallback: "Upload service is temporarily unavailable."))
                 }
@@ -390,6 +393,9 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         }
 
         guard uploadResponse.ok else {
+            if Self.isAuthenticationFailure(uploadResponse) {
+                throw GalleryUploadError.unauthorized
+            }
             if Self.isTemporaryServerResponse(uploadResponse) {
                 throw GalleryUploadError.network(Self.safeServerMessage(response: uploadResponse, fallback: "Upload service is temporarily unavailable."))
             }
@@ -549,6 +555,15 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             return true
         }
         return false
+    }
+
+    nonisolated static func isAuthenticationFailure(_ response: GalleryUploadResponse) -> Bool {
+        switch response.errorCode {
+        case "MISSING_DEVICE_TOKEN", "INVALID_DEVICE_TOKEN", "SERVER_NOT_CONFIGURED":
+            true
+        default:
+            false
+        }
     }
 
     nonisolated private static func isConfirmedCompletionStatus(_ status: String?) -> Bool {
