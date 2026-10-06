@@ -782,6 +782,7 @@ enum GalleryUploadDebugSelfChecks {
         }
     }
 
+    @MainActor
     private static func runPortraitProcessorSelfChecks() throws {
         let sources = [
             makeImage(size: CGSize(width: 160, height: 90)),
