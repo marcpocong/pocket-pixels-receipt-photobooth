@@ -9,6 +9,15 @@ const context = vm.createContext({
   Utilities: {
     base64Decode: value => Array.from(Buffer.from(value, 'base64')),
     base64Encode: value => Buffer.from(value).toString('base64'),
+    formatDate: () => 'Oct 7, 2026 6:00 PM',
+  },
+  HtmlService: {
+    XFrameOptionsMode: { ALLOWALL: 'ALLOWALL' },
+    createHtmlOutput: html => ({
+      getContent: () => html,
+      setTitle() { return this; },
+      setXFrameOptionsMode() { return this; },
+    }),
   },
   PropertiesService: {
     getScriptProperties: () => ({
@@ -34,11 +43,13 @@ for (const count of [1, 2, 3, 4, 6]) {
 }
 const legacy = context.makeSelfTestPayload_(2);
 legacy.schemaVersion = 1;
+legacy.receipt = legacy.colorReceipt;
 delete legacy.colorReceipt;
 delete legacy.thermalReceipt;
 delete legacy.gif;
 assert.equal(context.validateUploadPayload_(legacy).ok, true);
 assert.equal(context.expectedFilenames_(2, 1).length, 3);
+assert.equal(Object.hasOwn(context.makeSelfTestPayload_(2), 'receipt'), false);
 for (const count of [0, 7, 36]) {
   const payload = context.makeSelfTestPayload_(count);
   if (count === 0) payload.photos = [];
@@ -48,3 +59,82 @@ const missingSixth = context.makeSelfTestPayload_(6);
 missingSixth.photos[5].filename = 'photo-04.jpg';
 assert.equal(context.validateUploadPayload_(missingSixth).code, 'INVALID_PHOTO_FILENAME');
 console.log('Grid 6 backend validation passed: existing counts, six filenames, upper bound, sixth image validation.');
+
+const fixture = galleryFixture(2);
+const loaded = context.loadGalleryAssets_(fixture.filesByName, fixture.manifest);
+assert.equal(loaded.gif.filename, 'session.gif');
+assert.equal(loaded.gif.mimeType, 'image/gif');
+assert.equal(loaded.gif.role, 'gif');
+const html = context.renderGalleryPage_(fixture, {}, Date.now()).getContent();
+assert.match(html, /Your GIF/);
+assert.match(html, /id="image-session\.gif"/);
+assert.match(html, /data-open="session\.gif"/);
+assert.match(html, /data-download="session\.gif">Save GIF/);
+assert.match(html, /data-share="session\.gif">Share GIF/);
+assert.match(html, /item\.role===\\?"gif\\?"/);
+assert.match(html, /item\.filename.*item\.mimeType/);
+assert.match(html, /showEmbeddedImages\(\)/);
+assert.match(html, /Color Receipt/);
+assert.match(html, /Thermal Receipt/);
+assert.equal(context.makeCompleteManifest_(context.makeSelfTestPayload_(2)).gif, 'session.gif');
+
+const legacyFixture = galleryFixture(2, 1);
+const legacyHTML = context.renderGalleryPage_(legacyFixture, {}, Date.now()).getContent();
+assert.doesNotMatch(legacyHTML, /<p>Your GIF<\/p>/);
+assert.match(legacyHTML, /Color Receipt/);
+
+const realistic = realisticBudgetPayload();
+assert.equal(context.validateUploadPayload_(realistic).ok, true);
+const realisticImages = realistic.photos.concat([realistic.colorReceipt, realistic.thermalReceipt, realistic.gif]);
+const realisticAssets = realisticImages.map(item => ({ filename: item.filename, base64Data: item.base64Data }));
+assert.equal(context.validateGalleryRenderSize_({
+  photos: realisticAssets.slice(0, 6),
+  receipt: realisticAssets[6],
+  thermalReceipt: realisticAssets[7],
+  gif: realisticAssets[8],
+}).ok, true);
+const overBoundary = structuredClone(realistic);
+overBoundary.gif = encodedImage('session.gif', 'image/gif', 2_400_000);
+assert.equal(context.validateUploadPayload_(overBoundary).code, 'GALLERY_TOO_LARGE');
+console.log('Schema-v2 QR gallery GIF HTML and render-budget checks passed.');
+
+function galleryFixture(photoCount, schemaVersion = 2) {
+  const payload = context.makeSelfTestPayload_(photoCount);
+  payload.schemaVersion = schemaVersion;
+  if (schemaVersion === 1) {
+    payload.receipt = payload.colorReceipt;
+    delete payload.colorReceipt;
+    delete payload.thermalReceipt;
+    delete payload.gif;
+  }
+  assert.equal(context.validateUploadPayload_(payload).ok, true);
+  const manifest = context.makeCompleteManifest_(payload);
+  const items = payload.photos.concat(schemaVersion === 2
+    ? [payload.colorReceipt, payload.thermalReceipt, payload.gif]
+    : [payload.receipt]);
+  const filesByName = Object.fromEntries(items.map(item => [item.filename, {
+    getBlob: () => ({ getBytes: () => Array.from(Buffer.from(item.base64Data, 'base64')) }),
+  }]));
+  return { manifest, filesByName };
+}
+
+function realisticBudgetPayload() {
+  const payload = context.makeSelfTestPayload_(6);
+  payload.photos = Array.from({ length: 6 }, (_, index) =>
+    encodedImage(`photo-${String(index + 1).padStart(2, '0')}.jpg`, 'image/jpeg', 500_000));
+  payload.colorReceipt = encodedImage('receipt-color.jpg', 'image/jpeg', 350_000);
+  payload.thermalReceipt = encodedImage('receipt-bw.png', 'image/png', 650_000);
+  payload.gif = encodedImage('session.gif', 'image/gif', 1_200_000);
+  return payload;
+}
+
+function encodedImage(filename, mimeType, byteCount) {
+  const signatures = {
+    'image/jpeg': Buffer.from([0xff, 0xd8, 0xff]),
+    'image/png': Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    'image/gif': Buffer.from('GIF89a'),
+  };
+  const bytes = Buffer.alloc(byteCount, 0x5a);
+  signatures[mimeType].copy(bytes);
+  return { filename, mimeType, base64Data: bytes.toString('base64') };
+}

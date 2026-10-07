@@ -295,6 +295,9 @@ final class PhotoPassFormatTests: XCTestCase {
 
         let payload = try GoogleDriveGalleryUploadService.preparePayload(photos: committed.photos, composedReceipt: galleryImage, sessionID: committed.sessionIdentifier, createdAt: date, galleryToken: token, customerGalleryBaseURL: URL(string: "https://example.com/")!)
         let body = try JSONEncoder().encode(GoogleDriveGalleryUploadService.makeRequestBody(payload: payload, deviceToken: String(repeating: "x", count: 32)))
+        let bodyObject = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertNil(bodyObject["receipt"], "Schema v2 must not duplicate the color receipt")
+        XCTAssertNotNil(bodyObject["colorReceipt"])
         let json = try XCTUnwrap(String(data: body, encoding: .utf8))
         for secret in ["Zebulon", "Quixote", "dragon note", "notes", "signature"] {
             XCTAssertFalse(json.localizedCaseInsensitiveContains(secret), "Upload request must not contain \(secret)")

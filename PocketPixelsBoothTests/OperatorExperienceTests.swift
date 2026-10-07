@@ -5,6 +5,12 @@ import XCTest
 
 @MainActor
 final class OperatorExperienceTests: XCTestCase {
+    func testSamplePrintPolicyBlocksUnresolvedStateAndPreparationDoubleTap() {
+        XCTAssertTrue(SamplePrintPolicy.canStart(hasPreview: true, printerBusy: false, recoveryLocked: false, unresolvedPrint: false, operationActive: false))
+        XCTAssertFalse(SamplePrintPolicy.canStart(hasPreview: true, printerBusy: false, recoveryLocked: false, unresolvedPrint: true, operationActive: false))
+        XCTAssertFalse(SamplePrintPolicy.canStart(hasPreview: true, printerBusy: false, recoveryLocked: false, unresolvedPrint: false, operationActive: true))
+    }
+
     func testBackendOverridesValidatePersistAndResetWithoutStoringCredentials() throws {
         let suiteName = "GalleryBackendOverrideTests-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

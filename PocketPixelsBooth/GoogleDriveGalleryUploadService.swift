@@ -225,10 +225,12 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             mimeType: "image/png",
             data: thermalRaster.previewPNGData
         )
+        let assetsWithoutGIF = preparedPhotos + [preparedReceipt, preparedThermalReceipt]
+        let maximumGIFBytes = try GalleryPreparedUploadBudget.maximumGIFBytes(afterPreparing: assetsWithoutGIF)
         let preparedGIF = GalleryStoredUploadImage(
             filename: "session.gif",
             mimeType: "image/gif",
-            data: try SessionGIFRenderer.render(images: photos)
+            data: try SessionGIFRenderer.render(images: photos, maximumByteCount: maximumGIFBytes)
         )
 
         let imagePreparationDuration = Date().timeIntervalSince(preparationStart)
@@ -271,7 +273,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             photos: payload.photos.map {
                 GalleryUploadImage(filename: $0.filename, mimeType: $0.mimeType, base64Data: $0.data.base64EncodedString())
             },
-            receipt: uploadImage(payload.colorReceipt),
+            receipt: payload.schemaVersion == 1 ? uploadImage(payload.colorReceipt) : nil,
             colorReceipt: payload.schemaVersion == 2 ? uploadImage(payload.colorReceipt) : nil,
             thermalReceipt: payload.thermalReceipt.map(uploadImage),
             gif: payload.gif.map(uploadImage)
@@ -492,19 +494,8 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
     ) throws -> GalleryPreparedUploadMetrics {
         let fileMetrics = images.map { GalleryPreparedUploadFileMetric(filename: $0.filename, decodedBytes: $0.data.count) }
         let totalDecodedBytes = fileMetrics.reduce(0) { $0 + $1.decodedBytes }
-        let estimatedBase64Bytes = images.reduce(4096) { partialResult, image in
-            partialResult + ((image.data.count + 2) / 3 * 4) + image.filename.utf8.count + image.mimeType.utf8.count + 128
-        }
-
-        guard fileMetrics.allSatisfy({ $0.decodedBytes <= GalleryPreparedUploadMetrics.maxFileDecodedBytes }) else {
-            throw GalleryUploadError.requestTooLarge("One or more JPEG files exceeds 6 MB.")
-        }
-        guard totalDecodedBytes <= GalleryPreparedUploadMetrics.maxTotalDecodedBytes else {
-            throw GalleryUploadError.requestTooLarge("Decoded image total exceeds 20 MB.")
-        }
-        guard estimatedBase64Bytes <= GalleryPreparedUploadMetrics.maxEstimatedBase64JSONBytes else {
-            throw GalleryUploadError.requestTooLarge("Estimated Base64 JSON body exceeds 28 MB.")
-        }
+        let estimatedBase64Bytes = GalleryPreparedUploadBudget.estimatedBase64JSONBytes(for: images)
+        try GalleryPreparedUploadBudget.validate(images: images, requiresGIF: images.contains { $0.filename == "session.gif" })
 
         return GalleryPreparedUploadMetrics(
             files: fileMetrics,
@@ -539,7 +530,9 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
 
 #if DEBUG
     static func makeSanitizedRequestDiagnostics(_ request: GalleryUploadRequest, encodedBody: Data) -> GalleryRequestDiagnostics {
-        let receipt = request.colorReceipt ?? request.receipt
+        guard let receipt = request.colorReceipt ?? request.receipt else {
+            preconditionFailure("Validated gallery request has no receipt")
+        }
         return GalleryRequestDiagnostics(
             schemaVersion: request.schemaVersion,
             hasDeviceToken: !request.deviceToken.isEmpty,

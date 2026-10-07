@@ -608,6 +608,7 @@ struct EventReceiptComposerPreview: View {
     let profile: EventProfile
 
     @StateObject private var printer = PrinterCoordinator.shared
+    @StateObject private var operations = EventOperationalState.shared
     @AppStorage("printerIP") private var printerIP = BoothConfiguration.defaultPrinterIP
     @AppStorage("printerPort") private var printerPort = BoothConfiguration.defaultPrinterPort
     @State private var selectedFormat: BoothFormat = .duo
@@ -619,6 +620,7 @@ struct EventReceiptComposerPreview: View {
     @State private var previewError: String?
     @State private var renderTask: Task<Void, Never>?
     @State private var renderGeneration = 0
+    @State private var isSamplePrintActive = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -628,12 +630,14 @@ struct EventReceiptComposerPreview: View {
                 }
             }
             .pickerStyle(.segmented)
+            .disabled(isSamplePrintActive)
 
             HStack {
                 PhotosPicker(selection: $pickerItems, maxSelectionCount: 6, matching: .images) {
                     Label("Import Sample Photos", systemImage: "photo.on.rectangle.angled")
                 }
                 .buttonStyle(.bordered)
+                .disabled(isSamplePrintActive)
                 if !importedPhotos.isEmpty {
                     Button("Clear Imported Photos") {
                         importedPhotos = []
@@ -642,6 +646,7 @@ struct EventReceiptComposerPreview: View {
                         scheduleRender()
                     }
                     .buttonStyle(.bordered)
+                    .disabled(isSamplePrintActive)
                 }
             }
             if !importedPhotos.isEmpty {
@@ -689,7 +694,13 @@ struct EventReceiptComposerPreview: View {
                 Label("Print Sample Receipt", systemImage: "printer.fill")
             }
             .buttonStyle(.borderedProminent)
-            .disabled(previewReceipt == nil || printer.isWorking || printer.requiresRecovery)
+            .disabled(!SamplePrintPolicy.canStart(
+                hasPreview: previewReceipt != nil,
+                printerBusy: printer.isWorking,
+                recoveryLocked: printer.requiresRecovery,
+                unresolvedPrint: operations.hasUnresolvedPrint,
+                operationActive: isSamplePrintActive
+            ))
 
             if let sampleStatus {
                 Text(sampleStatus).font(.caption).foregroundStyle(.secondary)
@@ -799,10 +810,21 @@ struct EventReceiptComposerPreview: View {
     }
 
     private func printSampleReceipt() {
-        guard previewReceipt != nil, !printer.isWorking, !printer.requiresRecovery else {
+        guard SamplePrintPolicy.canStart(
+            hasPreview: previewReceipt != nil,
+            printerBusy: printer.isWorking,
+            recoveryLocked: printer.requiresRecovery,
+            unresolvedPrint: operations.hasUnresolvedPrint,
+            operationActive: isSamplePrintActive
+        ) else {
+            if operations.hasUnresolvedPrint {
+                sampleStatus = "Resolve the previous print before printing a sample."
+                return
+            }
             sampleStatus = "Printer needs attention."
             return
         }
+        isSamplePrintActive = true
         sampleStatus = "Preparing sample..."
         Task {
             do {
@@ -819,14 +841,17 @@ struct EventReceiptComposerPreview: View {
                     wifiHost: printerIP,
                     wifiPort: UInt16(printerPort.trimmingCharacters(in: .whitespacesAndNewlines)),
                     sessionIdentifier: "operator-sample",
-                    source: .operatorSample
+                    source: .operatorSample,
+                    transportPolicy: printer.productionReceiptTransportPolicy
                 ) { result in
+                    isSamplePrintActive = false
                     switch result {
                     case .success: sampleStatus = "Sample printed."
                     case .failure: sampleStatus = "Printer needs attention."
                     }
                 }
             } catch {
+                isSamplePrintActive = false
                 sampleStatus = "Printer needs attention."
             }
         }

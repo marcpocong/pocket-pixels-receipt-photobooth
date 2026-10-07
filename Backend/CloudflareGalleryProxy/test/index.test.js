@@ -156,6 +156,21 @@ test("completed gallery is fetched once and then served from edge cache", async 
   });
 });
 
+test("completed schema-v2 GIF gallery HTML passes through and remains in cache", async () => {
+  await withMemoryCache(async () => {
+    const gifHTML = '<!doctype html><title>Pocket Pixels Gallery</title><main data-pocket-pixels-gallery-status="complete"><h2>Your GIF</h2><img id="image-session.gif" data-open="session.gif"><button data-download="session.gif">Save GIF</button></main>';
+    await withMockFetch([new Response(gifHTML)], async () => {
+      const request = new Request(`https://gallery.example.com/?g=${token}`);
+      const first = await worker.fetch(request, env);
+      assert.equal(await first.text(), gifHTML);
+      const cached = await worker.fetch(request, env);
+      const cachedHTML = await cached.text();
+      assert.match(cachedHTML, /image-session\.gif/);
+      assert.match(cachedHTML, /Save GIF/);
+    });
+  });
+});
+
 test("pending and error responses are never cached", async () => {
   await withMemoryCache(async () => {
     await withMockFetch([

@@ -98,9 +98,60 @@ nonisolated struct GalleryPreparedUploadMetrics: Codable, Equatable, Sendable {
         self.timing = timing
     }
 
-    nonisolated static let maxFileDecodedBytes = 6 * 1024 * 1024
-    nonisolated static let maxTotalDecodedBytes = 20 * 1024 * 1024
-    nonisolated static let maxEstimatedBase64JSONBytes = 28 * 1024 * 1024
+    nonisolated static let maxFileDecodedBytes = GalleryPreparedUploadBudget.maximumFileDecodedBytes
+    nonisolated static let maxTotalDecodedBytes = GalleryPreparedUploadBudget.maximumPreparedDecodedBytes
+    nonisolated static let maxEstimatedBase64JSONBytes = GalleryPreparedUploadBudget.maximumRequestBytes
+}
+
+/// Mirrors the bounded Apps Script upload and customer-page render limits. New v2 payloads
+/// reserve headroom so every package accepted by the app can also be embedded by the QR page.
+nonisolated enum GalleryPreparedUploadBudget {
+    static let maximumAssetCount = 9 // Six photos, two receipts and one GIF.
+    static let maximumFileDecodedBytes = 6 * 1024 * 1024
+    static let backendGalleryDecodedBytes = 6 * 1024 * 1024
+    static let decodedSafetyMarginBytes = 512 * 1024
+    static let maximumPreparedDecodedBytes = backendGalleryDecodedBytes - decodedSafetyMarginBytes
+    static let maximumGalleryBase64Characters = 9 * 1024 * 1024
+    static let maximumRequestBytes = 9 * 1024 * 1024
+    static let minimumGIFByteBudget = 64 * 1024
+
+    static func estimatedBase64JSONBytes(for images: [GalleryStoredUploadImage]) -> Int {
+        images.reduce(4096) { partial, image in
+            partial + ((image.data.count + 2) / 3 * 4) + image.filename.utf8.count + image.mimeType.utf8.count + 128
+        }
+    }
+
+    static func maximumGIFBytes(afterPreparing images: [GalleryStoredUploadImage]) throws -> Int {
+        let available = maximumPreparedDecodedBytes - images.reduce(0) { $0 + $1.data.count }
+        guard available >= minimumGIFByteBudget else {
+            throw GalleryUploadError.requestTooLarge("Prepared photos and receipts leave no safe room for the required GIF.")
+        }
+        return min(available, maximumFileDecodedBytes)
+    }
+
+    static func validate(images: [GalleryStoredUploadImage], requiresGIF: Bool) throws {
+        guard !images.isEmpty, images.count <= maximumAssetCount else {
+            throw GalleryUploadError.requestTooLarge("Gallery asset count exceeds the server limit.")
+        }
+        guard images.allSatisfy({ $0.data.count <= maximumFileDecodedBytes }) else {
+            throw GalleryUploadError.requestTooLarge("A gallery asset exceeds the 6 MB file limit.")
+        }
+        if requiresGIF {
+            guard let gif = images.first(where: { $0.filename == "session.gif" }),
+                  gif.mimeType == "image/gif",
+                  gif.data.count >= 6 else {
+                throw GalleryUploadError.requestTooLarge("A complete schema-v2 gallery requires session.gif.")
+            }
+        }
+        let decoded = images.reduce(0) { $0 + $1.data.count }
+        guard decoded <= maximumPreparedDecodedBytes else {
+            throw GalleryUploadError.requestTooLarge("Decoded gallery assets exceed the safe 5.5 MB render budget.")
+        }
+        let estimated = estimatedBase64JSONBytes(for: images)
+        guard estimated <= maximumRequestBytes, estimated <= maximumGalleryBase64Characters else {
+            throw GalleryUploadError.requestTooLarge("Estimated Base64 gallery data exceeds the 9 MB server limit.")
+        }
+    }
 }
 
 nonisolated struct GalleryPreparedUploadFileMetric: Codable, Equatable, Sendable, Identifiable {

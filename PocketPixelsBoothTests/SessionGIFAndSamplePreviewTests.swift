@@ -12,13 +12,43 @@ final class SessionGIFAndSamplePreviewTests: XCTestCase {
             XCTAssertLessThanOrEqual(data.count, SessionGIFRenderer.maximumByteCount)
             let source = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil))
             XCTAssertEqual(CGImageSourceGetCount(source), count)
-            let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
-            XCTAssertLessThanOrEqual(max(image.width, image.height), SessionGIFRenderer.maximumLongestSide)
-            let properties = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])
-            let gif = try XCTUnwrap(properties[kCGImagePropertyGIFDictionary] as? [CFString: Any])
-            let delay = try XCTUnwrap(gif[kCGImagePropertyGIFDelayTime] as? Double)
-            XCTAssertEqual(delay, SessionGIFRenderer.frameDelay, accuracy: 0.01)
+            let frames = try (0..<count).map { index in
+                try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, index, nil))
+            }
+            let dimensions = Set(frames.map { "\($0.width)x\($0.height)" })
+            XCTAssertEqual(dimensions.count, 1, "Every GIF frame must use the same canvas")
+            XCTAssertEqual(frames.first?.width, frames.first?.height)
+            XCTAssertLessThanOrEqual(frames.first?.width ?? .max, SessionGIFRenderer.maximumLongestSide)
+            for index in 0..<count {
+                let properties = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any])
+                let gif = try XCTUnwrap(properties[kCGImagePropertyGIFDictionary] as? [CFString: Any])
+                let delay = try XCTUnwrap(gif[kCGImagePropertyGIFDelayTime] as? Double)
+                XCTAssertEqual(delay, SessionGIFRenderer.frameDelay, accuracy: 0.01)
+            }
+            let containerProperties = try XCTUnwrap(CGImageSourceCopyProperties(source, nil) as? [CFString: Any])
+            let containerGIF = try XCTUnwrap(containerProperties[kCGImagePropertyGIFDictionary] as? [CFString: Any])
+            XCTAssertEqual(containerGIF[kCGImagePropertyGIFLoopCount] as? Int, 0)
         }
+    }
+
+    func testMixedPortraitLandscapeAndOrientedFramesUseOneWhiteCanvas() throws {
+        let portrait = photo(1)
+        let landscape = photo(2)
+        let rotated = UIImage(cgImage: try XCTUnwrap(landscape.cgImage), scale: 1, orientation: .right)
+        let data = try SessionGIFRenderer.render(images: [portrait, landscape, rotated])
+        let source = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil))
+        let frames = try (0..<3).map { try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, $0, nil)) }
+        XCTAssertTrue(frames.allSatisfy { $0.width == frames[0].width && $0.height == frames[0].height })
+        XCTAssertEqual(frames[0].width, frames[0].height)
+    }
+
+    func testGIFHonorsCallerByteBudgetAndRejectsAbsurdBudget() throws {
+        let images = (0..<6).map(photo)
+        let baseline = try SessionGIFRenderer.render(images: images)
+        let budget = max(GalleryPreparedUploadBudget.minimumGIFByteBudget, baseline.count)
+        let constrained = try SessionGIFRenderer.render(images: images, maximumByteCount: budget)
+        XCTAssertLessThanOrEqual(constrained.count, budget)
+        XCTAssertThrowsError(try SessionGIFRenderer.render(images: images, maximumByteCount: 1024))
     }
 
     func testGIFRejectsMissingFrames() {

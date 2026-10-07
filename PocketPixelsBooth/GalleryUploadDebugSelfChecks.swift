@@ -124,7 +124,8 @@ enum GalleryUploadDebugSelfChecks {
         guard request.photos.count == 4,
               request.galleryToken == galleryToken,
               request.photos.map(\.filename) == ["photo-01.jpg", "photo-02.jpg", "photo-03.jpg", "photo-04.jpg"],
-              request.receipt.filename == "receipt-color.jpg",
+              request.receipt == nil,
+              request.colorReceipt?.filename == "receipt-color.jpg",
               request.photos.allSatisfy({ $0.base64Data.data(using: .utf8)?.count ?? 0 > 0 }),
               GoogleDriveGalleryUploadService.validateNoDisallowedFields(in: request) else {
             throw GalleryUploadError.decoding("Payload self-check failed.")
@@ -160,7 +161,7 @@ enum GalleryUploadDebugSelfChecks {
               let jsonGalleryToken = jsonObject["galleryToken"] as? String,
               let jsonSessionID = jsonObject["sessionID"] as? String,
               let jsonPhotos = jsonObject["photos"] as? [[String: Any]],
-              let jsonReceipt = jsonObject["receipt"] as? [String: Any],
+              let jsonReceipt = jsonObject["colorReceipt"] as? [String: Any],
               jsonCreatedAt == request.createdAt,
               jsonGalleryToken == galleryToken,
               jsonGalleryToken.range(of: #"^[a-f0-9]{64}$"#, options: .regularExpression) != nil,
@@ -169,6 +170,7 @@ enum GalleryUploadDebugSelfChecks {
               jsonPhotos.count == 4,
               jsonPhotos.enumerated().allSatisfy({ index, photo in photo["filename"] as? String == String(format: "photo-%02d.jpg", index + 1) }),
               jsonReceipt["filename"] as? String == "receipt-color.jpg",
+              jsonObject["receipt"] == nil,
               !(jsonObject["createdAt"] is NSNumber) else {
             throw GalleryUploadError.decoding("Outbound JSON string self-check failed.")
         }
@@ -178,7 +180,8 @@ enum GalleryUploadDebugSelfChecks {
               decodedRequest.sessionID == request.sessionID,
               decodedRequest.createdAt == request.createdAt,
               decodedRequest.photos.map(\.filename) == request.photos.map(\.filename),
-              decodedRequest.receipt.filename == request.receipt.filename else {
+              decodedRequest.receipt == nil,
+              decodedRequest.colorReceipt?.filename == request.colorReceipt?.filename else {
             throw GalleryUploadError.decoding("Request JSON round-trip self-check failed.")
         }
 
@@ -578,7 +581,9 @@ enum GalleryUploadDebugSelfChecks {
 
     private static func requiredRequestKeysExist(in object: [String: Any]) -> Bool {
         let keys = Set(object.keys)
-        return keys.isSuperset(of: ["schemaVersion", "deviceToken", "galleryToken", "sessionID", "createdAt", "photos", "receipt"])
+        let common = ["schemaVersion", "deviceToken", "galleryToken", "sessionID", "createdAt", "photos"]
+        guard keys.isSuperset(of: common), let schemaVersion = object["schemaVersion"] as? Int else { return false }
+        return schemaVersion == 1 ? keys.contains("receipt") : keys.isSuperset(of: ["colorReceipt", "thermalReceipt", "gif"]) && !keys.contains("receipt")
     }
 
     private static func runLegacyPendingSelfCheck(payload: GalleryPreparedUploadPayload) throws {

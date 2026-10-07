@@ -653,7 +653,15 @@ final class PassportFormatTests: XCTestCase {
                 window.makeKeyAndVisible()
                 controller.view.frame = window.bounds
                 controller.view.layoutIfNeeded()
-                try await Task.sleep(for: .seconds(state == .passportPreview ? 2.5 : 1))
+                if state == .passportPreview {
+                    // Receipt composition competes with the full image-heavy production suite.
+                    // Wait for the actual readiness condition instead of a fixed wall-clock delay.
+                    for _ in 0..<40 where model.passportPreviewImage == nil {
+                        try await Task.sleep(for: .milliseconds(250))
+                    }
+                } else {
+                    try await Task.sleep(for: .seconds(1))
+                }
                 controller.view.layoutIfNeeded()
                 let image = UIGraphicsImageRenderer(size: size).image { _ in
                     controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true)

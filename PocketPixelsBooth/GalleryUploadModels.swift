@@ -20,13 +20,13 @@ struct GalleryUploadRequest: Codable, Sendable {
     let sessionID: String
     let createdAt: String
     let photos: [GalleryUploadImage]
-    let receipt: GalleryUploadImage
+    let receipt: GalleryUploadImage?
     let colorReceipt: GalleryUploadImage?
     let thermalReceipt: GalleryUploadImage?
     let gif: GalleryUploadImage?
 
     init(schemaVersion: Int, deviceToken: String, galleryToken: String, sessionID: String, createdAt: String,
-         photos: [GalleryUploadImage], receipt: GalleryUploadImage,
+         photos: [GalleryUploadImage], receipt: GalleryUploadImage? = nil,
          colorReceipt: GalleryUploadImage? = nil, thermalReceipt: GalleryUploadImage? = nil,
          gif: GalleryUploadImage? = nil) {
         self.schemaVersion = schemaVersion; self.deviceToken = deviceToken; self.galleryToken = galleryToken

@@ -34,6 +34,12 @@ enum OperatorPrintPolicy {
     }
 }
 
+enum SamplePrintPolicy {
+    static func canStart(hasPreview: Bool, printerBusy: Bool, recoveryLocked: Bool, unresolvedPrint: Bool, operationActive: Bool) -> Bool {
+        hasPreview && !printerBusy && !recoveryLocked && !unresolvedPrint && !operationActive
+    }
+}
+
 extension PrintAuditRecord.TerminalResult {
     var operatorTitle: String {
         switch self {
