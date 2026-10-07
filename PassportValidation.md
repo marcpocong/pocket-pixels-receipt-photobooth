@@ -1,74 +1,36 @@
-# Passport validation and device checks
+# Photo Pass and legacy Passport validation
 
-Passport is a two-photo novelty keepsake format. The receipt prints two stacked landscape passport-style cards. The upper card holds the title area and Photo 2, the wide 4:3 hero photo. The lower card holds Photo 1, a 3:4 portrait, plus the keepsake details and the signature. The existing QR/gallery footer follows the cards. The design avoids official-document elements: no emblems, no seals, no machine-readable zone and no document numbers. It uses "POCKET PASSPORT", "KEEPSAKE · NO EXPIRY" and "MEMORY PASS" wording.
+The stored `BoothFormat` raw value remains `.passport`. Visual compatibility is selected independently by `PassportDesignVersion`: new sessions freeze `.photoPassV2`, while an archive or recovery record with no `designVersion` decodes as `.legacyPassport`. That default is intentional: records created before design versioning existed must reproduce the receipt the customer originally received.
 
-## Flow
+Both designs use the production `ReceiptComposer`, the Core Graphics renderers, a fixed **576-dot (72 mm at 8 dots/mm)** receipt width, the same complete-receipt thermal raster path, print spooler, recovery snapshot, Recent Sessions archive, and reprint path.
 
-Choose Passport → Photo 1 (Passport Portrait) → Photo 2 (Hero Photo) → Review (each photo retakeable on its own) → Details → Signature → Passport Preview → Receipt → Print → Thank You.
+## Photo Pass V2
 
-The new `BoothSessionState` cases are `passportDetails`, `passportSignature` and `passportPreview`. Passport reuses the existing camera sequence, generation guards, receipt composition task, gallery upload, archive and print path. Passport can only commit from its preview. `continueToReceipt()` called from review is redirected to Details.
+Photo Pass V2 is the current customer experience and deterministic receipt geometry. Photo 1 is the portrait; Photo 2 is the wide hero image. The customer enters a name, may add a note, and may draw a signature. Date, Event, and Location are not customer-entered: they are populated from the `EventProfile` snapshot frozen when the session starts.
 
-## Receipt dimensions
+Flow: Choose Photo Pass → portrait → hero → Review → Details → Signature → Photo Pass Preview → Receipt → Print → Thank You. The WYSIWYG preview is the image produced by `ReceiptComposer`; printing uses the same composed receipt through `ThermalImageRasterizer.rasterize(..., purpose: .completeReceipt)`.
 
-The values below come from `ReceiptComposer` plans and composed receipts at 8 dots/mm. Raster width is **576 dots = 72 mm = 7.2 cm**, on 80 mm paper.
+The gallery uses a separately composed redacted receipt. It removes the name, note, signature, and all legacy personal fields before either digital receipt is made. `receipt-color.jpg` is encoded from that redacted composition. `receipt-bw.png` is the lossless 1-bit preview produced by thermal-rasterizing that same redacted composition—not by grayscaling the color JPEG. The session GIF contains only the two captured color photos, in portrait → hero order, and has no customer text metadata.
 
-| Configuration | Raster, dots | Length, mm | Length, cm |
-| --- | --- | --- | --- |
-| Default (Classic, sample details, QR) | 576 × 902 | 112.75 | 11.275 |
-| Default, no details entered, QR | 576 × 902 | 112.75 | 11.275 |
-| Default, metadata footer without QR | 576 × 737 | 92.125 | 9.2125 |
-| Maximum-length text in every field, birthplace and age, QR | 576 × 966 | 120.75 | 12.075 |
-| Event Mode (event name title, label, subtitle, date/location, message), QR | 576 × 930 | 116.25 | 11.625 |
-| Worst custom event: tall custom header at max scale/spacing, every event and Passport field at its limit (W characters), QR | 576 × 1008 | 126.0 | 12.6 |
-| Worst event-text configuration (same limits, event-name title), QR | 576 × 1008 | 126.0 | 12.6 |
+Current validation covers design-version decoding, deterministic geometry, portrait/hero placement, field limits, redaction, archive/reprint stability, receipt/raster regression, gallery queue persistence, and session isolation. On-device validation should still confirm crop appearance, QR readability, and VOZY G80 output.
 
-Every configuration stays far below the unchanged 3,500-dot safeguard. Raster length excludes extra paper from the printer's feed/cut commands, so measure real cut receipts before ordering sleeves.
+## Legacy Passport
 
-## Text limits
+Legacy Passport is retained exclusively for existing archives and recovery data. It is the former two-card novelty keepsake: the upper card contains the title and Photo 2 hero; the lower card contains Photo 1 portrait, legacy details, and signature. It avoids official-document elements and uses novelty wording such as “POCKET PASSPORT,” “KEEPSAKE · NO EXPIRY,” and “MEMORY PASS.”
 
-| Field | Limit |
-| --- | --- |
-| Name | 32 |
-| Nationality | 24 |
-| Profession | 32 |
-| Birthplace (optional) | 24 |
-| Passport title | 32 |
-| Subtitle | 48 |
-| Event label | 32 |
+Legacy fields include name, nationality, profession, optional birthplace/birthday-derived age, title, subtitle, event label, and signature. Historic limits remain part of compatibility testing: Name 32, Nationality 24, Profession 32, Birthplace 24, title 32, subtitle 48, and event label 32 visible characters. Whitespace/control-character normalization and emoji sequence handling are preserved.
 
-Whitespace is collapsed and control characters are removed. Emoji ZWJ sequences are preserved, and limits count visible characters. At maximum length with wide `W` characters, each value fits by shrinking or wrapping to two lines without truncation. The layout tests verify this for every theme.
+Useful legacy thermal fixtures include the default, no-details, maximum-text, event-mode, worst-event-text, worst-custom-header, and theme variants. Their historical heights ranged from 737 to 1,008 dots, safely below the unchanged 3,500-dot limit. These fixtures now live under `BuildArtifacts/LegacyPassport`; they must not be treated as Photo Pass V2 baselines.
 
-## Privacy
+Legacy gallery receipts remain privacy-redacted: no legacy personal field or signature is uploaded. Existing schema-v1 galleries (`photos`, `receipt-color.jpg`, `manifest.json`) and their original QR URLs remain readable. Old archives continue to invoke the legacy renderer and must not be silently upgraded to Photo Pass V2.
 
-- Passport details and the signature are stored only in the active session, in the committed recovery snapshot and in the local Recent Sessions archive (needed for reprints). In-progress drafts are never written to disk.
-- When the session is committed, the age is frozen and the birth year is dropped.
-- The gallery still receives both photos (`photo-01.jpg`, `photo-02.jpg`). Its `receipt-color.jpg` is a separately composed, redacted Passport receipt: photos and branding only, with blank fields and no signature. Tests verify that the upload request metadata contains none of the entered values.
-- No backend change was needed: two photos are inside the existing 1–6 limit.
+## Thermal and physical validation
 
-## Validation
+- Confirm every composed receipt is exactly 576 dots wide and below the height safeguard.
+- Validate raster command dimensions/data length and sanitizer output before transport.
+- Scan QR codes from both the color receipt and actual 1-bit thermal output.
+- On a real iPad, verify portrait/hero crops, Photos import orientation, keyboard, finger/Pencil signature, retakes, and state clearing between customers.
+- On a VOZY G80, print one and multiple copies, verify face detail, text, feed/cut behavior, BLE/Wi-Fi recovery, and archived reprints after changing the active event.
+- Verify the operator Sample Print has no fake preview QR and creates no gallery, archive, recovery snapshot, or customer counter change.
 
-- `xcodebuild -list` lists scheme `PocketPixelsBooth`.
-- The app build and build-for-testing succeeded with no new warnings.
-- The full `PocketPixelsBoothTests` suite passed on the iPad Pro 11-inch (M5) simulator, iOS 26.5: **103 tests passed, 0 failed** (80 existing and 23 new in `PassportFormatTests`). The 1,000-session contamination test passed unchanged.
-- The run used `-parallel-testing-enabled NO`. Parallel simulator clones filled the disk during an earlier attempt.
-- Customer screens (format selection, review, details, signature, preview) were rendered at 834 × 1194 and 1194 × 834 and visually inspected. Color and 1-bit thermal receipts for every theme and the dimension fixtures were inspected too. The QR code decodes from both.
-
-### Pre-existing bug fixed
-
-`CameraService.deinit` dispatched `stopSession()`, whose closure retained `self` after deallocation. The result was an intermittent `EXC_BAD_ACCESS` whenever a view model was released (it was seen in tests). `deinit` now captures only the capture session.
-
-## Not validated
-
-No physical iPad camera, Apple Pencil, keyboard or VOZY G80 validation was performed.
-
-## Manual iPad / VOZY G80 checklist
-
-- Choose Passport. Capture Photo 1 (portrait guide) and Photo 2 (landscape guide). Retake each photo and confirm the other photo is unchanged.
-- Enter details. Skip the birthday, then enter a birthday with and without a year (age appears only with a year). Check that the keyboard never hides Continue, that Next/Previous/Done work and that Hide Keyboard works.
-- Sign with a finger and with Apple Pencil. Use Undo and Clear, sign again, and continue without a signature.
-- On the preview, go Back to Details, edit, return, use Redo Signature, then Continue.
-- Inspect the full receipt. Scan the QR and confirm the gallery has both photos and a redacted receipt.
-- Print one copy and multiple copies. Check face recognizability, the border and stamp lines, the label legibility and the cut length.
-- In Event Mode, test each Passport Title Area option, the custom header graphic, Event Text Block on and off, and every theme. Check the Event Setup preview with Passport selected.
-- Archive a session, change the active event and theme, then reprint the old Passport. Its name, signature, photos and theme must be unchanged.
-- Start a new customer and confirm the previous details and signature are gone.
+No document should claim physical iPad or VOZY G80 qualification until those checks have actually been performed.

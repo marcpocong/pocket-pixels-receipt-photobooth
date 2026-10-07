@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import PhotosUI
 import SwiftUI
 
 nonisolated struct EventProfile: Codable, Equatable, Sendable {
@@ -606,7 +607,13 @@ private extension String {
 struct EventReceiptComposerPreview: View {
     let profile: EventProfile
 
+    @StateObject private var printer = PrinterCoordinator.shared
+    @AppStorage("printerIP") private var printerIP = BoothConfiguration.defaultPrinterIP
+    @AppStorage("printerPort") private var printerPort = BoothConfiguration.defaultPrinterPort
     @State private var selectedFormat: BoothFormat = .duo
+    @State private var pickerItems: [PhotosPickerItem] = []
+    @State private var importedPhotos: [UIImage] = []
+    @State private var sampleStatus: String?
     @State private var previewImage: UIImage?
     @State private var previewReceipt: ComposedReceipt?
     @State private var previewError: String?
@@ -621,6 +628,27 @@ struct EventReceiptComposerPreview: View {
                 }
             }
             .pickerStyle(.segmented)
+
+            HStack {
+                PhotosPicker(selection: $pickerItems, maxSelectionCount: 6, matching: .images) {
+                    Label("Import Sample Photos", systemImage: "photo.on.rectangle.angled")
+                }
+                .buttonStyle(.bordered)
+                if !importedPhotos.isEmpty {
+                    Button("Clear Imported Photos") {
+                        importedPhotos = []
+                        pickerItems = []
+                        sampleStatus = nil
+                        scheduleRender()
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            if !importedPhotos.isEmpty {
+                Text("\(importedPhotos.count) sample \(importedPhotos.count == 1 ? "photo" : "photos") imported")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             ScrollView(.vertical) {
                 if let previewImage {
@@ -654,6 +682,18 @@ struct EventReceiptComposerPreview: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Button {
+                printSampleReceipt()
+            } label: {
+                Label("Print Sample Receipt", systemImage: "printer.fill")
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(previewReceipt == nil || printer.isWorking || printer.requiresRecovery)
+
+            if let sampleStatus {
+                Text(sampleStatus).font(.caption).foregroundStyle(.secondary)
+            }
         }
         .onAppear {
             scheduleRender()
@@ -664,6 +704,7 @@ struct EventReceiptComposerPreview: View {
         .onChange(of: selectedFormat) { _, _ in
             scheduleRender()
         }
+        .onChange(of: pickerItems) { _, items in importPhotos(items) }
         .onDisappear {
             renderTask?.cancel()
         }
@@ -687,7 +728,7 @@ struct EventReceiptComposerPreview: View {
             }
 
             do {
-                let receipt = try await Self.makePreviewReceipt(profile: profile, format: format)
+                let receipt = try await Self.makePreviewReceipt(profile: profile, format: format, importedPhotos: importedPhotos)
                 guard let image = UIImage(data: receipt.imagePNGData) else {
                     throw ReceiptComposerError.renderFailed
                 }
@@ -711,7 +752,7 @@ struct EventReceiptComposerPreview: View {
     }
 
     /// Composes a sample receipt in memory only. It never touches the print spooler, audit, archive or gallery queue.
-    nonisolated static func makePreviewReceipt(profile: EventProfile, format: BoothFormat) async throws -> ComposedReceipt {
+    nonisolated static func makePreviewReceipt(profile: EventProfile, format: BoothFormat, importedPhotos: [UIImage] = []) async throws -> ComposedReceipt {
         let worker = Task.detached(priority: .utility) {
             try Task.checkCancellation()
             guard let galleryURL = URL(string: "https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/?g=event-preview") else {
@@ -720,7 +761,7 @@ struct EventReceiptComposerPreview: View {
 
             let date = previewDate
             return try ReceiptComposer.compose(
-                photos: makeSamplePhotos(count: format.photoCount),
+                photos: samplePhotos(importedPhotos: importedPhotos, count: format.photoCount),
                 sessionIdentifier: "PP-20260907-192104",
                 date: date,
                 galleryURL: galleryURL,
@@ -736,6 +777,79 @@ struct EventReceiptComposerPreview: View {
         } onCancel: {
             worker.cancel()
         }
+    }
+
+    nonisolated static func samplePhotos(importedPhotos: [UIImage], count: Int) -> [UIImage] {
+        guard !importedPhotos.isEmpty else { return makeSamplePhotos(count: count) }
+        return (0..<count).map { importedPhotos[$0 % importedPhotos.count] }
+    }
+
+    private func importPhotos(_ items: [PhotosPickerItem]) {
+        Task {
+            var decoded: [UIImage] = []
+            for item in items.prefix(6) {
+                if let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) {
+                    decoded.append(image.normalizedForGalleryUpload().resizedForGalleryUpload(maxLongestSide: 1_600))
+                }
+            }
+            importedPhotos = decoded
+            sampleStatus = decoded.isEmpty ? "No sample photos could be imported." : nil
+            scheduleRender()
+        }
+    }
+
+    private func printSampleReceipt() {
+        guard previewReceipt != nil, !printer.isWorking, !printer.requiresRecovery else {
+            sampleStatus = "Printer needs attention."
+            return
+        }
+        sampleStatus = "Preparing sample..."
+        Task {
+            do {
+                let receipt = try await Self.makePhysicalSampleReceipt(
+                    profile: profile.normalized(), format: selectedFormat, importedPhotos: importedPhotos
+                )
+                guard let image = UIImage(data: receipt.imagePNGData) else { throw ReceiptComposerError.renderFailed }
+                let raster = try await Task.detached(priority: .userInitiated) {
+                    try ThermalImageRasterizer.rasterize(image, purpose: .completeReceipt)
+                }.value
+                sampleStatus = "Printing sample..."
+                printer.printReceipt(
+                    rasterizedImage: raster,
+                    wifiHost: printerIP,
+                    wifiPort: UInt16(printerPort.trimmingCharacters(in: .whitespacesAndNewlines)),
+                    sessionIdentifier: "operator-sample",
+                    source: .operatorSample
+                ) { result in
+                    switch result {
+                    case .success: sampleStatus = "Sample printed."
+                    case .failure: sampleStatus = "Printer needs attention."
+                    }
+                }
+            } catch {
+                sampleStatus = "Printer needs attention."
+            }
+        }
+    }
+
+    nonisolated static func makePhysicalSampleReceipt(
+        profile: EventProfile,
+        format: BoothFormat,
+        importedPhotos: [UIImage]
+    ) async throws -> ComposedReceipt {
+        try await Task.detached(priority: .utility) {
+            try ReceiptComposer.compose(
+                photos: samplePhotos(importedPhotos: importedPhotos, count: format.photoCount),
+                sessionIdentifier: "operator-sample",
+                date: previewDate,
+                galleryURL: nil,
+                format: format,
+                eventProfile: profile.activeReceiptSnapshot,
+                passport: format == .passport
+                    ? .operatorPreviewSample(configuration: PassportConfiguration.effective(for: profile))
+                    : nil
+            )
+        }.value
     }
 
     nonisolated private static func makeSamplePhotos(count: Int) -> [UIImage] {

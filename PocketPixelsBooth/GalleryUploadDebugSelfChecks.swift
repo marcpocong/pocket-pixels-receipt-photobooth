@@ -139,7 +139,12 @@ enum GalleryUploadDebugSelfChecks {
             customerGalleryBaseURL: customerGalleryBaseURL
         )
 
-        guard payload.metrics.files.count == 5,
+        guard payload.schemaVersion == 2,
+              payload.metrics.files.count == 7,
+              payload.thermalReceipt?.filename == "receipt-bw.png",
+              payload.thermalReceipt?.mimeType == "image/png",
+              payload.gif?.filename == "session.gif",
+              payload.gif?.mimeType == "image/gif",
               payload.galleryToken == galleryToken,
               payload.galleryURL == galleryURL,
               payload.metrics.files.allSatisfy({ $0.decodedBytes <= GalleryPreparedUploadMetrics.maxFileDecodedBytes }),
@@ -190,12 +195,12 @@ enum GalleryUploadDebugSelfChecks {
         }
 
         let responseJSON = """
-        {"ok":true,"schemaVersion":1,"galleryToken":"\(galleryToken)","galleryURL":"\(galleryURL.absoluteString)","fileCount":6,"status":"existingComplete"}
+        {"ok":true,"schemaVersion":2,"galleryToken":"\(galleryToken)","galleryURL":"\(galleryURL.absoluteString)","fileCount":8,"status":"existingComplete"}
         """
         let response = try JSONDecoder().decode(GalleryUploadResponse.self, from: Data(responseJSON.utf8))
         guard response.ok,
               response.galleryToken == galleryToken,
-              response.fileCount == 6,
+              response.fileCount == 8,
               GalleryUploadResultStatus(serverStatus: response.status) == .existingComplete,
               GoogleDriveGalleryUploadService.validateSuccessfulResponse(
                 response,

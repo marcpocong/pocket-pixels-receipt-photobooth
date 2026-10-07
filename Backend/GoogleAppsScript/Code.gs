@@ -1,4 +1,4 @@
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const ROOT_FOLDER_ID_PROPERTY = 'POCKET_PIXELS_ROOT_FOLDER_ID';
 
@@ -21,6 +21,8 @@ const SAFE_SESSION_ID_PATTERN = /^PP-[0-9]{8}-[0-9]{6}$/;
 const RFC3339_UTC_SECONDS_PATTERN = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/;
 
 const RECEIPT_FILENAME = 'receipt-color.jpg';
+const THERMAL_RECEIPT_FILENAME = 'receipt-bw.png';
+const GIF_FILENAME = 'session.gif';
 
 const MANIFEST_FILENAME = 'manifest.json';
 
@@ -102,7 +104,7 @@ function doPost(e) {
     stage = 'MAKE_SUCCESS_RESPONSE';
     return jsonResponse(200, {
       ok: true,
-      schemaVersion: SCHEMA_VERSION,
+      schemaVersion: body.schemaVersion,
       galleryToken: body.galleryToken,
       galleryURL: makeGalleryURL_(body.galleryToken),
       fileCount: result.fileCount,
@@ -292,7 +294,7 @@ function runPocketPixelsSelfTest() {
 
   const manifest = makeCompleteManifest_(validPayload);
 
-  assert_(Object.keys(manifest).join(',') === 'schemaVersion,galleryToken,sessionID,createdAt,photos,receipt,status', 'Manifest keys changed.');
+  assert_(Object.keys(manifest).join(',') === 'schemaVersion,galleryToken,sessionID,createdAt,photos,colorReceipt,thermalReceipt,gif,status', 'Manifest keys changed.');
 
   assert_(Object.keys(manifest).indexOf('deviceToken') === -1, 'Manifest must not include device token.');
 
@@ -332,7 +334,7 @@ function runPhase6CBackendSelfChecks() {
 
   const wrongSchema = JSON.parse(JSON.stringify(validPayload));
 
-  wrongSchema.schemaVersion = 2;
+  wrongSchema.schemaVersion = 3;
 
   assertValidationCode_(wrongSchema, 'INVALID_SCHEMA_VERSION');
 
@@ -484,7 +486,7 @@ function getGalleryImage(token, filename) {
 
   }
 
-  if (expectedFilenames_(MAX_PHOTO_COUNT).indexOf(String(filename || '')) === -1) {
+  if (expectedFilenames_(MAX_PHOTO_COUNT, 2).indexOf(String(filename || '')) === -1) {
 
     throw new Error('Image not found.');
 
@@ -582,7 +584,7 @@ function validateUploadPayload_(body) {
 
   }
 
-  if (body.schemaVersion !== SCHEMA_VERSION) {
+  if (body.schemaVersion !== 1 && body.schemaVersion !== 2) {
 
     return validationError_('INVALID_SCHEMA_VERSION', 'Unsupported schema version.', 'schemaVersion');
 
@@ -661,7 +663,17 @@ function validateUploadPayload_(body) {
 
   }
 
-  validatedImages.push(receiptError.image);
+  if (body.schemaVersion === 1) validatedImages.push(receiptError.image);
+
+  if (body.schemaVersion === 2) {
+    const colorError = validateImage_(body.colorReceipt, RECEIPT_FILENAME, 'colorReceipt', 'image/jpeg');
+    if (!colorError.ok) return colorError;
+    const thermalError = validateImage_(body.thermalReceipt, THERMAL_RECEIPT_FILENAME, 'thermalReceipt', 'image/png');
+    if (!thermalError.ok) return thermalError;
+    const gifError = validateImage_(body.gif, GIF_FILENAME, 'gif', 'image/gif');
+    if (!gifError.ok) return gifError;
+    validatedImages.push(colorError.image, thermalError.image, gifError.image);
+  }
 
   Object.defineProperty(body, '_validatedImages', {
 
@@ -691,7 +703,9 @@ function validateUploadPayload_(body) {
 
 }
 
-function validateImage_(image, expectedFilename, field) {
+function validateImage_(image, expectedFilename, field, expectedMimeType) {
+
+  expectedMimeType = expectedMimeType || 'image/jpeg';
 
   if (!image || typeof image !== 'object') {
 
@@ -711,7 +725,7 @@ function validateImage_(image, expectedFilename, field) {
 
   }
 
-  if (image.mimeType !== 'image/jpeg') {
+  if (image.mimeType !== expectedMimeType) {
 
     return validationError_(field === 'receipt' ? 'INVALID_RECEIPT' : 'INVALID_PHOTO_MIME_TYPE', 'Unsupported image MIME type.', field + '.mimeType');
 
@@ -747,7 +761,10 @@ function validateImage_(image, expectedFilename, field) {
 
   }
 
-  if (!hasJpegSignature_(bytes)) {
+  const signatureOK = expectedMimeType === 'image/jpeg' ? hasJpegSignature_(bytes) :
+    expectedMimeType === 'image/png' ? hasPngSignature_(bytes) : hasGifSignature_(bytes);
+
+  if (!signatureOK) {
 
     return validationError_(field === 'receipt' ? 'INVALID_RECEIPT' : 'INVALID_PHOTO_BASE64', 'Image data is not JPEG.', field + '.base64Data');
 
@@ -774,7 +791,7 @@ function validateImage_(image, expectedFilename, field) {
 function createOrReturnGallery_(root, body) {
 
   const folderName = 'gallery-' + body.galleryToken;
-  const expected = expectedFilenames_(body.photos.length);
+  const expected = expectedFilenames_(body.photos.length, body.schemaVersion);
   const expectedFileCount = expected.length + 1;
 
   const folders = collectFoldersByName_(root, folderName);
@@ -905,7 +922,9 @@ function createOrReturnGallery_(root, body) {
 
 function saveExpectedImages_(folder, body, existingCounts) {
 
-  const images = body.photos.concat([body.receipt]);
+  const images = body.schemaVersion === 2
+    ? body.photos.concat([body.colorReceipt, body.thermalReceipt, body.gif])
+    : body.photos.concat([body.receipt]);
 
   const validatedImages = body._validatedImages || [];
 
@@ -1078,7 +1097,12 @@ function manifestHasExpectedFiles_(manifest, expectedPhotoCount) {
   const count = Number(expectedPhotoCount || (Array.isArray(manifest.photos) ? manifest.photos.length : 0));
   const photoFilenames = expectedPhotoFilenames_(count);
 
-  return manifest.schemaVersion === SCHEMA_VERSION &&
+  const rolesOK = manifest.schemaVersion === 1
+    ? manifest.receipt === RECEIPT_FILENAME
+    : manifest.schemaVersion === 2 && manifest.colorReceipt === RECEIPT_FILENAME &&
+      manifest.thermalReceipt === THERMAL_RECEIPT_FILENAME && manifest.gif === GIF_FILENAME;
+
+  return rolesOK &&
 
     GALLERY_TOKEN_PATTERN.test(String(manifest.galleryToken || '')) &&
 
@@ -1096,9 +1120,7 @@ function manifestHasExpectedFiles_(manifest, expectedPhotoCount) {
 
     manifest.photos.join('|') === photoFilenames.join('|') &&
 
-    manifest.receipt === RECEIPT_FILENAME &&
-
-    Object.keys(manifest).join(',') === 'schemaVersion,galleryToken,sessionID,createdAt,photos,receipt,status';
+    manifest.status === 'complete';
 
 }
 
@@ -1141,7 +1163,7 @@ function findCompleteGalleryByToken_(token, timings) {
 
   const inspectionStartedAt = Date.now();
 
-  const inspection = inspectGalleryFolder_(folder, expectedFilenames_(MAX_PHOTO_COUNT));
+  const inspection = inspectGalleryFolder_(folder, expectedFilenames_(MAX_PHOTO_COUNT, 2));
 
   if (timings) {
 
@@ -1181,7 +1203,7 @@ function findCompleteGalleryByToken_(token, timings) {
 
   }
 
-  const expected = expectedFilenames_(manifest.photos.length);
+  const expected = expectedFilenames_(manifest.photos.length, manifest.schemaVersion);
   const exactInspection = inspectGalleryFolder_(folder, expected);
 
   if (!exactInspection.safe || !hasExactlyExpectedImages_(exactInspection, expected) || exactInspection.manifests.length !== 1) {
@@ -1236,7 +1258,7 @@ function findCompleteGalleryByNameFallback_(root, token, timings) {
   }
 
   const folder = folders[0];
-  const inspection = inspectGalleryFolder_(folder, expectedFilenames_(MAX_PHOTO_COUNT));
+  const inspection = inspectGalleryFolder_(folder, expectedFilenames_(MAX_PHOTO_COUNT, 2));
   if (!inspection.safe || inspection.manifests.length !== 1) {
     return null;
   }
@@ -1246,7 +1268,7 @@ function findCompleteGalleryByNameFallback_(root, token, timings) {
     return null;
   }
 
-  const expected = expectedFilenames_(manifest.photos.length);
+  const expected = expectedFilenames_(manifest.photos.length, manifest.schemaVersion);
   const exactInspection = inspectGalleryFolder_(folder, expected);
   if (!exactInspection.safe || !hasExactlyExpectedImages_(exactInspection, expected) || exactInspection.manifests.length !== 1) {
     return null;
@@ -1331,7 +1353,9 @@ function renderGalleryPage_(gallery, timings, startedAt) {
 
     photos: assets.photos,
 
-    receipt: assets.receipt
+    receipt: assets.receipt,
+    thermalReceipt: assets.thermalReceipt,
+    gif: assets.gif
 
   }).replace(/</g, '\\u003c');
 
@@ -1358,7 +1382,9 @@ function renderGalleryPage_(gallery, timings, startedAt) {
 
   body += '</section>';
 
-  body += '<section class="receipt-section"><div class="section-heading"><p>Receipt Copy</p></div><article class="receipt-item"><button type="button" class="image-button" data-open="' + assets.receipt.filename + '" aria-label="View receipt larger"><div class="image-placeholder receipt-placeholder" id="placeholder-' + assets.receipt.filename + '">getting receipt ready...</div><img hidden decoding="async" loading="lazy" id="image-' + assets.receipt.filename + '" alt="Pocket Pixels receipt preview"></button><div class="photo-actions"><span>Receipt</span><div><button type="button" data-download="' + assets.receipt.filename + '">Save Receipt</button><button type="button" class="secondary" data-share="' + assets.receipt.filename + '">Share</button></div></div></article></section>';
+  if (assets.gif) body += '<section class="receipt-section"><div class="section-heading"><p>Your GIF</p></div><article class="receipt-item"><button type="button" class="image-button" data-open="' + assets.gif.filename + '" aria-label="View GIF larger"><img decoding="async" loading="lazy" id="image-' + assets.gif.filename + '" alt="Animated Pocket Pixels session GIF"></button><div class="photo-actions"><span>Your GIF</span><div><button type="button" data-download="' + assets.gif.filename + '">Save GIF</button><button type="button" class="secondary" data-share="' + assets.gif.filename + '">Share</button></div></div></article></section>';
+
+  body += '<section class="receipt-section"><div class="section-heading"><p>Receipt Copy</p></div><div class="receipt-grid"><article class="receipt-item"><button type="button" class="image-button" data-open="' + assets.receipt.filename + '" aria-label="View color receipt larger"><div class="image-placeholder receipt-placeholder" id="placeholder-' + assets.receipt.filename + '">getting receipt ready...</div><img hidden decoding="async" loading="lazy" id="image-' + assets.receipt.filename + '" alt="Pocket Pixels color receipt"></button><div class="photo-actions"><span>Color Receipt</span><div><button type="button" data-download="' + assets.receipt.filename + '">Save Receipt</button><button type="button" class="secondary" data-share="' + assets.receipt.filename + '">Share</button></div></div></article>' + (assets.thermalReceipt ? '<article class="receipt-item"><button type="button" class="image-button" data-open="' + assets.thermalReceipt.filename + '" aria-label="View thermal receipt larger"><div class="image-placeholder receipt-placeholder" id="placeholder-' + assets.thermalReceipt.filename + '">getting receipt ready...</div><img hidden decoding="async" loading="lazy" id="image-' + assets.thermalReceipt.filename + '" alt="Pocket Pixels thermal receipt"></button><div class="photo-actions"><span>Thermal Receipt</span><div><button type="button" data-download="' + assets.thermalReceipt.filename + '">Save Receipt</button><button type="button" class="secondary" data-share="' + assets.thermalReceipt.filename + '">Share</button></div></div></article>' : '') + '</div></section>';
 
   body += '<section class="session-note"><p>' + escapeHTML(createdAt) + '</p><p>' + escapeHTML(reference) + '</p></section>';
 
@@ -1436,7 +1462,9 @@ function loadGalleryAssets_(filesByName, manifest) {
 
     photos: photos,
 
-    receipt: loadGalleryAsset_(filesByName, manifest.receipt)
+    receipt: loadGalleryAsset_(filesByName, manifest.schemaVersion === 2 ? manifest.colorReceipt : manifest.receipt),
+    thermalReceipt: manifest.schemaVersion === 2 ? loadGalleryAsset_(filesByName, manifest.thermalReceipt) : null,
+    gif: manifest.schemaVersion === 2 ? loadGalleryAsset_(filesByName, manifest.gif) : null
 
   };
 
@@ -1458,7 +1486,7 @@ function loadGalleryAsset_(filesByName, filename) {
 
     filename: filename,
 
-    mimeType: 'image/jpeg',
+    mimeType: filename.endsWith('.png') ? 'image/png' : (filename.endsWith('.gif') ? 'image/gif' : 'image/jpeg'),
 
     base64Data: Utilities.base64Encode(blob.getBytes())
 
@@ -1468,7 +1496,7 @@ function loadGalleryAsset_(filesByName, filename) {
 
 function validateGalleryRenderSize_(assets) {
 
-  const items = assets.photos.concat([assets.receipt]);
+  const items = assets.photos.concat([assets.receipt, assets.thermalReceipt, assets.gif].filter(Boolean));
 
   let base64Chars = 0;
 
@@ -1558,7 +1586,7 @@ function galleryCSS_() {
 
     '.photo-grid{display:grid;grid-template-columns:1fr;gap:22px;}.photo-item,.receipt-item{display:grid;gap:10px;}.image-button{display:block;width:100%;min-height:0;padding:0;border:0;border-radius:10px;background:transparent;color:inherit;box-shadow:0 16px 32px rgba(42,32,32,.08);overflow:hidden;text-align:inherit;}img{display:block;width:100%;height:auto;background:var(--paper-warm);border-radius:10px;}.image-placeholder{min-height:245px;display:grid;place-items:center;background:var(--paper-warm);color:var(--muted);font-weight:800;border:1px solid var(--line);border-radius:10px;}.photo-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 2px;}.photo-actions span{font-size:14px;font-weight:800;color:var(--muted);}.photo-actions div{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;}.photo-actions button{min-height:40px;padding:9px 12px;font-size:14px;}',
 
-    '.receipt-section{margin-top:34px;padding-top:6px;}.receipt-item{max-width:430px;margin:0 auto;}.receipt-placeholder{min-height:360px;}.receipt-item img{max-height:560px;object-fit:contain;}',
+    '.receipt-section{margin-top:34px;padding-top:6px;}.receipt-grid{display:grid;grid-template-columns:1fr;gap:22px}.receipt-item{max-width:430px;margin:0 auto;width:100%}.receipt-placeholder{min-height:360px;}.receipt-item img{max-height:560px;object-fit:contain;}',
 
     '.session-note{margin:34px auto 0;display:grid;gap:3px;text-align:center;font-size:13px;color:var(--muted);}.session-note p:last-child{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#8f7771;}footer{margin-top:30px;padding-top:22px;border-top:1px solid var(--line);display:grid;justify-items:center;gap:5px;text-align:center;color:var(--muted);}.footer-mark{width:30px;height:30px;object-fit:contain;background:transparent;border-radius:0;margin-bottom:2px;}footer strong{font-family:Georgia,\"Times New Roman\",serif;font-size:24px;font-weight:400;color:var(--accent-dark);}footer a{color:var(--accent);font-weight:800;text-decoration:none;}footer span{font-size:13px;text-transform:uppercase;letter-spacing:.12em;font-weight:900;}',
 
@@ -1580,7 +1608,7 @@ function galleryClientScript_() {
 
   return [
 
-    'const startedAt=performance.now();const files=[...galleryData.photos,galleryData.receipt];const assetMap=new Map(files.map(function(item){return [item.filename,item];}));const realFileCache=new Map();let activeLightboxURL=\"\";let activeLightboxItem=null;',
+    'const startedAt=performance.now();const files=[...galleryData.photos,galleryData.gif,galleryData.receipt,galleryData.thermalReceipt].filter(Boolean);const assetMap=new Map(files.map(function(item){return [item.filename,item];}));const realFileCache=new Map();let activeLightboxURL=\"\";let activeLightboxItem=null;',
 
     'const message=document.getElementById(\"message\");',
 
@@ -1627,10 +1655,8 @@ function galleryClientScript_() {
 }
 
 function makeCompleteManifest_(body) {
-
-  return {
-
-    schemaVersion: SCHEMA_VERSION,
+  if (body.schemaVersion === 1) return {
+    schemaVersion: 1,
 
     galleryToken: body.galleryToken,
 
@@ -1644,6 +1670,18 @@ function makeCompleteManifest_(body) {
 
     status: 'complete'
 
+  };
+
+  return {
+    schemaVersion: 2,
+    galleryToken: body.galleryToken,
+    sessionID: body.sessionID,
+    createdAt: body.createdAt,
+    photos: body._expectedPhotoFilenames || expectedPhotoFilenames_(body.photos.length),
+    colorReceipt: RECEIPT_FILENAME,
+    thermalReceipt: THERMAL_RECEIPT_FILENAME,
+    gif: GIF_FILENAME,
+    status: 'complete'
   };
 
 }
@@ -1803,9 +1841,11 @@ function expectedPhotoFilenames_(photoCount) {
 
 }
 
-function expectedFilenames_(photoCount) {
+function expectedFilenames_(photoCount, schemaVersion) {
 
-  return expectedPhotoFilenames_(photoCount).concat([RECEIPT_FILENAME]);
+  return expectedPhotoFilenames_(photoCount).concat(schemaVersion === 2
+    ? [RECEIPT_FILENAME, THERMAL_RECEIPT_FILENAME, GIF_FILENAME]
+    : [RECEIPT_FILENAME]);
 
 }
 
@@ -1841,6 +1881,19 @@ function hasJpegSignature_(bytes) {
 
     normalizeByte_(bytes[2]) === 0xff;
 
+}
+
+function hasPngSignature_(bytes) {
+  const expected = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  return bytes.length >= expected.length && expected.every(function(value, index) {
+    return normalizeByte_(bytes[index]) === value;
+  });
+}
+
+function hasGifSignature_(bytes) {
+  if (bytes.length < 6) return false;
+  const signature = bytes.slice(0, 6).map(function(value) { return String.fromCharCode(normalizeByte_(value)); }).join('');
+  return signature === 'GIF87a' || signature === 'GIF89a';
 }
 
 function normalizeByte_(byteValue) {
@@ -2141,7 +2194,10 @@ function makeSelfTestPayload_(photoCount) {
 
     photos: photos,
 
-    receipt: { filename: 'receipt-color.jpg', mimeType: 'image/jpeg', base64Data: '/9j/4AAQSkZJRg==' }
+    receipt: { filename: 'receipt-color.jpg', mimeType: 'image/jpeg', base64Data: '/9j/4AAQSkZJRg==' },
+    colorReceipt: { filename: 'receipt-color.jpg', mimeType: 'image/jpeg', base64Data: '/9j/4AAQSkZJRg==' },
+    thermalReceipt: { filename: 'receipt-bw.png', mimeType: 'image/png', base64Data: 'iVBORw0KGgo=' },
+    gif: { filename: 'session.gif', mimeType: 'image/gif', base64Data: 'R0lGODlh' }
 
   };
 

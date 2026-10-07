@@ -9,6 +9,7 @@ import Foundation
 enum PrintJobSource: String, Codable, Sendable, CaseIterable {
     case liveCustomer
     case archivedReprint
+    case operatorSample
     case diagnostic
 
     var displayName: String {
@@ -17,6 +18,8 @@ enum PrintJobSource: String, Codable, Sendable, CaseIterable {
             "Live Customer"
         case .archivedReprint:
             "Archived Reprint"
+        case .operatorSample:
+            "Operator Sample"
         case .diagnostic:
             "Diagnostic"
         }

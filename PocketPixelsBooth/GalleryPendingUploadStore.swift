@@ -56,7 +56,9 @@ struct GalleryPendingUploadStore: Sendable {
             sessionID: payload.sessionID,
             createdAt: payload.createdAt,
             photoFilenames: payload.photos.map(\.filename),
-            receiptFilename: payload.receipt.filename,
+            receiptFilename: payload.colorReceipt.filename,
+            thermalReceiptFilename: payload.thermalReceipt?.filename,
+            gifFilename: payload.gif?.filename,
             metrics: payload.metrics,
             deliveryState: payload.deliveryState,
             retryAttemptCount: existingRetryAttemptCount(for: payload.galleryToken),
@@ -79,7 +81,7 @@ struct GalleryPendingUploadStore: Sendable {
         try applyStorageAttributes(to: stagingURL)
 
         do {
-            for image in payload.photos + [payload.receipt] {
+            for image in payload.photos + [payload.colorReceipt] + [payload.thermalReceipt, payload.gif].compactMap({ $0 }) {
                 try image.data.write(to: stagingURL.appendingPathComponent(image.filename), options: .atomic)
             }
 
@@ -119,6 +121,8 @@ struct GalleryPendingUploadStore: Sendable {
             try loadImage(filename: filename, from: baseURL)
         }
         let receipt = try loadImage(filename: metadata.receiptFilename, from: baseURL)
+        let thermalReceipt = try metadata.thermalReceiptFilename.map { try loadImage(filename: $0, from: baseURL) }
+        let gif = try metadata.gifFilename.map { try loadImage(filename: $0, from: baseURL) }
 
         return GalleryPreparedUploadPayload(
             schemaVersion: metadata.schemaVersion,
@@ -127,7 +131,9 @@ struct GalleryPendingUploadStore: Sendable {
             sessionID: metadata.sessionID,
             createdAt: metadata.createdAt,
             photos: photos,
-            receipt: receipt,
+            colorReceipt: receipt,
+            thermalReceipt: thermalReceipt,
+            gif: gif,
             metrics: metadata.metrics,
             deliveryState: metadata.deliveryState
         )
@@ -171,7 +177,9 @@ struct GalleryPendingUploadStore: Sendable {
             sessionID: payload.sessionID,
             createdAt: payload.createdAt,
             photos: payload.photos,
-            receipt: payload.receipt,
+            colorReceipt: payload.colorReceipt,
+            thermalReceipt: payload.thermalReceipt,
+            gif: payload.gif,
             metrics: payload.metrics,
             deliveryState: deliveryState
         )
@@ -241,7 +249,8 @@ struct GalleryPendingUploadStore: Sendable {
 
     private func loadImage(filename: String, from baseURL: URL) throws -> GalleryStoredUploadImage {
         let data = try Data(contentsOf: baseURL.appendingPathComponent(filename))
-        return GalleryStoredUploadImage(filename: filename, mimeType: "image/jpeg", data: data)
+        let mimeType = filename.hasSuffix(".png") ? "image/png" : (filename.hasSuffix(".gif") ? "image/gif" : "image/jpeg")
+        return GalleryStoredUploadImage(filename: filename, mimeType: mimeType, data: data)
     }
 
     private func storedPayload(at directory: URL, matches payload: GalleryPreparedUploadPayload) throws -> Bool {
@@ -259,11 +268,13 @@ struct GalleryPendingUploadStore: Sendable {
               metadata.sessionID == payload.sessionID,
               metadata.createdAt == payload.createdAt,
               metadata.photoFilenames == payload.photos.map(\.filename),
-              metadata.receiptFilename == payload.receipt.filename else {
+              metadata.receiptFilename == payload.colorReceipt.filename,
+              metadata.thermalReceiptFilename == payload.thermalReceipt?.filename,
+              metadata.gifFilename == payload.gif?.filename else {
             return false
         }
 
-        for image in payload.photos + [payload.receipt] {
+        for image in payload.photos + [payload.colorReceipt] + [payload.thermalReceipt, payload.gif].compactMap({ $0 }) {
             let storedData = try Data(contentsOf: directory.appendingPathComponent(image.filename))
             guard storedData == image.data else {
                 return false
@@ -345,6 +356,8 @@ struct GalleryPendingUploadStore: Sendable {
             createdAt: metadata.createdAt,
             photoFilenames: metadata.photoFilenames,
             receiptFilename: metadata.receiptFilename,
+            thermalReceiptFilename: metadata.thermalReceiptFilename,
+            gifFilename: metadata.gifFilename,
             metrics: metadata.metrics,
             deliveryState: metadata.deliveryState,
             retryAttemptCount: metadata.retryAttemptCount,
@@ -369,6 +382,8 @@ private struct GalleryPendingUploadMetadata: Codable {
     let createdAt: String
     let photoFilenames: [String]
     let receiptFilename: String
+    let thermalReceiptFilename: String?
+    let gifFilename: String?
     let metrics: GalleryPreparedUploadMetrics
     let deliveryState: GalleryDeliveryState
     var retryAttemptCount: Int
@@ -383,6 +398,8 @@ private struct GalleryPendingUploadMetadata: Codable {
         case createdAt
         case photoFilenames
         case receiptFilename
+        case thermalReceiptFilename
+        case gifFilename
         case metrics
         case deliveryState
         case retryAttemptCount
@@ -398,6 +415,8 @@ private struct GalleryPendingUploadMetadata: Codable {
         createdAt: String,
         photoFilenames: [String],
         receiptFilename: String,
+        thermalReceiptFilename: String?,
+        gifFilename: String?,
         metrics: GalleryPreparedUploadMetrics,
         deliveryState: GalleryDeliveryState,
         retryAttemptCount: Int,
@@ -411,6 +430,8 @@ private struct GalleryPendingUploadMetadata: Codable {
         self.createdAt = createdAt
         self.photoFilenames = photoFilenames
         self.receiptFilename = receiptFilename
+        self.thermalReceiptFilename = thermalReceiptFilename
+        self.gifFilename = gifFilename
         self.metrics = metrics
         self.deliveryState = deliveryState
         self.retryAttemptCount = retryAttemptCount
@@ -427,6 +448,8 @@ private struct GalleryPendingUploadMetadata: Codable {
         createdAt = try container.decode(String.self, forKey: .createdAt)
         photoFilenames = try container.decode([String].self, forKey: .photoFilenames)
         receiptFilename = try container.decode(String.self, forKey: .receiptFilename)
+        thermalReceiptFilename = try container.decodeIfPresent(String.self, forKey: .thermalReceiptFilename)
+        gifFilename = try container.decodeIfPresent(String.self, forKey: .gifFilename)
         metrics = try container.decode(GalleryPreparedUploadMetrics.self, forKey: .metrics)
         deliveryState = try container.decode(GalleryDeliveryState.self, forKey: .deliveryState)
         retryAttemptCount = try container.decodeIfPresent(Int.self, forKey: .retryAttemptCount) ?? 0

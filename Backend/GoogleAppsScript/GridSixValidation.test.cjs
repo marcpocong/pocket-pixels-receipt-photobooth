@@ -6,7 +6,10 @@ const vm = require('node:vm');
 const path = require('node:path');
 const scriptProperties = new Map();
 const context = vm.createContext({
-  Utilities: { base64Decode: value => Array.from(Buffer.from(value, 'base64')) },
+  Utilities: {
+    base64Decode: value => Array.from(Buffer.from(value, 'base64')),
+    base64Encode: value => Buffer.from(value).toString('base64'),
+  },
   PropertiesService: {
     getScriptProperties: () => ({
       getProperty: key => scriptProperties.get(key) ?? null,
@@ -18,16 +21,24 @@ const context = vm.createContext({
 vm.runInContext(fs.readFileSync(path.join(__dirname, 'Code.gs'), 'utf8'), context);
 assert.equal(context.validateUploadToken_('').code, 'SERVER_NOT_CONFIGURED');
 scriptProperties.set('POCKET_PIXELS_DEVICE_TOKEN', 'correct-device-token-value');
+context.runPocketPixelsSelfTest();
 assert.equal(context.validateUploadToken_('').code, 'MISSING_DEVICE_TOKEN');
 assert.equal(context.validateUploadToken_('wrong-device-token-value').code, 'INVALID_DEVICE_TOKEN');
 assert.equal(context.validateUploadToken_('correct-device-token-value'), null);
 for (const count of [1, 2, 3, 4, 6]) {
   const payload = context.makeSelfTestPayload_(count);
   assert.equal(context.validateUploadPayload_(payload).ok, true);
-  assert.equal(payload._validatedImages.length, count + 1);
+  assert.equal(payload._validatedImages.length, count + 3);
   assert.deepEqual(Array.from(payload._expectedPhotoFilenames), Array.from({ length: count }, (_, i) => `photo-${String(i + 1).padStart(2, '0')}.jpg`));
-  assert.equal(context.expectedFilenames_(count).length, count + 1);
+  assert.equal(context.expectedFilenames_(count, 2).length, count + 3);
 }
+const legacy = context.makeSelfTestPayload_(2);
+legacy.schemaVersion = 1;
+delete legacy.colorReceipt;
+delete legacy.thermalReceipt;
+delete legacy.gif;
+assert.equal(context.validateUploadPayload_(legacy).ok, true);
+assert.equal(context.expectedFilenames_(2, 1).length, 3);
 for (const count of [0, 7, 36]) {
   const payload = context.makeSelfTestPayload_(count);
   if (count === 0) payload.photos = [];

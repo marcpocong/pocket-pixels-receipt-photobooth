@@ -216,8 +216,24 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             data: try GalleryUploadPreparation.preparedReceiptData(from: composedReceipt)
         )
 
+        // `composedReceipt` is the privacy-redacted gallery composition supplied by the
+        // session model. The thermal copy must be derived from that image, never from the
+        // private physical-print raster.
+        let thermalRaster = try ThermalImageRasterizer.rasterize(composedReceipt, purpose: .completeReceipt)
+        let preparedThermalReceipt = GalleryStoredUploadImage(
+            filename: "receipt-bw.png",
+            mimeType: "image/png",
+            data: thermalRaster.previewPNGData
+        )
+        let preparedGIF = GalleryStoredUploadImage(
+            filename: "session.gif",
+            mimeType: "image/gif",
+            data: try SessionGIFRenderer.render(images: photos)
+        )
+
         let imagePreparationDuration = Date().timeIntervalSince(preparationStart)
-        let decodedBytes = (preparedPhotos + [preparedReceipt]).reduce(0) { $0 + $1.data.count }
+        let allAssets = preparedPhotos + [preparedReceipt, preparedThermalReceipt, preparedGIF]
+        let decodedBytes = allAssets.reduce(0) { $0 + $1.data.count }
         let timing = GalleryUploadTimingMetrics(
             imagePreparationDuration: imagePreparationDuration,
             jsonEncodingDuration: 0,
@@ -226,15 +242,17 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             decodedPayloadByteCount: decodedBytes,
             jsonBodyByteCount: nil
         )
-        let metrics = try validateMetrics(for: preparedPhotos + [preparedReceipt], originalDecodedBytes: originalDecodedBytes, timing: timing)
+        let metrics = try validateMetrics(for: allAssets, originalDecodedBytes: originalDecodedBytes, timing: timing)
         return GalleryPreparedUploadPayload(
-            schemaVersion: 1,
+            schemaVersion: 2,
             galleryToken: galleryToken,
             galleryURL: galleryURL,
             sessionID: sessionID,
             createdAt: createdAtString,
             photos: preparedPhotos,
-            receipt: preparedReceipt,
+            colorReceipt: preparedReceipt,
+            thermalReceipt: preparedThermalReceipt,
+            gif: preparedGIF,
             metrics: metrics,
             deliveryState: .notStarted
         )
@@ -253,17 +271,20 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             photos: payload.photos.map {
                 GalleryUploadImage(filename: $0.filename, mimeType: $0.mimeType, base64Data: $0.data.base64EncodedString())
             },
-            receipt: GalleryUploadImage(
-                filename: payload.receipt.filename,
-                mimeType: payload.receipt.mimeType,
-                base64Data: payload.receipt.data.base64EncodedString()
-            )
+            receipt: uploadImage(payload.colorReceipt),
+            colorReceipt: payload.schemaVersion == 2 ? uploadImage(payload.colorReceipt) : nil,
+            thermalReceipt: payload.thermalReceipt.map(uploadImage),
+            gif: payload.gif.map(uploadImage)
         )
+    }
+
+    nonisolated private static func uploadImage(_ image: GalleryStoredUploadImage) -> GalleryUploadImage {
+        GalleryUploadImage(filename: image.filename, mimeType: image.mimeType, base64Data: image.data.base64EncodedString())
     }
 
     static func validateNoDisallowedFields(in request: GalleryUploadRequest) -> Bool {
         guard let data = try? JSONEncoder().encode(request), let json = String(data: data, encoding: .utf8) else { return false }
-        let forbidden = ["printer", "port", "deviceIdentifier", "localPath", "driveAccount", "thermal", "escpos", "raster"]
+        let forbidden = ["printer", "port", "deviceIdentifier", "localPath", "driveAccount", "escpos", "raster"]
         return !forbidden.contains { json.localizedCaseInsensitiveContains($0) }
     }
 
@@ -275,7 +296,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
     ) -> Bool {
         guard response.ok,
               Self.isSupportedPhotoCount(expectedPhotoCount),
-              response.fileCount == expectedPhotoCount + 2,
+              response.fileCount == expectedPhotoCount + (response.schemaVersion == 2 ? 4 : 2),
               let galleryToken = response.galleryToken,
               let galleryURL = response.galleryURL,
               Self.isConfirmedCompletionStatus(response.status),
@@ -518,7 +539,8 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
 
 #if DEBUG
     static func makeSanitizedRequestDiagnostics(_ request: GalleryUploadRequest, encodedBody: Data) -> GalleryRequestDiagnostics {
-        GalleryRequestDiagnostics(
+        let receipt = request.colorReceipt ?? request.receipt
+        return GalleryRequestDiagnostics(
             schemaVersion: request.schemaVersion,
             hasDeviceToken: !request.deviceToken.isEmpty,
             galleryTokenCharacterCount: request.galleryToken.count,
@@ -529,9 +551,9 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             photoFilenames: request.photos.map(\.filename),
             photoMimeTypes: request.photos.map(\.mimeType),
             photoBase64CharacterCounts: request.photos.map { $0.base64Data.count },
-            receiptFilename: request.receipt.filename,
-            receiptMimeType: request.receipt.mimeType,
-            receiptBase64CharacterCount: request.receipt.base64Data.count,
+            receiptFilename: receipt.filename,
+            receiptMimeType: receipt.mimeType,
+            receiptBase64CharacterCount: receipt.base64Data.count,
             jsonBodyByteCount: encodedBody.count
         )
     }

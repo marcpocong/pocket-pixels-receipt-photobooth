@@ -116,9 +116,62 @@ nonisolated struct GalleryPreparedUploadPayload: Codable, Equatable, Sendable {
     let sessionID: String
     let createdAt: String
     let photos: [GalleryStoredUploadImage]
-    let receipt: GalleryStoredUploadImage
+    let colorReceipt: GalleryStoredUploadImage
+    let thermalReceipt: GalleryStoredUploadImage?
+    let gif: GalleryStoredUploadImage?
     let metrics: GalleryPreparedUploadMetrics
     let deliveryState: GalleryDeliveryState
+    var receipt: GalleryStoredUploadImage { colorReceipt }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, galleryToken, galleryURL, sessionID, createdAt, photos
+        case receipt, colorReceipt, thermalReceipt, gif, metrics, deliveryState
+    }
+
+    init(schemaVersion: Int, galleryToken: String, galleryURL: URL, sessionID: String, createdAt: String,
+         photos: [GalleryStoredUploadImage], colorReceipt: GalleryStoredUploadImage,
+         thermalReceipt: GalleryStoredUploadImage?, gif: GalleryStoredUploadImage?,
+         metrics: GalleryPreparedUploadMetrics, deliveryState: GalleryDeliveryState) {
+        self.schemaVersion = schemaVersion; self.galleryToken = galleryToken; self.galleryURL = galleryURL
+        self.sessionID = sessionID; self.createdAt = createdAt; self.photos = photos
+        self.colorReceipt = colorReceipt; self.thermalReceipt = thermalReceipt; self.gif = gif
+        self.metrics = metrics; self.deliveryState = deliveryState
+    }
+
+    init(schemaVersion: Int, galleryToken: String, galleryURL: URL, sessionID: String, createdAt: String,
+         photos: [GalleryStoredUploadImage], receipt: GalleryStoredUploadImage,
+         metrics: GalleryPreparedUploadMetrics, deliveryState: GalleryDeliveryState) {
+        self.init(schemaVersion: schemaVersion, galleryToken: galleryToken, galleryURL: galleryURL,
+                  sessionID: sessionID, createdAt: createdAt, photos: photos, colorReceipt: receipt,
+                  thermalReceipt: nil, gif: nil, metrics: metrics, deliveryState: deliveryState)
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try values.decode(Int.self, forKey: .schemaVersion)
+        galleryToken = try values.decode(String.self, forKey: .galleryToken)
+        galleryURL = try values.decode(URL.self, forKey: .galleryURL)
+        sessionID = try values.decode(String.self, forKey: .sessionID)
+        createdAt = try values.decode(String.self, forKey: .createdAt)
+        photos = try values.decode([GalleryStoredUploadImage].self, forKey: .photos)
+        colorReceipt = try values.decodeIfPresent(GalleryStoredUploadImage.self, forKey: .colorReceipt)
+            ?? values.decode(GalleryStoredUploadImage.self, forKey: .receipt)
+        thermalReceipt = try values.decodeIfPresent(GalleryStoredUploadImage.self, forKey: .thermalReceipt)
+        gif = try values.decodeIfPresent(GalleryStoredUploadImage.self, forKey: .gif)
+        metrics = try values.decode(GalleryPreparedUploadMetrics.self, forKey: .metrics)
+        deliveryState = try values.decode(GalleryDeliveryState.self, forKey: .deliveryState)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(schemaVersion, forKey: .schemaVersion); try values.encode(galleryToken, forKey: .galleryToken)
+        try values.encode(galleryURL, forKey: .galleryURL); try values.encode(sessionID, forKey: .sessionID)
+        try values.encode(createdAt, forKey: .createdAt); try values.encode(photos, forKey: .photos)
+        if schemaVersion == 1 { try values.encode(colorReceipt, forKey: .receipt) }
+        else { try values.encode(colorReceipt, forKey: .colorReceipt) }
+        try values.encodeIfPresent(thermalReceipt, forKey: .thermalReceipt); try values.encodeIfPresent(gif, forKey: .gif)
+        try values.encode(metrics, forKey: .metrics); try values.encode(deliveryState, forKey: .deliveryState)
+    }
 }
 
 nonisolated struct GalleryStoredUploadImage: Codable, Equatable, Sendable {
