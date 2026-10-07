@@ -141,6 +141,8 @@ nonisolated struct PassportFontSpec: Equatable, Sendable {
         case monoSemibold
         case monoBold
         case monoMedium
+        /// Photo Pass wordmark. Snell Roundhand ships with iOS; a bold italic serif is the fallback.
+        case script
     }
 
     let style: Style
@@ -151,6 +153,13 @@ nonisolated struct PassportFontSpec: Equatable, Sendable {
         case .serifBold:
             let base = UIFont.systemFont(ofSize: size, weight: .bold)
             return base.fontDescriptor.withDesign(.serif).map { UIFont(descriptor: $0, size: size) } ?? base
+        case .script:
+            if let script = UIFont(name: "SnellRoundhand-Bold", size: size) {
+                return script
+            }
+            let base = UIFont.systemFont(ofSize: size, weight: .bold)
+            let serif = base.fontDescriptor.withDesign(.serif) ?? base.fontDescriptor
+            return serif.withSymbolicTraits([.traitItalic, .traitBold]).map { UIFont(descriptor: $0, size: size) } ?? base
         case .sansBlack:
             return .systemFont(ofSize: size, weight: .heavy)
         case .sansBold:

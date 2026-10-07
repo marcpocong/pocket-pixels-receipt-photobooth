@@ -2,8 +2,8 @@
 //  PassportPreviewView.swift
 //  PocketPixelsBooth
 //
-//  Shows the actual rendered Passport cards (same layout and renderer as the printed receipt),
-//  generated once when this screen opens rather than on every edit.
+//  Shows the actual rendered Photo Pass cards (same ReceiptComposer layout and renderer as the
+//  printed receipt), generated once when this screen opens rather than on every edit.
 //
 
 import SwiftUI
@@ -22,8 +22,8 @@ struct PassportPreviewView: View {
             VStack(spacing: 18) {
                 PassportStepHeader(
                     step: 3,
-                    title: "Your Pocket Passport",
-                    subtitle: "Check your keepsake. You can still edit details or redo your signature.",
+                    title: "Your Photo Pass",
+                    subtitle: "Check your keepsake. You can still edit your name, note, or signature.",
                     onCancel: onCancel
                 )
                 .frame(width: contentWidth)
@@ -90,7 +90,7 @@ struct PassportPreviewView: View {
                 ProgressView()
                     .tint(PocketPixelsTheme.ColorPalette.maroon)
                     .scaleEffect(1.3)
-                Text("Preparing your passport...")
+                Text("Preparing your Photo Pass...")
                     .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
             }
@@ -100,29 +100,34 @@ struct PassportPreviewView: View {
 
     private var previewAccessibilityLabel: String {
         let draft = viewModel.passportDraft
-        var parts = ["Pocket Passport preview with your hero photo and passport portrait"]
+        let event = viewModel.photoPassAutoFilledContent
+        var parts = ["Photo Pass preview with your hero photo and portrait"]
         if !draft.name.isEmpty { parts.append("Name \(draft.name)") }
-        if let birthday = draft.birthday { parts.append("Birthday \(birthday.displayText.capitalized)") }
-        if !draft.nationality.isEmpty { parts.append("Nationality \(draft.nationality)") }
-        if !draft.profession.isEmpty { parts.append("Profession \(draft.profession)") }
+        parts.append("Date \(event.date.capitalized)")
+        if !event.event.isEmpty { parts.append("Event \(event.event.capitalized)") }
+        if !event.location.isEmpty { parts.append("Location \(event.location.capitalized)") }
+        if !draft.notes.isEmpty { parts.append("Note \(draft.notes)") }
         parts.append(draft.signature.isEmpty ? "No signature" : "Signed")
         return parts.joined(separator: ", ")
     }
 }
 
-/// Format-selection artwork: two small stacked landscape passport cards drawn natively.
+/// Format-selection artwork: a miniature of the two Photo Pass cards (star borders, vertical
+/// script wordmark, hero frame, portrait and field grid), drawn natively at icon size.
 struct PassportFormatPreview: View {
     let size: CGSize
 
+    private let ink = PocketPixelsTheme.ColorPalette.brandMaroon
+
     var body: some View {
-        let gap = size.height * 0.07
+        let gap = size.height * 0.04
         let cardHeight = (size.height - gap) / 2
-        let cardWidth = min(size.width, cardHeight * 1.9)
+        let cardWidth = min(size.width, cardHeight * 1.53)
 
         VStack(spacing: gap) {
             heroCard
                 .frame(width: cardWidth, height: cardHeight)
-            identityCard
+            detailsCard
                 .frame(width: cardWidth, height: cardHeight)
         }
         .accessibilityHidden(true)
@@ -132,92 +137,78 @@ struct PassportFormatPreview: View {
         GeometryReader { proxy in
             let width = proxy.size.width
             let height = proxy.size.height
-            let inset = height * 0.13
-            HStack(spacing: inset) {
-                VStack(alignment: .leading, spacing: height * 0.07) {
-                    bar(width: width * 0.16, height: height * 0.06, opacity: 0.30)
-                    bar(width: width * 0.30, height: height * 0.13, opacity: 0.62)
-                    bar(width: width * 0.24, height: height * 0.13, opacity: 0.62)
-                    Spacer(minLength: 0)
-                    Image(systemName: "star.fill")
-                        .font(.system(size: max(6, height * 0.16)))
-                        .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.55))
-                }
-                .frame(maxHeight: .infinity, alignment: .topLeading)
-                photoBlock
-                    .frame(width: (height - inset * 2) * 4 / 3)
+            let inset = height * 0.16
+            ZStack(alignment: .topLeading) {
+                card(width: width, height: height)
+                Text("Photo Pass")
+                    .font(.custom("SnellRoundhand-Bold", size: height * 0.22))
+                    .foregroundStyle(ink)
+                    .fixedSize()
+                    .rotationEffect(.degrees(-90))
+                    .frame(width: width * 0.2, height: height - inset * 2)
+                    .position(x: inset + width * 0.08, y: height / 2)
+                frame(width: width * 0.6, height: height * 0.66)
+                    .position(x: width * 0.6, y: height * 0.5)
+                star(size: height * 0.16)
+                    .position(x: width * 0.88, y: height * 0.2)
+                star(size: height * 0.15)
+                    .position(x: width * 0.31, y: height * 0.8)
             }
-            .padding(inset)
-            .frame(width: width, height: height)
-            .background(cardBackground)
         }
     }
 
-    private var identityCard: some View {
+    private var detailsCard: some View {
         GeometryReader { proxy in
             let width = proxy.size.width
             let height = proxy.size.height
-            let inset = height * 0.13
-            HStack(alignment: .top, spacing: inset) {
-                photoBlock
-                    .frame(width: (height - inset * 2) * 0.62)
-                VStack(alignment: .leading, spacing: height * 0.11) {
-                    ForEach(0..<3, id: \.self) { row in
-                        VStack(alignment: .leading, spacing: height * 0.03) {
-                            bar(width: width * 0.12, height: height * 0.05, opacity: 0.30)
-                            bar(width: width * (row == 0 ? 0.42 : 0.32), height: height * 0.07, opacity: 0.55)
-                        }
+            ZStack(alignment: .topLeading) {
+                card(width: width, height: height)
+                frame(width: width * 0.27, height: height * 0.56)
+                    .position(x: width * 0.22, y: height * 0.4)
+                Text("Photo Pass")
+                    .font(.custom("SnellRoundhand-Bold", size: height * 0.12))
+                    .foregroundStyle(ink)
+                    .fixedSize()
+                    .position(x: width * 0.22, y: height * 0.8)
+                VStack(spacing: 0) {
+                    ForEach(0..<5, id: \.self) { row in
+                        Rectangle()
+                            .stroke(ink.opacity(0.6), lineWidth: 0.8)
+                            .frame(height: height * (row == 2 || row == 3 ? 0.17 : 0.13))
                     }
-                    Spacer(minLength: 0)
-                    Path { path in
-                        path.move(to: CGPoint(x: 0, y: height * 0.06))
-                        path.addCurve(to: CGPoint(x: width * 0.26, y: height * 0.02), control1: CGPoint(x: width * 0.08, y: -height * 0.08), control2: CGPoint(x: width * 0.14, y: height * 0.16))
-                    }
-                    .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
-                    .frame(height: height * 0.1)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .frame(width: width * 0.52)
+                .position(x: width * 0.69, y: height * 0.5)
             }
-            .padding(inset)
-            .frame(width: width, height: height)
-            .background(cardBackground)
         }
     }
 
-    private var photoBlock: some View {
-        RoundedRectangle(cornerRadius: 3)
-            .fill(PocketPixelsTheme.ColorPalette.brandBlush.opacity(0.55))
+    private func card(width: CGFloat, height: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: height * 0.08)
+            .fill(Color.white.opacity(0.95))
             .overlay {
-                GeometryReader { proxy in
-                    Circle()
-                        .fill(PocketPixelsTheme.ColorPalette.paperWarm.opacity(0.75))
-                        .frame(width: min(proxy.size.width, proxy.size.height) * 0.42)
-                        .position(x: proxy.size.width * 0.5, y: proxy.size.height * 0.42)
-                }
+                RoundedRectangle(cornerRadius: height * 0.08)
+                    .stroke(ink.opacity(0.8), lineWidth: 1.6)
             }
             .overlay {
-                RoundedRectangle(cornerRadius: 3)
-                    .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.28), lineWidth: 1)
+                // Dotted inner border stands in for the printed star border at this size.
+                RoundedRectangle(cornerRadius: height * 0.05)
+                    .stroke(ink.opacity(0.55), style: StrokeStyle(lineWidth: 1.4, lineCap: .round, dash: [0.1, height * 0.06]))
+                    .padding(height * 0.065)
             }
+            .frame(width: width, height: height)
     }
 
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 9)
-            .fill(Color.white.opacity(0.9))
-            .overlay {
-                RoundedRectangle(cornerRadius: 9)
-                    .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.45), lineWidth: 1.5)
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.18), lineWidth: 1)
-                    .padding(3)
-            }
+    private func frame(width: CGFloat, height: CGFloat) -> some View {
+        Rectangle()
+            .fill(PocketPixelsTheme.ColorPalette.brandBlush.opacity(0.4))
+            .overlay { Rectangle().stroke(ink.opacity(0.7), lineWidth: 1) }
+            .frame(width: width, height: height)
     }
 
-    private func bar(width: CGFloat, height: CGFloat, opacity: Double) -> some View {
-        Capsule()
-            .fill(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(opacity))
-            .frame(width: max(1, width), height: max(1, height))
+    private func star(size: CGFloat) -> some View {
+        Image(systemName: "star.fill")
+            .font(.system(size: size))
+            .foregroundStyle(ink)
     }
 }

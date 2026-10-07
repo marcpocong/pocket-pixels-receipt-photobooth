@@ -67,7 +67,7 @@ struct PassportSignatureView: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(PocketPixelsPrimaryButtonStyle())
-                    .accessibilityHint("Shows a preview of your Pocket Passport.")
+                    .accessibilityHint("Shows a preview of your Photo Pass.")
                 }
                 .frame(width: min(contentWidth, 720))
                 .padding(.bottom, 12)

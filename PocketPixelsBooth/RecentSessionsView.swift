@@ -647,7 +647,7 @@ private struct ArchivedSessionDetailView: View {
             Text(RecentSessionsViewModel.detailDateFormatter.string(from: archive.summary.createdAt))
             Text("\(archive.summary.format.displayName) • \(archive.summary.photoCount) photos • \(Int(archive.summary.estimatedLengthMillimeters.rounded())) mm")
             if let passport = archive.passport {
-                Text("Passport · \(passport.configuration.theme.displayName) · \(passport.name.isEmpty ? "No name" : passport.name) · \(passport.signature.isEmpty ? "No signature" : "Signed")")
+                Text("\(passport.usesPhotoPassDesign ? "Photo Pass" : "Legacy Passport · \(passport.configuration.theme.displayName)") · \(passport.name.isEmpty ? "No name" : passport.name) · \(passport.signature.isEmpty ? "No signature" : "Signed")")
                     .font(.callout)
             }
             Text(archive.summary.sessionIdentifier)

@@ -28,7 +28,8 @@ enum BoothFormat: String, Codable, CaseIterable, Identifiable, Sendable {
         case .strip:
             "Strip"
         case .passport:
-            "Passport"
+            // Customer-facing name only; the stored raw value stays "passport".
+            "Photo Pass"
         }
     }
 
@@ -45,7 +46,7 @@ enum BoothFormat: String, Codable, CaseIterable, Identifiable, Sendable {
         case .strip:
             "Three-photo classic strip"
         case .passport:
-            "Two-photo passport keepsake"
+            "Two-photo event keepsake"
         }
     }
 
@@ -70,7 +71,7 @@ enum BoothFormat: String, Codable, CaseIterable, Identifiable, Sendable {
         photoCount == 1 ? "1 photo" : "\(photoCount) photos"
     }
 
-    /// Passport adds keepsake details, a signature and a dedicated preview after photo review.
+    /// Photo Pass (stored as Passport) adds keepsake details, a signature and a dedicated preview after photo review.
     nonisolated var usesPassportFlow: Bool {
         self == .passport
     }

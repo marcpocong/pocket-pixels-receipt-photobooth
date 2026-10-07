@@ -19,7 +19,7 @@ nonisolated enum PassportPhotoRole: Int, CaseIterable, Sendable {
 
     nonisolated var title: String {
         switch self {
-        case .portrait: "Passport Portrait"
+        case .portrait: "Portrait"
         case .hero: "Hero Photo"
         }
     }

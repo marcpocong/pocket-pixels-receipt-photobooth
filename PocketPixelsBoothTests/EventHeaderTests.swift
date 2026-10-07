@@ -82,9 +82,16 @@ final class EventHeaderTests: XCTestCase {
         profile.receiptHeader.topSpacing = ReceiptHeaderConfiguration.maximumSpacing
         profile.receiptHeader.bottomSpacing = ReceiptHeaderConfiguration.maximumSpacing
         for format in BoothFormat.allCases {
-            let plan = try ReceiptComposer.makeLayoutPlan(format: format, eventProfile: profile)
+            // Legacy Passport shows the artwork in its title column; Photo Pass branding is fixed.
+            let legacyPassport = format == .passport ? PassportSessionData(configuration: PassportConfiguration.effective(for: profile), designVersion: .legacyPassport) : nil
+            let plan = try ReceiptComposer.makeLayoutPlan(format: format, eventProfile: profile, passport: legacyPassport)
             XCTAssertLessThanOrEqual(plan.height, BoothConfiguration.receiptMaximumHeight)
             XCTAssertLessThanOrEqual(try XCTUnwrap(plan.customHeaderFrame).height, EventHeaderImageProcessor.maximumPrintedHeight)
+            if format == .passport {
+                let photoPass = try ReceiptComposer.makeLayoutPlan(format: format, eventProfile: profile)
+                XCTAssertNil(photoPass.customHeaderFrame)
+                XCTAssertLessThanOrEqual(photoPass.height, BoothConfiguration.receiptMaximumHeight)
+            }
         }
     }
 

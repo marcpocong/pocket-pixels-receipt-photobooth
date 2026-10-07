@@ -626,7 +626,7 @@ struct BoothSessionView: View {
                 .padding(.top, 14)
 
             Text(viewModel.isPassportSession
-                 ? "Retake either photo, then add your passport details."
+                 ? "Retake either photo, then add your name."
                  : "Retake any photo, or continue when you're ready.")
                 .font(.system(size: 20, weight: .medium))
                 .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
@@ -1789,8 +1789,8 @@ struct BoothSessionView: View {
         switch viewModel.state {
         case .cameraReady where !viewModel.isCameraUnavailable, .countdown, .retaking:
             role == .portrait
-                ? "Passport portrait. Look at the camera and make it yours."
-                : "One more! Give us your best passport moment."
+                ? "Portrait time. Look at the camera and make it yours."
+                : "One more! Give us your best hero shot."
         case .betweenPhotos:
             "Nice! Next up: your hero photo."
         default:
@@ -2099,7 +2099,7 @@ struct BoothSessionView: View {
     private func formatAccessibilityLabel(for format: BoothFormat) -> String {
         switch format {
         case .passport:
-            "Passport, 2 photos. Your own Pocket Passport: a keepsake with two passport-style cards, a few fun details and your signature."
+            "Photo Pass, 2 photos. A two-photo event keepsake with your name, an optional note and your signature."
         default:
             "\(format.displayName), \(format.photoCountLabel). \(customerFormatDescription(for: format))"
         }
@@ -2246,7 +2246,7 @@ struct BoothSessionView: View {
         case .strip:
             "Classic photo strip"
         case .passport:
-            "Your own Pocket Passport"
+            "Two-photo event keepsake"
         }
     }
 

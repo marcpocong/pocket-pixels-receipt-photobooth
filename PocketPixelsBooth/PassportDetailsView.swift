@@ -2,7 +2,8 @@
 //  PassportDetailsView.swift
 //  PocketPixelsBooth
 //
-//  Kiosk-friendly keepsake details for the Passport format. Every field is optional.
+//  Kiosk-friendly Photo Pass details: the customer's name and an optional short note. Date,
+//  event and location are filled in from the event profile and shown read-only.
 //
 
 import SwiftUI
@@ -12,13 +13,10 @@ struct PassportDetailsView: View {
     let onCancel: () -> Void
 
     @FocusState private var focusedField: Field?
-    @State private var showsMoreDetails = false
 
     enum Field: Hashable, CaseIterable {
         case name
-        case nationality
-        case profession
-        case birthplace
+        case notes
     }
 
     var body: some View {
@@ -30,19 +28,28 @@ struct PassportDetailsView: View {
                     VStack(spacing: 20) {
                         PassportStepHeader(
                             step: 1,
-                            title: "Your Pocket Passport",
-                            subtitle: "Add a few fun details for your keepsake. Everything is optional.",
+                            title: "Your Photo Pass",
+                            subtitle: "Add your name and, if you like, a short note. Both are optional.",
                             isKeyboardVisible: focusedField != nil,
                             onDismissKeyboard: { focusedField = nil },
                             onCancel: onCancel
                         )
 
-                        detailField(.name, title: "NAME", prompt: "Your name", text: binding(\.name, limit: PassportSessionData.nameLimit), limit: PassportSessionData.nameLimit)
-                        birthdayCard
-                        detailField(.nationality, title: "NATIONALITY", prompt: "e.g. Filipino", text: binding(\.nationality, limit: PassportSessionData.nationalityLimit), limit: PassportSessionData.nationalityLimit)
-                        detailField(.profession, title: "PROFESSION", prompt: "e.g. Dance Floor Legend", text: binding(\.profession, limit: PassportSessionData.professionLimit), limit: PassportSessionData.professionLimit)
-
-                        moreDetails
+                        detailField(
+                            .name,
+                            title: "NAME",
+                            prompt: "Your name",
+                            text: binding(\.name, limit: PassportSessionData.nameLimit),
+                            limit: PassportSessionData.nameLimit
+                        )
+                        detailField(
+                            .notes,
+                            title: "NOTE (OPTIONAL)",
+                            prompt: "e.g. Keep this little moment.",
+                            text: binding(\.notes, limit: PassportSessionData.notesLimit),
+                            limit: PassportSessionData.notesLimit
+                        )
+                        autoFilledDetails
                     }
                     .frame(width: contentWidth)
                     .padding(.vertical, 28)
@@ -65,16 +72,13 @@ struct PassportDetailsView: View {
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Button("Previous") { moveFocus(by: -1) }
-                    .disabled(focusedField == orderedFields.first)
+                    .disabled(focusedField == Field.allCases.first)
                 Button("Next") { moveFocus(by: 1) }
-                    .disabled(focusedField == orderedFields.last)
+                    .disabled(focusedField == Field.allCases.last)
                 Spacer()
                 Button("Done") { focusedField = nil }
                     .fontWeight(.bold)
             }
-        }
-        .onAppear {
-            showsMoreDetails = !viewModel.passportDraft.birthplace.isEmpty
         }
     }
 
@@ -95,15 +99,17 @@ struct PassportDetailsView: View {
                     .accessibilityHidden(true)
             }
 
-            TextField(prompt, text: text)
+            TextField(prompt, text: text, axis: field == .notes ? .vertical : .horizontal)
+                .lineLimit(field == .notes ? 1...3 : 1...1)
                 .font(.system(size: 26, weight: .semibold))
                 .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
-                .textInputAutocapitalization(.words)
+                .textInputAutocapitalization(field == .name ? .words : .sentences)
                 .autocorrectionDisabled(field == .name)
-                .submitLabel(field == orderedFields.last ? .done : .next)
+                .submitLabel(field == Field.allCases.last ? .done : .next)
                 .focused($focusedField, equals: field)
                 .onSubmit { moveFocus(by: 1) }
                 .padding(.horizontal, 18)
+                .padding(.vertical, field == .notes ? 12 : 0)
                 .frame(minHeight: 64)
                 .background(
                     RoundedRectangle(cornerRadius: 12)
@@ -116,114 +122,45 @@ struct PassportDetailsView: View {
                             lineWidth: focusedField == field ? 2 : 1
                         )
                 }
-                .accessibilityLabel(title.capitalized)
+                .accessibilityLabel(field == .name ? "Name" : "Note")
                 .accessibilityHint("Optional. Up to \(limit) characters.")
         }
         .passportCardStyle()
         .id(field)
     }
 
-    private var birthdayCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("BIRTHDAY")
-                    .font(.system(size: 15, weight: .bold, design: .monospaced))
-                    .tracking(1.6)
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.maroon)
-                Spacer()
-                if viewModel.passportDraft.birthday != nil || pendingMonth != nil {
-                    Button("Clear") {
-                        pendingMonth = nil
-                        viewModel.passportDraft.birthday = nil
-                    }
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
-                    .accessibilityLabel("Clear birthday")
-                }
-            }
+    /// Read-only event details the operator already configured; the customer never retypes them.
+    private var autoFilledDetails: some View {
+        let content = viewModel.photoPassAutoFilledContent
+        let rows: [(String, String)] = [
+            ("DATE", content.date),
+            ("EVENT", content.event),
+            ("LOCATION", content.location)
+        ].filter { !$0.1.isEmpty }
 
-            Text("Birthday for your keepsake. Add a year to show your age; the year itself isn't printed.")
-                .font(.system(size: 16, weight: .medium))
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("ALSO ON YOUR PASS")
+                .font(.system(size: 15, weight: .bold, design: .monospaced))
+                .tracking(1.6)
+                .foregroundStyle(PocketPixelsTheme.ColorPalette.maroon)
+            ForEach(rows, id: \.0) { label, value in
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(label.lowercased() + ":")
+                        .font(.system(size: 16, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                        .frame(width: 104, alignment: .leading)
+                    Text(value)
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .accessibilityElement(children: .combine)
+            }
+            Text("Filled in for you, then you can sign.")
+                .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 12) {
-                birthdayMenu(title: monthTitle, accessibility: "Birthday month") {
-                    Picker("Month", selection: monthBinding) {
-                        Text("No month").tag(Int?.none)
-                        ForEach(1...12, id: \.self) { month in
-                            Text(Self.monthNames[month - 1]).tag(Int?.some(month))
-                        }
-                    }
-                }
-                birthdayMenu(title: dayTitle, accessibility: "Birthday day") {
-                    Picker("Day", selection: dayBinding) {
-                        ForEach(1...PassportBirthday.maximumDay(month: currentMonth ?? 1, year: viewModel.passportDraft.birthday?.year), id: \.self) { day in
-                            Text("\(day)").tag(day)
-                        }
-                    }
-                }
-                .disabled(currentMonth == nil)
-                birthdayMenu(title: yearTitle, accessibility: "Birthday year, optional") {
-                    Picker("Year", selection: yearBinding) {
-                        Text("No year").tag(Int?.none)
-                        ForEach(Array(stride(from: currentYear, through: 1920, by: -1)), id: \.self) { year in
-                            Text(String(year)).tag(Int?.some(year))
-                        }
-                    }
-                }
-                .disabled(currentMonth == nil)
-            }
         }
         .passportCardStyle()
-    }
-
-    private func birthdayMenu<Content: View>(title: String, accessibility: String, @ViewBuilder content: () -> Content) -> some View {
-        Menu {
-            content()
-        } label: {
-            HStack {
-                Text(title)
-                    .font(.system(size: 21, weight: .semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                Spacer(minLength: 4)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 14, weight: .bold))
-            }
-            .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
-            .padding(.horizontal, 16)
-            .frame(maxWidth: .infinity, minHeight: 58)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.92)))
-            .overlay { RoundedRectangle(cornerRadius: 12).stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.7), lineWidth: 1) }
-        }
-        .accessibilityLabel(accessibility)
-        .accessibilityValue(title)
-    }
-
-    private var moreDetails: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Button {
-                withAnimation(PocketPixelsTheme.Motion.standardAnimation) {
-                    showsMoreDetails.toggle()
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: showsMoreDetails ? "minus.circle" : "plus.circle")
-                    Text(showsMoreDetails ? "Fewer details" : "Add more details")
-                }
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
-                .frame(minHeight: 48)
-            }
-            .buttonStyle(.plain)
-
-            if showsMoreDetails {
-                detailField(.birthplace, title: "BIRTHPLACE", prompt: "e.g. Cebu City", text: binding(\.birthplace, limit: PassportSessionData.birthplaceLimit), limit: PassportSessionData.birthplaceLimit)
-                    .transition(.opacity)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func actionBar(width: CGFloat) -> some View {
@@ -248,7 +185,7 @@ struct PassportDetailsView: View {
             }
             .frame(width: width)
 
-            Text("These details stay on your printed keepsake and are not added to your online gallery.")
+            Text("Your name, note and signature stay on your printed keepsake and are not added to your online gallery.")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
                 .multilineTextAlignment(.center)
@@ -266,62 +203,6 @@ struct PassportDetailsView: View {
 
     // MARK: Bindings
 
-    @State private var pendingMonth: Int?
-
-    private var currentMonth: Int? {
-        viewModel.passportDraft.birthday?.month ?? pendingMonth
-    }
-
-    private var currentYear: Int {
-        PassportText.calendar.component(.year, from: Date())
-    }
-
-    private var monthBinding: Binding<Int?> {
-        Binding {
-            currentMonth
-        } set: { month in
-            guard let month else {
-                pendingMonth = nil
-                viewModel.passportDraft.birthday = nil
-                return
-            }
-            let existing = viewModel.passportDraft.birthday
-            pendingMonth = month
-            viewModel.passportDraft.birthday = PassportBirthday(month: month, day: existing?.day ?? 1, year: existing?.year).normalized()
-        }
-    }
-
-    private var dayBinding: Binding<Int> {
-        Binding {
-            viewModel.passportDraft.birthday?.day ?? 1
-        } set: { day in
-            guard let month = currentMonth else { return }
-            viewModel.passportDraft.birthday = PassportBirthday(month: month, day: day, year: viewModel.passportDraft.birthday?.year).normalized()
-        }
-    }
-
-    private var yearBinding: Binding<Int?> {
-        Binding {
-            viewModel.passportDraft.birthday?.year
-        } set: { year in
-            guard let month = currentMonth else { return }
-            viewModel.passportDraft.birthday = PassportBirthday(month: month, day: viewModel.passportDraft.birthday?.day ?? 1, year: year).normalized()
-        }
-    }
-
-    private var monthTitle: String {
-        currentMonth.map { Self.monthNames[$0 - 1] } ?? "Month"
-    }
-
-    private var dayTitle: String {
-        guard currentMonth != nil, let day = viewModel.passportDraft.birthday?.day else { return "Day" }
-        return "\(day)"
-    }
-
-    private var yearTitle: String {
-        viewModel.passportDraft.birthday?.year.map(String.init) ?? "Year (optional)"
-    }
-
     private func binding(_ keyPath: WritableKeyPath<PassportSessionData, String>, limit: Int) -> Binding<String> {
         Binding {
             viewModel.passportDraft[keyPath: keyPath]
@@ -330,23 +211,18 @@ struct PassportDetailsView: View {
         }
     }
 
-    private var orderedFields: [Field] {
-        showsMoreDetails ? Field.allCases : [.name, .nationality, .profession]
-    }
-
     private func moveFocus(by offset: Int) {
-        guard let focusedField, let index = orderedFields.firstIndex(of: focusedField) else {
-            self.focusedField = orderedFields.first
+        let fields = Field.allCases
+        guard let focusedField, let index = fields.firstIndex(of: focusedField) else {
+            self.focusedField = fields.first
             return
         }
         let next = index + offset
-        self.focusedField = orderedFields.indices.contains(next) ? orderedFields[next] : nil
+        self.focusedField = fields.indices.contains(next) ? fields[next] : nil
     }
-
-    private static let monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 }
 
-/// Shared top bar for the three Passport steps.
+/// Shared top bar for the three Photo Pass steps.
 struct PassportStepHeader: View {
     let step: Int
     let title: String
@@ -361,11 +237,11 @@ struct PassportStepHeader: View {
                 PocketPixelsLightboxLockup(scale: .compact)
                     .frame(width: 160, alignment: .leading)
                 Spacer()
-                Text("PASSPORT · STEP \(step) OF 3")
+                Text("PHOTO PASS · STEP \(step) OF 3")
                     .font(.system(size: 15, weight: .bold, design: .monospaced))
                     .tracking(1.4)
                     .foregroundStyle(PocketPixelsTheme.ColorPalette.maroon)
-                    .accessibilityLabel("Passport, step \(step) of 3")
+                    .accessibilityLabel("Photo Pass, step \(step) of 3")
                 Spacer()
                 if isKeyboardVisible, let onDismissKeyboard {
                     Button {

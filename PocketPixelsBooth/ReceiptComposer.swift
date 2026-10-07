@@ -124,9 +124,13 @@ struct ReceiptLayoutPlan: Sendable {
     let showsEventTextBlock: Bool
     /// Event text block frames (empty when the block is hidden or for Passport).
     let eventTextFrames: [EventTextBlockFrame]
-    /// Passport cards replace the masthead and the standard photo stack; nil for other formats.
+    /// Legacy Passport cards replace the masthead and the standard photo stack; nil for other
+    /// formats and for Photo Pass sessions.
     let passportLayout: PassportReceiptLayout?
     let passportContent: PassportReceiptContent?
+    /// Photo Pass (Passport design v2) cards; nil for other formats and legacy Passport sessions.
+    let photoPassLayout: PhotoPassReceiptLayout?
+    let photoPassContent: PhotoPassContent?
     /// Bottom of the photo/card section; the shared footer always starts here.
     let contentBottom: Int
 }
@@ -321,7 +325,15 @@ enum ReceiptComposer {
             UIColor.white.setFill()
             cgContext.fill(CGRect(origin: .zero, size: size))
 
-            if let passportLayout = plan.passportLayout, let passportContent = plan.passportContent {
+            if let photoPassLayout = plan.photoPassLayout, let photoPassContent = plan.photoPassContent {
+                PhotoPassRenderer.draw(
+                    content: photoPassContent,
+                    layout: photoPassLayout,
+                    portraitPhoto: preparedPhotos[PhotoPassReceiptLayout.portraitPhotoIndex].image,
+                    heroPhoto: preparedPhotos[PhotoPassReceiptLayout.heroPhotoIndex].image,
+                    context: cgContext
+                )
+            } else if let passportLayout = plan.passportLayout, let passportContent = plan.passportContent {
                 PassportReceiptRenderer.draw(
                     content: passportContent,
                     layout: passportLayout,
@@ -420,30 +432,36 @@ enum ReceiptComposer {
         return try makeLayoutPlan(format: format, textSnapshot: textSnapshot, footerMode: footerMode, passportContent: passportContent)
     }
 
-    /// Resolves frozen Passport strings. A missing session value falls back to blank fields with
-    /// the effective event configuration, so diagnostics and previews always render.
+    /// Resolves frozen Passport strings for the session's stored design version. A missing
+    /// session value falls back to blank fields in the current design with the effective event
+    /// configuration, so diagnostics and previews always render.
     nonisolated private static func makePassportContent(
         format: BoothFormat,
         passport: PassportSessionData?,
         eventProfile: EventProfile?,
         textSnapshot: ReceiptTextSnapshot,
         date: Date
-    ) -> PassportReceiptContent? {
+    ) -> PassportDesignContent? {
         guard format == .passport else { return nil }
         let data = passport ?? PassportSessionData(configuration: PassportConfiguration.effective(for: eventProfile))
-        return PassportReceiptContent.resolve(
-            passport: data,
-            eventProfile: eventProfile,
-            headerGraphicAvailable: textSnapshot.headerConfiguration.mode == .customEventHeader && textSnapshot.headerSourceSize != nil,
-            referenceDate: date
-        )
+        switch data.designVersion {
+        case .photoPassV2:
+            return .photoPass(PhotoPassContent.resolve(passport: data, eventProfile: eventProfile, referenceDate: date))
+        case .legacyPassport:
+            return .legacy(PassportReceiptContent.resolve(
+                passport: data,
+                eventProfile: eventProfile,
+                headerGraphicAvailable: textSnapshot.headerConfiguration.mode == .customEventHeader && textSnapshot.headerSourceSize != nil,
+                referenceDate: date
+            ))
+        }
     }
 
     nonisolated private static func makeLayoutPlan(
         format: BoothFormat,
         textSnapshot: ReceiptTextSnapshot,
         footerMode: ReceiptFooterMode,
-        passportContent: PassportReceiptContent? = nil
+        passportContent: PassportDesignContent? = nil
     ) throws -> ReceiptLayoutPlan {
         let width = BoothConfiguration.receiptWidth
         let margin = BoothConfiguration.receiptHorizontalMargin
@@ -456,6 +474,7 @@ enum ReceiptComposer {
         let photoFrames: [ReceiptPhotoFrame]
         let groupFrame: CGRect?
         var passportLayout: PassportReceiptLayout?
+        var photoPassLayout: PhotoPassReceiptLayout?
 
         switch format {
         case .solo:
@@ -504,20 +523,26 @@ enum ReceiptComposer {
             photoFrames = frames
             groupFrame = nil
         case .passport:
-            guard let passportContent else {
+            switch passportContent {
+            case .photoPass(let content):
+                let layout = PhotoPassReceiptLayout.make(content: content, top: top)
+                photoPassLayout = layout
+                photoFrames = layout.photoFrames
+            case .legacy(let content):
+                let layout = PassportReceiptLayout.make(
+                    content: content,
+                    headerGraphicSourceSize: textSnapshot.headerSourceSize,
+                    top: top
+                )
+                passportLayout = layout
+                photoFrames = layout.photoFrames
+            case nil:
                 throw ReceiptComposerError.invalidLayout("passport content is missing")
             }
-            let layout = PassportReceiptLayout.make(
-                content: passportContent,
-                headerGraphicSourceSize: textSnapshot.headerSourceSize,
-                top: top
-            )
-            passportLayout = layout
-            photoFrames = layout.photoFrames
             groupFrame = nil
         }
 
-        let photoBottom = passportLayout?.bottom ?? Int(photoFrames.map(\.rect.maxY).max() ?? CGFloat(top))
+        let photoBottom = photoPassLayout?.bottom ?? passportLayout?.bottom ?? Int(photoFrames.map(\.rect.maxY).max() ?? CGFloat(top))
         let previewContentHeight = photoBottom + 12
         let footerLayout: ReceiptFooterLayoutPlan
         let qrSize: Int
@@ -550,7 +575,9 @@ enum ReceiptComposer {
             showsEventTextBlock: textSnapshot.eventContent != nil,
             eventTextFrames: headerLayout.eventTextFrames,
             passportLayout: passportLayout,
-            passportContent: passportLayout == nil ? nil : passportContent,
+            passportContent: passportLayout == nil ? nil : passportContent?.legacyContent,
+            photoPassLayout: photoPassLayout,
+            photoPassContent: photoPassLayout == nil ? nil : passportContent?.photoPassContent,
             contentBottom: photoBottom
         )
     }
@@ -806,6 +833,9 @@ enum ReceiptComposer {
         if let passportLayout = plan.passportLayout {
             try validatePassportLayout(passportLayout, contentBottom: photoBottom, canvas: canvas)
         }
+        if let photoPassLayout = plan.photoPassLayout {
+            try validatePhotoPassLayout(photoPassLayout, contentBottom: photoBottom, canvas: canvas)
+        }
         switch (plan.footerMode, plan.footerLayout) {
         case (.galleryQRCode(let qrSize), .gallery(let layout)):
             guard layout.top == photoBottom,
@@ -871,6 +901,58 @@ enum ReceiptComposer {
         if let message = layout.message {
             guard message.rect.minY >= layout.lowerCard.maxY, message.rect.maxY <= CGFloat(contentBottom) else {
                 throw ReceiptComposerError.invalidLayout("passport message overlaps the cards")
+            }
+        }
+    }
+
+    nonisolated private static func validatePhotoPassLayout(_ layout: PhotoPassReceiptLayout, contentBottom: Int, canvas: CGRect) throws {
+        let template = layout.template
+        let contentLeft = CGFloat(BoothConfiguration.receiptHorizontalMargin)
+        let contentRight = CGFloat(BoothConfiguration.receiptWidth - BoothConfiguration.receiptHorizontalMargin)
+        for (name, card) in [("photoPass.upperCard", template.upperCardRect), ("photoPass.lowerCard", template.lowerCardRect)] {
+            try validateFrame(card, name: name, inside: canvas)
+            guard card.minX >= contentLeft, card.maxX <= contentRight, card.width > card.height else {
+                throw ReceiptComposerError.invalidLayout("\(name) must be a landscape card inside the content margins")
+            }
+        }
+        let upper = template.contentRects[0]
+        let lower = template.contentRects[1]
+        guard template.upperCardRect.maxY <= template.lowerCardRect.minY,
+              CGFloat(layout.bottom) == template.lowerCardRect.maxY,
+              layout.bottom == contentBottom,
+              upper.contains(template.heroPhotoRect),
+              upper.contains(template.heroBrandingRect),
+              lower.contains(template.portraitPhotoRect),
+              lower.contains(template.portraitBrandingRect),
+              lower.contains(template.gridRect),
+              !template.heroBrandingRect.intersects(template.heroPhotoRect),
+              !template.portraitBrandingRect.intersects(template.portraitPhotoRect),
+              !template.gridRect.intersects(template.portraitPhotoRect),
+              template.signatureBoxRect.contains(template.signatureRect),
+              template.accentStars.allSatisfy({ upper.contains($0.bounds) || lower.contains($0.bounds) }),
+              template.ornamentRules.allSatisfy({ lower.contains($0) && !$0.intersects(template.portraitBrandingRect) }),
+              layout.wordmarks.allSatisfy({ wordmark in
+                  template.accentStars.allSatisfy { !$0.bounds.intersects(wordmark.rect) }
+              }) else {
+            throw ReceiptComposerError.invalidLayout("photo pass cards overlap or contain misplaced elements")
+        }
+        for (index, field) in template.fields.enumerated() {
+            guard template.gridRect.contains(field.cellRect),
+                  field.cellRect.contains(field.labelRect),
+                  field.cellRect.contains(field.valueRect),
+                  !field.labelRect.intersects(field.valueRect),
+                  template.accentStars.allSatisfy({ !$0.bounds.intersects(field.cellRect) }) else {
+                throw ReceiptComposerError.invalidLayout("photo pass field \(field.kind) leaves its cell")
+            }
+            for other in template.fields.dropFirst(index + 1) where other.cellRect.insetBy(dx: 1, dy: 1).intersects(field.cellRect.insetBy(dx: 1, dy: 1)) {
+                throw ReceiptComposerError.invalidLayout("photo pass fields \(field.kind) and \(other.kind) overlap")
+            }
+        }
+        for block in layout.allTexts {
+            guard let field = template.fields.first(where: { PhotoPassReceiptLayout.valueRole($0.kind) == block.role || block.role == .fieldLabel($0.kind.rawValue) }),
+                  field.cellRect.contains(block.rect),
+                  block.role == .fieldLabel(field.kind.rawValue) || field.valueRect.contains(block.rect) else {
+                throw ReceiptComposerError.invalidLayout("photo pass text \(block.role) leaves its field")
             }
         }
     }

@@ -329,6 +329,23 @@ nonisolated struct PassportSignature: Codable, Equatable, Sendable {
     }
 }
 
+// MARK: - Design version
+
+/// Which receipt design a Passport session renders with. The stored `BoothFormat` stays
+/// `.passport` for every version; only the card artwork and fields differ.
+nonisolated enum PassportDesignVersion: String, Codable, CaseIterable, Sendable {
+    /// The original Pocket Passport cards (birthday, nationality, profession, themes).
+    case legacyPassport
+    /// The template-based Photo Pass cards (name, date, event, location, notes, signature).
+    case photoPassV2
+
+    /// Design used for every new customer session.
+    nonisolated static let current: PassportDesignVersion = .photoPassV2
+    /// Design assumed for stored sessions written before the version field existed, so
+    /// archived reprints never silently change their artwork.
+    nonisolated static let decodingDefault: PassportDesignVersion = .legacyPassport
+}
+
 // MARK: - Session data
 
 nonisolated struct PassportSessionData: Codable, Equatable, Sendable {
@@ -336,17 +353,23 @@ nonisolated struct PassportSessionData: Codable, Equatable, Sendable {
     nonisolated static let nationalityLimit = 24
     nonisolated static let professionLimit = 32
     nonisolated static let birthplaceLimit = 24
+    /// Enough for a short event note; the Photo Pass layout wraps it to at most three lines.
+    nonisolated static let notesLimit = 60
 
     var name: String
     var birthday: PassportBirthday?
     var nationality: String
     var profession: String
     var birthplace: String
+    /// Short optional note or message printed on the Photo Pass.
+    var notes: String
     var signature: PassportSignature
     /// Theme and title settings frozen from the event profile when the format was chosen.
     var configuration: PassportConfiguration
     /// Age calculated once when the receipt is committed, so reprints never change.
     var frozenAge: Int?
+    /// Receipt design frozen when the session was created.
+    var designVersion: PassportDesignVersion
 
     nonisolated init(
         name: String = "",
@@ -354,18 +377,22 @@ nonisolated struct PassportSessionData: Codable, Equatable, Sendable {
         nationality: String = "",
         profession: String = "",
         birthplace: String = "",
+        notes: String = "",
         signature: PassportSignature = .empty,
         configuration: PassportConfiguration = .default,
-        frozenAge: Int? = nil
+        frozenAge: Int? = nil,
+        designVersion: PassportDesignVersion = .current
     ) {
         self.name = name
         self.birthday = birthday
         self.nationality = nationality
         self.profession = profession
         self.birthplace = birthplace
+        self.notes = notes
         self.signature = signature
         self.configuration = configuration
         self.frozenAge = frozenAge
+        self.designVersion = designVersion
     }
 
     nonisolated static let empty = PassportSessionData()
@@ -376,9 +403,11 @@ nonisolated struct PassportSessionData: Codable, Equatable, Sendable {
         case nationality
         case profession
         case birthplace
+        case notes
         case signature
         case configuration
         case frozenAge
+        case designVersion
     }
 
     nonisolated init(from decoder: Decoder) throws {
@@ -388,9 +417,16 @@ nonisolated struct PassportSessionData: Codable, Equatable, Sendable {
         nationality = try container.decodeIfPresent(String.self, forKey: .nationality) ?? ""
         profession = try container.decodeIfPresent(String.self, forKey: .profession) ?? ""
         birthplace = try container.decodeIfPresent(String.self, forKey: .birthplace) ?? ""
+        // Added with Photo Pass. Missing or unreadable values never make a stored session unreadable.
+        notes = (try? container.decodeIfPresent(String.self, forKey: .notes)) ?? ""
         signature = try container.decodeIfPresent(PassportSignature.self, forKey: .signature) ?? .empty
         configuration = try container.decodeIfPresent(PassportConfiguration.self, forKey: .configuration) ?? .default
         frozenAge = try container.decodeIfPresent(Int.self, forKey: .frozenAge)
+        designVersion = (try? container.decodeIfPresent(PassportDesignVersion.self, forKey: .designVersion)) ?? .decodingDefault
+    }
+
+    nonisolated var usesPhotoPassDesign: Bool {
+        designVersion == .photoPassV2
     }
 
     nonisolated var hasAnyDetails: Bool {
@@ -400,6 +436,7 @@ nonisolated struct PassportSessionData: Codable, Equatable, Sendable {
             || !value.nationality.isEmpty
             || !value.profession.isEmpty
             || !value.birthplace.isEmpty
+            || !value.notes.isEmpty
     }
 
     nonisolated func normalized(referenceDate: Date = Date()) -> PassportSessionData {
@@ -409,9 +446,11 @@ nonisolated struct PassportSessionData: Codable, Equatable, Sendable {
             nationality: PassportText.normalizedField(nationality, limit: Self.nationalityLimit),
             profession: PassportText.normalizedField(profession, limit: Self.professionLimit),
             birthplace: PassportText.normalizedField(birthplace, limit: Self.birthplaceLimit),
+            notes: PassportText.normalizedField(notes, limit: Self.notesLimit),
             signature: signature.normalized(),
             configuration: configuration.normalized(),
-            frozenAge: frozenAge.flatMap { (0...120).contains($0) ? $0 : nil }
+            frozenAge: frozenAge.flatMap { (0...120).contains($0) ? $0 : nil },
+            designVersion: designVersion
         )
     }
 
@@ -429,9 +468,10 @@ nonisolated struct PassportSessionData: Codable, Equatable, Sendable {
     }
 
     /// Gallery copy of the receipt: photos and branding only, with every customer-entered
-    /// detail and the signature removed.
+    /// detail, the note and the signature removed. The design version is kept so the gallery
+    /// copy uses the same artwork as the printed receipt.
     nonisolated func redactedForGallery() -> PassportSessionData {
-        PassportSessionData(configuration: configuration.normalized())
+        PassportSessionData(configuration: configuration.normalized(), designVersion: designVersion)
     }
 }
 
@@ -491,13 +531,25 @@ extension PassportSignature {
 }
 
 extension PassportSessionData {
+    /// Legacy Pocket Passport fixture (birthday, nationality, profession).
     nonisolated static var debugFixture: PassportSessionData {
         PassportSessionData(
             name: "Sarah Aragão",
             birthday: PassportBirthday(month: 4, day: 20, year: 1998),
             nationality: "Brazilian",
             profession: "Model",
-            signature: .debugFixture
+            signature: .debugFixture,
+            designVersion: .legacyPassport
+        )
+    }
+
+    /// Photo Pass fixture used for layout development, tests and debug renders.
+    nonisolated static var photoPassDebugFixture: PassportSessionData {
+        PassportSessionData(
+            name: "Karynne Jaca",
+            notes: "Keep this little moment.",
+            signature: .debugFixture,
+            designVersion: .photoPassV2
         )
     }
 }
@@ -513,11 +565,10 @@ extension PassportSessionData {
         }
         return PassportSessionData(
             name: "Alex Rivera",
-            birthday: PassportBirthday(month: 9, day: 7),
-            nationality: "Filipino",
-            profession: "Party Guest",
+            notes: "Best night of the year.",
             signature: PassportSignature(strokes: [.init(coordinates: coordinates)]),
-            configuration: configuration
+            configuration: configuration,
+            designVersion: .current
         )
     }
 }

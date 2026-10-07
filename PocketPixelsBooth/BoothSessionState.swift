@@ -71,11 +71,11 @@ enum BoothSessionState: Equatable {
         case .retaking(let index):
             "Retaking Photo \(index + 1)"
         case .passportDetails:
-            "Passport Details"
+            "Photo Pass Details"
         case .passportSignature:
-            "Passport Signature"
+            "Photo Pass Signature"
         case .passportPreview:
-            "Passport Preview"
+            "Photo Pass Preview"
         case .composingReceipt:
             "Building Receipt"
         case .receiptPreview:

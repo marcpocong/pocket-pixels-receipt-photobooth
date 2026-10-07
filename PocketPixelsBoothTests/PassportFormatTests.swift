@@ -14,10 +14,11 @@ final class PassportFormatTests: XCTestCase {
 
     func testPassportFormatIdentityAndCodableValue() throws {
         XCTAssertEqual(BoothFormat.passport.photoCount, 2)
-        XCTAssertEqual(BoothFormat.passport.displayName, "Passport")
-        XCTAssertEqual(BoothFormat.passport.shortDescription, "Two-photo passport keepsake")
+        // Customer-facing copy is Photo Pass; the stored identity stays `.passport`.
+        XCTAssertEqual(BoothFormat.passport.displayName, "Photo Pass")
+        XCTAssertEqual(BoothFormat.passport.shortDescription, "Two-photo event keepsake")
         XCTAssertEqual(BoothFormat.passport.photoCountLabel, "2 photos")
-        XCTAssertEqual(BoothFormat.passport.reviewSummary, "PASSPORT · 2 PHOTOS")
+        XCTAssertEqual(BoothFormat.passport.reviewSummary, "PHOTO PASS · 2 PHOTOS")
         XCTAssertTrue(BoothFormat.passport.usesPassportFlow)
         XCTAssertEqual(BoothFormat.allCases.filter(\.usesPassportFlow), [.passport])
         XCTAssertEqual(BoothFormat.allCases.last, .passport)
@@ -277,7 +278,7 @@ final class PassportFormatTests: XCTestCase {
     }
 
     func testMissingOptionalFieldsStillProduceCompleteCards() throws {
-        let plan = try ReceiptComposer.makeLayoutPlan(format: .passport, passport: .empty, date: date)
+        let plan = try ReceiptComposer.makeLayoutPlan(format: .passport, passport: legacyEmpty, date: date)
         try assertValidPassportPlan(plan)
         let layout = try XCTUnwrap(plan.passportLayout)
         XCTAssertEqual(layout.underlines.count, 5, "Name, birthday, nationality, profession and signature lines stay visible")
@@ -285,8 +286,8 @@ final class PassportFormatTests: XCTestCase {
         XCTAssertFalse(layout.allTexts.contains { $0.role == .fieldValue("BIRTHPLACE") })
         XCTAssertTrue(layout.allTexts.contains { $0.role == .title && $0.text == "POCKET PASSPORT" })
         XCTAssertEqual(layout.truncatedRoles, [])
-        let receipt = try ReceiptComposer.compose(photos: passportPhotos(seed: 31), sessionIdentifier: "PP-EMPTY", date: date, format: .passport, passport: .empty)
-        XCTAssertEqual(receipt.height, try ReceiptComposer.makeLayoutPlan(format: .passport, includesGalleryQRCode: false, passport: .empty, date: date).height)
+        let receipt = try ReceiptComposer.compose(photos: passportPhotos(seed: 31), sessionIdentifier: "PP-EMPTY", date: date, format: .passport, passport: legacyEmpty)
+        XCTAssertEqual(receipt.height, try ReceiptComposer.makeLayoutPlan(format: .passport, includesGalleryQRCode: false, passport: legacyEmpty, date: date).height)
     }
 
     func testEveryThemeProducesValidDistinctLayouts() throws {
@@ -437,7 +438,7 @@ final class PassportFormatTests: XCTestCase {
     func testPhotoOneIsLowerPortraitAndPhotoTwoIsUpperHero() throws {
         let dark = solidPhoto(white: 0.05)
         let bright = solidPhoto(white: 0.97)
-        let plan = try ReceiptComposer.makeLayoutPlan(format: .passport, passport: .empty, date: date)
+        let plan = try ReceiptComposer.makeLayoutPlan(format: .passport, passport: legacyEmpty, date: date)
         let layout = try XCTUnwrap(plan.passportLayout)
         XCTAssertEqual(plan.photoFrames.first { $0.photoIndex == 0 }?.rect, layout.portraitPhotoRect)
         XCTAssertEqual(plan.photoFrames.first { $0.photoIndex == 1 }?.rect, layout.heroPhotoRect)
@@ -447,7 +448,7 @@ final class PassportFormatTests: XCTestCase {
         XCTAssertEqual(layout.portraitPhotoRect.width * 4, layout.portraitPhotoRect.height * 3, "Portrait is a 3:4 crop")
         XCTAssertGreaterThan(layout.heroPhotoRect.width * layout.heroPhotoRect.height, layout.portraitPhotoRect.width * layout.portraitPhotoRect.height * 2)
 
-        let receipt = try ReceiptComposer.compose(photos: [dark, bright], sessionIdentifier: "PP-ROLES", date: date, format: .passport, passport: .empty)
+        let receipt = try ReceiptComposer.compose(photos: [dark, bright], sessionIdentifier: "PP-ROLES", date: date, format: .passport, passport: legacyEmpty)
         let image = try XCTUnwrap(UIImage(data: receipt.imagePNGData))
         XCTAssertLessThan(try luminance(in: image, at: CGPoint(x: layout.portraitPhotoRect.midX, y: layout.portraitPhotoRect.midY)), 0.3)
         XCTAssertGreaterThan(try luminance(in: image, at: CGPoint(x: layout.heroPhotoRect.midX, y: layout.heroPhotoRect.midY)), 0.8)
@@ -474,7 +475,8 @@ final class PassportFormatTests: XCTestCase {
             nationality: "Brazilian",
             profession: "Model",
             signature: .debugFixture,
-            configuration: PassportConfiguration.effective(for: eventA)
+            configuration: PassportConfiguration.effective(for: eventA),
+            designVersion: .legacyPassport
         ).committed(at: date)
         let committedA = committedSession(id: "PP-ARCHIVE-A", token: token, passport: passportA, eventProfile: eventA.activeReceiptSnapshot)
         let receiptA = try compose(committedA)
@@ -533,7 +535,8 @@ final class PassportFormatTests: XCTestCase {
             nationality: "Narnian",
             profession: "Dragon Tamer",
             birthplace: "Atlantis",
-            signature: .debugFixture
+            signature: .debugFixture,
+            designVersion: .legacyPassport
         ).committed(at: date)
         let committed = committedSession(id: "PP-20260907-GALLERY", token: token, passport: passport)
         let printed = try compose(committed)
@@ -595,7 +598,7 @@ final class PassportFormatTests: XCTestCase {
 
         let cases: [(String, EventProfile?, PassportSessionData)] = [
             ("default", nil, .debugFixture),
-            ("defaultNoDetails", nil, .empty),
+            ("defaultNoDetails", nil, legacyEmpty),
             ("maximumText", nil, maximumPassport(theme: .classic)),
             ("eventMode", eventProfile(), .debugFixture),
             ("worstCustomHeaderEvent", worstProfile, maximumPassport(theme: .event, configuration: PassportConfiguration.effective(for: worstProfile))),
@@ -638,7 +641,7 @@ final class PassportFormatTests: XCTestCase {
                 if state != .choosingFormat {
                     model.selectedBoothFormat = .passport
                     model.capturedPhotos = [syntheticPhoto(width: 300, height: 400, seed: 1), syntheticPhoto(width: 300, height: 400, seed: 2)]
-                    model.passportDraft = .debugFixture
+                    model.passportDraft = .photoPassDebugFixture
                 }
                 model.state = state == .passportPreview ? .passportSignature : state
                 if state == .passportPreview {
@@ -671,6 +674,12 @@ final class PassportFormatTests: XCTestCase {
 
     private var galleryURL: URL {
         URL(string: "https://example.com/?g=\(token)")!
+    }
+
+    /// Blank legacy Pocket Passport data. These tests cover the legacy design, which archived
+    /// sessions without a design version still render with; Photo Pass has PhotoPassFormatTests.
+    private var legacyEmpty: PassportSessionData {
+        PassportSessionData(designVersion: .legacyPassport)
     }
 
     private func roundTrip<T: Codable & Equatable>(_ value: T) throws -> T {
@@ -733,7 +742,8 @@ final class PassportFormatTests: XCTestCase {
             profession: String(repeating: "W", count: PassportSessionData.professionLimit),
             birthplace: String(repeating: "W", count: PassportSessionData.birthplaceLimit),
             signature: .debugFixture,
-            configuration: config
+            configuration: config,
+            designVersion: .legacyPassport
         )
     }
 

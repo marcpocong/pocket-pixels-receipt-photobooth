@@ -306,7 +306,7 @@ struct EventSetupView: View {
                         .foregroundStyle(.tint)
                         .frame(minHeight: 36)
                 }
-                .accessibilityHint("Shows guest screens, the receipt and Passport without printing.")
+                .accessibilityHint("Shows guest screens, the receipt and Photo Pass without printing.")
 
                 if hasUnsavedChanges {
                     Label("Unsaved changes", systemImage: "pencil.circle.fill")
@@ -360,23 +360,13 @@ struct EventSetupView: View {
             }
 
             Section {
-                Picker("Theme", selection: $draft.passport.theme) {
-                    ForEach(PassportTheme.allCases) { theme in
-                        Text(theme.displayName).tag(theme)
-                    }
-                }
-                Toggle("Use event branding", isOn: $draft.passport.usesEventBranding)
-                    .accessibilityHint("Uses the event image, otherwise the event name, otherwise Pocket Passport branding.")
-
-                DisclosureGroup("Customize Passport") {
-                    passportAdvancedSettings
-                }
+                Text("Photo Pass prints the Event Name, Location and, when shown, the Event Date above. Guests only add their name, an optional note and a signature.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             } header: {
-                Text("Passport")
+                Text("Photo Pass")
             } footer: {
-                Text(draft.passport.usesEventBranding
-                     ? "Uses the event image when set, otherwise the event name."
-                     : "Uses Pocket Passport branding.")
+                Text("The Photo Pass design is fixed so every keepsake prints predictably.")
             }
 
             Section {
@@ -424,7 +414,7 @@ struct EventSetupView: View {
 
                 DisclosureGroup("Advanced Activation") {
                     Toggle("Event branding on printed receipts", isOn: $draft.isEnabled)
-                        .accessibilityHint("When on, new receipts use the event header, details and Passport settings.")
+                        .accessibilityHint("When on, new receipts use the event header and details, including on the Photo Pass.")
                     Toggle("Event branding on guest screens", isOn: $draft.customerScreenEnabled)
                         .accessibilityHint("When on, guest screens use event wording and the selected theme.")
                     Text("Most events keep both on. Use Save Changes to apply.")
@@ -449,25 +439,6 @@ struct EventSetupView: View {
                     .disabled(!canSave || !hasUnsavedChanges)
             }
         }
-    }
-
-    @ViewBuilder
-    private var passportAdvancedSettings: some View {
-        Text("Automatic branding avoids stacking a receipt header, title and event text. Use an override only for unusual events.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
-        Picker("Branding Source", selection: $draft.passport.titleSource) {
-            ForEach(PassportTitleSource.allCases) { source in
-                Text(source.displayName).tag(source)
-            }
-        }
-        Text(draft.passport.titleSource.summary)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        limitedTextField("Passport Title", text: $draft.passport.title, limit: PassportConfiguration.titleLimit, autocapitalization: .characters)
-        limitedTextField("Passport Subtitle (Optional)", text: $draft.passport.subtitle, limit: PassportConfiguration.subtitleLimit, autocapitalization: .characters)
-        limitedTextField("Event Label (Optional)", text: $draft.passport.eventLabel, limit: PassportConfiguration.eventLabelLimit, autocapitalization: .characters)
     }
 
     private var canSave: Bool {
@@ -560,7 +531,7 @@ private struct EventPreviewView: View {
                 EventReceiptComposerPreview(profile: profile)
                     .padding(.vertical, 6)
             } header: {
-                Text("Receipt & Passport")
+                Text("Receipt & Photo Pass")
             } footer: {
                 Text("Preview only. Nothing is printed, saved or uploaded.")
             }

@@ -367,7 +367,7 @@ final class BoothSessionViewModel: ObservableObject {
     func showPassportDetails() {
         guard selectedBoothFormat == .passport, canContinueFromReview else { return }
         resetPassportPreview()
-        statusMessage = "Add your passport details."
+        statusMessage = "Add your name and an optional note."
         state = .passportDetails
     }
 
@@ -396,9 +396,15 @@ final class BoothSessionViewModel: ObservableObject {
         passportDraft.signature = signature.normalized()
     }
 
+    /// Event-level Photo Pass values filled in for the customer, shown read-only on the details
+    /// screen. Uses the same resolution as the printed receipt.
+    var photoPassAutoFilledContent: PhotoPassContent {
+        PhotoPassContent.resolve(passport: passportDraft, eventProfile: sessionEventProfile, referenceDate: sessionCreatedAt ?? Date())
+    }
+
     func continueFromPassportSignature() {
         guard state == .passportSignature, canContinueFromReview else { return }
-        statusMessage = "Here's your Pocket Passport."
+        statusMessage = "Here's your Photo Pass."
         state = .passportPreview
         renderPassportPreview()
     }
@@ -555,8 +561,8 @@ final class BoothSessionViewModel: ObservableObject {
         }
     }
 
-    /// The gallery copy of a Passport receipt keeps the photos and branding but never the
-    /// customer's name, birthday, nationality, profession, birthplace or signature.
+    /// The gallery copy of a Passport / Photo Pass receipt keeps the photos, branding and public
+    /// event details but never the customer's name, note, signature or legacy personal fields.
     nonisolated static func galleryReceiptImage(
         for committedSession: CommittedGallerySession,
         printedReceiptImage: UIImage,

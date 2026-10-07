@@ -193,9 +193,18 @@ final class EventDesignStudioTests: XCTestCase {
         profile.receiptDesign.typography.preset = .bold
         applyLongestText(&profile)
         for format in BoothFormat.allCases {
-            let plan = try ReceiptComposer.makeLayoutPlan(format: format, eventProfile: profile)
+            // Legacy Passport places the artwork in its title column; Photo Pass has fixed
+            // branding and never prints the event artwork.
+            let legacyPassport = format == .passport ? PassportSessionData(configuration: PassportConfiguration.effective(for: profile), designVersion: .legacyPassport) : nil
+            let plan = try ReceiptComposer.makeLayoutPlan(format: format, eventProfile: profile, passport: legacyPassport)
             XCTAssertLessThanOrEqual(plan.height, BoothConfiguration.receiptMaximumHeight)
             XCTAssertLessThanOrEqual(try XCTUnwrap(plan.customHeaderFrame).height, EventHeaderImageProcessor.maximumPrintedHeight)
+            if format == .passport {
+                let photoPass = try ReceiptComposer.makeLayoutPlan(format: format, eventProfile: profile)
+                XCTAssertNotNil(photoPass.photoPassLayout)
+                XCTAssertNil(photoPass.customHeaderFrame)
+                XCTAssertLessThanOrEqual(photoPass.height, BoothConfiguration.receiptMaximumHeight)
+            }
             if let photoTop = plan.photoFrames.map(\.rect.minY).min(), format != .passport {
                 XCTAssertLessThanOrEqual(try XCTUnwrap(plan.customHeaderFrame).maxY, photoTop, "Artwork never overlaps photos")
             }
