@@ -614,10 +614,18 @@ private struct GalleryBackendOverrideView: View {
     @State private var uploadURL = ""
     @State private var customerURL = ""
     @State private var message = ""
+    @State private var activeFrontDoor = ""
     private let store = GalleryBackendOverrideStore()
 
     var body: some View {
         Form {
+            Section("Customer Gallery Front Door") {
+                LabeledContent("New sessions use", value: activeFrontDoor)
+                Text("Sessions already created keep the gallery link printed on their QR code.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Optional Local Overrides") {
                 TextField("Apps Script upload URL", text: $uploadURL)
                     .textInputAutocapitalization(.never)
@@ -625,7 +633,7 @@ private struct GalleryBackendOverrideView: View {
                 TextField("Customer gallery base URL", text: $customerURL)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                Text("Leave either field blank to use its Info.plist default. Only validated HTTPS endpoints are accepted.")
+                Text("Leave either field blank to use its Info.plist default. Only validated HTTPS endpoints are accepted. The Made to Keep and legacy gallery front doors both open the same galleries.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -637,6 +645,7 @@ private struct GalleryBackendOverrideView: View {
                     uploadURL = ""
                     customerURL = ""
                     message = "Using packaged defaults."
+                    activeFrontDoor = CustomerGalleryConfiguration.activeFrontDoorDescription()
                 }
                 if !message.isEmpty {
                     Text(message)
@@ -648,16 +657,18 @@ private struct GalleryBackendOverrideView: View {
         .onAppear {
             uploadURL = store.uploadURLOverride() ?? ""
             customerURL = store.customerURLOverride() ?? ""
+            activeFrontDoor = CustomerGalleryConfiguration.activeFrontDoorDescription()
         }
     }
 
     private func save() {
         do {
             try store.save(uploadURL: uploadURL, customerURL: customerURL)
-            message = "Saved. New sessions and queued upload attempts will use this configuration."
+            message = "Saved. New sessions use this gallery front door; queued uploads use this upload URL and keep their original gallery links."
         } catch {
             message = error.localizedDescription
         }
+        activeFrontDoor = CustomerGalleryConfiguration.activeFrontDoorDescription()
     }
 }
 

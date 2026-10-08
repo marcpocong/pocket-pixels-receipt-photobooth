@@ -62,9 +62,21 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         composedReceipt: UIImage,
         sessionID: String,
         createdAt: Date,
-        galleryToken: String
+        galleryToken: String,
+        frozenGalleryURL: URL? = nil
     ) async throws -> GalleryPreparedUploadPayload {
-        let customerGalleryConfiguration = try customerGalleryConfigurationProvider()
+        // A session's gallery URL is frozen when its token is minted and is already on the QR.
+        // Reuse that front door so a config change mid-session or across recovery cannot make the
+        // queued payload disagree with the printed QR.
+        let customerGalleryBaseURL: URL
+        if let frozenGalleryURL {
+            guard let frozenBaseURL = GalleryURLBuilder.customerGalleryBaseURL(ofGalleryURL: frozenGalleryURL, galleryToken: galleryToken) else {
+                throw GalleryUploadError.invalidGalleryURL
+            }
+            customerGalleryBaseURL = frozenBaseURL
+        } else {
+            customerGalleryBaseURL = try customerGalleryConfigurationProvider().baseURL
+        }
         let payload = try await Task.detached(priority: .userInitiated) {
             try Self.preparePayload(
                 photos: photos,
@@ -72,7 +84,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
                 sessionID: sessionID,
                 createdAt: createdAt,
                 galleryToken: galleryToken,
-                customerGalleryBaseURL: customerGalleryConfiguration.baseURL
+                customerGalleryBaseURL: customerGalleryBaseURL
             )
         }.value
 
@@ -306,7 +318,13 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
               galleryURL.scheme?.lowercased() == "https",
               galleryURL.host() != nil else { return false }
         if let expectedGalleryToken, galleryToken != expectedGalleryToken { return false }
-        if let expectedGalleryURL, galleryURL != expectedGalleryURL { return false }
+        // The backend builds its URL from its own configured front door, which may legitimately
+        // differ from the frozen URL during the Made to Keep migration (legacy queued payloads,
+        // or app and Apps Script configured at different times). Same token is what matters.
+        if let expectedGalleryURL,
+           !GalleryURLBuilder.identifiesSameGallery(galleryURL, expectedGalleryURL, galleryToken: galleryToken) {
+            return false
+        }
         return true
     }
 
@@ -438,7 +456,8 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         let totalDuration = Date().timeIntervalSince(totalStart)
         debugLog("Gallery upload succeeded. Gallery token: \(GalleryTokenGenerator.redacted(galleryToken)). URL host: \(galleryURL.host() ?? "unknown"). uploadNetwork=\(String(format: "%.3f", networkDuration))s total=\(String(format: "%.3f", totalDuration))s responseBytes=\(responseData.count)")
 #endif
-        return GalleryUploadResult(galleryToken: galleryToken, galleryURL: galleryURL, status: GalleryUploadResultStatus(serverStatus: uploadResponse.status))
+        // Always report the frozen URL (the one on the printed QR), never the backend's rebuilt one.
+        return GalleryUploadResult(galleryToken: galleryToken, galleryURL: payload.galleryURL, status: GalleryUploadResultStatus(serverStatus: uploadResponse.status))
     }
 
     private func beginUpload(galleryToken: String) throws {

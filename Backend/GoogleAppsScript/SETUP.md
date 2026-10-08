@@ -39,11 +39,20 @@ This backend receives gallery uploads from the iPad, stores them in one dedicate
 33. Open a completed Worker gallery URL in iPhone Safari, iPhone Chrome, iPad Safari, iPad Chrome, desktop Safari, desktop Chrome signed out, desktop Chrome Incognito, Brave, and normal desktop Chrome with multiple Google accounts signed in.
 34. Confirm the browser address bar remains on the Worker/custom gallery domain and never navigates to `script.google.com/macros/u/<number>/`.
 
+## Made to Keep Gallery Front Door (Phase 2)
+
+- `MADE_TO_KEEP_CUSTOMER_GALLERY_BASE_URL` is the preferred Script Property for the customer gallery front door used in new upload responses.
+- When it is unset or blank, `POCKET_PIXELS_CUSTOMER_GALLERY_BASE_URL` is used. Do not delete or rename the legacy property; existing deployments rely on it.
+- A present but invalid Made to Keep value (not HTTPS, or `script.google.com`) fails uploads instead of silently falling back, so misconfiguration is visible.
+- Gallery lookup is by token only. Old QR codes on the legacy Worker host and new QR codes on the Made to Keep host open the same Drive gallery.
+- Run `checkCustomerGalleryConfig` to see which property is active (`propertyName`, `usesLegacyProperty`) without logging the value.
+- Only set the Made to Keep property after the new Worker/front door is deployed and verified. See `Backend/CloudflareGalleryProxy/README.md` for the full deployment order.
+
 ## Security Notes
 
 - The iPad never gets direct Google Drive credentials or unrestricted Drive access.
 - Uploads require `POCKET_PIXELS_DEVICE_TOKEN`.
-- Customer gallery URLs are generated from `POCKET_PIXELS_CUSTOMER_GALLERY_BASE_URL`.
+- Customer gallery URLs are generated from `MADE_TO_KEEP_CUSTOMER_GALLERY_BASE_URL` when set, otherwise from the legacy `POCKET_PIXELS_CUSTOMER_GALLERY_BASE_URL`.
 - Customer browsers open the Cloudflare Worker URL only; they do not navigate directly to Apps Script.
 - Do not post the device token publicly.
 - Anyone possessing the device token could attempt uploads.

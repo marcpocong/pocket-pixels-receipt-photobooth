@@ -73,21 +73,68 @@ struct GoogleDriveGalleryConfiguration: Sendable {
     }
 }
 
+/// The customer-facing gallery front door used to build QR links for NEW sessions.
+///
+/// Precedence: operator override → `MADE_TO_KEEP_CUSTOMER_GALLERY_BASE_URL` →
+/// legacy `POCKET_PIXELS_CUSTOMER_GALLERY_BASE_URL` → configuration error. Sessions that already
+/// have a gallery URL (recovery snapshots, archives, queued uploads) keep that frozen URL; this
+/// configuration is only consulted when a new gallery token is minted.
 struct CustomerGalleryConfiguration: Sendable {
+    enum Source: Sendable, Equatable {
+        case operatorOverride
+        case madeToKeepInfoPlist
+        case legacyInfoPlist
+
+        var displayName: String {
+            switch self {
+            case .operatorOverride: "Operator override"
+            case .madeToKeepInfoPlist: "Made to Keep default"
+            case .legacyInfoPlist: "Legacy front-door default"
+            }
+        }
+    }
+
     let baseURL: URL
 
-    nonisolated static let infoPlistKey = "POCKET_PIXELS_CUSTOMER_GALLERY_BASE_URL"
-    nonisolated static let placeholder = "https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/"
+    /// Preferred Made to Keep Studios front-door key. Expanded from the build setting of the same
+    /// name; blank or unexpanded values are treated as absent so the legacy key is used instead.
+    nonisolated static let infoPlistKey = "MADE_TO_KEEP_CUSTOMER_GALLERY_BASE_URL"
+    /// Legacy Pocket Pixels key. Still read so older configurations keep working.
+    nonisolated static let legacyInfoPlistKey = "POCKET_PIXELS_CUSTOMER_GALLERY_BASE_URL"
+    /// Legacy Pocket Pixels Worker front door. Already printed on receipts; must stay valid.
+    nonisolated static let legacyBaseURLString = "https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/"
+    nonisolated static let placeholder = legacyBaseURLString
 
     nonisolated static func load() throws -> CustomerGalleryConfiguration {
-        if let override = GalleryBackendOverrideStore().customerURLOverride() {
-            return try validate(rawValue: override)
-        }
-        guard let rawValue = Bundle.main.object(forInfoDictionaryKey: infoPlistKey) as? String else {
-            throw GalleryUploadError.configuration("POCKET_PIXELS_CUSTOMER_GALLERY_BASE_URL is missing from Info.plist.")
-        }
+        try resolve(
+            operatorOverride: GalleryBackendOverrideStore().customerURLOverride(),
+            infoPlistValue: { Bundle.main.object(forInfoDictionaryKey: $0) }
+        ).configuration
+    }
 
-        return try validate(rawValue: rawValue)
+    nonisolated static func resolve(
+        operatorOverride: String?,
+        infoPlistValue: (String) -> Any?
+    ) throws -> (configuration: CustomerGalleryConfiguration, source: Source) {
+        if let override = configuredValue(operatorOverride) {
+            return (try validate(rawValue: override), .operatorOverride)
+        }
+        if let preferred = configuredValue(infoPlistValue(infoPlistKey) as? String) {
+            return (try validate(rawValue: preferred), .madeToKeepInfoPlist)
+        }
+        if let legacy = configuredValue(infoPlistValue(legacyInfoPlistKey) as? String) {
+            return (try validate(rawValue: legacy), .legacyInfoPlist)
+        }
+        throw GalleryUploadError.configuration("\(infoPlistKey) (or legacy \(legacyInfoPlistKey)) is missing from Info.plist.")
+    }
+
+    nonisolated private static func configuredValue(_ rawValue: String?) -> String? {
+        guard let trimmed = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty,
+              !trimmed.hasPrefix("$(") else {
+            return nil
+        }
+        return trimmed
     }
 
     nonisolated static func validate(rawValue: String) throws -> CustomerGalleryConfiguration {
@@ -116,6 +163,19 @@ struct CustomerGalleryConfiguration: Sendable {
         do {
             _ = try load()
             return "Configured"
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    /// Operator-facing summary of the front door new sessions will use, e.g. "host (source)".
+    nonisolated static func activeFrontDoorDescription() -> String {
+        do {
+            let resolved = try resolve(
+                operatorOverride: GalleryBackendOverrideStore().customerURLOverride(),
+                infoPlistValue: { Bundle.main.object(forInfoDictionaryKey: $0) }
+            )
+            return "\(resolved.configuration.baseURL.host() ?? resolved.configuration.baseURL.absoluteString) (\(resolved.source.displayName))"
         } catch {
             return error.localizedDescription
         }

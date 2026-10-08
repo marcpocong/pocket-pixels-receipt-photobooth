@@ -4,7 +4,12 @@ const ROOT_FOLDER_ID_PROPERTY = 'POCKET_PIXELS_ROOT_FOLDER_ID';
 
 const DEVICE_TOKEN_PROPERTY = 'POCKET_PIXELS_DEVICE_TOKEN';
 
-const CUSTOMER_GALLERY_BASE_URL_PROPERTY = 'POCKET_PIXELS_CUSTOMER_GALLERY_BASE_URL';
+// Preferred Made to Keep Studios customer gallery front door. When unset or blank, the legacy
+// Pocket Pixels property is used so existing deployments keep working without a migration.
+// Gallery lookup is by token only, so either front door opens the same gallery.
+const CUSTOMER_GALLERY_BASE_URL_PROPERTY = 'MADE_TO_KEEP_CUSTOMER_GALLERY_BASE_URL';
+
+const LEGACY_CUSTOMER_GALLERY_BASE_URL_PROPERTY = 'POCKET_PIXELS_CUSTOMER_GALLERY_BASE_URL';
 
 const GALLERY_FOLDER_INDEX_PREFIX = 'POCKET_PIXELS_GALLERY_FOLDER_';
 
@@ -424,6 +429,8 @@ function runPhase6CBackendSelfChecks() {
   assert_(driveError.code === 'DRIVE_RUNTIME_ERROR', 'Drive runtime error should be classified.');
 
   runCanonicalGalleryURLSelfChecks_();
+
+  runCustomerGalleryPropertyPrecedenceSelfChecks_();
 
   runFastGalleryRenderSelfChecks_();
 
@@ -1699,6 +1706,44 @@ function makeCompleteManifest_(body) {
 
 }
 
+function runCustomerGalleryPropertyPrecedenceSelfChecks_() {
+
+  const legacyBase = 'https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/';
+
+  const preferredBase = 'https://gallery.madetokeep.test/';
+
+  function fakeProperties(values) {
+
+    return { getProperty: function(key) { return Object.prototype.hasOwnProperty.call(values, key) ? values[key] : null; } };
+
+  }
+
+  const both = {};
+
+  both[CUSTOMER_GALLERY_BASE_URL_PROPERTY] = preferredBase;
+
+  both[LEGACY_CUSTOMER_GALLERY_BASE_URL_PROPERTY] = legacyBase;
+
+  assert_(resolveCustomerGalleryBaseURLProperty_(fakeProperties(both)).value === preferredBase, 'Made to Keep customer gallery property should be preferred when present.');
+
+  const legacyOnly = {};
+
+  legacyOnly[LEGACY_CUSTOMER_GALLERY_BASE_URL_PROPERTY] = legacyBase;
+
+  assert_(resolveCustomerGalleryBaseURLProperty_(fakeProperties(legacyOnly)).value === legacyBase, 'Legacy Pocket Pixels customer gallery property should remain a valid fallback.');
+
+  const blankPreferred = {};
+
+  blankPreferred[CUSTOMER_GALLERY_BASE_URL_PROPERTY] = '   ';
+
+  blankPreferred[LEGACY_CUSTOMER_GALLERY_BASE_URL_PROPERTY] = legacyBase;
+
+  assert_(resolveCustomerGalleryBaseURLProperty_(fakeProperties(blankPreferred)).propertyName === LEGACY_CUSTOMER_GALLERY_BASE_URL_PROPERTY, 'Blank Made to Keep property should fall back to the legacy property.');
+
+  assert_(resolveCustomerGalleryBaseURLProperty_(fakeProperties({})).value === null, 'Missing customer gallery properties should resolve to no value.');
+
+}
+
 function makeGalleryURL_(galleryToken) {
 
   if (!GALLERY_TOKEN_PATTERN.test(String(galleryToken || ''))) {
@@ -1707,9 +1752,34 @@ function makeGalleryURL_(galleryToken) {
 
   }
 
-  const customerGalleryBaseURL = PropertiesService.getScriptProperties().getProperty(CUSTOMER_GALLERY_BASE_URL_PROPERTY);
+  const customerGalleryBaseURL = resolveCustomerGalleryBaseURLProperty_(PropertiesService.getScriptProperties()).value;
 
   return makeGalleryURLFromCustomerBaseURL_(customerGalleryBaseURL, galleryToken);
+
+}
+
+// Returns the configured customer gallery base URL: the Made to Keep property when it is set to a
+// non-blank value, otherwise the legacy Pocket Pixels property. A present-but-invalid preferred
+// value is not silently skipped; it fails validation so misconfiguration is visible.
+function resolveCustomerGalleryBaseURLProperty_(properties) {
+
+  const preferred = properties.getProperty(CUSTOMER_GALLERY_BASE_URL_PROPERTY);
+
+  if (typeof preferred === 'string' && preferred.trim().length > 0) {
+
+    return { propertyName: CUSTOMER_GALLERY_BASE_URL_PROPERTY, value: preferred };
+
+  }
+
+  const legacy = properties.getProperty(LEGACY_CUSTOMER_GALLERY_BASE_URL_PROPERTY);
+
+  if (typeof legacy === 'string' && legacy.trim().length > 0) {
+
+    return { propertyName: LEGACY_CUSTOMER_GALLERY_BASE_URL_PROPERTY, value: legacy };
+
+  }
+
+  return { propertyName: '', value: null };
 
 }
 
@@ -1767,9 +1837,11 @@ function canonicalizeCustomerGalleryBaseURL_(baseURL) {
 }
 
 function checkCustomerGalleryConfig() {
-  const raw = PropertiesService.getScriptProperties().getProperty(CUSTOMER_GALLERY_BASE_URL_PROPERTY);
+  const resolved = resolveCustomerGalleryBaseURLProperty_(PropertiesService.getScriptProperties());
+  const raw = resolved.value;
   const result = {
-    propertyName: CUSTOMER_GALLERY_BASE_URL_PROPERTY,
+    propertyName: resolved.propertyName || CUSTOMER_GALLERY_BASE_URL_PROPERTY,
+    usesLegacyProperty: resolved.propertyName === LEGACY_CUSTOMER_GALLERY_BASE_URL_PROPERTY,
     propertyPresent: typeof raw === 'string' && raw.trim().length > 0,
     propertyLength: typeof raw === 'string' ? raw.trim().length : 0,
     valid: false,

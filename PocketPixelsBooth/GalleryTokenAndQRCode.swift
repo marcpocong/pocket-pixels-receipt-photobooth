@@ -128,6 +128,30 @@ enum GalleryURLBuilder {
 
         return (try? CustomerGalleryConfiguration.validate(rawValue: canonicalBaseURL.absoluteString)) != nil
     }
+
+    /// Recovers the customer gallery front door that `galleryURL` was generated from, or nil when
+    /// it is not a valid `<base>?g=<galleryToken>` URL. Lets frozen session URLs be reproduced
+    /// exactly even after the configured front door has changed.
+    nonisolated static func customerGalleryBaseURL(ofGalleryURL galleryURL: URL, galleryToken: String) -> URL? {
+        guard var components = URLComponents(url: galleryURL, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        components.query = nil
+        components.fragment = nil
+        guard let rawBaseURL = components.url,
+              let baseURL = try? canonicalCustomerGalleryBaseURL(rawBaseURL),
+              validateGalleryURL(galleryURL, customerGalleryBaseURL: baseURL, galleryToken: galleryToken) else {
+            return nil
+        }
+        return baseURL
+    }
+
+    /// True when both URLs are valid gallery links for the same token, regardless of which
+    /// supported front door (legacy Pocket Pixels or Made to Keep) each one uses.
+    nonisolated static func identifiesSameGallery(_ lhs: URL, _ rhs: URL, galleryToken: String) -> Bool {
+        customerGalleryBaseURL(ofGalleryURL: lhs, galleryToken: galleryToken) != nil
+            && customerGalleryBaseURL(ofGalleryURL: rhs, galleryToken: galleryToken) != nil
+    }
 }
 
 enum GalleryQRCodeGenerator {

@@ -1523,7 +1523,8 @@ final class BoothSessionViewModel: ObservableObject {
                     composedReceipt: receiptImage,
                     sessionID: committedSession.sessionIdentifier,
                     createdAt: committedSession.createdAt,
-                    galleryToken: committedSession.galleryToken
+                    galleryToken: committedSession.galleryToken,
+                    frozenGalleryURL: committedSession.galleryURL
                 )
                 refreshPendingUploads()
 

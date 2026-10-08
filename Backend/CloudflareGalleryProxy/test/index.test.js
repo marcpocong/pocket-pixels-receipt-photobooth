@@ -392,3 +392,69 @@ test("Worker error pages show Made to Keep Studios branding", async () => {
   assert.match(html, /studios/);
   assert.doesNotMatch(html, /Pocket Pixels|@pocketpixels\.ceb/i);
 });
+
+// Made to Keep gallery front-door migration (Phase 2): the same Worker source serves the legacy
+// Pocket Pixels workers.dev host (already printed on receipts) and any future Made to Keep host.
+// Token handling, upstream URL and cache semantics must not depend on the public hostname.
+const legacyFrontDoor = "https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/";
+const madeToKeepTestFrontDoor = "https://gallery.madetokeep.test/";
+
+test("legacy and Made to Keep front doors forward the same token to the same upstream", async () => {
+  await withMockFetch([
+    new Response(madeToKeepCompletedHTML),
+    new Response(madeToKeepCompletedHTML),
+  ], async (calls) => {
+    const legacy = await worker.fetch(new Request(`${legacyFrontDoor}?g=${token}`), env);
+    const current = await worker.fetch(new Request(`${madeToKeepTestFrontDoor}?g=${token}`), env);
+    assert.equal(legacy.status, 200);
+    assert.equal(current.status, 200);
+    assert.equal(await legacy.text(), await current.text());
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].url, `https://script.google.com/macros/s/DEPLOYMENT_ID/exec?proxy=raw&g=${token}`);
+    assert.equal(calls[1].url, calls[0].url);
+  });
+});
+
+test("legacy front door keeps serving old Pocket Pixels-era completed galleries from cache", async () => {
+  await withMemoryCache(async () => {
+    await withMockFetch([completedGalleryResponse()], async (calls) => {
+      const request = new Request(`${legacyFrontDoor}?g=${token}`);
+      const first = await worker.fetch(request, env);
+      assert.equal(first.headers.get("X-Pocket-Pixels-Cache"), "MISS");
+      assert.equal(first.headers.get("Cache-Control"), "public, max-age=3600");
+      const second = await worker.fetch(request, env);
+      assert.equal(second.headers.get("X-Pocket-Pixels-Cache"), "HIT");
+      assert.equal(calls.length, 1);
+    });
+  });
+});
+
+test("Made to Keep front door serves schema-v2 GIF gallery with unchanged cache and HEAD semantics", async () => {
+  await withMemoryCache(async () => {
+    await withMockFetch([new Response(madeToKeepCompletedHTML)], async (calls) => {
+      const first = await worker.fetch(new Request(`${madeToKeepTestFrontDoor}?g=${token}`), env);
+      assert.equal(first.headers.get("X-Pocket-Pixels-Cache"), "MISS");
+      assert.match(await first.text(), /image-session\.gif/);
+      const head = await worker.fetch(new Request(`${madeToKeepTestFrontDoor}?g=${token}`, { method: "HEAD" }), env);
+      assert.equal(head.status, 200);
+      assert.equal(head.headers.get("X-Pocket-Pixels-Cache"), "HIT");
+      assert.equal(await head.text(), "");
+      assert.equal(calls.length, 1);
+    });
+  });
+});
+
+test("both front doors reject malformed tokens and Google sign-in pages identically", async () => {
+  for (const frontDoor of [legacyFrontDoor, madeToKeepTestFrontDoor]) {
+    const invalid = await worker.fetch(new Request(`${frontDoor}?g=${"A".repeat(64)}`), env);
+    assert.equal(invalid.status, 404);
+    await withMockFetch([
+      new Response("<!doctype html><title>Sign in - Google Accounts</title><form>Sign in</form>"),
+    ], async () => {
+      const response = await worker.fetch(new Request(`${frontDoor}?g=${token}`), env);
+      assert.equal(response.status, 503);
+      assert.equal(response.headers.get("X-Pocket-Pixels-Proxy-Error"), "UNEXPECTED_UPSTREAM_PAGE");
+      assert.match(response.headers.get("Cache-Control"), /no-store/);
+    });
+  }
+});

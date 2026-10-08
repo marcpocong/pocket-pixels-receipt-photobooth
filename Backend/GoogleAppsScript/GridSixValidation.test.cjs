@@ -114,6 +114,58 @@ assert.match(pendingHTML, /your photos are still being prepared\./);
 assert.match(invalidHTML, /This gallery link cannot be opened\./);
 console.log('Made to Keep Studios gallery branding checks passed (v1, v2, pending, invalid, too large).');
 
+// Made to Keep gallery front-door migration (Phase 2). New upload responses use the preferred
+// Made to Keep property, the legacy Pocket Pixels property stays a valid fallback, and gallery
+// rendering/lookup never depends on which public front door is configured.
+const legacyGalleryBase = 'https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/';
+const madeToKeepTestBase = 'https://gallery.madetokeep.test/';
+const frontDoorToken = 'c'.repeat(64);
+const savedCustomerProperties = {
+  preferred: scriptProperties.get('MADE_TO_KEEP_CUSTOMER_GALLERY_BASE_URL'),
+  legacy: scriptProperties.get('POCKET_PIXELS_CUSTOMER_GALLERY_BASE_URL'),
+};
+function setCustomerProperties(preferred, legacy) {
+  for (const [key, value] of [['MADE_TO_KEEP_CUSTOMER_GALLERY_BASE_URL', preferred], ['POCKET_PIXELS_CUSTOMER_GALLERY_BASE_URL', legacy]]) {
+    if (value === undefined) scriptProperties.delete(key); else scriptProperties.set(key, value);
+  }
+}
+function renderFixtureHTML() {
+  return context.renderGalleryPage_(galleryFixture(2), {}, 0).getContent();
+}
+
+setCustomerProperties(undefined, legacyGalleryBase);
+assert.equal(context.makeGalleryURL_(frontDoorToken), `${legacyGalleryBase}?g=${frontDoorToken}`, 'Legacy-only property must keep generating legacy URLs.');
+assert.equal(context.checkCustomerGalleryConfig().usesLegacyProperty, true);
+assert.equal(context.checkCustomerGalleryConfig().usesWorkersDev, true);
+const legacyConfiguredHTML = renderFixtureHTML();
+
+setCustomerProperties(madeToKeepTestBase, legacyGalleryBase);
+assert.equal(context.makeGalleryURL_(frontDoorToken), `${madeToKeepTestBase}?g=${frontDoorToken}`, 'Made to Keep property must be preferred for new upload responses.');
+const configCheck = context.checkCustomerGalleryConfig();
+assert.equal(configCheck.propertyName, 'MADE_TO_KEEP_CUSTOMER_GALLERY_BASE_URL');
+assert.equal(configCheck.usesLegacyProperty, false);
+assert.equal(configCheck.valid, true);
+assert.equal(renderFixtureHTML(), legacyConfiguredHTML, 'Gallery rendering must not depend on the configured front door.');
+
+setCustomerProperties(madeToKeepTestBase, undefined);
+assert.equal(context.makeGalleryURL_(frontDoorToken), `${madeToKeepTestBase}?g=${frontDoorToken}`, 'Made to Keep property alone must be sufficient.');
+
+setCustomerProperties('  ', legacyGalleryBase);
+assert.equal(context.makeGalleryURL_(frontDoorToken), `${legacyGalleryBase}?g=${frontDoorToken}`, 'Blank Made to Keep property falls back to legacy.');
+
+setCustomerProperties('https://script.google.com/macros/s/ABC/exec', legacyGalleryBase);
+assert.throws(() => context.makeGalleryURL_(frontDoorToken), error => error.publicCode === 'INVALID_CUSTOMER_GALLERY_BASE_URL', 'Invalid preferred property must fail, not silently fall back.');
+
+setCustomerProperties('http://gallery.madetokeep.test/', undefined);
+assert.throws(() => context.makeGalleryURL_(frontDoorToken), error => error.publicCode === 'INVALID_CUSTOMER_GALLERY_BASE_URL', 'Preferred property must be HTTPS.');
+
+setCustomerProperties(undefined, undefined);
+assert.throws(() => context.makeGalleryURL_(frontDoorToken), error => error.publicCode === 'INVALID_CUSTOMER_GALLERY_BASE_URL', 'Missing both properties gives a clear configuration error.');
+assert.equal(context.checkCustomerGalleryConfig().propertyPresent, false);
+
+setCustomerProperties(savedCustomerProperties.preferred, savedCustomerProperties.legacy);
+console.log('Made to Keep customer gallery property precedence and host-independent rendering checks passed.');
+
 const realistic = realisticBudgetPayload();
 assert.equal(context.validateUploadPayload_(realistic).ok, true);
 const realisticImages = realistic.photos.concat([realistic.colorReceipt, realistic.thermalReceipt, realistic.gif]);
