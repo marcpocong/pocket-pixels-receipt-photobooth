@@ -163,10 +163,26 @@ final class MadeToKeepBrandTests: XCTestCase {
         XCTAssertEqual(layout.arrangement.rows, [[0], [1]])
         XCTAssertEqual(layout.arrangement.cellStyle, .stacked)
         XCTAssertFalse(layout.requiresScrolling)
-        XCTAssertEqual(layout.gapScale, 1)
-        XCTAssertGreaterThanOrEqual(layout.photoHeight, 200)
+        XCTAssertEqual(layout.gapScale, MadeToKeepPhotoReviewLayout.minimumGapScale)
+        XCTAssertGreaterThanOrEqual(layout.photoHeight, 270)
         let size = layout.photoSize(at: 0)
+        XCTAssertGreaterThanOrEqual(size.width, 360)
         XCTAssertEqual(size.width / size.height, ReceiptComposer.landscapePresentationAspectRatio, accuracy: 0.02)
+    }
+
+    func testDuoReviewPhotoAreaIncreasesByAtLeastFortyPercentFromPreviousGeometry() {
+        let previousPhotoSize = CGSize(width: 302, height: 227)
+        let layout = MadeToKeepPhotoReviewLayout(
+            available: CGSize(width: 834, height: 1194 - 44),
+            spec: .spec(for: .duo)
+        )
+        let revised = layout.photoSize(at: 0)
+        let widthIncrease = revised.width / previousPhotoSize.width - 1
+        let areaIncrease = (revised.width * revised.height) / (previousPhotoSize.width * previousPhotoSize.height) - 1
+
+        XCTAssertGreaterThanOrEqual(widthIncrease, 0.19)
+        XCTAssertGreaterThanOrEqual(areaIncrease, 0.40)
+        XCTAssertFalse(layout.requiresScrolling)
     }
 
     func testEveryFormatReviewFitsElevenInchIPadInBothOrientations() {
@@ -177,6 +193,11 @@ final class MadeToKeepBrandTests: XCTestCase {
                 let layout = MadeToKeepPhotoReviewLayout(available: available, spec: spec)
                 XCTAssertFalse(layout.requiresScrolling, "\(format) \(available)")
                 XCTAssertGreaterThanOrEqual(layout.photoHeight, spec.minimumPhotoHeight, "\(format) \(available)")
+                XCTAssertLessThanOrEqual(
+                    layout.contentHeight,
+                    available.height - MadeToKeepReviewSpacing.topInset - MadeToKeepReviewSpacing.bottomInset + 0.5,
+                    "\(format) \(available)"
+                )
                 // Every photo appears exactly once, in reading order.
                 XCTAssertEqual(layout.arrangement.rows.flatMap { $0 }, Array(0..<format.photoCount), "\(format)")
                 for index in 0..<format.photoCount {

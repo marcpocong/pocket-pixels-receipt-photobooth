@@ -295,9 +295,9 @@ struct MadeToKeepReviewTextButtonStyle: ButtonStyle {
 /// Review vertical rhythm, in points at full scale. Gaps compress together (never the photo
 /// frames' aspect) when the viewport is short.
 enum MadeToKeepReviewSpacing {
-    static let topInset: CGFloat = 18
-    static let bottomInset: CGFloat = 10
-    static let horizontalInset: CGFloat = 42
+    static let topInset: CGFloat = 14
+    static let bottomInset: CGFloat = 8
+    static let horizontalInset: CGFloat = 36
 
     static let lockupToEyebrow: CGFloat = 18
     static let eyebrowToRule: CGFloat = 10
@@ -547,12 +547,11 @@ struct MadeToKeepPhotoReviewLayout: Equatable {
             (height - fixed - gaps * gapScale) / rows
         }
 
-        var scale: CGFloat = 1
-        var photoHeight = min(budgetedHeight(gapScale: 1), ceiling)
-        if photoHeight < minimum {
-            scale = min(1, max(Self.minimumGapScale, (height - fixed - minimum * rows) / max(1, gaps)))
-            photoHeight = min(ceiling, max(minimum, budgetedHeight(gapScale: scale)))
-        }
+        // Photographs get the first claim on compressible space. Solve their largest useful
+        // height at the compact editorial rhythm, then give any surplus back to the gaps.
+        let compactBudget = budgetedHeight(gapScale: Self.minimumGapScale)
+        var photoHeight = min(ceiling, max(minimum, compactBudget))
+        let scale = min(1, max(Self.minimumGapScale, (height - fixed - photoHeight * rows) / max(1, gaps)))
 
         photoHeight = photoHeight.rounded(.down)
         self.arrangement = arrangement

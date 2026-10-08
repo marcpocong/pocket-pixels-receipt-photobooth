@@ -302,52 +302,67 @@ struct BoothSessionView: View {
     private var cameraScreen: some View {
         GeometryReader { proxy in
             let contentWidth = clampedContentWidth(for: proxy, maximum: 620)
-            let previewWidth = max(1, min(contentWidth - 20, 580))
             let presentation = cameraPhotoPresentation
-            let previewHeight = previewWidth / presentation.aspectRatio
 
-            VStack(spacing: 18) {
+            VStack(spacing: 0) {
                 cameraTopBar
                     .frame(width: contentWidth)
+                    .frame(height: CameraScreenLayout.topBarHeight)
 
-                cameraPreviewSurface(width: previewWidth, height: previewHeight)
-
-                VStack(spacing: 16) {
-                    Text(cameraCustomerStatusText)
-                        .font(MadeToKeepTheme.Typography.italicSerif(size: 28))
-                        .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
-                        .multilineTextAlignment(.center)
-                        .frame(width: contentWidth)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    CameraPhotoProgress(
-                        count: viewModel.requiredPhotoCount,
-                        completedCount: completedCameraPhotoCount,
-                        activeIndex: cameraPhotoIndex,
-                        confirmsCapture: viewModel.transientCapturedPhoto != nil
+                GeometryReader { compositionProxy in
+                    let layout = CameraScreenLayout(
+                        available: compositionProxy.size,
+                        maximumContentWidth: contentWidth,
+                        aspectRatio: presentation.aspectRatio
                     )
 
-                    if case .cameraReady = viewModel.state, !viewModel.isCameraUnavailable {
-                        Button {
-                            viewModel.beginPhotoSequence()
-                        } label: {
-                            Text("Start Photos")
-                                .frame(maxWidth: .infinity)
+                    VStack(spacing: 0) {
+                        cameraPreviewSurface(width: layout.viewportSize.width, height: layout.viewportSize.height)
+
+                        Text(cameraCustomerStatusText)
+                            .font(MadeToKeepTheme.Typography.italicSerif(size: 28))
+                            .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.82)
+                            .frame(width: contentWidth, height: CameraScreenLayout.statusHeight)
+                            .padding(.top, CameraScreenLayout.viewportToStatus)
+
+                        CameraPhotoProgress(
+                            count: viewModel.requiredPhotoCount,
+                            completedCount: completedCameraPhotoCount,
+                            activeIndex: cameraPhotoIndex,
+                            confirmsCapture: viewModel.transientCapturedPhoto != nil
+                        )
+                        .frame(height: CameraScreenLayout.progressHeight)
+                        .padding(.top, CameraScreenLayout.statusToProgress)
+
+                        ZStack {
+                            if case .cameraReady = viewModel.state, !viewModel.isCameraUnavailable {
+                                Button {
+                                    viewModel.beginPhotoSequence()
+                                } label: {
+                                    Text("Start Photos")
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(MadeToKeepPrimaryButtonStyle())
+                                .frame(width: contentWidth * 0.74)
+                                .disabled(!viewModel.canBeginPhotos)
+                            }
+
+                            #if DEBUG
+                            if viewModel.isCameraUnavailable {
+                                samplePhotoPicker
+                                    .frame(width: contentWidth * 0.74)
+                            }
+                            #endif
                         }
-                        .buttonStyle(MadeToKeepPrimaryButtonStyle())
-                        .frame(width: contentWidth * 0.74)
-                        .disabled(!viewModel.canBeginPhotos)
+                        .frame(height: CameraScreenLayout.actionHeight)
+                        .padding(.top, CameraScreenLayout.progressToAction)
                     }
-
-                    #if DEBUG
-                    if viewModel.isCameraUnavailable {
-                        samplePhotoPicker
-                            .frame(width: contentWidth * 0.74)
-                    }
-                    #endif
+                    .frame(width: contentWidth, height: layout.compositionHeight)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 }
-
-                Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -1673,6 +1688,35 @@ struct BoothSessionView: View {
                 viewModel.statusMessage = error.localizedDescription
             }
         }
+    }
+}
+
+/// Geometry contract for the capture screen. The navigation region is separate; this solver
+/// centers one stable camera composition in the remaining safe-area height.
+struct CameraScreenLayout: Equatable {
+    static let topBarHeight: CGFloat = 74
+    static let viewportToStatus: CGFloat = 16
+    static let statusHeight: CGFloat = 64
+    static let statusToProgress: CGFloat = 8
+    static let progressHeight: CGFloat = 14
+    static let progressToAction: CGFloat = 10
+    static let actionHeight: CGFloat = 54
+    static let mountInset: CGFloat = 20
+    static let maximumViewportWidth: CGFloat = 580
+
+    let viewportSize: CGSize
+    let compositionHeight: CGFloat
+
+    init(available: CGSize, maximumContentWidth: CGFloat, aspectRatio: CGFloat) {
+        let safeAspectRatio = max(0.1, aspectRatio)
+        let chromeHeight = Self.viewportToStatus + Self.statusHeight + Self.statusToProgress
+            + Self.progressHeight + Self.progressToAction + Self.actionHeight + Self.mountInset
+        let widthLimit = max(1, min(maximumContentWidth - Self.mountInset, Self.maximumViewportWidth))
+        let heightLimitedWidth = max(1, (available.height - chromeHeight) * safeAspectRatio)
+        let width = floor(min(widthLimit, heightLimitedWidth))
+        let height = floor(width / safeAspectRatio)
+        viewportSize = CGSize(width: width, height: height)
+        compositionHeight = height + chromeHeight
     }
 }
 

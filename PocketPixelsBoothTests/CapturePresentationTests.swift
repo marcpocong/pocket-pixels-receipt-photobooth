@@ -3,6 +3,36 @@ import UIKit
 @testable import PocketPixelsBooth
 
 struct CapturePresentationTests {
+    @Test("Camera composition is centered below a fixed top bar without changing viewport state")
+    func stableCameraCompositionGeometry() {
+        let available = CGSize(width: 786, height: 1_032)
+        let ready = CameraScreenLayout(available: available, maximumContentWidth: 620, aspectRatio: 4.0 / 3.0)
+        let countdown = CameraScreenLayout(available: available, maximumContentWidth: 620, aspectRatio: 4.0 / 3.0)
+
+        #expect(ready == countdown)
+        #expect(ready.viewportSize == CGSize(width: 580, height: 435))
+        #expect(ready.compositionHeight <= available.height)
+        let topSpace = (available.height - ready.compositionHeight) / 2
+        #expect(topSpace > 150)
+    }
+
+    @Test("Camera geometry respects every role aspect and supported iPad height")
+    func cameraAspectGeometry() {
+        let available = CGSize(width: 786, height: 1_032)
+        for format in BoothFormat.allCases {
+            for photoIndex in 0..<format.photoCount {
+                let presentation = CapturePhotoPresentation.resolve(format: format, photoIndex: photoIndex)
+                let layout = CameraScreenLayout(
+                    available: available,
+                    maximumContentWidth: 620,
+                    aspectRatio: presentation.aspectRatio
+                )
+                #expect(abs(layout.viewportSize.width / layout.viewportSize.height - presentation.aspectRatio) < 0.01)
+                #expect(layout.compositionHeight <= available.height)
+            }
+        }
+    }
+
     @Test("Every format resolves the required camera framing")
     func formatFramingMatrix() {
         #expect(CapturePhotoPresentation.resolve(format: .solo, photoIndex: 0) == .portrait)
