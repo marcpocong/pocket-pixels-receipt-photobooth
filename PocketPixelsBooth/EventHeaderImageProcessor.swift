@@ -88,6 +88,66 @@ enum EventHeaderImageProcessor {
     nonisolated static func renderedHeader(source: EventArtwork, configuration: ReceiptHeaderConfiguration, receiptWidth: CGFloat = CGFloat(BoothConfiguration.receiptWidth)) -> EventHeaderRenderResult {
         let config = configuration.normalized()
         let size = frameSize(sourceSize: source.size, configuration: config, receiptWidth: receiptWidth)
+        return renderedArtwork(source: source, configuration: config, frameSize: size)
+    }
+
+    // MARK: Bottom signature (Studio-First)
+
+    /// The signature stays well inside the printable width so wide banners scale down naturally
+    /// and never read as a second masthead.
+    nonisolated static let signatureMaximumWidth: CGFloat = 320
+    nonisolated static let signatureMaximumHeight: CGFloat = 100
+    nonisolated static let signatureMinimumHeight: CGFloat = 24
+
+    /// Compact, aspect-preserving frame for artwork printed near the bottom of a receipt. Fit
+    /// artwork uses its own proportions (so monograms stay small); Fill uses the banner ratio.
+    /// The editor's size control scales the signature within its maximum box.
+    nonisolated static func signatureFrameSize(sourceSize: CGSize, configuration: ReceiptHeaderConfiguration) -> CGSize {
+        let config = configuration.normalized()
+        let scale = CGFloat(min(config.scale, ReceiptHeaderConfiguration.maximumEditorScale))
+        let maximumWidth = floor(signatureMaximumWidth * scale)
+        guard sourceSize.width.isFinite, sourceSize.height.isFinite,
+              sourceSize.width > 0, sourceSize.height > 0 else {
+            return CGSize(width: maximumWidth, height: signatureMinimumHeight)
+        }
+        let aspect = config.layoutMode == .fit
+            ? sourceSize.height / sourceSize.width
+            : CGFloat(config.effectiveFillHeightRatio)
+        var width = maximumWidth
+        var height = width * aspect
+        if height > signatureMaximumHeight {
+            height = signatureMaximumHeight
+            width = height / aspect
+        }
+        return CGSize(width: max(1, floor(width)), height: max(signatureMinimumHeight, floor(height)))
+    }
+
+    /// Centered signature frame starting at `y`.
+    nonisolated static func signatureFrameRect(
+        sourceSize: CGSize,
+        configuration: ReceiptHeaderConfiguration,
+        y: CGFloat,
+        receiptWidth: CGFloat = CGFloat(BoothConfiguration.receiptWidth)
+    ) -> CGRect {
+        let size = signatureFrameSize(sourceSize: sourceSize, configuration: configuration)
+        return CGRect(x: floor((receiptWidth - size.width) / 2), y: y, width: size.width, height: size.height)
+    }
+
+    nonisolated static func renderedSignature(source: EventArtwork, configuration: ReceiptHeaderConfiguration) -> EventHeaderRenderResult {
+        let config = configuration.normalized()
+        return renderedArtwork(source: source, configuration: config, frameSize: signatureFrameSize(sourceSize: source.size, configuration: config))
+    }
+
+    /// True when a tall logo had to be reduced to fit the signature's maximum height.
+    nonisolated static func signatureIsHeightConstrained(sourceSize: CGSize, configuration: ReceiptHeaderConfiguration) -> Bool {
+        let config = configuration.normalized()
+        guard config.layoutMode == .fit, sourceSize.width > 0, sourceSize.height > 0 else { return false }
+        let scale = CGFloat(min(config.scale, ReceiptHeaderConfiguration.maximumEditorScale))
+        return floor(signatureMaximumWidth * scale) * sourceSize.height / sourceSize.width > signatureMaximumHeight * 1.4
+    }
+
+    /// Renders artwork into an exact frame size on opaque white paper.
+    nonisolated static func renderedArtwork(source: EventArtwork, configuration config: ReceiptHeaderConfiguration, frameSize size: CGSize) -> EventHeaderRenderResult {
         let frame = CGRect(origin: .zero, size: size)
         let drawRect = sourceDrawRect(sourceSize: source.size, frameSize: size, configuration: config)
         let format = UIGraphicsImageRendererFormat()

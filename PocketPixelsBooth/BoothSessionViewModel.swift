@@ -19,6 +19,7 @@ final class BoothSessionViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var capturedPhotos: [UIImage] = []
     @Published var transientCapturedPhoto: UIImage?
+    @Published private(set) var transientCapturedPhotoIndex: Int?
     @Published var composedReceipt: ComposedReceipt?
     @Published var receiptImage: UIImage?
     @Published var receiptPhotoPreviewImage: UIImage?
@@ -288,6 +289,8 @@ final class BoothSessionViewModel: ObservableObject {
         }
 
         capturedPhotos.removeAll()
+        transientCapturedPhoto = nil
+        transientCapturedPhotoIndex = nil
         receiptImage = nil
         receiptPhotoPreviewImage = nil
         thermalReceiptPreview = nil
@@ -313,6 +316,8 @@ final class BoothSessionViewModel: ObservableObject {
             return
         }
 
+        transientCapturedPhoto = nil
+        transientCapturedPhotoIndex = nil
         retakeIndex = index
         state = .retaking(photoIndex: index)
         statusMessage = "Retaking photo \(index + 1)."
@@ -330,6 +335,8 @@ final class BoothSessionViewModel: ObservableObject {
         }
 
         capturedPhotos.removeAll()
+        transientCapturedPhoto = nil
+        transientCapturedPhotoIndex = nil
         receiptImage = nil
         receiptPhotoPreviewImage = nil
         thermalReceiptPreview = nil
@@ -344,14 +351,29 @@ final class BoothSessionViewModel: ObservableObject {
             return
         }
 
-        capturedPhotos.append(Self.normalizedCapture(image, format: selectedBoothFormat))
+        guard let format = selectedBoothFormat else { return }
+        let index = capturedPhotos.count
+        let normalized = Self.normalizedCapture(image, format: format)
+        capturedPhotos.append(normalized)
         samplePhotoCount = capturedPhotos.count
-        statusMessage = "Development sample photo \(samplePhotoCount) of \(requiredPhotoCount) loaded."
+        transientCapturedPhotoIndex = index
+        transientCapturedPhoto = CapturePhotoPresentation.resolve(format: format, photoIndex: index)
+            .confirmationPhoto(from: normalized, format: format, photoIndex: index)
+        statusMessage = "Photo \(index + 1) captured."
+        isTransitionActive = true
 
-        if capturedPhotos.count == requiredPhotoCount {
-            state = .review
-        } else {
-            state = .cameraReady
+        let sessionGeneration = customerSessionGeneration
+        activeTask = Task {
+            try? await Task.sleep(for: .seconds(BoothConfiguration.capturedPhotoDisplayDuration))
+            guard !Task.isCancelled, isCurrentCustomerSession(sessionGeneration) else { return }
+            transientCapturedPhoto = nil
+            transientCapturedPhotoIndex = nil
+            state = capturedPhotos.count == requiredPhotoCount ? .review : .cameraReady
+            statusMessage = capturedPhotos.count == requiredPhotoCount
+                ? "Review your photos."
+                : "Select the next sample photo."
+            isTransitionActive = false
+            activeTask = nil
         }
     }
 
@@ -434,7 +456,8 @@ final class BoothSessionViewModel: ObservableObject {
             photos: capturedPhotos,
             format: selectedBoothFormat,
             eventProfile: sessionEventProfile,
-            passport: selectedBoothFormat == .passport ? passportDraft.committed(at: receiptDate) : nil
+            passport: selectedBoothFormat == .passport ? passportDraft.committed(at: receiptDate) : nil,
+            printOptions: ReceiptPrintSettingsStore.load()
         )
         passportPreviewTask?.cancel()
         committedGallerySession = committedSession
@@ -490,7 +513,8 @@ final class BoothSessionViewModel: ObservableObject {
                         format: committedSession.format,
                         eventProfile: committedSession.eventProfile,
                         passport: committedSession.passport,
-                        photoQualityProfile: customerPrintPhotoProfile
+                        photoQualityProfile: customerPrintPhotoProfile,
+                        printOptions: committedSession.printOptions
                     )
                     guard let receiptImage = UIImage(data: receipt.imagePNGData) else {
                         throw ReceiptComposerError.renderFailed
@@ -580,7 +604,8 @@ final class BoothSessionViewModel: ObservableObject {
             format: committedSession.format,
             eventProfile: committedSession.eventProfile,
             passport: passport.redactedForGallery(),
-            photoQualityProfile: photoQualityProfile
+            photoQualityProfile: photoQualityProfile,
+            printOptions: committedSession.printOptions
         )
         guard let image = UIImage(data: redacted.imagePNGData) else {
             throw ReceiptComposerError.renderFailed
@@ -976,6 +1001,7 @@ final class BoothSessionViewModel: ObservableObject {
             cameraService.stopSession()
             isCameraRunning = false
             transientCapturedPhoto = nil
+            transientCapturedPhotoIndex = nil
             state = .review
             statusMessage = "Review your photos."
             isTransitionActive = false
@@ -1004,6 +1030,7 @@ final class BoothSessionViewModel: ObservableObject {
             cameraService.stopSession()
             isCameraRunning = false
             transientCapturedPhoto = nil
+            transientCapturedPhotoIndex = nil
             retakeIndex = nil
             state = .review
             statusMessage = "Review your photos."
@@ -1048,7 +1075,17 @@ final class BoothSessionViewModel: ObservableObject {
                 capturedPhotos[index] = image
             }
 
-            transientCapturedPhoto = image
+            let format = selectedBoothFormat
+            let confirmationWorker = Task.detached(priority: .userInitiated) {
+                guard let format else { return image }
+                return CapturePhotoPresentation.resolve(format: format, photoIndex: index)
+                    .confirmationPhoto(from: image, format: format, photoIndex: index)
+            }
+            let confirmationPhoto = await confirmationWorker.value
+            guard !Task.isCancelled, isCurrentCustomerSession(sessionGeneration) else { return }
+            transientCapturedPhotoIndex = index
+            transientCapturedPhoto = confirmationPhoto
+            statusMessage = "Photo \(index + 1) captured."
             persistRecoverySnapshot(stage: .photosCaptured)
             if replacing {
                 debugLog("[Retake] replaced photo index \(index + 1)")
@@ -1060,6 +1097,7 @@ final class BoothSessionViewModel: ObservableObject {
                 return
             }
             transientCapturedPhoto = nil
+            transientCapturedPhotoIndex = nil
         } catch {
             guard isCurrentCustomerSession(sessionGeneration) else {
                 debugLog("[Session] ignored stale capture failure")
@@ -1123,6 +1161,7 @@ final class BoothSessionViewModel: ObservableObject {
     private func clearCustomerData() {
         capturedPhotos.removeAll()
         transientCapturedPhoto = nil
+        transientCapturedPhotoIndex = nil
         composedReceipt = nil
         receiptImage = nil
         receiptPhotoPreviewImage = nil
@@ -1616,6 +1655,8 @@ struct CommittedGallerySession {
     let eventProfile: EventProfile?
     /// Frozen Passport keepsake data; nil for every other format.
     var passport: PassportSessionData? = nil
+    /// Frozen physical-print choices. Gallery delivery and the iPad QR remain independent.
+    var printOptions: ReceiptPrintOptions = .default
 }
 
 enum GalleryUploadSessionIsolationPolicy {

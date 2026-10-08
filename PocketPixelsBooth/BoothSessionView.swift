@@ -302,18 +302,15 @@ struct BoothSessionView: View {
     private var cameraScreen: some View {
         GeometryReader { proxy in
             let contentWidth = clampedContentWidth(for: proxy, maximum: 620)
-            let previewWidth = min(contentWidth, 600)
-            let previewAspectRatio = usesLandscapeCompositionGuide
-                ? ReceiptComposer.landscapePresentationAspectRatio
-                : ReviewPhotoPresentation.portrait.aspectRatio
+            let previewWidth = max(1, min(contentWidth - 20, 580))
+            let presentation = cameraPhotoPresentation
+            let previewHeight = previewWidth / presentation.aspectRatio
 
             VStack(spacing: 18) {
                 cameraTopBar
                     .frame(width: contentWidth)
 
-                cameraPreviewSurface
-                    .aspectRatio(previewAspectRatio, contentMode: .fit)
-                    .frame(width: previewWidth)
+                cameraPreviewSurface(width: previewWidth, height: previewHeight)
 
                 VStack(spacing: 16) {
                     Text(cameraCustomerStatusText)
@@ -322,6 +319,13 @@ struct BoothSessionView: View {
                         .multilineTextAlignment(.center)
                         .frame(width: contentWidth)
                         .fixedSize(horizontal: false, vertical: true)
+
+                    CameraPhotoProgress(
+                        count: viewModel.requiredPhotoCount,
+                        completedCount: completedCameraPhotoCount,
+                        activeIndex: cameraPhotoIndex,
+                        confirmsCapture: viewModel.transientCapturedPhoto != nil
+                    )
 
                     if case .cameraReady = viewModel.state, !viewModel.isCameraUnavailable {
                         Button {
@@ -375,7 +379,7 @@ struct BoothSessionView: View {
         }
     }
 
-    private var cameraPreviewSurface: some View {
+    private func cameraPreviewSurface(width: CGFloat, height: CGFloat) -> some View {
         ZStack {
             RoundedRectangle(cornerRadius: MadeToKeepTheme.Radius.photo)
                 .fill(Color.black)
@@ -384,11 +388,14 @@ struct BoothSessionView: View {
                 Image(uiImage: transient)
                     .resizable()
                     .scaledToFill()
+                    .frame(width: width, height: height)
+                    .clipped()
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 1.015)))
             } else if viewModel.isCameraUnavailable {
                 simulatorFallback
             } else {
                 CameraPreview(session: viewModel.cameraService.session, cameraService: viewModel.cameraService)
+                    .frame(width: width, height: height)
             }
 
             RoundedRectangle(cornerRadius: MadeToKeepTheme.Radius.photo)
@@ -409,7 +416,14 @@ struct BoothSessionView: View {
                     .allowsHitTesting(false)
                     .transition(.opacity)
             }
+
+            if viewModel.transientCapturedPhoto != nil {
+                CameraCaptureConfirmation(photoIndex: viewModel.transientCapturedPhotoIndex ?? cameraPhotoIndex)
+                    .padding(14)
+                    .transition(.opacity)
+            }
         }
+        .frame(width: width, height: height)
         .animation(.easeOut(duration: 0.18), value: countdownValue)
         .animation(MadeToKeepTheme.Motion.quickAnimation, value: viewModel.transientCapturedPhoto != nil)
         .animation(MadeToKeepTheme.Motion.quickAnimation, value: shutterFlashActive)
@@ -421,296 +435,65 @@ struct BoothSessionView: View {
         .shadow(color: MadeToKeepTheme.ColorPalette.shadowTint.opacity(0.14), radius: 14, x: 0, y: 6)
     }
 
+    /// Every format renders through the editorial review design (`MadeToKeepReviewDesign.swift`);
+    /// the actions are the same view-model calls the review always used.
     private var reviewScreen: some View {
-        GeometryReader { proxy in
-            let contentWidth = clampedContentWidth(for: proxy, maximum: 700)
-
-            if viewModel.selectedBoothFormat == .gridSix && proxy.size.width > proxy.size.height {
-                HStack(spacing: 28) {
-                    VStack(spacing: 24) {
-                        reviewHeader
-                        reviewActionArea(width: contentWidth * 0.68)
-                        Spacer(minLength: 0)
-                    }
-                    .frame(width: proxy.size.width * 0.46)
-                    GeometryReader { photoArea in
-                        ScrollView {
-                            reviewGridSixLayout(width: photoArea.size.width, availableHeight: photoArea.size.height)
-                        }
-                    }
-                }
-            } else {
-                VStack(spacing: 0) {
-                    reviewHeader
-                        .frame(width: contentWidth)
-
-                    if viewModel.selectedBoothFormat == .gridSix {
-                        GeometryReader { photoArea in
-                            ScrollView {
-                                reviewGridSixLayout(width: contentWidth, availableHeight: photoArea.size.height)
-                            }
-                        }
-                        .padding(.top, 24)
-                        reviewActionArea(width: contentWidth)
-                            .padding(.top, reviewPhotoToActionSpacing)
-                    } else {
-                        reviewPhotoArea(width: contentWidth, availableHeight: proxy.size.height)
-                            .padding(.top, 24)
-                        reviewActionArea(width: contentWidth)
-                            .padding(.top, reviewPhotoToActionSpacing)
-                    }
-
-                    Spacer(minLength: 0)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-        .padding(MadeToKeepTheme.Spacing.screenPadding)
+        let format = viewModel.selectedBoothFormat ?? .grid
+        let spec = MadeToKeepReviewFormatSpec.spec(for: format)
+        return MadeToKeepPhotoReviewView(
+            spec: spec,
+            eyebrow: viewModel.selectedBoothFormat?.reviewSummary ?? "YOUR PHOTOS",
+            title: spec.photoCount == 1 ? "Love this?" : "Love these?",
+            subtitle: reviewSubtitle(format: format),
+            continueTitle: viewModel.isPassportSession ? "Continue to Details" : "Continue",
+            photos: (0..<spec.photoCount).map { reviewPhoto(index: $0, format: format) },
+            canContinue: viewModel.canContinueFromReview,
+            canRetakeAll: viewModel.canReturnToReview,
+            motionActive: reviewMotionActive,
+            onRetake: { viewModel.retakePhoto(at: $0) },
+            onContinue: { viewModel.continueFromReview() },
+            onRetakeAll: { viewModel.retakeAll() },
+            onCancel: { showingCancelConfirmation = true }
+        )
         .onAppear {
             startReviewMotion()
         }
     }
 
-    private var reviewHeader: some View {
-        VStack(spacing: 0) {
-            MadeToKeepLockup(scale: .compact)
-
-            MadeToKeepEditorialHeader(
-                eyebrow: viewModel.selectedBoothFormat.map { "\($0.displayName) · \($0.photoCountLabel)".uppercased() } ?? "YOUR PHOTOS",
-                title: "love these?",
-                subtitle: viewModel.isPassportSession
-                    ? "Retake either photo, then add your name."
-                    : "Retake any photo, or continue when you're ready.",
-                titleSize: 52
-            )
-            .padding(.top, 16)
-        }
-    }
-
-    @ViewBuilder
-    private func reviewPhotoArea(width: CGFloat, availableHeight: CGFloat) -> some View {
-        switch viewModel.selectedBoothFormat {
-        case .solo:
-            reviewSoloLayout(width: width)
-        case .duo:
-            reviewDuoLayout(width: width)
-        case .grid:
-            reviewGridLayout(width: width)
-        case .gridSix:
-            reviewGridSixLayout(width: width, availableHeight: availableHeight)
-        case .strip:
-            reviewStripLayout(width: width)
+    private func reviewSubtitle(format: BoothFormat) -> String {
+        switch format {
         case .passport:
-            reviewPassportLayout(width: width)
-        case nil:
-            reviewGridLayout(width: width)
+            "Retake either photo, then add your name."
+        case .solo:
+            "Retake your photo, or continue when you're ready."
+        default:
+            "Retake any photo, or continue when you're ready."
         }
     }
 
-    /// Portrait and hero side by side at equal heights, each labelled with its passport role.
-    private func reviewPassportLayout(width: CGFloat) -> some View {
-        let spacing: CGFloat = 20
-        // portraitWidth * 4/3 == heroWidth * 3/4  =>  heroWidth = portraitWidth * 16/9
-        let portraitWidth = min(floor((width - spacing) * 9 / 25), 250)
-        let heroWidth = floor(portraitWidth * 16 / 9)
-
-        return HStack(alignment: .top, spacing: spacing) {
-            reviewPassportItem(role: .portrait, photoWidth: portraitWidth)
-                .reviewPhotoEntrance(index: 0, active: reviewMotionActive, reduceMotion: reduceMotion)
-            reviewPassportItem(role: .hero, photoWidth: heroWidth)
-                .reviewPhotoEntrance(index: 1, active: reviewMotionActive, reduceMotion: reduceMotion)
-        }
-        .frame(width: width)
-    }
-
-    private func reviewPassportItem(role: PassportPhotoRole, photoWidth: CGFloat) -> some View {
-        let index = role.rawValue
-        return VStack(spacing: 10) {
-            VStack(spacing: 2) {
-                MadeToKeepLabel(text: "Photo \(index + 1)", size: 12)
-                Text(role.title.lowercased())
-                    .font(MadeToKeepTheme.Typography.italicSerif(size: 24))
-                    .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
-            }
-
-            reviewPhoto(index: index, presentation: role == .hero ? .landscape : .portrait, passportRole: role)
-                .frame(width: photoWidth)
-
-            Button("Retake Photo \(index + 1)") {
-                viewModel.retakePhoto(at: index)
-            }
-            .buttonStyle(MadeToKeepSecondaryButtonStyle())
-            .disabled(!viewModel.capturedPhotos.indices.contains(index) || !viewModel.canReturnToReview)
-            .accessibilityLabel("Retake Photo \(index + 1), \(role.title)")
-        }
-    }
-
-    private func reviewSoloLayout(width: CGFloat) -> some View {
-        let photoWidth = min(width * 0.60, 430)
-
-        return HStack {
-            Spacer(minLength: 0)
-            reviewPhotoItem(index: 0, photoWidth: photoWidth)
-                .reviewPhotoEntrance(index: 0, active: reviewMotionActive, reduceMotion: reduceMotion)
-            Spacer(minLength: 0)
-        }
-        .frame(width: width)
-    }
-
-    private func reviewDuoLayout(width: CGFloat) -> some View {
-        let spacing: CGFloat = 18
-        let photoWidth = min(width * 0.82, 560)
-
-        return VStack(spacing: spacing) {
-            reviewPhotoItem(index: 0, photoWidth: photoWidth, presentation: .landscape)
-                .reviewPhotoEntrance(index: 0, active: reviewMotionActive, reduceMotion: reduceMotion)
-            reviewPhotoItem(index: 1, photoWidth: photoWidth, presentation: .landscape)
-                .reviewPhotoEntrance(index: 1, active: reviewMotionActive, reduceMotion: reduceMotion)
-        }
-        .frame(width: width)
-    }
-
-    private func reviewGridLayout(width: CGFloat) -> some View {
-        let spacing: CGFloat = 16
-        let photoWidth = min((width - spacing) / 2, 212)
-
-        return VStack(spacing: spacing) {
-            HStack(alignment: .top, spacing: spacing) {
-                reviewPhotoItem(index: 0, photoWidth: photoWidth)
-                    .reviewPhotoEntrance(index: 0, active: reviewMotionActive, reduceMotion: reduceMotion)
-                reviewPhotoItem(index: 1, photoWidth: photoWidth)
-                    .reviewPhotoEntrance(index: 1, active: reviewMotionActive, reduceMotion: reduceMotion)
-            }
-            HStack(alignment: .top, spacing: spacing) {
-                reviewPhotoItem(index: 2, photoWidth: photoWidth)
-                    .reviewPhotoEntrance(index: 2, active: reviewMotionActive, reduceMotion: reduceMotion)
-                reviewPhotoItem(index: 3, photoWidth: photoWidth)
-                    .reviewPhotoEntrance(index: 3, active: reviewMotionActive, reduceMotion: reduceMotion)
-            }
-        }
-        .frame(width: width)
-    }
-
-    private func reviewGridSixLayout(width: CGFloat, availableHeight: CGFloat) -> some View {
-        let spacing: CGFloat = 12
-        // Three portrait rows, three 48-point retake controls, and established gaps.
-        let controlsAndGaps: CGFloat = 3 * (48 + 10) + 2 * spacing + 16
-        let photoWidth = max(1, min((width - spacing) / 2, 170, max(90, (availableHeight - controlsAndGaps) / 4)))
-        return VStack(spacing: spacing) {
-            ForEach(0..<3, id: \.self) { row in
-                HStack(alignment: .top, spacing: spacing) {
-                    ForEach(0..<2, id: \.self) { column in
-                        let index = row * 2 + column
-                        reviewPhotoItem(index: index, photoWidth: photoWidth)
-                            .reviewPhotoEntrance(index: index, active: reviewMotionActive, reduceMotion: reduceMotion)
-                    }
-                }
-            }
-        }
-        .frame(width: width)
-        .padding(.vertical, 8)
-    }
-
-    private func reviewStripLayout(width: CGFloat) -> some View {
-        let spacing: CGFloat = 14
-        let photoWidth = min(width * 0.82, 560)
-
-        return VStack(spacing: spacing) {
-            reviewPhotoItem(index: 0, photoWidth: photoWidth, presentation: .landscape)
-                .reviewPhotoEntrance(index: 0, active: reviewMotionActive, reduceMotion: reduceMotion)
-            reviewPhotoItem(index: 1, photoWidth: photoWidth, presentation: .landscape)
-                .reviewPhotoEntrance(index: 1, active: reviewMotionActive, reduceMotion: reduceMotion)
-            reviewPhotoItem(index: 2, photoWidth: photoWidth, presentation: .landscape)
-                .reviewPhotoEntrance(index: 2, active: reviewMotionActive, reduceMotion: reduceMotion)
-        }
-        .frame(width: width)
-    }
-
-    private func reviewPhotoItem(index: Int, photoWidth: CGFloat, presentation: ReviewPhotoPresentation = .portrait) -> some View {
-        VStack(spacing: 10) {
-            reviewPhoto(index: index, presentation: presentation)
-                .frame(width: photoWidth)
-
-            Button("Retake") {
-                viewModel.retakePhoto(at: index)
-            }
-            .buttonStyle(MadeToKeepSecondaryButtonStyle())
-            .disabled(!viewModel.capturedPhotos.indices.contains(index) || !viewModel.canReturnToReview)
-            .accessibilityLabel("Retake photo \(index + 1)")
-        }
-    }
-
-    private func reviewPhoto(index: Int, presentation: ReviewPhotoPresentation = .portrait, passportRole: PassportPhotoRole? = nil) -> some View {
-        ZStack {
-            Rectangle()
-                .fill(MadeToKeepTheme.ColorPalette.ivoryShade)
-
-            if viewModel.capturedPhotos.indices.contains(index) {
-                let image = if let passportRole {
-                    // Same crop the receipt uses, so review matches the printed card.
-                    PassportPhotoProcessor.presentationPhoto(from: viewModel.capturedPhotos[index], role: passportRole)
-                } else if presentation == .landscape {
-                    ReceiptComposer.makeLandscapePresentationPhoto(from: viewModel.capturedPhotos[index])
-                } else {
-                    viewModel.capturedPhotos[index]
-                }
-
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .aspectRatio(presentation.aspectRatio, contentMode: .fill)
-                    .id(reviewPhotoIdentifier(at: index))
-                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.975)))
+    private func reviewPhoto(index: Int, format: BoothFormat) -> MadeToKeepPhotoReviewView.Photo {
+        let role = format == .passport ? PassportPhotoRole(photoIndex: index) : nil
+        let image: UIImage? = if viewModel.capturedPhotos.indices.contains(index) {
+            if let role {
+                // Same crop the receipt uses, so review matches the printed card.
+                PassportPhotoProcessor.presentationPhoto(from: viewModel.capturedPhotos[index], role: role)
+            } else if format == .duo || format == .strip {
+                ReceiptComposer.makeLandscapePresentationPhoto(from: viewModel.capturedPhotos[index])
             } else {
-                Text("Missing")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
+                viewModel.capturedPhotos[index]
             }
+        } else {
+            nil
         }
-        .aspectRatio(presentation.aspectRatio, contentMode: .fit)
-        .clipped()
-        // Photobooth print: thin ivory border and a soft paper shadow.
-        .padding(5)
-        .background(MadeToKeepTheme.ColorPalette.ivoryLight)
-        .overlay {
-            Rectangle()
-                .strokeBorder(MadeToKeepTheme.ColorPalette.hairline, lineWidth: 1)
-        }
-        .shadow(color: MadeToKeepTheme.ColorPalette.shadowTint.opacity(0.14), radius: 8, x: 0, y: 4)
-        .accessibilityLabel(passportRole.map { "Photo \(index + 1), \($0.title)" } ?? "Photo \(index + 1)")
-        .animation(MadeToKeepTheme.Motion.standardAnimation, value: reviewPhotoIdentifier(at: index))
-    }
 
-    private func reviewActionArea(width: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            Button {
-                viewModel.continueFromReview()
-            } label: {
-                Text(viewModel.isPassportSession ? "Continue to Details" : "Continue")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(MadeToKeepPrimaryButtonStyle())
-            .frame(width: width * 0.74)
-            .disabled(!viewModel.canContinueFromReview)
-
-            Button("Retake All") {
-                viewModel.retakeAll()
-            }
-            .buttonStyle(MadeToKeepSecondaryButtonStyle())
-            .disabled(!viewModel.canReturnToReview)
-            .padding(.top, 16)
-
-            Button("Cancel") {
-                showingCancelConfirmation = true
-            }
-            .font(.system(size: 15, weight: .medium))
-            .tracking(15 * 0.18)
-            .textCase(.uppercase)
-            .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
-            .frame(minHeight: 48)
-            .padding(.top, 18)
-        }
-        .frame(width: width)
+        return MadeToKeepPhotoReviewView.Photo(
+            image: image,
+            identifier: reviewPhotoIdentifier(at: index),
+            label: role.map { "Photo \(index + 1) · \($0.title)" } ?? "Photo \(index + 1)",
+            accessibilityLabel: role.map { "Photo \(index + 1), \($0.title)" } ?? "Photo \(index + 1)",
+            retakeAccessibilityLabel: role.map { "Retake Photo \(index + 1), \($0.title)" } ?? "Retake photo \(index + 1)",
+            canRetake: viewModel.capturedPhotos.indices.contains(index) && viewModel.canReturnToReview
+        )
     }
 
     private var receiptScreen: some View {
@@ -1610,31 +1393,19 @@ struct BoothSessionView: View {
         }
     }
 
-    private var reviewPhotoToActionSpacing: CGFloat {
-        switch viewModel.selectedBoothFormat {
-        case .gridSix:
-            20
-        case .grid:
-            36
-        case .duo:
-            34
-        case .strip:
-            30
-        case .passport:
-            30
-        case .solo, nil:
-            44
-        }
+    private var cameraPhotoPresentation: CapturePhotoPresentation {
+        guard let format = viewModel.selectedBoothFormat else { return .portrait }
+        return .resolve(format: format, photoIndex: cameraPhotoIndex)
     }
 
-    private var usesLandscapeCompositionGuide: Bool {
-        if let role = cameraPassportRole {
-            return role == .hero
-        }
-        return viewModel.selectedBoothFormat == .duo || viewModel.selectedBoothFormat == .strip
+    private var completedCameraPhotoCount: Int {
+        viewModel.capturedPhotos.count
     }
 
     private var cameraCustomerStatusText: String {
+        if viewModel.transientCapturedPhoto != nil {
+            return "Got it!"
+        }
         if let role = cameraPassportRole, let text = passportCameraStatusText(role: role) {
             return text
         }
@@ -1905,6 +1676,66 @@ struct BoothSessionView: View {
     }
 }
 
+private struct CameraCaptureConfirmation: View {
+    let photoIndex: Int
+
+    var body: some View {
+        VStack {
+            Spacer()
+            HStack {
+                Spacer()
+                HStack(spacing: 7) {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 13, weight: .bold))
+                    Text("Photo \(photoIndex + 1) captured")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.ivoryLight)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 7)
+                .background(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.9), in: Capsule())
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Photo \(photoIndex + 1) captured")
+        .allowsHitTesting(false)
+    }
+}
+
+private struct CameraPhotoProgress: View {
+    let count: Int
+    let completedCount: Int
+    let activeIndex: Int
+    let confirmsCapture: Bool
+
+    var body: some View {
+        HStack(spacing: count > 4 ? 8 : 10) {
+            ForEach(0..<count, id: \.self) { index in
+                Circle()
+                    .fill(markerFill(for: index))
+                    .frame(width: count > 4 ? 8 : 10, height: count > 4 ? 8 : 10)
+                    .overlay {
+                        Circle()
+                            .strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.72), lineWidth: 1)
+                    }
+                    .accessibilityLabel("Photo \(index + 1)")
+                    .accessibilityValue(index < completedCount ? "captured" : index == activeIndex ? "current" : "pending")
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func markerFill(for index: Int) -> Color {
+        if index < completedCount {
+            return MadeToKeepTheme.ColorPalette.burgundy
+        }
+        if index == activeIndex && confirmsCapture {
+            return MadeToKeepTheme.ColorPalette.burgundy.opacity(0.72)
+        }
+        return MadeToKeepTheme.ColorPalette.ivoryLight
+    }
+}
+
 private enum ReviewPhotoPresentation {
     case portrait
     case landscape
@@ -1935,16 +1766,6 @@ private extension View {
                     .delay(delay),
                 value: active
             )
-    }
-
-    func reviewPhotoEntrance(index: Int, active: Bool, reduceMotion: Bool) -> some View {
-        pocketPixelsEntrance(
-            active: active,
-            reduceMotion: reduceMotion,
-            delay: Double(index) * MadeToKeepTheme.Motion.stagger,
-            offset: 8,
-            scale: 0.975
-        )
     }
 }
 

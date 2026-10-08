@@ -125,7 +125,9 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
             eventDate: Date(),
             location: "",
             shortMessage: "",
-            receiptHeader: .default,
+            // New configurations start Studio-First. Saved profiles without a branding mode keep
+            // their legacy header rendering until the operator chooses one.
+            receiptHeader: .studioFirst,
             showEventTextBlock: true,
             customerScreenEnabled: false,
             customerTitle: "",
@@ -630,6 +632,7 @@ private extension String {
 
 struct EventReceiptComposerPreview: View {
     let profile: EventProfile
+    var printOptions: ReceiptPrintOptions = .default
 
     @StateObject private var printer = PrinterCoordinator.shared
     @StateObject private var operations = EventOperationalState.shared
@@ -739,6 +742,9 @@ struct EventReceiptComposerPreview: View {
         .onChange(of: selectedFormat) { _, _ in
             scheduleRender()
         }
+        .onChange(of: printOptions) { _, _ in
+            scheduleRender()
+        }
         .onChange(of: pickerItems) { _, items in importPhotos(items) }
         .onDisappear {
             renderTask?.cancel()
@@ -756,6 +762,7 @@ struct EventReceiptComposerPreview: View {
         let generation = renderGeneration
         let profile = profile.normalized()
         let format = selectedFormat
+        let printOptions = printOptions
         renderTask = Task {
             try? await Task.sleep(nanoseconds: 180_000_000)
             guard !Task.isCancelled else {
@@ -763,15 +770,19 @@ struct EventReceiptComposerPreview: View {
             }
 
             do {
-                let receipt = try await Self.makePreviewReceipt(profile: profile, format: format, importedPhotos: importedPhotos)
+                let receipt = try await Self.makePreviewReceipt(profile: profile, format: format, importedPhotos: importedPhotos, printOptions: printOptions)
                 guard let image = UIImage(data: receipt.imagePNGData) else {
                     throw ReceiptComposerError.renderFailed
+                }
+                let rasterized = try ThermalImageRasterizer.rasterize(image, purpose: .completeReceipt)
+                guard let printerPreview = UIImage(data: rasterized.previewPNGData) else {
+                    throw ThermalImageRasterizerError.renderFailed
                 }
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     guard generation == renderGeneration else { return }
                     previewReceipt = receipt
-                    previewImage = image
+                    previewImage = printerPreview
                 }
             } catch is CancellationError {
                 return
@@ -787,7 +798,12 @@ struct EventReceiptComposerPreview: View {
     }
 
     /// Composes a sample receipt in memory only. It never touches the print spooler, audit, archive or gallery queue.
-    nonisolated static func makePreviewReceipt(profile: EventProfile, format: BoothFormat, importedPhotos: [UIImage] = []) async throws -> ComposedReceipt {
+    nonisolated static func makePreviewReceipt(
+        profile: EventProfile,
+        format: BoothFormat,
+        importedPhotos: [UIImage] = [],
+        printOptions: ReceiptPrintOptions = .default
+    ) async throws -> ComposedReceipt {
         let worker = Task.detached(priority: .utility) {
             try Task.checkCancellation()
             guard let galleryURL = URL(string: "https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/?g=event-preview") else {
@@ -804,7 +820,8 @@ struct EventReceiptComposerPreview: View {
                 eventProfile: profile.activeReceiptSnapshot,
                 passport: format == .passport
                     ? .operatorPreviewSample(configuration: PassportConfiguration.effective(for: profile))
-                    : nil
+                    : nil,
+                printOptions: printOptions
             )
         }
         return try await withTaskCancellationHandler {
@@ -853,7 +870,7 @@ struct EventReceiptComposerPreview: View {
         Task {
             do {
                 let receipt = try await Self.makePhysicalSampleReceipt(
-                    profile: profile.normalized(), format: selectedFormat, importedPhotos: importedPhotos
+                    profile: profile.normalized(), format: selectedFormat, importedPhotos: importedPhotos, printOptions: printOptions
                 )
                 guard let image = UIImage(data: receipt.imagePNGData) else { throw ReceiptComposerError.renderFailed }
                 let raster = try await Task.detached(priority: .userInitiated) {
@@ -884,7 +901,8 @@ struct EventReceiptComposerPreview: View {
     nonisolated static func makePhysicalSampleReceipt(
         profile: EventProfile,
         format: BoothFormat,
-        importedPhotos: [UIImage]
+        importedPhotos: [UIImage],
+        printOptions: ReceiptPrintOptions = .default
     ) async throws -> ComposedReceipt {
         try await Task.detached(priority: .utility) {
             try ReceiptComposer.compose(
@@ -896,7 +914,8 @@ struct EventReceiptComposerPreview: View {
                 eventProfile: profile.activeReceiptSnapshot,
                 passport: format == .passport
                     ? .operatorPreviewSample(configuration: PassportConfiguration.effective(for: profile))
-                    : nil
+                    : nil,
+                printOptions: printOptions
             )
         }.value
     }

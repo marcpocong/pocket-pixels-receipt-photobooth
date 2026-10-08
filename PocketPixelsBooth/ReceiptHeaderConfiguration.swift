@@ -72,6 +72,11 @@ nonisolated struct ReceiptHeaderConfiguration: Codable, Equatable, Sendable {
     var horizontalPosition: Double?
     /// Banner height as a fraction of frame width in Fill mode. Nil keeps the original 1:3 banner.
     var fillHeightRatio: Double?
+    /// Studio-First or Event-First receipt hierarchy. Nil is a profile saved before branding
+    /// modes existed: it keeps the legacy top-header rendering until the operator picks a mode.
+    var brandingMode: ReceiptBrandingMode?
+    /// Event-First only: prints an understated Made to Keep credit near the footer.
+    var showsStudioCredit: Bool?
 
     init(
         mode: ReceiptHeaderMode,
@@ -85,7 +90,9 @@ nonisolated struct ReceiptHeaderConfiguration: Codable, Equatable, Sendable {
         cropPositionY: Double,
         cropZoom: Double,
         horizontalPosition: Double? = nil,
-        fillHeightRatio: Double? = nil
+        fillHeightRatio: Double? = nil,
+        brandingMode: ReceiptBrandingMode? = nil,
+        showsStudioCredit: Bool? = nil
     ) {
         self.mode = mode
         self.assetIdentifier = assetIdentifier
@@ -99,6 +106,8 @@ nonisolated struct ReceiptHeaderConfiguration: Codable, Equatable, Sendable {
         self.cropZoom = cropZoom
         self.horizontalPosition = horizontalPosition
         self.fillHeightRatio = fillHeightRatio
+        self.brandingMode = brandingMode
+        self.showsStudioCredit = showsStudioCredit
     }
 
     var effectiveHorizontalPosition: Double {
@@ -121,6 +130,18 @@ nonisolated struct ReceiptHeaderConfiguration: Codable, Equatable, Sendable {
         cropPositionY: 0,
         cropZoom: 1
     )
+
+    /// Starting point for new event configurations: Made to Keep masthead at the top, with any
+    /// event artwork printed as a compact signature near the bottom.
+    static let studioFirst: ReceiptHeaderConfiguration = {
+        var value = ReceiptHeaderConfiguration.default
+        value.brandingMode = .studioFirst
+        return value
+    }()
+
+    var effectiveShowsStudioCredit: Bool {
+        brandingMode == .eventFirst && showsStudioCredit == true
+    }
 
     func normalized() -> ReceiptHeaderConfiguration {
         var value = self
@@ -147,9 +168,13 @@ nonisolated struct ReceiptHeaderConfiguration: Codable, Equatable, Sendable {
     mutating func resetAdjustments() {
         let assetIdentifier = assetIdentifier
         let mode = mode
+        let brandingMode = brandingMode
+        let showsStudioCredit = showsStudioCredit
         self = .default
         self.assetIdentifier = assetIdentifier
         self.mode = mode
+        self.brandingMode = brandingMode
+        self.showsStudioCredit = showsStudioCredit
     }
 }
 

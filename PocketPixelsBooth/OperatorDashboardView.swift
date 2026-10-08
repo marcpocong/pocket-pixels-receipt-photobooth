@@ -50,6 +50,9 @@ struct OperatorDashboardView: View {
                 )
 
                 HStack(spacing: 16) {
+                    OperatorSecondaryLink(title: "Receipt Design & Branding", systemImage: "doc.text.image") {
+                        ReceiptDesignAndBrandingView()
+                    }
                     OperatorSecondaryLink(title: "Equipment", systemImage: "printer.fill.and.paper.fill") {
                         OperatorEquipmentView()
                     }

@@ -235,24 +235,33 @@ nonisolated struct EventTypographyConfiguration: Codable, Equatable, Sendable {
 /// (its original persisted key); future layout/design modules belong here.
 nonisolated struct EventReceiptDesignConfiguration: Codable, Equatable, Sendable {
     var typography: EventTypographyConfiguration
+    /// Optional event caption that replaces the format's default editorial caption. Up to two
+    /// lines separated by a newline; empty keeps the default caption.
+    var editorialCaption: String
 
     nonisolated static let `default` = EventReceiptDesignConfiguration(typography: .default)
 
-    init(typography: EventTypographyConfiguration) {
+    init(typography: EventTypographyConfiguration, editorialCaption: String = "") {
         self.typography = typography
+        self.editorialCaption = editorialCaption
     }
 
     private enum CodingKeys: String, CodingKey {
         case typography
+        case editorialCaption
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         typography = (try? container.decodeIfPresent(EventTypographyConfiguration.self, forKey: .typography)) ?? .default
+        editorialCaption = (try? container.decodeIfPresent(String.self, forKey: .editorialCaption)) ?? ""
     }
 
     func normalized() -> EventReceiptDesignConfiguration {
-        EventReceiptDesignConfiguration(typography: typography.normalized())
+        EventReceiptDesignConfiguration(
+            typography: typography.normalized(),
+            editorialCaption: ReceiptEditorialCaption.normalized(editorialCaption)
+        )
     }
 }
 

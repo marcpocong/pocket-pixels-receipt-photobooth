@@ -77,9 +77,27 @@ nonisolated enum PassportPhotoProcessor {
         return UIImage(cgImage: cropped, scale: 1, orientation: .up)
     }
 
+    /// Photo Pass prepares its sideways hero as a portrait before the renderer rotates it into
+    /// the unchanged landscape opening. This avoids throwing away most of a portrait capture.
+    nonisolated static func photoPassHeroPresentationPhoto(from image: UIImage) -> UIImage {
+        let upright = image.imageOrientation == .up && image.cgImage != nil ? image : normalizedSource(from: image)
+        guard let cgImage = upright.cgImage else { return upright }
+        let rect = cropRect(
+            sourceSize: CGSize(width: cgImage.width, height: cgImage.height),
+            aspectRatio: CGSize(width: 3, height: 4),
+            verticalAnchor: PassportPhotoRole.hero.verticalAnchor
+        )
+        guard rect.width >= 1, rect.height >= 1, let cropped = cgImage.cropping(to: rect) else { return upright }
+        return UIImage(cgImage: cropped, scale: 1, orientation: .up)
+    }
+
     nonisolated static func cropRect(sourceSize: CGSize, role: PassportPhotoRole) -> CGRect {
+        cropRect(sourceSize: sourceSize, aspectRatio: role.aspectRatio, verticalAnchor: role.verticalAnchor)
+    }
+
+    nonisolated private static func cropRect(sourceSize: CGSize, aspectRatio: CGSize, verticalAnchor: CGFloat) -> CGRect {
         guard sourceSize.width > 0, sourceSize.height > 0 else { return .zero }
-        let ratio = role.aspectRatio.width / role.aspectRatio.height
+        let ratio = aspectRatio.width / aspectRatio.height
         let size: CGSize
         if sourceSize.width / sourceSize.height > ratio {
             size = CGSize(width: floor(sourceSize.height * ratio), height: sourceSize.height)
@@ -88,7 +106,7 @@ nonisolated enum PassportPhotoProcessor {
         }
         return CGRect(
             x: floor((sourceSize.width - size.width) / 2),
-            y: floor((sourceSize.height - size.height) * role.verticalAnchor),
+            y: floor((sourceSize.height - size.height) * verticalAnchor),
             width: size.width,
             height: size.height
         )

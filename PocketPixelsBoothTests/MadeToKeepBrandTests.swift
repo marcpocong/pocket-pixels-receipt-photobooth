@@ -137,6 +137,96 @@ final class MadeToKeepBrandTests: XCTestCase {
         }
     }
 
+    // MARK: Editorial photo review
+
+    func testEveryFormatReviewRendersOnElevenInchCanvas() async throws {
+        let hues: [CGFloat] = [0.07, 0.58, 0.32, 0.92, 0.14, 0.75]
+        for format in BoothFormat.allCases {
+            for size in [CGSize(width: 834, height: 1194), CGSize(width: 1194, height: 834)] {
+                let model = BoothSessionViewModel()
+                model.selectedBoothFormat = format
+                model.capturedPhotos = (0..<format.photoCount).map { Self.duoFixturePhoto(hue: hues[$0 % hues.count]) }
+                model.state = .review
+                let image = try await renderBooth(model: model, size: size)
+                let name = "flow-Review-\(format.rawValue)-\(Int(size.width))x\(Int(size.height))"
+                attach(image, name: name)
+                writeArtifact(image, name: "\(name).png")
+                XCTAssertEqual(image.size, size)
+                model.cancelSession()
+            }
+        }
+    }
+
+    func testDuoReviewLayoutFitsPortraitWithoutScrolling() {
+        // 11-inch iPad portrait, minus status bar and home indicator safe areas.
+        let layout = MadeToKeepPhotoReviewLayout(available: CGSize(width: 834, height: 1194 - 24 - 20), spec: .spec(for: .duo))
+        XCTAssertEqual(layout.arrangement.rows, [[0], [1]])
+        XCTAssertEqual(layout.arrangement.cellStyle, .stacked)
+        XCTAssertFalse(layout.requiresScrolling)
+        XCTAssertEqual(layout.gapScale, 1)
+        XCTAssertGreaterThanOrEqual(layout.photoHeight, 200)
+        let size = layout.photoSize(at: 0)
+        XCTAssertEqual(size.width / size.height, ReceiptComposer.landscapePresentationAspectRatio, accuracy: 0.02)
+    }
+
+    func testEveryFormatReviewFitsElevenInchIPadInBothOrientations() {
+        for format in BoothFormat.allCases {
+            let spec = MadeToKeepReviewFormatSpec.spec(for: format)
+            XCTAssertEqual(spec.photoCount, format.photoCount, "\(format)")
+            for available in [CGSize(width: 834, height: 1194 - 44), CGSize(width: 1194, height: 834 - 44)] {
+                let layout = MadeToKeepPhotoReviewLayout(available: available, spec: spec)
+                XCTAssertFalse(layout.requiresScrolling, "\(format) \(available)")
+                XCTAssertGreaterThanOrEqual(layout.photoHeight, spec.minimumPhotoHeight, "\(format) \(available)")
+                // Every photo appears exactly once, in reading order.
+                XCTAssertEqual(layout.arrangement.rows.flatMap { $0 }, Array(0..<format.photoCount), "\(format)")
+                for index in 0..<format.photoCount {
+                    let size = layout.photoSize(at: index)
+                    XCTAssertEqual(size.width / size.height, spec.aspectRatios[index], accuracy: 0.02, "\(format) photo \(index)")
+                }
+            }
+        }
+    }
+
+    func testPortraitReviewMirrorsPrintedArrangement() {
+        let available = CGSize(width: 834, height: 1194 - 44)
+        func rows(_ format: BoothFormat) -> [[Int]] {
+            MadeToKeepPhotoReviewLayout(available: available, spec: .spec(for: format)).arrangement.rows
+        }
+        XCTAssertEqual(rows(.grid), [[0, 1], [2, 3]])
+        XCTAssertEqual(rows(.gridSix), [[0, 1], [2, 3], [4, 5]])
+        XCTAssertEqual(rows(.strip), [[0], [1], [2]])
+        XCTAssertEqual(rows(.passport), [[0, 1]])
+    }
+
+    func testShortWindowsScrollInsteadOfClippingControls() {
+        let short = MadeToKeepPhotoReviewLayout(available: CGSize(width: 600, height: 700), spec: .spec(for: .duo))
+        XCTAssertGreaterThanOrEqual(short.photoHeight, 150)
+        XCTAssertTrue(short.requiresScrolling)
+    }
+
+    /// Photo-like 4:3 fixture (soft backdrop, two silhouettes) for judging the print frames.
+    private static func duoFixturePhoto(hue: CGFloat) -> UIImage {
+        let size = CGSize(width: 1600, height: 1200)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            let cg = context.cgContext
+            let colors = [
+                UIColor(hue: hue, saturation: 0.12, brightness: 0.86, alpha: 1).cgColor,
+                UIColor(hue: hue, saturation: 0.22, brightness: 0.58, alpha: 1).cgColor
+            ] as CFArray
+            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]) {
+                cg.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: size.width, y: size.height), options: [])
+            }
+            UIColor(white: 0.18, alpha: 1).setFill()
+            cg.fillEllipse(in: CGRect(x: 420, y: 330, width: 330, height: 400))
+            cg.fillEllipse(in: CGRect(x: 280, y: 760, width: 620, height: 700))
+            UIColor(white: 0.30, alpha: 1).setFill()
+            cg.fillEllipse(in: CGRect(x: 840, y: 230, width: 340, height: 420))
+            cg.fillEllipse(in: CGRect(x: 720, y: 680, width: 640, height: 760))
+        }
+    }
+
     // MARK: Receipts
 
     func testDefaultReceiptIsMadeToKeepBrandedInColorAndThermal() throws {

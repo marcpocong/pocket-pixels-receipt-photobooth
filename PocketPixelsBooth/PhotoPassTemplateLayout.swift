@@ -86,44 +86,43 @@ nonisolated struct PhotoPassTemplateLayout: Equatable, Sendable {
     nonisolated enum Metrics {
         static let cardX = 12
         static let cardWidth = BoothConfiguration.receiptWidth - 24
-        static let upperCardHeight = 360
-        static let lowerCardHeight = 366
+        static let upperCardHeight = 460
+        static let lowerCardHeight = 540
         static let cardGap = 6
         static let cornerRadius: CGFloat = 25
-        /// Substantial outer border; solid after thermal conversion without going muddy.
-        static let outerBorderWidth: CGFloat = 6
+        /// Refined outer border that remains a dependable three-dot thermal rule.
+        static let outerBorderWidth: CGFloat = 3
         /// Border stars sit on a rectangle this far inside the card edge, one on every corner.
         static let borderStarInset: CGFloat = 23
         static let borderStarRadius: CGFloat = 5.5
         static let borderStarSpacing: CGFloat = 22.7
         /// Everything except border stars stays inside the card inset by this much.
         static let contentInset: CGFloat = 32
-        /// Frames, grid and ornament rules: thin, but never a 1-dot hairline.
+        /// Frames, grid and ornament rules stay at two dots for dependable 1-bit output.
         static let lineWidth: CGFloat = 2
         /// White knockout around large accent stars, which opens the frame line like the reference.
         static let accentStarHalo: CGFloat = 3
 
         // Upper card (card-relative).
         /// Exactly 4:3, the hero shape PassportPhotoProcessor and the thermal pipeline crop to.
-        static let heroPhoto = CGRect(x: 156, y: 58, width: 340, height: 255)
+        static let heroPhoto = CGRect(x: 88, y: 68, width: 432, height: 324)
         /// Vertical script wordmark, reading bottom to top, left of the hero photo.
-        static let heroWordmark = CGRect(x: 38, y: 34, width: 100, height: 292)
-        static let heroTopStar = (center: CGPoint(x: 484, y: 66), radius: CGFloat(24))
-        static let heroBottomStar = (center: CGPoint(x: 166, y: 302), radius: CGFloat(23))
+        static let heroWordmark = CGRect(x: 36, y: 40, width: 40, height: 380)
+        static let heroTopStar = (center: CGPoint(x: 500, y: 78), radius: CGFloat(18))
+        static let heroBottomStar = (center: CGPoint(x: 100, y: 384), radius: CGFloat(15))
 
         // Lower card (card-relative).
         /// Exactly 3:4, the portrait shape.
-        static let portraitPhoto = CGRect(x: 46, y: 43, width: 156, height: 208)
-        static let portraitStar = (center: CGPoint(x: 196, y: 243), radius: CGFloat(19))
-        static let portraitWordmark = CGRect(x: 42, y: 265, width: 166, height: 42)
-        static let ornamentY: CGFloat = 318
-        static let ornamentRules = [(minX: CGFloat(54), maxX: CGFloat(110)), (minX: CGFloat(140), maxX: CGFloat(196))]
-        static let ornamentStar = (center: CGPoint(x: 125, y: 318), radius: CGFloat(7))
+        static let portraitPhoto = CGRect(x: 36, y: 52, width: 240, height: 320)
+        static let portraitStar = (center: CGPoint(x: 266, y: 362), radius: CGFloat(13))
+        static let portraitWordmark = CGRect(x: 36, y: 388, width: 240, height: 44)
+        static let ornamentY: CGFloat = 466
+        static let ornamentRules = [(minX: CGFloat(44), maxX: CGFloat(122)), (minX: CGFloat(190), maxX: CGFloat(268))]
+        static let ornamentStar = (center: CGPoint(x: 156, y: 466), radius: CGFloat(7))
 
-        /// Field grid: rows of the reference table, with event and location sharing a row.
-        static let grid = CGRect(x: 220, y: 43, width: 286, height: 280)
-        static let gridRowHeights: [CGFloat] = [47, 48, 64, 65, 56]
-        static let eventColumnWidth: CGFloat = 145
+        /// Field grid: event and location use their own full-width rows for readability.
+        static let grid = CGRect(x: 286, y: 52, width: 220, height: 436)
+        static let gridRowHeights: [CGFloat] = [62, 62, 72, 72, 96, 72]
         /// Labels sit at each cell's top-left; values use the space below.
         static let labelInset = CGSize(width: 7, height: 5)
         static let labelHeight: CGFloat = 15
@@ -215,14 +214,13 @@ nonisolated struct PhotoPassTemplateLayout: Equatable, Sendable {
             rows.append(CGRect(x: grid.minX, y: rowY, width: grid.width, height: height))
             rowY += height
         }
-        let eventRow = rows[2]
         let cells: [(FieldKind, CGRect)] = [
             (.name, rows[0]),
             (.date, rows[1]),
-            (.event, CGRect(x: eventRow.minX, y: eventRow.minY, width: Metrics.eventColumnWidth, height: eventRow.height)),
-            (.location, CGRect(x: eventRow.minX + Metrics.eventColumnWidth, y: eventRow.minY, width: eventRow.width - Metrics.eventColumnWidth, height: eventRow.height)),
-            (.notes, rows[3]),
-            (.signature, rows[4])
+            (.event, rows[2]),
+            (.location, rows[3]),
+            (.notes, rows[4]),
+            (.signature, rows[5])
         ]
         let labelFont = PassportFontSpec(style: .monoBold, size: 12).font
         let fields = cells.map { kind, cell -> Field in

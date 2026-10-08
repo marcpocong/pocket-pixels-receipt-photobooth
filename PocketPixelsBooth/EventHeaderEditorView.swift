@@ -27,13 +27,20 @@ struct EventHeaderEditorView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Picker("Receipt Header", selection: $profile.receiptHeader.mode) {
-                ForEach(ReceiptHeaderMode.allCases) { mode in
+            Picker("Branding Mode", selection: brandingMode) {
+                ForEach(ReceiptBrandingMode.allCases) { mode in
                     Text(mode.displayName).tag(mode)
                 }
             }
             .pickerStyle(.segmented)
-            .accessibilityHint("Choose Made to Keep branding, event artwork, or no receipt header.")
+            .accessibilityHint("Choose whether Made to Keep or the event artwork leads the printed receipt.")
+
+            Text(brandingMode.wrappedValue.summary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Toggle("Show Event Artwork", isOn: showsEventArtwork)
+                .accessibilityHint("Shows configured artwork as a bottom signature in Studio-First or as the top masthead in Event-First.")
 
             if profile.receiptHeader.mode == .customEventHeader {
                 if let artwork {
@@ -72,6 +79,18 @@ struct EventHeaderEditorView: View {
                 }
             }
 
+            if profile.receiptHeader.brandingMode == .eventFirst {
+                Toggle("Show small Made to Keep credit", isOn: showsStudioCredit)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                TextField("Event Editorial Caption", text: editorialCaption, axis: .vertical)
+                    .lineLimit(2)
+                Text("Optional, up to two short lines. Leave blank to use the selected format’s default caption.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Toggle(
                 profile.receiptHeader.mode == .customEventHeader ? "Show event details below artwork" : "Show event details below header",
                 isOn: $profile.showEventTextBlock
@@ -100,6 +119,34 @@ struct EventHeaderEditorView: View {
             }
         }
         .onDisappear { processingTask?.cancel() }
+    }
+
+    private var brandingMode: Binding<ReceiptBrandingMode> {
+        Binding(
+            get: { profile.receiptHeader.brandingMode ?? .studioFirst },
+            set: { profile.receiptHeader.brandingMode = $0 }
+        )
+    }
+
+    private var showsEventArtwork: Binding<Bool> {
+        Binding(
+            get: { profile.receiptHeader.mode == .customEventHeader },
+            set: { profile.receiptHeader.mode = $0 ? .customEventHeader : .pocketPixelsDefault }
+        )
+    }
+
+    private var showsStudioCredit: Binding<Bool> {
+        Binding(
+            get: { profile.receiptHeader.showsStudioCredit ?? false },
+            set: { profile.receiptHeader.showsStudioCredit = $0 }
+        )
+    }
+
+    private var editorialCaption: Binding<String> {
+        Binding(
+            get: { profile.receiptDesign.editorialCaption },
+            set: { profile.receiptDesign.editorialCaption = String($0.prefix(ReceiptEditorialCaption.inputLimit)) }
+        )
     }
 
     private func removeArtwork() {

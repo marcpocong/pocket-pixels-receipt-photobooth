@@ -166,8 +166,13 @@ final class PhotoPassFormatTests: XCTestCase {
         XCTAssertEqual(plan.width, 576)
         XCTAssertEqual(template.upperCardRect.minY, 14)
         XCTAssertEqual(template, PhotoPassTemplateLayout.make(top: 14), "Geometry does not depend on content")
+        XCTAssertEqual(template.heroPhotoRect.size, CGSize(width: 432, height: 324))
+        XCTAssertEqual(template.portraitPhotoRect.size, CGSize(width: 240, height: 320))
+        XCTAssertEqual(template.upperCardRect.height, 460)
+        XCTAssertEqual(template.lowerCardRect.height, 540)
         XCTAssertEqual(template.heroPhotoRect.width * 3, template.heroPhotoRect.height * 4, "Hero opening is exactly 4:3")
         XCTAssertEqual(template.portraitPhotoRect.width * 4, template.portraitPhotoRect.height * 3, "Portrait opening is exactly 3:4")
+        XCTAssertEqual(PhotoPassRenderer.wordmarkStrokeOutset(for: 100), 0.25, accuracy: 0.001, "The wordmark uses only a 0.5% fill-and-stroke reinforcement")
         XCTAssertEqual(plan.photoFrames.first { $0.photoIndex == 0 }?.rect, template.portraitPhotoRect)
         XCTAssertEqual(plan.photoFrames.first { $0.photoIndex == 1 }?.rect, template.heroPhotoRect)
         XCTAssertEqual(plan.contentBottom, layout.bottom)
@@ -255,6 +260,42 @@ final class PhotoPassFormatTests: XCTestCase {
         let image = try XCTUnwrap(UIImage(data: receipt.imagePNGData))
         XCTAssertLessThan(try luminance(in: image, at: CGPoint(x: layout.portraitPhotoRect.midX, y: layout.portraitPhotoRect.midY)), 0.3)
         XCTAssertGreaterThan(try luminance(in: image, at: CGPoint(x: layout.heroPhotoRect.midX, y: layout.heroPhotoRect.midY)), 0.8)
+    }
+
+    func testUpperPhotoRotatesCounterclockwiseWithoutMirroringAndLowerPhotoStaysUpright() throws {
+        let layout = try XCTUnwrap(try plan(eventProfile: nil).photoPassLayout).template
+        let marker = orientationMarkerPhoto()
+        let receipt = try ReceiptComposer.compose(
+            photos: [marker, marker],
+            sessionIdentifier: "PP-ORIENTATION",
+            date: date,
+            format: .passport,
+            passport: .photoPassDebugFixture,
+            photoQualityProfile: .neutral
+        )
+        let image = try XCTUnwrap(UIImage(data: receipt.imagePNGData))
+
+        func samples(in rect: CGRect) throws -> [Double] {
+            let inset = rect.insetBy(dx: rect.width * 0.2, dy: rect.height * 0.2)
+            return try [
+                CGPoint(x: inset.minX, y: inset.minY),
+                CGPoint(x: inset.maxX - 1, y: inset.minY),
+                CGPoint(x: inset.minX, y: inset.maxY - 1),
+                CGPoint(x: inset.maxX - 1, y: inset.maxY - 1)
+            ].map { try luminance(in: image, at: $0) }
+        }
+
+        let upper = try samples(in: layout.heroPhotoRect)
+        XCTAssertEqual(upper[0], 0.3, accuracy: 0.03) // source top-right -> destination top-left
+        XCTAssertEqual(upper[1], 0.9, accuracy: 0.03) // source bottom-right -> destination top-right
+        XCTAssertEqual(upper[2], 0.1, accuracy: 0.03) // source top-left -> destination bottom-left
+        XCTAssertEqual(upper[3], 0.7, accuracy: 0.03) // source bottom-left -> destination bottom-right
+
+        let lower = try samples(in: layout.portraitPhotoRect)
+        XCTAssertEqual(lower[0], 0.1, accuracy: 0.03)
+        XCTAssertEqual(lower[1], 0.3, accuracy: 0.03)
+        XCTAssertEqual(lower[2], 0.7, accuracy: 0.03)
+        XCTAssertEqual(lower[3], 0.9, accuracy: 0.03)
     }
 
     // MARK: F. Privacy
@@ -484,6 +525,24 @@ final class PhotoPassFormatTests: XCTestCase {
         return UIGraphicsImageRenderer(size: CGSize(width: 300, height: 400), format: format).image { context in
             UIColor(white: white, alpha: 1).setFill()
             context.fill(CGRect(x: 0, y: 0, width: 300, height: 400))
+        }
+    }
+
+    private func orientationMarkerPhoto() -> UIImage {
+        let size = CGSize(width: 300, height: 400)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            for (rect, white) in [
+                (CGRect(x: 0, y: 0, width: 150, height: 200), CGFloat(0.1)),
+                (CGRect(x: 150, y: 0, width: 150, height: 200), CGFloat(0.3)),
+                (CGRect(x: 0, y: 200, width: 150, height: 200), CGFloat(0.7)),
+                (CGRect(x: 150, y: 200, width: 150, height: 200), CGFloat(0.9))
+            ] {
+                UIColor(white: white, alpha: 1).setFill()
+                context.fill(rect)
+            }
         }
     }
 

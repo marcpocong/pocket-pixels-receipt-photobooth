@@ -154,11 +154,32 @@ nonisolated struct MadeToKeepWordmarkMetrics {
 struct MadeToKeepLockup: View {
     enum Scale {
         case compact
+        /// Photo-review header: a touch larger than compact, matching the review reference.
+        case review
         case medium
 
-        var wordmarkSize: CGFloat { self == .compact ? 34 : 56 }
-        var studiosSize: CGFloat { self == .compact ? 11 : 17 }
-        var spacing: CGFloat { self == .compact ? -2 : -4 }
+        var wordmarkSize: CGFloat {
+            switch self {
+            case .compact: 34
+            case .review: 39
+            case .medium: 56
+            }
+        }
+
+        var studiosSize: CGFloat {
+            switch self {
+            case .compact: 11
+            case .review: 12
+            case .medium: 17
+            }
+        }
+
+        var spacing: CGFloat {
+            switch self {
+            case .compact, .review: -2
+            case .medium: -4
+            }
+        }
     }
 
     let scale: Scale

@@ -24,7 +24,7 @@ nonisolated enum PhotoPassRenderer {
         defer { context.restoreGState() }
 
         // Dynamic photos go down first so the static frames and corner stars sit on top of them.
-        drawPhoto(heroPhoto, in: layout.template.heroPhotoRect, context: context)
+        drawCounterclockwisePhoto(heroPhoto, in: layout.template.heroPhotoRect, context: context)
         drawPhoto(portraitPhoto, in: layout.template.portraitPhotoRect, context: context)
 
         drawStaticTemplate(layout, context: context)
@@ -123,6 +123,18 @@ nonisolated enum PhotoPassRenderer {
         context.restoreGState()
     }
 
+    /// The source is already prepared at the opening's transposed pixel size. Using the same
+    /// counterclockwise transform as the vertical wordmark rotates it without another resize.
+    nonisolated private static func drawCounterclockwisePhoto(_ image: UIImage, in rect: CGRect, context: CGContext) {
+        context.saveGState()
+        context.interpolationQuality = .high
+        context.clip(to: rect)
+        context.translateBy(x: rect.minX, y: rect.maxY)
+        context.rotate(by: -.pi / 2)
+        image.draw(in: CGRect(x: 0, y: 0, width: rect.height, height: rect.width))
+        context.restoreGState()
+    }
+
     nonisolated static func starPath(center: CGPoint, radius: CGFloat) -> CGPath {
         let path = CGMutablePath()
         for index in 0..<10 {
@@ -152,9 +164,11 @@ nonisolated enum PhotoPassRenderer {
         size * wordmarkStrokePercent / 100 / 2
     }
 
-    nonisolated private static let wordmarkStrokePercent: CGFloat = 2.5
+    /// A subtle half-percent reinforcement keeps Snell Roundhand's hairlines printable without
+    /// turning its filled letterforms into the heavy display lettering produced by the old 2.5% stroke.
+    nonisolated private static let wordmarkStrokePercent: CGFloat = 0.5
 
-    /// Script wordmark, thickened with a fill-and-stroke so its hairlines survive 1-bit printing,
+    /// Script wordmark, lightly reinforced so its hairlines survive 1-bit printing,
     /// with the glyph ink centred in its box.
     nonisolated private static func drawWordmark(_ wordmark: PhotoPassWordmark, context: CGContext) {
         let font = wordmark.font.font
