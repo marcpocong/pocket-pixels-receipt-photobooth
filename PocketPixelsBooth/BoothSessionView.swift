@@ -1013,7 +1013,20 @@ struct BoothSessionView: View {
             }
             .buttonStyle(MadeToKeepPrimaryButtonStyle())
             .frame(width: controlWidth)
-            .disabled(viewModel.receiptRasterizedImage == nil || viewModel.isPrintBatchActive || viewModel.printerState.requiresPrinterRestart)
+            // Keep the action tappable for recoverable problems so the view model can surface the
+            // exact reason instead of leaving customers with a silently disabled control.
+            .disabled(viewModel.isPrintBatchActive)
+
+            // Failures before any bytes return to the preview; without this the tap looks ignored.
+            if !viewModel.isPrintBatchActive, case .failure(let message) = viewModel.printerState {
+                Text(message)
+                    .font(MadeToKeepTheme.Typography.sans(size: 15, weight: .medium))
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: controlWidth)
+                    .transition(.opacity)
+            }
         }
         .frame(width: width)
         .animation(MadeToKeepTheme.Motion.quickAnimation, value: viewModel.isPrintBatchActive)
@@ -1216,10 +1229,22 @@ struct BoothSessionView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(width: contentWidth)
 
-                Text("Staff assistance required")
-                    .font(.footnote)
-                    .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
-                    .onLongPressGesture(minimumDuration: 2) { openAdminAccess() }
+                Text(message)
+                    .font(MadeToKeepTheme.Typography.sans(size: 16, weight: .medium))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: contentWidth * 0.9)
+
+                Button {
+                    openAdminAccess()
+                } label: {
+                    Label("Open Staff Recovery", systemImage: "wrench.and.screwdriver.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(MadeToKeepSecondaryButtonStyle())
+                .frame(width: min(contentWidth * 0.74, 420))
+                .accessibilityHint("Opens protected operator controls to restore printer service.")
 
                 Spacer()
             }

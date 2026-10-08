@@ -352,6 +352,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
     private let conservativeThermalPrintMillimetersPerSecond: Double = 34
     private let estimatedCutAndSettleDelay: TimeInterval = 1.75
     private let reliableWriteAcknowledgementTimeout: TimeInterval = 6
+    private let flowControlPauseTimeout: TimeInterval = 10
     private var centralManager: CBCentralManager?
     private var scanStopTask: Task<Void, Never>?
     private var peripheralsByID: [UUID: CBPeripheral] = [:]
@@ -380,6 +381,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
     private var pacingPauseTask: Task<Void, Never>?
     private var postSendCompletionTask: Task<Void, Never>?
     private var reliableWriteWatchdogTask: Task<Void, Never>?
+    private var flowControlWatchdogTask: Task<Void, Never>?
     private var lastWriteTimeoutDuration: TimeInterval?
     private var shouldPrepareWhenPoweredOn = false
     private var scanShouldConnectFirstCandidate = false
@@ -1305,6 +1307,8 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         postSendCompletionTask = nil
         reliableWriteWatchdogTask?.cancel()
         reliableWriteWatchdogTask = nil
+        flowControlWatchdogTask?.cancel()
+        flowControlWatchdogTask = nil
         lastWriteTimeoutDuration = nil
         guard let jobID = jobLifecycle.beginJob() else {
             jobState = .failure(BluetoothPrinterServiceError.jobAlreadyActive.localizedDescription)
@@ -1662,6 +1666,8 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         postSendCompletionTask = nil
         reliableWriteWatchdogTask?.cancel()
         reliableWriteWatchdogTask = nil
+        flowControlWatchdogTask?.cancel()
+        flowControlWatchdogTask = nil
         completion?(result, bytesStarted)
     }
 
@@ -1719,12 +1725,41 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         currentFlowControlPausePosition = currentRasterFlowPausePosition()
         flowControlPauseCount += 1
         updateMetrics(duration: nil)
+
+        guard let pendingJob else {
+            return
+        }
+
+        let expectedJobID = pendingJob.id
+        flowControlWatchdogTask?.cancel()
+        flowControlWatchdogTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(for: .seconds(self.flowControlPauseTimeout))
+            guard !Task.isCancelled,
+                  self.pendingJob?.id == expectedJobID,
+                  self.currentFlowControlPauseStartedAt != nil,
+                  self.isJobActive else {
+                return
+            }
+
+            self.appendJobLog(
+                jobID: expectedJobID,
+                "CoreBluetooth flow-control watchdog fired after \(String(format: "%.1f", self.flowControlPauseTimeout))s."
+            )
+            self.failJob(
+                expectedJobID: expectedJobID,
+                message: "Timed out waiting for the Bluetooth printer to accept more data."
+            )
+        }
     }
 
     private func clearFlowControlPauseIfNeeded() {
         guard let pauseStartedAt = currentFlowControlPauseStartedAt else {
             return
         }
+
+        flowControlWatchdogTask?.cancel()
+        flowControlWatchdogTask = nil
 
         let duration = Date().timeIntervalSince(pauseStartedAt)
         if let currentFlowControlPausePosition {

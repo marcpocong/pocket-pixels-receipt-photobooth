@@ -138,6 +138,10 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     var printProgressText: String {
+        if case .connecting = printerState {
+            return "Connecting to the printer… This can take up to 30 seconds."
+        }
+
         if selectedPrintCopies > 1, currentPrintCopy > 0 {
             return "Printing copy \(currentPrintCopy) of \(selectedPrintCopies)..."
         }
@@ -654,17 +658,22 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     func printReceipt(host: String, port: UInt16?) {
+        debugLog("[PrintTap] state=\(state) printerState=\(printerState) batchTaskActive=\(printBatchTask != nil) port=\(port.map(String.init) ?? "nil") rasterReady=\(receiptRasterizedImage != nil)")
         guard printBatchTask == nil else {
+            debugLog("[PrintTap] ignored: a print batch is already running")
             return
         }
 
         guard let port else {
+            debugLog("[PrintTap] blocked: invalid printer port")
             printerState = .failure("Enter a valid TCP port from 1 to 65535.")
             return
         }
 
         guard let rasterized = receiptRasterizedImage else {
-            printerState = .failure("Build the receipt before printing.")
+            debugLog("[PrintTap] receipt raster missing; rebuilding")
+            statusMessage = "Rebuilding your receipt before printing…"
+            rebuildReceipt()
             return
         }
 
@@ -677,6 +686,7 @@ final class BoothSessionViewModel: ObservableObject {
                 rasterDataCount: rasterized.rasterData.count
             )
         } catch {
+            debugLog("[PrintTap] blocked: raster validation failed \(error.localizedDescription)")
             printerState = .failure(error.localizedDescription)
             return
         }
