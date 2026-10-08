@@ -18,6 +18,7 @@ struct BoothSessionView: View {
     @State private var showingCancelConfirmation = false
     @State private var welcomeMotionActive = false
     @State private var formatMotionActive = false
+    @State private var chosenFormat: BoothFormat?
     @State private var reviewMotionActive = false
     @State private var receiptMotionActive = false
     @State private var progressMotionActive = false
@@ -266,85 +267,37 @@ struct BoothSessionView: View {
     }
 
     private var formatSelectionScreen: some View {
-        GeometryReader { proxy in
-            let contentWidth = clampedContentWidth(for: proxy, maximum: MadeToKeepTheme.Layout.maxContentWidth)
-            let formats = BoothFormat.allCases
-            let columnCount = Self.formatColumnCount
-            let rowCount = max(1, Int((Double(formats.count) / Double(columnCount)).rounded(.up)))
-            let cardHeight = min(max((proxy.size.height - 220) / CGFloat(rowCount) - 10, 240), 320)
-            let cardWidth = max(1, (contentWidth - 20 * CGFloat(columnCount - 1)) / CGFloat(columnCount))
-            let previewHeight = cardHeight - 154
-
-            let gridSpacing: CGFloat = 20
-            let headerToGridSpacing: CGFloat = 8
-            let estimatedHeaderHeight: CGFloat = 150
-            let estimatedContentHeight = estimatedHeaderHeight + headerToGridSpacing + (cardHeight * CGFloat(rowCount)) + gridSpacing * CGFloat(rowCount - 1)
-            let topPadding = max(((proxy.size.height - estimatedContentHeight) / 2) - 62, 24)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: headerToGridSpacing) {
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            MadeToKeepLockup(scale: .compact)
-                                .padding(.bottom, 8)
-
-                            MadeToKeepTrackedText(
-                                text: MadeToKeepBrand.formatHeadline,
-                                font: MadeToKeepTheme.Typography.sans(size: 30, weight: .medium),
-                                size: 30,
-                                tracking: MadeToKeepTheme.Tracking.descriptor
-                            )
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                            .accessibilityAddTraits(.isHeader)
-
-                            MadeToKeepRule(width: 54)
-
-                            Text("Pick how your little moment will print.")
-                                .font(MadeToKeepTheme.Typography.italicSerif(size: 24))
-                                .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundySoft)
-                        }
-
-                        Spacer()
-
-                        Button {
-                            viewModel.cancelSession()
-                        } label: {
-                            Label("Back", systemImage: "chevron.left")
-                                .font(.system(size: 16, weight: .medium))
-                                .labelStyle(.titleAndIcon)
-                                .padding(.horizontal, 16)
-                                .frame(minHeight: 46)
-                        }
-                        .buttonStyle(FormatBackButtonStyle())
-                    }
-                    .frame(width: contentWidth)
-
-                    VStack(alignment: .leading, spacing: gridSpacing) {
-                        ForEach(0..<rowCount, id: \.self) { row in
-                            HStack(spacing: gridSpacing) {
-                                ForEach(Array(formats.dropFirst(row * columnCount).prefix(columnCount))) { format in
-                                    formatCard(format, cardHeight: cardHeight, previewHeight: previewHeight)
-                                        .frame(width: cardWidth)
-                                }
-                            }
-                        }
-                    }
-                    .frame(width: contentWidth)
-                }
-                .frame(width: contentWidth)
-                .padding(.top, topPadding)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            }
-        }
-        .padding(MadeToKeepTheme.Spacing.screenPadding)
+        KeepsakeFormatSelectionView(
+            options: KeepsakeFormatOption.all,
+            chosenFormat: chosenFormat,
+            motionActive: formatMotionActive,
+            onSelect: { chooseFormat($0) },
+            onBack: { viewModel.cancelSession() }
+        )
         .transition(.opacity)
         .onAppear {
             startFormatMotion()
         }
     }
 
-    private static let formatColumnCount = 3
+    /// Shows the selected card treatment for a beat, then hands off to the existing selection.
+    private func chooseFormat(_ format: BoothFormat) {
+        guard chosenFormat == nil, case .choosingFormat = viewModel.state else {
+            return
+        }
+
+        withAnimation(.easeOut(duration: MadeToKeepTheme.Motion.quick)) {
+            chosenFormat = format
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(reduceMotion ? 60 : 160))
+            viewModel.selectBoothFormat(format)
+            // If the selection was refused (session cancelled, transition busy), unlock the cards.
+            if case .choosingFormat = viewModel.state {
+                chosenFormat = nil
+            }
+        }
+    }
 
     private var cameraScreen: some View {
         GeometryReader { proxy in
@@ -1815,6 +1768,7 @@ struct BoothSessionView: View {
         }
 
         if case .welcome = newState {
+            chosenFormat = nil
             formatMotionActive = false
             reviewMotionActive = false
             receiptMotionActive = false
@@ -1822,6 +1776,7 @@ struct BoothSessionView: View {
         }
 
         if case .choosingFormat = newState {
+            chosenFormat = nil
             reviewMotionActive = false
             receiptMotionActive = false
             thankYouMotionActive = false
@@ -1927,211 +1882,6 @@ struct BoothSessionView: View {
         viewModel.testPrinterConnection(host: printerIP, port: parsedPort)
     }
 
-    private func formatCard(_ format: BoothFormat, cardHeight: CGFloat, previewHeight: CGFloat) -> some View {
-        return Button {
-            viewModel.selectBoothFormat(format)
-        } label: {
-            VStack(alignment: .leading, spacing: 14) {
-                formatPreview(format)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: previewHeight)
-
-                Rectangle()
-                    .fill(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.22))
-                    .frame(height: 1)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(format.displayName.lowercased())
-                        .font(MadeToKeepTheme.Typography.italicSerif(size: 32))
-                        .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-
-                    MadeToKeepLabel(text: format.photoCountLabel, size: 12)
-
-                    Text(customerFormatDescription(for: format))
-                        .font(MadeToKeepTheme.Typography.sans(size: 15, weight: .regular))
-                        .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
-                }
-            }
-            .padding(MadeToKeepTheme.Spacing.card)
-            .frame(maxWidth: .infinity, minHeight: cardHeight, alignment: .topLeading)
-            .overlay(alignment: .topTrailing) {
-                if format == .passport {
-                    MadeToKeepLabel(text: "Keepsake", size: 10)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 4)
-                        .overlay(Capsule().strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.6), lineWidth: 1))
-                        .padding(12)
-                        .accessibilityHidden(true)
-                }
-            }
-            // Printed contact-sheet card: ivory stock, hairline burgundy edge, near-square corners.
-            .background(MadeToKeepTheme.ColorPalette.ivoryLight.opacity(0.9))
-            .overlay {
-                RoundedRectangle(cornerRadius: MadeToKeepTheme.Radius.card)
-                    .strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(format == .passport ? 0.55 : 0.28), lineWidth: 1)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: MadeToKeepTheme.Radius.card))
-        }
-        .buttonStyle(FormatCardButtonStyle())
-        .accessibilityLabel(formatAccessibilityLabel(for: format))
-    }
-
-    private func formatAccessibilityLabel(for format: BoothFormat) -> String {
-        switch format {
-        case .passport:
-            "Photo Pass, 2 photos. A two-photo event keepsake with your name, an optional note and your signature."
-        default:
-            "\(format.displayName), \(format.photoCountLabel). \(customerFormatDescription(for: format))"
-        }
-    }
-
-    private func formatPreview(_ format: BoothFormat) -> some View {
-        GeometryReader { proxy in
-            let footprint = formatPreviewFootprint(for: format, availableWidth: proxy.size.width, availableHeight: proxy.size.height)
-
-            ZStack {
-                previewFrames(for: format, footprint: footprint)
-            }
-            .frame(width: proxy.size.width, height: proxy.size.height)
-        }
-    }
-
-    @ViewBuilder
-    private func previewFrames(for format: BoothFormat, footprint: CGSize) -> some View {
-        switch format {
-        case .solo:
-            previewPhoto(width: footprint.width * 0.66, height: footprint.width * 0.88)
-        case .duo:
-            let spacing = footprint.height * 0.09
-            let tileHeight = (footprint.height - spacing) / 2
-            let tileWidth = min(tileHeight * (4.0 / 3.0), footprint.width * 0.92)
-            VStack(spacing: spacing) {
-                previewPhoto(width: tileWidth, height: tileHeight)
-                previewPhoto(width: tileWidth, height: tileHeight)
-            }
-        case .grid:
-            VStack(spacing: footprint.width * 0.07) {
-                HStack(spacing: footprint.width * 0.07) {
-                    previewPhoto(width: footprint.width * 0.33, height: footprint.width * 0.44)
-                    previewPhoto(width: footprint.width * 0.33, height: footprint.width * 0.44)
-                }
-                HStack(spacing: footprint.width * 0.07) {
-                    previewPhoto(width: footprint.width * 0.33, height: footprint.width * 0.44)
-                    previewPhoto(width: footprint.width * 0.33, height: footprint.width * 0.44)
-                }
-            }
-        case .gridSix:
-            let gap = footprint.height * 0.04
-            let tileHeight = (footprint.height - gap * 2) / 3
-            VStack(spacing: gap) {
-                ForEach(0..<3, id: \.self) { _ in
-                    HStack(spacing: gap) {
-                        previewPhoto(width: tileHeight * 0.75, height: tileHeight)
-                        previewPhoto(width: tileHeight * 0.75, height: tileHeight)
-                    }
-                }
-            }
-        case .strip:
-            let spacing = footprint.height * 0.055
-            let tileHeight = (footprint.height - (spacing * 2)) / 3
-            let tileWidth = min(tileHeight * (4.0 / 3.0), footprint.width * 0.92)
-            VStack(spacing: spacing) {
-                ForEach(0..<3, id: \.self) { _ in
-                    previewPhoto(width: tileWidth, height: tileHeight)
-                }
-            }
-        case .passport:
-            PassportFormatPreview(size: footprint)
-        }
-    }
-
-    private func previewPhoto(width: CGFloat, height: CGFloat) -> some View {
-        Rectangle()
-            .fill(MadeToKeepTheme.ColorPalette.ivoryShade)
-            .overlay {
-                abstractPhotoMotif()
-                    .clipped()
-            }
-            .overlay {
-                Rectangle()
-                    .strokeBorder(MadeToKeepTheme.ColorPalette.taupe.opacity(0.55), lineWidth: 1)
-            }
-            .frame(width: width, height: height)
-    }
-
-    private func abstractPhotoMotif() -> some View {
-        GeometryReader { proxy in
-            let width = proxy.size.width
-            let height = proxy.size.height
-            let baseSize = min(width, height)
-
-            ZStack {
-                Circle()
-                    .fill(MadeToKeepTheme.ColorPalette.ivoryLight.opacity(0.7))
-                    .frame(width: baseSize * 0.34, height: baseSize * 0.34)
-                    .offset(x: -width * 0.22, y: -height * 0.22)
-
-                RoundedRectangle(cornerRadius: baseSize * 0.18)
-                    .fill(MadeToKeepTheme.ColorPalette.taupe.opacity(0.32))
-                    .frame(width: width * 0.58, height: height * 0.46)
-                    .offset(x: width * 0.16, y: height * 0.06)
-
-                RoundedRectangle(cornerRadius: baseSize * 0.16)
-                    .fill(MadeToKeepTheme.ColorPalette.taupe.opacity(0.18))
-                    .frame(width: width * 0.62, height: height * 0.34)
-                    .offset(x: -width * 0.05, y: height * 0.22)
-            }
-            .frame(width: width, height: height)
-        }
-    }
-
-    private func formatPreviewFootprint(for format: BoothFormat, availableWidth: CGFloat, availableHeight: CGFloat) -> CGSize {
-        let height = max(1, min(availableHeight - 4, 188))
-        let requestedWidth = formatPreviewWidth(for: format, availableWidth: max(1, availableWidth))
-        let width: CGFloat
-        switch format {
-        case .solo: width = min(requestedWidth, height / 0.88)
-        case .grid: width = min(requestedWidth, height / 0.95)
-        case .duo, .strip, .gridSix: width = requestedWidth
-        case .passport: width = min(requestedWidth, height * 1.25)
-        }
-        return CGSize(width: width, height: height)
-    }
-
-    private func formatPreviewWidth(for format: BoothFormat, availableWidth: CGFloat) -> CGFloat {
-        switch format {
-        case .solo:
-            min(availableWidth * 0.48, 148)
-        case .duo:
-            min(availableWidth * 0.46, 142)
-        case .grid, .gridSix:
-            min(availableWidth * 0.58, 174)
-        case .strip:
-            min(availableWidth * 0.34, 104)
-        case .passport:
-            min(availableWidth * 0.80, 232)
-        }
-    }
-
-    private func customerFormatDescription(for format: BoothFormat) -> String {
-        switch format {
-        case .solo:
-            "One portrait"
-        case .duo:
-            "Two moments"
-        case .gridSix:
-            "Six-photo collage"
-        case .grid:
-            "Four-photo collage"
-        case .strip:
-            "Classic photo strip"
-        case .passport:
-            "Two-photo event keepsake"
-        }
-    }
-
     private func loadSamplePhoto(from item: PhotosPickerItem?) {
         guard let item else {
             return
@@ -2166,26 +1916,6 @@ private enum ReviewPhotoPresentation {
         case .landscape:
             return ReceiptComposer.landscapePresentationAspectRatio
         }
-    }
-}
-
-private struct FormatBackButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(isEnabled ? MadeToKeepTheme.ColorPalette.burgundy : MadeToKeepTheme.ColorPalette.secondaryText)
-            .background(
-                Capsule()
-                    .fill(MadeToKeepTheme.ColorPalette.ivoryLight.opacity(configuration.isPressed ? 0.95 : 0.6))
-            )
-            .overlay {
-                Capsule()
-                    .strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(isEnabled ? 0.45 : 0.18), lineWidth: 1)
-            }
-            .scaleEffect(reduceMotion ? 1 : (configuration.isPressed ? 0.985 : 1))
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
