@@ -30,7 +30,7 @@ struct EventTypographySection: View {
         } header: {
             Text("Receipt Typography")
         } footer: {
-            Text("\(typography.preset.summary) Sizes are preferences: long names and messages shrink or wrap so they always fit. Use Preview Event to check the printed result.")
+            Text("\(typography.preset.summary) Sizes are preferences: long names and messages shrink or wrap so they always fit. Use the preview above to check the printed result.")
         }
     }
 

@@ -274,6 +274,7 @@ struct EventSetupView: View {
     @State private var draft: EventProfile
     @State private var savedProfile: EventProfile
     @State private var statusMessage = "Event profile loaded."
+    @State private var isShowingActivationConfirmation = false
 
     init() {
         // Load once so an unsaved default profile (which stamps the current date) does not
@@ -382,17 +383,9 @@ struct EventSetupView: View {
 
             Section {
                 if !savedProfile.isEventModeActive {
-                    Button {
-                        draft.isEnabled = true
-                        draft.customerScreenEnabled = true
-                        saveDraft()
-                    } label: {
-                        Text("Save & Activate")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!canActivate)
+                    Text("Event Mode is off. You can edit and save these settings without turning it on.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
 
                 Button {
@@ -405,7 +398,18 @@ struct EventSetupView: View {
                 .buttonStyle(.bordered)
                 .disabled(!canSave || !hasUnsavedChanges)
 
-                if savedProfile.isEventModeActive {
+                if !savedProfile.isEventModeActive {
+                    Button {
+                        isShowingActivationConfirmation = true
+                    } label: {
+                        Text("Turn Event Mode On…")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!canActivate)
+                    .accessibilityHint("Asks for confirmation before enabling event branding on receipts and guest screens.")
+                } else {
                     Button(role: .destructive) {
                         draft.isEnabled = false
                         draft.customerScreenEnabled = false
@@ -443,6 +447,16 @@ struct EventSetupView: View {
         }
         .navigationTitle("Event Setup")
         .navigationBarTitleDisplayMode(.inline)
+        .alert("Turn Event Mode On?", isPresented: $isShowingActivationConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Turn On") {
+                draft.isEnabled = true
+                draft.customerScreenEnabled = true
+                saveDraft()
+            }
+        } message: {
+            Text("This enables the saved event branding for new receipts and guest screens.")
+        }
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") { saveDraft() }
