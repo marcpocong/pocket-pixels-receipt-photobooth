@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
-  <title>Pocket Pixels Gallery</title>
+  <title>Made to Keep Studios Gallery</title>
   <style>
     :root {
       color-scheme: light;
@@ -114,7 +114,7 @@
 <? if (!gallery) { ?>
   <main class="error">
     <section>
-      <h1>Pocket Pixels</h1>
+      <h1>Made to Keep Studios</h1>
       <h2>Gallery not found</h2>
       <p class="privacy">This gallery link is missing, invalid, or no longer available.</p>
     </section>
@@ -122,15 +122,15 @@
 <? } else { ?>
   <main>
     <header>
-      <h1>Pocket Pixels</h1>
+      <h1>Made to Keep Studios</h1>
       <h2>Receipt Photobooth</h2>
       <p class="date"><?= escapeHTML(gallery.createdAt) ?></p>
     </header>
 
-    <section class="gallery" aria-label="Pocket Pixels photo gallery">
+    <section class="gallery" aria-label="Made to Keep Studios photo gallery">
       <? for (var i = 0; i < gallery.photos.length; i++) { ?>
         <figure>
-          <img src="<?= getGalleryImage(gallery.galleryToken, gallery.photos[i]) ?>" alt="Pocket Pixels photo <?= i + 1 ?>">
+          <img src="<?= getGalleryImage(gallery.galleryToken, gallery.photos[i]) ?>" alt="Made to Keep Studios photo <?= i + 1 ?>">
           <figcaption>
             <span>Photo <?= i + 1 ?></span>
             <a class="button" download="<?= escapeHTML(gallery.photos[i]) ?>" href="<?= getGalleryImage(gallery.galleryToken, gallery.photos[i]) ?>">Download</a>
@@ -139,7 +139,7 @@
       <? } ?>
 
       <figure>
-        <img src="<?= getGalleryImage(gallery.galleryToken, gallery.receipt) ?>" alt="Pocket Pixels composed receipt">
+        <img src="<?= getGalleryImage(gallery.galleryToken, gallery.receipt) ?>" alt="Made to Keep Studios composed receipt">
         <figcaption>
           <span>Receipt</span>
           <a class="button" download="<?= escapeHTML(gallery.receipt) ?>" href="<?= getGalleryImage(gallery.galleryToken, gallery.receipt) ?>">Download Receipt</a>
@@ -147,7 +147,7 @@
       </figure>
     </section>
 
-    <p class="privacy">Anyone with this private gallery link can view these images. Pocket Pixels does not require customer Google sign-in for this gallery.</p>
+    <p class="privacy">Anyone with this private gallery link can view these images. Made to Keep Studios does not require customer Google sign-in for this gallery.</p>
   </main>
 <? } ?>
 </body>

@@ -69,7 +69,7 @@ nonisolated struct EventHeaderAssetStore: Sendable {
     }
 
     /// Loads bitmap or vector artwork. Returns nil for unknown, missing or unreadable assets so
-    /// callers fall back to the Pocket Pixels header.
+    /// callers fall back to the Made to Keep header.
     func loadArtwork(identifier: String?) -> EventArtwork? {
         guard let identifier, Self.isValid(identifier) else { return nil }
         let key = "\(directoryURL.path)/\(identifier)" as NSString

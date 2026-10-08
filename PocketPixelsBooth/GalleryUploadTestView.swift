@@ -107,7 +107,7 @@ struct GalleryUploadTestView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Pocket Pixels Cloud Test")
+            Text("Made to Keep Cloud Test")
                 .font(.largeTitle.weight(.semibold))
 
             Text("DEBUG-only Google Apps Script gallery upload test. This screen never calls the thermal printer.")

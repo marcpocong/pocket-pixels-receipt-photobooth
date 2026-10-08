@@ -35,7 +35,7 @@ nonisolated enum EventTypographyPreset: String, Codable, CaseIterable, Identifia
 
     var summary: String {
         switch self {
-        case .classic: "The original Pocket Pixels serif keepsake."
+        case .classic: "The original Made to Keep serif keepsake."
         case .editorial: "Elegant book serif with generous spacing."
         case .modern: "Clean, contemporary sans-serif."
         case .bold: "Condensed heavy title for big statements."

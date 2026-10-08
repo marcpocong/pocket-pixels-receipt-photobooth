@@ -82,7 +82,7 @@ nonisolated struct PassportReceiptContent: Equatable, Sendable {
         case .pocketPixels:
             title = configuration.title
             label = ""
-            subtitle = configuration.subtitle.isEmpty ? "A POCKET PIXELS KEEPSAKE" : configuration.subtitle
+            subtitle = configuration.subtitle.isEmpty ? MadeToKeepBrand.tagline.uppercased() : configuration.subtitle
         case .eventText:
             title = namedEvent?.eventName ?? configuration.title
             label = eventLabel
@@ -109,7 +109,7 @@ nonisolated struct PassportReceiptContent: Equatable, Sendable {
         return PassportReceiptContent(
             theme: configuration.theme,
             titleMode: titleMode,
-            eyebrow: titleMode == .pocketPixels ? "POCKET PIXELS" : "A KEEPSAKE FROM",
+            eyebrow: titleMode == .pocketPixels ? "MADE TO KEEP STUDIOS" : "A KEEPSAKE FROM",
             title: PassportText.printed(title),
             label: PassportText.printed(label),
             subtitle: PassportText.printed(subtitle),

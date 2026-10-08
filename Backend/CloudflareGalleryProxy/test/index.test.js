@@ -326,3 +326,69 @@ async function withMemoryCache(operation) {
     }
   }
 }
+
+// Made to Keep Studios visible rebrand (Phase 1): the Worker must accept the new gallery HTML,
+// keep accepting legacy Pocket Pixels HTML until Apps Script is redeployed, and still refuse
+// Google sign-in/error pages.
+const madeToKeepCompletedHTML =
+  '<!doctype html><title>Made to Keep Studios Gallery</title><main class="gallery-shell" data-pocket-pixels-gallery-status="complete"><div class="brand-lockup" role="img" aria-label="Made to Keep Studios"></div><h2>Your GIF</h2><img id="image-session.gif"><p>Color Receipt</p><p>Thermal Receipt</p></main>';
+
+test("Made to Keep Studios completed gallery is accepted and cached", async () => {
+  await withMemoryCache(async () => {
+    await withMockFetch([new Response(madeToKeepCompletedHTML)], async (calls) => {
+      const request = new Request(`https://gallery.example.com/?g=${token}`);
+      const first = await worker.fetch(request, env);
+      assert.equal(first.status, 200);
+      assert.equal(first.headers.get("X-Pocket-Pixels-Cache"), "MISS");
+      assert.equal(await first.text(), madeToKeepCompletedHTML);
+      const second = await worker.fetch(request, env);
+      assert.equal(second.headers.get("X-Pocket-Pixels-Cache"), "HIT");
+      assert.match(await second.text(), /Made to Keep Studios Gallery/);
+      assert.equal(calls.length, 1);
+    });
+  });
+});
+
+test("Made to Keep Studios pending page is accepted but never cached", async () => {
+  await withMemoryCache(async () => {
+    const pending = '<!doctype html><title>Made to Keep Studios Gallery</title><main class="center-page"><h1>your photos are still being prepared.</h1></main>';
+    await withMockFetch([new Response(pending), new Response(pending)], async (calls) => {
+      const request = new Request(`https://gallery.example.com/?g=${token}`);
+      const first = await worker.fetch(request, env);
+      assert.equal(first.status, 200);
+      assert.equal(first.headers.get("X-Pocket-Pixels-Cache"), "BYPASS");
+      await worker.fetch(request, env);
+      assert.equal(calls.length, 2);
+    });
+  });
+});
+
+test("legacy Pocket Pixels gallery HTML remains accepted for compatibility", async () => {
+  await withMockFetch([completedGalleryResponse()], async () => {
+    const response = await worker.fetch(new Request(`https://gallery.example.com/?g=${token}`), env);
+    assert.equal(response.status, 200);
+    assert.match(await response.text(), /data-pocket-pixels-gallery-status="complete"/);
+  });
+});
+
+test("Google sign-in page is never proxied as a gallery", async () => {
+  await withMockFetch([
+    new Response("<!doctype html><title>Sign in - Google Accounts</title><form>Sign in</form>"),
+  ], async () => {
+    const response = await worker.fetch(new Request(`https://gallery.example.com/?g=${token}`), env);
+    assert.equal(response.status, 503);
+    assert.equal(response.headers.get("X-Pocket-Pixels-Proxy-Error"), "UNEXPECTED_UPSTREAM_PAGE");
+    const html = await response.text();
+    assert.match(html, /<title>Made to Keep Studios Gallery<\/title>/);
+    assert.match(html, /aria-label="Made to Keep Studios"/);
+    assert.doesNotMatch(html, /Pocket Pixels/);
+  });
+});
+
+test("Worker error pages show Made to Keep Studios branding", async () => {
+  const response = await worker.fetch(new Request("https://gallery.example.com/?g=bad"), env);
+  const html = await response.text();
+  assert.match(html, /made to keep/);
+  assert.match(html, /studios/);
+  assert.doesNotMatch(html, /Pocket Pixels|@pocketpixels\.ceb/i);
+});

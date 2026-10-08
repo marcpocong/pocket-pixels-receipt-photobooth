@@ -280,7 +280,7 @@ final class PrinterBluetoothDiagnosticService: NSObject, ObservableObject {
 
     private func bluetoothTextTestPayload() -> Data {
         var payload = Data([0x1B, 0x40])
-        payload.append(Data("POCKET PIXELS".utf8))
+        payload.append(Data("MADE TO KEEP".utf8))
         payload.append(0x0A)
         payload.append(Data("BLUETOOTH TEST".utf8))
         payload.append(contentsOf: [0x0A, 0x0A, 0x0A])

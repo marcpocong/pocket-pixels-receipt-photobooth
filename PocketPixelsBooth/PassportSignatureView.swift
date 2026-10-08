@@ -15,7 +15,7 @@ struct PassportSignatureView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let contentWidth = max(1, min(proxy.size.width - PocketPixelsTheme.Spacing.screenPadding * 2, 860))
+            let contentWidth = max(1, min(proxy.size.width - MadeToKeepTheme.Spacing.screenPadding * 2, 860))
             let signature = viewModel.passportDraft.signature
 
             VStack(spacing: 22) {
@@ -38,7 +38,7 @@ struct PassportSignatureView: View {
                     } label: {
                         Label("Undo", systemImage: "arrow.uturn.backward")
                     }
-                    .buttonStyle(PocketPixelsSecondaryButtonStyle())
+                    .buttonStyle(MadeToKeepSecondaryButtonStyle())
                     .disabled(signature.isEmpty)
                     .accessibilityLabel("Undo last signature stroke")
 
@@ -47,7 +47,7 @@ struct PassportSignatureView: View {
                     } label: {
                         Label("Clear", systemImage: "xmark.circle")
                     }
-                    .buttonStyle(PocketPixelsSecondaryButtonStyle())
+                    .buttonStyle(MadeToKeepSecondaryButtonStyle())
                     .disabled(signature.isEmpty)
                     .accessibilityLabel("Clear signature")
                 }
@@ -58,7 +58,7 @@ struct PassportSignatureView: View {
                     Button("Back to Details") {
                         viewModel.backToPassportDetails()
                     }
-                    .buttonStyle(PocketPixelsSecondaryButtonStyle())
+                    .buttonStyle(MadeToKeepSecondaryButtonStyle())
 
                     Button {
                         viewModel.continueFromPassportSignature()
@@ -66,7 +66,7 @@ struct PassportSignatureView: View {
                         Text(signature.isEmpty ? "Continue Without Signature" : "Continue")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(PocketPixelsPrimaryButtonStyle())
+                    .buttonStyle(MadeToKeepPrimaryButtonStyle())
                     .accessibilityHint("Shows a preview of your Photo Pass.")
                 }
                 .frame(width: min(contentWidth, 720))
@@ -75,7 +75,7 @@ struct PassportSignatureView: View {
             .padding(.top, 28)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(.horizontal, PocketPixelsTheme.Spacing.screenPadding)
+        .padding(.horizontal, MadeToKeepTheme.Spacing.screenPadding)
     }
 }
 
@@ -85,15 +85,15 @@ struct PassportSignaturePad: View {
 
     @State private var activePoints: [CGPoint] = []
 
-    private static let ink = PocketPixelsTheme.ColorPalette.charcoal
+    private static let ink = MadeToKeepTheme.ColorPalette.charcoal
     private static let minimumPointSpacing: CGFloat = 1.5
 
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
             ZStack(alignment: .bottomLeading) {
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(Color.white)
+                RoundedRectangle(cornerRadius: MadeToKeepTheme.Radius.card)
+                    .fill(MadeToKeepTheme.ColorPalette.ivoryLight)
 
                 Canvas { context, canvasSize in
                     let bounds = CGRect(origin: .zero, size: canvasSize)
@@ -107,27 +107,27 @@ struct PassportSignaturePad: View {
                 // Signing line and hint; both are decoration only and never part of the stored signature.
                 VStack(alignment: .leading, spacing: 6) {
                     if signature.isEmpty && activePoints.isEmpty {
-                        Text("Sign here")
-                            .font(.system(size: 22, weight: .medium, design: .serif))
-                            .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText.opacity(0.6))
+                        Text("sign here")
+                            .font(MadeToKeepTheme.Typography.italicSerif(size: 28))
+                            .foregroundStyle(MadeToKeepTheme.ColorPalette.taupe)
                     }
                     HStack(spacing: 10) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 18, weight: .bold))
+                            .font(.system(size: 16, weight: .light))
                         Rectangle()
-                            .frame(height: 2)
+                            .frame(height: 1)
                     }
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText.opacity(0.45))
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.55))
                 }
                 .padding(.horizontal, 28)
                 .padding(.bottom, size.height * 0.16)
                 .allowsHitTesting(false)
             }
             .overlay {
-                RoundedRectangle(cornerRadius: 18)
-                    .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.28), lineWidth: 1.5)
+                RoundedRectangle(cornerRadius: MadeToKeepTheme.Radius.card)
+                    .strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.4), lineWidth: 1)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 18))
+            .clipShape(RoundedRectangle(cornerRadius: MadeToKeepTheme.Radius.card))
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .local)
@@ -152,7 +152,7 @@ struct PassportSignaturePad: View {
             )
         }
         .aspectRatio(PassportSignature.canvasAspectRatio, contentMode: .fit)
-        .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.12), radius: 14, x: 0, y: 6)
+        .shadow(color: MadeToKeepTheme.ColorPalette.shadowTint.opacity(0.12), radius: 10, x: 0, y: 4)
         .accessibilityElement()
         .accessibilityLabel("Signature pad")
         .accessibilityValue(signature.isEmpty ? "Empty" : "Signed")

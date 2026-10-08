@@ -83,6 +83,37 @@ const legacyHTML = context.renderGalleryPage_(legacyFixture, {}, Date.now()).get
 assert.doesNotMatch(legacyHTML, /<p>Your GIF<\/p>/);
 assert.match(legacyHTML, /Color Receipt/);
 
+// Made to Keep Studios visible rebrand (Phase 1). The legacy completed-gallery marker stays
+// because the Cloudflare Worker uses it for cache decisions.
+const pendingHTML = context.renderPendingGalleryPage_().getContent();
+const invalidHTML = context.renderInvalidGalleryPage_().getContent();
+const tooLargeHTML = context.renderGalleryTooLargePage_().getContent();
+for (const page of [html, legacyHTML, pendingHTML, invalidHTML, tooLargeHTML]) {
+  assert.match(page, /<title>Made to Keep Studios Gallery<\/title>/);
+  assert.match(page, /aria-label="Made to Keep Studios"/);
+  assert.match(page, /class="brand-wordmark">made to keep</);
+  assert.match(page, /class="brand-secondary">studios</);
+  assert.doesNotMatch(page, /Pocket Pixels/i);
+  assert.doesNotMatch(page, /@pocketpixels\.ceb|instagram\.com/i);
+  assert.doesNotMatch(page, /data:image\/png;base64,/, 'No embedded bitmap logo (legacy PP monogram) in the gallery');
+}
+for (const page of [html, legacyHTML]) {
+  assert.match(page, /data-pocket-pixels-gallery-status="complete"/);
+  assert.match(page, /Photo Gallery/);
+  assert.match(page, /Receipt Copy/);
+  assert.match(page, /Save All Photos/);
+  assert.match(page, /data-download="photo-01\.jpg">Save Photo/);
+  assert.match(page, /data-share="photo-01\.jpg">Share/);
+  assert.match(page, /class="footer-tagline">little moments, made to keep\.</);
+  assert.match(page, /title:\\?"Made to Keep Studios\\?"/);
+  assert.match(page, /alt="Made to Keep Studios photo 1"/);
+}
+assert.match(html, /alt="Animated Made to Keep Studios session GIF"/);
+assert.match(html, /Thermal Receipt/);
+assert.match(pendingHTML, /your photos are still being prepared\./);
+assert.match(invalidHTML, /This gallery link cannot be opened\./);
+console.log('Made to Keep Studios gallery branding checks passed (v1, v2, pending, invalid, too large).');
+
 const realistic = realisticBudgetPayload();
 assert.equal(context.validateUploadPayload_(realistic).ok, true);
 const realisticImages = realistic.photos.concat([realistic.colorReceipt, realistic.thermalReceipt, realistic.gif]);

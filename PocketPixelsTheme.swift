@@ -2,28 +2,47 @@
 //  PocketPixelsTheme.swift
 //  PocketPixelsBooth
 //
+//  The file name is a legacy project reference; the type inside is the Made to Keep Studios
+//  visual system. Brand copy lives in `MadeToKeepBrand`, fonts in `MadeToKeepTheme.Typography`.
+//
 
 import SwiftUI
+import UIKit
 
-enum PocketPixelsTheme {
+enum MadeToKeepTheme {
+    /// Sampled from the Made to Keep reference design (median wordmark ink #70060B, sheet paper #F7F1E9).
     enum ColorPalette {
-        static let brandMaroon = Color(.sRGB, red: 0.467, green: 0.129, blue: 0.188, opacity: 1)
-        static let brandBlush = Color(.sRGB, red: 0.976, green: 0.851, blue: 0.780, opacity: 1)
-        static let paper = Color(.sRGB, red: 1.0, green: 0.973, blue: 0.949, opacity: 1)
-        static let paperWarm = Color(.sRGB, red: 1.0, green: 0.941, blue: 0.902, opacity: 1)
-        static let acrylic = Color(.sRGB, red: 1.0, green: 0.992, blue: 0.976, opacity: 1)
-        static let surface = Color(.sRGB, red: 1.0, green: 0.992, blue: 0.976, opacity: 1)
-        static let surfacePressed = Color(.sRGB, red: 0.976, green: 0.851, blue: 0.780, opacity: 1)
-        static let amberGlow = Color(.sRGB, red: 0.898, green: 0.627, blue: 0.353, opacity: 1)
-        static let charcoal = Color(.sRGB, red: 0.165, green: 0.129, blue: 0.118, opacity: 1)
-        static let secondaryText = Color(.sRGB, red: 0.439, green: 0.361, blue: 0.329, opacity: 1)
-        static let border = Color(.sRGB, red: 0.835, green: 0.706, blue: 0.639, opacity: 1)
-        static let lightText = Color(.sRGB, red: 1.0, green: 0.973, blue: 0.949, opacity: 1)
-        static let warningSurface = Color(.sRGB, red: 1.0, green: 0.921, blue: 0.866, opacity: 1)
-        static let warningText = Color(.sRGB, red: 0.467, green: 0.129, blue: 0.188, opacity: 1)
+        /// Deep oxblood used for all brand typography and outlines.
+        static let burgundy = Color(.sRGB, red: 0x70 / 255, green: 0x06 / 255, blue: 0x0B / 255, opacity: 1)
+        static let burgundySoft = Color(.sRGB, red: 0x8A / 255, green: 0x2E / 255, blue: 0x33 / 255, opacity: 1)
+        static let ivory = Color(.sRGB, red: 0xF7 / 255, green: 0xF1 / 255, blue: 0xE9 / 255, opacity: 1)
+        static let ivoryLight = Color(.sRGB, red: 0xFB / 255, green: 0xF7 / 255, blue: 0xF1 / 255, opacity: 1)
+        static let ivoryShade = Color(.sRGB, red: 0xEE / 255, green: 0xE6 / 255, blue: 0xDC / 255, opacity: 1)
+        /// Soft gray-taupe of the reference's printed header, `BY M&K` and `081719`.
+        static let taupe = Color(.sRGB, red: 0xA3 / 255, green: 0x99 / 255, blue: 0x90 / 255, opacity: 1)
+        static let ink = Color(.sRGB, red: 0x2B / 255, green: 0x24 / 255, blue: 0x22 / 255, opacity: 1)
+        static let mutedInk = Color(.sRGB, red: 0x6B / 255, green: 0x5F / 255, blue: 0x57 / 255, opacity: 1)
+        static let hairline = Color(.sRGB, red: 0xD9 / 255, green: 0xCC / 255, blue: 0xBF / 255, opacity: 1)
+        static let shadowTint = Color(.sRGB, red: 0x6E / 255, green: 0x5A / 255, blue: 0x48 / 255, opacity: 1)
 
-        static let maroon = brandMaroon
-        static let maroonMuted = Color(.sRGB, red: 0.62, green: 0.30, blue: 0.34, opacity: 1)
+        // Role names kept from the original palette so every screen re-tints from one place.
+        static let brandMaroon = burgundy
+        static let brandBlush = ivoryShade
+        static let paper = ivory
+        static let paperWarm = ivoryShade
+        static let acrylic = ivoryLight
+        static let surface = ivoryLight
+        static let surfacePressed = ivoryShade
+        static let amberGlow = shadowTint
+        static let charcoal = ink
+        static let secondaryText = mutedInk
+        static let border = hairline
+        static let lightText = ivoryLight
+        static let warningSurface = Color(.sRGB, red: 0xF5 / 255, green: 0xE6 / 255, blue: 0xDE / 255, opacity: 1)
+        static let warningText = burgundy
+
+        static let maroon = burgundy
+        static let maroonMuted = burgundySoft
     }
 
     enum Spacing {
@@ -33,15 +52,32 @@ enum PocketPixelsTheme {
     }
 
     enum Radius {
-        static let button: CGFloat = 8
-        static let card: CGFloat = 8
-        static let receipt: CGFloat = 4
+        static let button: CGFloat = 999
+        static let card: CGFloat = 4
+        static let receipt: CGFloat = 2
+        static let photo: CGFloat = 2
+    }
+
+    enum Stroke {
+        /// The reference CTA and rules are ~2 px at 1048 px wide, i.e. ~1.6 pt on an 11-inch iPad.
+        static let hairline: CGFloat = 1
+        static let outline: CGFloat = 1.6
+    }
+
+    /// Wide letter spacing used throughout the reference, expressed in em.
+    nonisolated enum Tracking {
+        static let descriptor: CGFloat = 0.207
+        static let studios: CGFloat = 0.206
+        static let helper: CGFloat = 0.334
+        static let callToAction: CGFloat = 0.255
+        static let label: CGFloat = 0.22
+        static let wordmark: CGFloat = -0.05
     }
 
     enum Layout {
         static let maxContentWidth: CGFloat = 1010
         static let startButtonWidth: CGFloat = 282
-        static let buttonHeight: CGFloat = 66
+        static let buttonHeight: CGFloat = 64
         static let formatCardHeight: CGFloat = 292
         static let formatPreviewHeight: CGFloat = 152
     }
@@ -51,7 +87,7 @@ enum PocketPixelsTheme {
         static let standard: TimeInterval = 0.25
         static let entrance: TimeInterval = 0.32
         static let stagger: TimeInterval = 0.055
-        static let pressedScale: CGFloat = 0.98
+        static let pressedScale: CGFloat = 0.99
         static let subtleScale: CGFloat = 0.985
         static let entranceOffset: CGFloat = 10
         static let receiptOffset: CGFloat = -14
@@ -67,61 +103,136 @@ enum PocketPixelsTheme {
         static let screenTransitionAnimation = Animation.easeInOut(duration: 0.28)
         static let idleFloatAnimation = Animation.easeInOut(duration: idleFloatDuration).repeatForever(autoreverses: true)
     }
-}
 
-struct PocketPixelsPrimaryButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
+    /// Native iOS faces chosen to match the reference, each with a safe fallback chain so a
+    /// missing face can never crash or silently become upright system text.
+    nonisolated enum Typography {
+        /// High-contrast italic serif for `made to keep` and the tagline.
+        static let italicSerifNames = ["BodoniSvtyTwoITCTT-BookIta", "Didot-Italic", "Georgia-Italic"]
+        /// High-contrast upright serif for the CTA and editorial capitals.
+        static let uprightSerifNames = ["BodoniSvtyTwoITCTT-Book", "Didot", "Georgia"]
+        static let boldSerifNames = ["BodoniSvtyTwoITCTT-Bold", "Didot-Bold", "Georgia-Bold"]
 
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 26, weight: .black))
-            .foregroundStyle(PocketPixelsTheme.ColorPalette.lightText)
-            .frame(height: PocketPixelsTheme.Layout.buttonHeight)
-            .padding(.horizontal, 34)
-            .background(
-                RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.button)
-                    .fill(isEnabled ? PocketPixelsTheme.ColorPalette.brandMaroon : PocketPixelsTheme.ColorPalette.border)
-                    .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(isEnabled ? 0.16 : 0), radius: 12, x: 0, y: 5)
-            )
-            .opacity(configuration.isPressed ? 0.86 : 1)
-            .scaleEffect(configuration.isPressed ? PocketPixelsTheme.Motion.pressedScale : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+        static func italicSerifUIFont(size: CGFloat) -> UIFont {
+            resolvedFont(italicSerifNames, size: size) ?? serifFallback(size: size, italic: true)
+        }
+
+        static func uprightSerifUIFont(size: CGFloat) -> UIFont {
+            resolvedFont(uprightSerifNames, size: size) ?? serifFallback(size: size, italic: false)
+        }
+
+        static func boldSerifUIFont(size: CGFloat) -> UIFont {
+            resolvedFont(boldSerifNames, size: size) ?? serifFallback(size: size, italic: false, bold: true)
+        }
+
+        static func wordmark(size: CGFloat) -> Font { Font(italicSerifUIFont(size: size)) }
+        static func italicSerif(size: CGFloat) -> Font { Font(italicSerifUIFont(size: size)) }
+        static func serif(size: CGFloat) -> Font { Font(uprightSerifUIFont(size: size)) }
+        static func boldSerif(size: CGFloat) -> Font { Font(boldSerifUIFont(size: size)) }
+
+        /// Understated sans for descriptors, helpers and utilitarian copy.
+        static func sans(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+            .system(size: size, weight: weight)
+        }
+
+        /// Text-style based sans for body copy that should follow Dynamic Type.
+        static func body(_ style: Font.TextStyle = .body, weight: Font.Weight = .regular) -> Font {
+            .system(style, weight: weight)
+        }
+
+        private static func resolvedFont(_ names: [String], size: CGFloat) -> UIFont? {
+            for name in names {
+                if let font = UIFont(name: name, size: size) {
+                    return font
+                }
+            }
+            return nil
+        }
+
+        private static func serifFallback(size: CGFloat, italic: Bool, bold: Bool = false) -> UIFont {
+            let base = UIFont.systemFont(ofSize: size, weight: bold ? .bold : .regular)
+            var traits: UIFontDescriptor.SymbolicTraits = []
+            if italic { traits.insert(.traitItalic) }
+            let serif = base.fontDescriptor.withDesign(.serif) ?? base.fontDescriptor
+            let descriptor = serif.withSymbolicTraits(traits.union(serif.symbolicTraits)) ?? serif
+            return UIFont(descriptor: descriptor, size: size)
+        }
     }
 }
 
-struct PocketPixelsSecondaryButtonStyle: ButtonStyle {
+/// Thin burgundy outlined capsule, the reference CTA treatment. Interaction is a tiny opacity
+/// and scale response only.
+struct MadeToKeepPrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 20, weight: .bold))
-            .foregroundStyle(isEnabled ? PocketPixelsTheme.ColorPalette.brandMaroon : PocketPixelsTheme.ColorPalette.secondaryText)
-            .frame(minHeight: 48)
-            .padding(.horizontal, 18)
+            .font(MadeToKeepTheme.Typography.serif(size: 21))
+            .tracking(21 * 0.16)
+            .textCase(.uppercase)
+            .foregroundStyle(isEnabled ? MadeToKeepTheme.ColorPalette.burgundy : MadeToKeepTheme.ColorPalette.mutedInk.opacity(0.6))
+            .frame(minHeight: MadeToKeepTheme.Layout.buttonHeight)
+            .padding(.horizontal, 34)
             .background(
-                RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.button)
-                    .fill(PocketPixelsTheme.ColorPalette.brandBlush.opacity(configuration.isPressed ? 0.45 : 0.24))
+                Capsule()
+                    .fill(MadeToKeepTheme.ColorPalette.ivoryLight.opacity(configuration.isPressed ? 0.98 : 0.82))
             )
             .overlay {
-                RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.button)
-                    .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(isEnabled ? 0.28 : 0.16), lineWidth: 1)
+                Capsule()
+                    .strokeBorder(
+                        (isEnabled ? MadeToKeepTheme.ColorPalette.burgundy : MadeToKeepTheme.ColorPalette.hairline),
+                        lineWidth: MadeToKeepTheme.Stroke.outline
+                    )
             }
-            .scaleEffect(configuration.isPressed ? PocketPixelsTheme.Motion.pressedScale : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .contentShape(Capsule())
+            .opacity(configuration.isPressed ? 0.78 : 1)
+            .scaleEffect(reduceMotion ? 1 : (configuration.isPressed ? MadeToKeepTheme.Motion.pressedScale : 1))
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+/// Quiet secondary action: tracked sans label with a hairline capsule.
+struct MadeToKeepSecondaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 16, weight: .medium))
+            .tracking(16 * 0.12)
+            .textCase(.uppercase)
+            .foregroundStyle(isEnabled ? MadeToKeepTheme.ColorPalette.burgundy : MadeToKeepTheme.ColorPalette.mutedInk.opacity(0.55))
+            .frame(minHeight: 48)
+            .padding(.horizontal, 20)
+            .background(
+                Capsule()
+                    .fill(MadeToKeepTheme.ColorPalette.ivoryLight.opacity(configuration.isPressed ? 0.95 : 0.6))
+            )
+            .overlay {
+                Capsule()
+                    .strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(isEnabled ? 0.45 : 0.18), lineWidth: MadeToKeepTheme.Stroke.hairline)
+            }
+            .contentShape(Capsule())
+            .opacity(configuration.isPressed ? 0.8 : 1)
+            .scaleEffect(reduceMotion ? 1 : (configuration.isPressed ? MadeToKeepTheme.Motion.pressedScale : 1))
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
 struct FormatCardButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .opacity(configuration.isPressed ? 0.88 : 1)
-            .scaleEffect(configuration.isPressed ? 0.975 : 1)
+            .opacity(configuration.isPressed ? 0.84 : 1)
+            .scaleEffect(reduceMotion ? 1 : (configuration.isPressed ? 0.985 : 1))
             .shadow(
-                color: PocketPixelsTheme.ColorPalette.charcoal.opacity(configuration.isPressed ? 0.04 : 0.07),
-                radius: configuration.isPressed ? 4 : 8,
+                color: MadeToKeepTheme.ColorPalette.shadowTint.opacity(configuration.isPressed ? 0.05 : 0.10),
+                radius: configuration.isPressed ? 3 : 7,
                 x: 0,
-                y: configuration.isPressed ? 2 : 5
+                y: configuration.isPressed ? 1 : 4
             )
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }

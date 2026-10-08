@@ -5,6 +5,18 @@ const ALLOWED_UPSTREAM_HOSTS = new Set([
 ]);
 const COMPLETED_GALLERY_MARKER = 'data-pocket-pixels-gallery-status="complete"';
 const COMPLETED_GALLERY_TTL_SECONDS = 3600;
+// Upstream pages are recognised by the structural completed-gallery marker, the Made to Keep
+// Studios brand, or the legacy Pocket Pixels brand still served until Apps Script is redeployed.
+// Google sign-in and error pages contain none of these and are never proxied as a gallery.
+const RECOGNISED_GALLERY_TEXT = [
+  COMPLETED_GALLERY_MARKER,
+  "Made to Keep Studios",
+  "Pocket Pixels",
+];
+
+export function isRecognisedGalleryHTML(html) {
+  return RECOGNISED_GALLERY_TEXT.some((marker) => html.includes(marker));
+}
 
 export default {
   async fetch(request, env) {
@@ -86,10 +98,7 @@ export default {
     }
 
     // Do not proxy a Google login/error page as if it were the gallery.
-    if (
-      !html.includes("Pocket Pixels Gallery") &&
-      !html.includes("Pocket Pixels")
-    ) {
+    if (!isRecognisedGalleryHTML(html)) {
       console.log(
         "Pocket Pixels proxy: unexpected upstream HTML host=" +
           fetched.finalHost +
@@ -361,21 +370,25 @@ function errorPage(title, message, reference) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="robots" content="noindex,nofollow">
-  <title>Pocket Pixels Gallery</title>
+  <title>Made to Keep Studios Gallery</title>
   <style>
     *{box-sizing:border-box}
-    body{margin:0;min-height:100vh;display:grid;place-items:center;padding:calc(28px + env(safe-area-inset-top)) 20px calc(42px + env(safe-area-inset-bottom));background:linear-gradient(180deg,#fff8f2 0%,#fffdf9 52%,#f7ebe3 100%);color:#2a2020;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
-    main{width:min(100%,480px);text-align:center;padding:34px 22px;background:#fffdf9;border:1px solid #ead7ce;border-radius:10px;box-shadow:0 14px 32px rgba(42,32,32,.08)}
-    .brand{margin:0 0 10px;color:#781f2c;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.16em}
-    h1{margin:8px 0 12px;color:#4f111c;font-family:Georgia,"Times New Roman",serif;font-size:clamp(34px,9vw,48px);font-weight:400;line-height:1.02}
-    p{margin:0;color:#77605b;line-height:1.5}
-    button{margin-top:24px;min-height:46px;padding:11px 18px;border:0;border-radius:8px;background:#781f2c;color:#fff;font:inherit;font-weight:800;cursor:pointer}
-    button:focus-visible{outline:3px solid #7a4cff;outline-offset:3px}
+    body{margin:0;min-height:100vh;display:grid;place-items:center;padding:calc(28px + env(safe-area-inset-top)) 20px calc(42px + env(safe-area-inset-bottom));background:radial-gradient(120% 80% at 50% 0%,#fbf7f1 0%,rgba(251,247,241,0) 60%),linear-gradient(180deg,#f7f1e9 0%,#f3ece2 100%);color:#2b2422;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
+    main{width:min(100%,480px);text-align:center;padding:36px 24px;background:rgba(251,247,241,.82);border:1px solid rgba(112,6,11,.22);border-radius:2px;box-shadow:0 14px 32px rgba(110,90,72,.1)}
+    .brand{display:grid;justify-items:center;gap:6px;margin:0 0 18px;color:#70060b}
+    .brand-descriptor{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.24em}
+    .brand-rule{width:34px;height:1.5px;background:#70060b;margin:2px 0 4px}
+    .brand-wordmark{font-family:"Bodoni 72","Bodoni Moda",Didot,Georgia,serif;font-style:italic;font-size:48px;line-height:.92;letter-spacing:-.04em}
+    .brand-secondary{font-weight:300;font-size:17px;letter-spacing:.42em;margin-right:-.42em}
+    h1{margin:8px 0 12px;color:#70060b;font-family:"Bodoni 72","Bodoni Moda",Didot,Georgia,serif;font-style:italic;font-size:clamp(30px,8vw,42px);font-weight:400;line-height:1.02}
+    p{margin:0;color:#6b5f57;line-height:1.5}
+    button{margin-top:24px;min-height:46px;padding:11px 22px;border:1.5px solid #70060b;border-radius:999px;background:transparent;color:#70060b;font-family:"Bodoni 72",Didot,Georgia,serif;font-size:15px;letter-spacing:.2em;text-transform:uppercase;cursor:pointer}
+    button:focus-visible{outline:2px solid #70060b;outline-offset:3px}
   </style>
 </head>
 <body>
   <main>
-    <p class="brand">Pocket Pixels</p>
+    <div class="brand" role="img" aria-label="Made to Keep Studios"><span class="brand-descriptor">Receipt Photobooth</span><span class="brand-rule"></span><span class="brand-wordmark">made to keep</span><span class="brand-secondary">studios</span></div>
     <h1>${escapeHTML(title)}</h1>
     <p>${escapeHTML(message)}</p>
     <button onclick="window.location.reload()">Try Again</button>

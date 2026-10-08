@@ -56,7 +56,7 @@ private struct PocketPixelsAdminView: View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Pocket Pixels")
+                    Text(MadeToKeepBrand.operatorHeaderTitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text("Operator")

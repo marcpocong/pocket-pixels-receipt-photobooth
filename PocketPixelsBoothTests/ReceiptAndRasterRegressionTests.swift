@@ -5,8 +5,9 @@ import CoreImage
 @testable import PocketPixelsBooth
 
 final class ReceiptAndRasterRegressionTests: XCTestCase {
-    func testReceiptMastheadUsesEstablished2024Branding() {
-        XCTAssertEqual(ReceiptComposer.mastheadEstablishedText, "EST. 2024")
+    func testReceiptMastheadUsesMadeToKeepDescriptor() {
+        XCTAssertEqual(ReceiptComposer.mastheadEstablishedText, "RECEIPT PHOTOBOOTH")
+        XCTAssertEqual(ReceiptComposer.footerBrandLine, "little moments, made to keep.")
     }
 
     func testReceiptLayoutValidForEveryBoothFormat() throws {

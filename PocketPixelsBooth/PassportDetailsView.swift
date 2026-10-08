@@ -21,7 +21,7 @@ struct PassportDetailsView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let contentWidth = max(1, min(proxy.size.width - PocketPixelsTheme.Spacing.screenPadding * 2, 720))
+            let contentWidth = max(1, min(proxy.size.width - MadeToKeepTheme.Spacing.screenPadding * 2, 720))
 
             ScrollViewReader { scroll in
                 ScrollView {
@@ -58,7 +58,7 @@ struct PassportDetailsView: View {
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: focusedField) { _, field in
                     guard let field else { return }
-                    withAnimation(PocketPixelsTheme.Motion.standardAnimation) {
+                    withAnimation(MadeToKeepTheme.Motion.standardAnimation) {
                         scroll.scrollTo(field, anchor: .center)
                     }
                 }
@@ -68,7 +68,7 @@ struct PassportDetailsView: View {
                 }
             }
         }
-        .padding(.horizontal, PocketPixelsTheme.Spacing.screenPadding)
+        .padding(.horizontal, MadeToKeepTheme.Spacing.screenPadding)
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Button("Previous") { moveFocus(by: -1) }
@@ -87,22 +87,19 @@ struct PassportDetailsView: View {
     private func detailField(_ field: Field, title: String, prompt: String, text: Binding<String>, limit: Int) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(title)
-                    .font(.system(size: 15, weight: .bold, design: .monospaced))
-                    .tracking(1.6)
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.maroon)
+                MadeToKeepLabel(text: title, size: 13)
                 Spacer()
                 Text("\(text.wrappedValue.count)/\(limit)")
                     .font(.system(size: 14, weight: .medium))
                     .monospacedDigit()
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
                     .accessibilityHidden(true)
             }
 
             TextField(prompt, text: text, axis: field == .notes ? .vertical : .horizontal)
                 .lineLimit(field == .notes ? 1...3 : 1...1)
-                .font(.system(size: 26, weight: .semibold))
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                .font(MadeToKeepTheme.Typography.italicSerif(size: 30))
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.ink)
                 .textInputAutocapitalization(field == .name ? .words : .sentences)
                 .autocorrectionDisabled(field == .name)
                 .submitLabel(field == Field.allCases.last ? .done : .next)
@@ -112,15 +109,14 @@ struct PassportDetailsView: View {
                 .padding(.vertical, field == .notes ? 12 : 0)
                 .frame(minHeight: 64)
                 .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.white.opacity(0.92))
+                    Rectangle()
+                        .fill(MadeToKeepTheme.ColorPalette.ivoryLight)
                 )
-                .overlay {
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(
-                            focusedField == field ? PocketPixelsTheme.ColorPalette.brandMaroon : PocketPixelsTheme.ColorPalette.border.opacity(0.7),
-                            lineWidth: focusedField == field ? 2 : 1
-                        )
+                .overlay(alignment: .bottom) {
+                    // Editorial form line: a ruled underline that deepens to burgundy on focus.
+                    Rectangle()
+                        .fill(focusedField == field ? MadeToKeepTheme.ColorPalette.burgundy : MadeToKeepTheme.ColorPalette.taupe)
+                        .frame(height: focusedField == field ? 2 : 1)
                 }
                 .accessibilityLabel(field == .name ? "Name" : "Note")
                 .accessibilityHint("Optional. Up to \(limit) characters.")
@@ -139,26 +135,21 @@ struct PassportDetailsView: View {
         ].filter { !$0.1.isEmpty }
 
         return VStack(alignment: .leading, spacing: 10) {
-            Text("ALSO ON YOUR PASS")
-                .font(.system(size: 15, weight: .bold, design: .monospaced))
-                .tracking(1.6)
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.maroon)
+            MadeToKeepLabel(text: "Also on your pass", size: 13)
             ForEach(rows, id: \.0) { label, value in
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text(label.lowercased() + ":")
-                        .font(.system(size: 16, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                    MadeToKeepLabel(text: label, size: 12, color: MadeToKeepTheme.ColorPalette.mutedInk)
                         .frame(width: 104, alignment: .leading)
                     Text(value)
-                        .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                        .font(MadeToKeepTheme.Typography.italicSerif(size: 22))
+                        .foregroundStyle(MadeToKeepTheme.ColorPalette.ink)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .accessibilityElement(children: .combine)
             }
             Text("Filled in for you, then you can sign.")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
         }
         .passportCardStyle()
     }
@@ -170,7 +161,7 @@ struct PassportDetailsView: View {
                     focusedField = nil
                     viewModel.backToReview()
                 }
-                .buttonStyle(PocketPixelsSecondaryButtonStyle())
+                .buttonStyle(MadeToKeepSecondaryButtonStyle())
                 .disabled(!viewModel.canReturnToReview)
 
                 Button {
@@ -180,14 +171,14 @@ struct PassportDetailsView: View {
                     Text(viewModel.passportDraft.hasAnyDetails ? "Continue" : "Skip Details")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(PocketPixelsPrimaryButtonStyle())
+                .buttonStyle(MadeToKeepPrimaryButtonStyle())
                 .accessibilityHint("Next, add your signature.")
             }
             .frame(width: width)
 
             Text("Your name, note and signature stay on your printed keepsake and are not added to your online gallery.")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
                 .multilineTextAlignment(.center)
                 .frame(width: width)
         }
@@ -195,8 +186,10 @@ struct PassportDetailsView: View {
         .padding(.bottom, 18)
         .frame(maxWidth: .infinity)
         .background(
-            PocketPixelsTheme.ColorPalette.paper
-                .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.08), radius: 8, x: 0, y: -3)
+            MadeToKeepTheme.ColorPalette.ivory
+                .overlay(alignment: .top) {
+                    Rectangle().fill(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.25)).frame(height: 1)
+                }
                 .ignoresSafeArea(edges: .bottom)
         )
     }
@@ -234,13 +227,10 @@ struct PassportStepHeader: View {
     var body: some View {
         VStack(spacing: 10) {
             HStack(alignment: .center) {
-                PocketPixelsLightboxLockup(scale: .compact)
-                    .frame(width: 160, alignment: .leading)
+                MadeToKeepLockup(scale: .compact)
+                    .frame(width: 180, alignment: .leading)
                 Spacer()
-                Text("PHOTO PASS · STEP \(step) OF 3")
-                    .font(.system(size: 15, weight: .bold, design: .monospaced))
-                    .tracking(1.4)
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.maroon)
+                MadeToKeepLabel(text: "Photo Pass · Step \(step) of 3", size: 13)
                     .accessibilityLabel("Photo Pass, step \(step) of 3")
                 Spacer()
                 if isKeyboardVisible, let onDismissKeyboard {
@@ -253,22 +243,25 @@ struct PassportStepHeader: View {
                             .frame(width: 48, height: 48)
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.brandMaroon)
                     .accessibilityLabel("Hide keyboard")
                 }
                 Button("Cancel", action: onCancel)
-                    .buttonStyle(PocketPixelsSecondaryButtonStyle())
+                    .buttonStyle(MadeToKeepSecondaryButtonStyle())
             }
 
-            Text(title)
-                .font(.system(size: 44, weight: .black))
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
+            Text(title.lowercased())
+                .font(MadeToKeepTheme.Typography.italicSerif(size: 48))
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
                 .multilineTextAlignment(.center)
                 .padding(.top, 8)
+                .accessibilityAddTraits(.isHeader)
+
+            MadeToKeepRule(width: 44)
 
             Text(subtitle)
-                .font(.system(size: 19, weight: .medium))
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                .font(MadeToKeepTheme.Typography.sans(size: 18, weight: .regular))
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -279,11 +272,11 @@ extension View {
     func passportCardStyle() -> some View {
         padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(PocketPixelsTheme.ColorPalette.acrylic.opacity(0.94))
+            .background(MadeToKeepTheme.ColorPalette.ivoryLight.opacity(0.9))
             .overlay {
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.18), lineWidth: 1)
+                RoundedRectangle(cornerRadius: MadeToKeepTheme.Radius.card)
+                    .strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.25), lineWidth: 1)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .clipShape(RoundedRectangle(cornerRadius: MadeToKeepTheme.Radius.card))
     }
 }

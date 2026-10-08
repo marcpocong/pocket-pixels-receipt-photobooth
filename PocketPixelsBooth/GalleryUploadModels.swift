@@ -210,7 +210,7 @@ enum GalleryUploadError: Error, LocalizedError, Equatable {
         case .missingReceipt:
             "Create the composed color receipt before uploading."
         case .invalidSessionID:
-            "The Pocket Pixels session ID is invalid."
+            "The booth session ID is invalid."
         case .invalidDate:
             "The gallery creation date is invalid."
         case .invalidGalleryToken:

@@ -33,7 +33,7 @@ struct EventHeaderEditorView: View {
                 }
             }
             .pickerStyle(.segmented)
-            .accessibilityHint("Choose Pocket Pixels branding, event artwork, or no receipt header.")
+            .accessibilityHint("Choose Made to Keep branding, event artwork, or no receipt header.")
 
             if profile.receiptHeader.mode == .customEventHeader {
                 if let artwork {
@@ -116,7 +116,7 @@ struct EventHeaderEditorView: View {
         guard let store = try? EventHeaderAssetStore(),
               let loaded = store.loadArtwork(identifier: profile.receiptHeader.assetIdentifier) else {
             if profile.receiptHeader.assetIdentifier != nil {
-                loadError = "The saved artwork is missing. Choose a replacement; new receipts will safely use the Pocket Pixels header until then."
+                loadError = "The saved artwork is missing. Choose a replacement; new receipts will safely use the Made to Keep header until then."
             }
             artwork = nil
             return

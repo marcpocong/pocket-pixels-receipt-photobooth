@@ -17,7 +17,6 @@ struct BoothSessionView: View {
     @State private var selectedSamplePhotoItem: PhotosPickerItem?
     @State private var showingCancelConfirmation = false
     @State private var welcomeMotionActive = false
-    @State private var welcomeReceiptFloatActive = false
     @State private var formatMotionActive = false
     @State private var reviewMotionActive = false
     @State private var receiptMotionActive = false
@@ -47,7 +46,7 @@ struct BoothSessionView: View {
     }
 
     private func clampedContentWidth(for proxy: GeometryProxy, maximum: CGFloat) -> CGFloat {
-        let paddedWidth = proxy.size.width - (PocketPixelsTheme.Spacing.screenPadding * 2)
+        let paddedWidth = proxy.size.width - (MadeToKeepTheme.Spacing.screenPadding * 2)
         guard paddedWidth.isFinite else {
             return 1
         }
@@ -142,12 +141,7 @@ struct BoothSessionView: View {
 
     @ViewBuilder
     private var boothBackground: some View {
-        LinearGradient(
-            colors: viewModel.customerTheme.backgroundColors,
-            startPoint: .top,
-            endPoint: .bottom
-        )
-            .ignoresSafeArea()
+        MadeToKeepPaperBackground(tint: viewModel.customerTheme == .classic ? nil : viewModel.customerTheme.backgroundColors)
     }
 
     private var usesCustomerChromeHidden: Bool {
@@ -189,13 +183,13 @@ struct BoothSessionView: View {
         }
 
         return .asymmetric(
-            insertion: .opacity.combined(with: .offset(y: PocketPixelsTheme.Motion.entranceOffset)),
+            insertion: .opacity.combined(with: .offset(y: MadeToKeepTheme.Motion.entranceOffset)),
             removal: .opacity
         )
     }
 
     private var customerScreenAnimation: Animation {
-        reduceMotion ? .easeOut(duration: PocketPixelsTheme.Motion.quick) : PocketPixelsTheme.Motion.screenTransitionAnimation
+        reduceMotion ? .easeOut(duration: MadeToKeepTheme.Motion.quick) : MadeToKeepTheme.Motion.screenTransitionAnimation
     }
 
     @ViewBuilder
@@ -229,152 +223,51 @@ struct BoothSessionView: View {
     }
 
     private var welcomeScreen: some View {
-        GeometryReader { proxy in
-            let contentWidth = clampedContentWidth(for: proxy, maximum: 640)
-            let lightboxWidth = min(contentWidth, 550)
-            let lightboxHeight = lightboxWidth / 3.32
-            let receiptWidth = min(contentWidth * 0.92, 588)
-            let receiptHeight = min(max(proxy.size.height * 0.43, 500), 510)
-            let warningHeight: CGFloat = isPrinterKnownUnavailable ? 42 : 6
-            let bottomBreathingRoom = max(proxy.safeAreaInsets.bottom + 24, 34)
-
-            VStack(spacing: 12) {
-                VStack(spacing: 12) {
-                    PocketPixelsLightboxLockup(scale: .hero, showGlow: true)
-                        .frame(width: lightboxWidth, height: lightboxHeight)
-                        .contentShape(Rectangle())
-                        .overlay(alignment: .leading) {
-                            adminLogoLongPressTarget
-                                .padding(.leading, 28)
-                        }
-
-                    customerWelcomeIdentity
-                }
-                .frame(width: contentWidth)
-                .pocketPixelsEntrance(active: welcomeMotionActive, reduceMotion: reduceMotion)
-
-                ZStack {
-                    Color.clear
-                        .frame(height: warningHeight)
-
-                    if isPrinterKnownUnavailable {
-                        printerWarning
-                    }
-                }
-                .frame(width: contentWidth)
-
-                welcomeReceiptVisual
-                    .frame(width: receiptWidth, height: receiptHeight)
-                    .offset(y: reduceMotion || !welcomeReceiptFloatActive ? 0 : -PocketPixelsTheme.Motion.idleFloatDistance)
-                    .animation(reduceMotion ? nil : PocketPixelsTheme.Motion.idleFloatAnimation, value: welcomeReceiptFloatActive)
-                    .pocketPixelsEntrance(
-                        active: welcomeMotionActive,
-                        reduceMotion: reduceMotion,
-                        delay: 0.10,
-                        offset: 0,
-                        scale: 0.97
-                    )
-
-                Button {
-                    viewModel.startSession()
-                } label: {
-                    Text("Start")
-                        .font(.system(size: 23, weight: .bold))
-                        .foregroundStyle(PocketPixelsTheme.ColorPalette.lightText)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 66)
-                        .background(
-                            RoundedRectangle(cornerRadius: 20)
-                                .fill(PocketPixelsTheme.ColorPalette.brandMaroon)
-                                .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.085), radius: 8, x: 0, y: 5)
-                        )
-                }
-                .buttonStyle(.plain)
-                .frame(width: 480)
-                .disabled(viewModel.state.isActiveSession)
-                .opacity(viewModel.state.isActiveSession ? 0.55 : 1)
-                .pocketPixelsEntrance(active: welcomeMotionActive, reduceMotion: reduceMotion, delay: 0.20, offset: 8)
-
-                Text("photos also available by qr")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText.opacity(0.82))
-                    .multilineTextAlignment(.center)
-                    .padding(.top, 4)
-                    .pocketPixelsEntrance(active: welcomeMotionActive, reduceMotion: reduceMotion, delay: 0.24, offset: 6)
-
+        MadeToKeepWelcomeView(
+            eventIdentity: welcomeEventIdentity,
+            isStartDisabled: viewModel.state.isActiveSession,
+            showsPrinterWarning: isPrinterKnownUnavailable,
+            motionActive: welcomeMotionActive,
+            onStart: { viewModel.startSession() },
+            onAdminLongPress: onAdminAccessRequested == nil ? nil : { openAdminAccess() }
+        )
 #if DEBUG
+        .overlay(alignment: .bottom) {
+            if onAdminAccessRequested != nil {
                 Button("Open Admin") {
                     openAdminAccess()
                 }
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText.opacity(0.72))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.taupe)
                 .buttonStyle(.plain)
+                .padding(.bottom, 10)
                 .accessibilityLabel("Open Admin diagnostics")
-#endif
             }
-            .padding(.top, max(proxy.size.height * 0.028, 24))
-            .padding(.bottom, bottomBreathingRoom)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .padding(PocketPixelsTheme.Spacing.screenPadding)
+#endif
         .transition(.opacity)
         .onAppear {
             startWelcomeMotion()
         }
         .onDisappear {
             welcomeMotionActive = false
-            welcomeReceiptFloatActive = false
         }
     }
 
-    @ViewBuilder
-    private var customerWelcomeIdentity: some View {
-        if let profile = viewModel.customerEventProfile.activeCustomerSnapshot {
-            VStack(spacing: 6) {
-                if !profile.customerDisplayTitle.isEmpty {
-                    Text(profile.customerDisplayTitle)
-                        .font(.system(size: 34, weight: .bold, design: .serif))
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.72)
-                }
-                if !profile.customerDisplaySubtitle.isEmpty {
-                    Text(profile.customerDisplaySubtitle)
-                        .font(.system(size: 20, weight: .semibold))
-                        .lineLimit(2)
-                }
-                Text(profile.customerWelcomeMessage.isEmpty ? "Make your moment. Print your keepsake." : profile.customerWelcomeMessage)
-                    .font(.system(size: 18, weight: .regular, design: .serif))
-                    .lineLimit(2)
-            }
-            .foregroundStyle(viewModel.customerTheme.customerTextColor)
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: 600)
-            .accessibilityElement(children: .combine)
-        } else {
-            Text("make your moment. print your keepsake.")
-                .font(.system(size: 23, weight: .regular, design: .serif))
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.maroonMuted.opacity(0.94))
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private var adminLogoLongPressTarget: some View {
-        Color.clear
-            .frame(width: 118, height: 118)
-            .contentShape(Rectangle())
-            .simultaneousGesture(
-                LongPressGesture(minimumDuration: 4, maximumDistance: 24)
-                    .onEnded { _ in
-                        openAdminAccess()
-                    }
-            )
-            .accessibilityHidden(true)
+    /// Event Mode adds the event identity to the Made to Keep poster instead of replacing it.
+    private var welcomeEventIdentity: MadeToKeepWelcomeEventIdentity? {
+        guard let profile = viewModel.customerEventProfile.activeCustomerSnapshot else { return nil }
+        let identity = MadeToKeepWelcomeEventIdentity(
+            title: profile.customerDisplayTitle,
+            subtitle: profile.customerDisplaySubtitle,
+            message: profile.customerWelcomeMessage
+        )
+        return identity.isEmpty ? nil : identity
     }
 
     private var formatSelectionScreen: some View {
         GeometryReader { proxy in
-            let contentWidth = clampedContentWidth(for: proxy, maximum: PocketPixelsTheme.Layout.maxContentWidth)
+            let contentWidth = clampedContentWidth(for: proxy, maximum: MadeToKeepTheme.Layout.maxContentWidth)
             let formats = BoothFormat.allCases
             let columnCount = Self.formatColumnCount
             let rowCount = max(1, Int((Double(formats.count) / Double(columnCount)).rounded(.up)))
@@ -391,17 +284,25 @@ struct BoothSessionView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: headerToGridSpacing) {
                     HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 7) {
-                            PocketPixelsLightboxLockup(scale: .compact)
-                                .padding(.bottom, 10)
+                        VStack(alignment: .leading, spacing: 10) {
+                            MadeToKeepLockup(scale: .compact)
+                                .padding(.bottom, 8)
 
-                            Text("Choose your format")
-                                .font(.system(size: 48, weight: .bold))
-                                .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
+                            MadeToKeepTrackedText(
+                                text: MadeToKeepBrand.formatHeadline,
+                                font: MadeToKeepTheme.Typography.sans(size: 30, weight: .medium),
+                                size: 30,
+                                tracking: MadeToKeepTheme.Tracking.descriptor
+                            )
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                            .accessibilityAddTraits(.isHeader)
 
-                            Text("Pick how your photos will print.")
-                                .font(.system(size: 20, weight: .medium))
-                                .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                            MadeToKeepRule(width: 54)
+
+                            Text("Pick how your little moment will print.")
+                                .font(MadeToKeepTheme.Typography.italicSerif(size: 24))
+                                .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundySoft)
                         }
 
                         Spacer()
@@ -410,7 +311,7 @@ struct BoothSessionView: View {
                             viewModel.cancelSession()
                         } label: {
                             Label("Back", systemImage: "chevron.left")
-                                .font(.system(size: 18, weight: .semibold))
+                                .font(.system(size: 16, weight: .medium))
                                 .labelStyle(.titleAndIcon)
                                 .padding(.horizontal, 16)
                                 .frame(minHeight: 46)
@@ -436,7 +337,7 @@ struct BoothSessionView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         }
-        .padding(PocketPixelsTheme.Spacing.screenPadding)
+        .padding(MadeToKeepTheme.Spacing.screenPadding)
         .transition(.opacity)
         .onAppear {
             startFormatMotion()
@@ -463,8 +364,8 @@ struct BoothSessionView: View {
 
                 VStack(spacing: 16) {
                     Text(cameraCustomerStatusText)
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                        .font(MadeToKeepTheme.Typography.italicSerif(size: 28))
+                        .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
                         .multilineTextAlignment(.center)
                         .frame(width: contentWidth)
                         .fixedSize(horizontal: false, vertical: true)
@@ -476,7 +377,7 @@ struct BoothSessionView: View {
                             Text("Start Photos")
                                 .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(PocketPixelsPrimaryButtonStyle())
+                        .buttonStyle(MadeToKeepPrimaryButtonStyle())
                         .frame(width: contentWidth * 0.74)
                         .disabled(!viewModel.canBeginPhotos)
                     }
@@ -493,23 +394,22 @@ struct BoothSessionView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(PocketPixelsTheme.Spacing.screenPadding)
+        .padding(MadeToKeepTheme.Spacing.screenPadding)
     }
 
     private var cameraTopBar: some View {
         HStack(alignment: .center) {
-            PocketPixelsLightboxLockup(scale: .compact)
-                .frame(width: 160, alignment: .leading)
+            MadeToKeepLockup(scale: .compact)
+                .frame(width: 180, alignment: .leading)
 
             Spacer()
 
-            Text(photoCounterText)
-                .font(.system(size: 23, weight: .bold))
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+            MadeToKeepLabel(text: photoCounterText, size: 16)
                 .lineLimit(1)
+                .minimumScaleFactor(0.7)
                 .id(photoCounterText)
                 .transition(.opacity)
-                .animation(PocketPixelsTheme.Motion.quickAnimation, value: photoCounterText)
+                .animation(MadeToKeepTheme.Motion.quickAnimation, value: photoCounterText)
 
             Spacer()
 
@@ -517,14 +417,14 @@ struct BoothSessionView: View {
                 Button("Cancel") {
                     showingCancelConfirmation = true
                 }
-                .buttonStyle(PocketPixelsSecondaryButtonStyle())
+                .buttonStyle(MadeToKeepSecondaryButtonStyle())
             }
         }
     }
 
     private var cameraPreviewSurface: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 18)
+            RoundedRectangle(cornerRadius: MadeToKeepTheme.Radius.photo)
                 .fill(Color.black)
 
             if let transient = viewModel.transientCapturedPhoto {
@@ -538,12 +438,12 @@ struct BoothSessionView: View {
                 CameraPreview(session: viewModel.cameraService.session, cameraService: viewModel.cameraService)
             }
 
-            RoundedRectangle(cornerRadius: 18)
-                .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.50), lineWidth: 1.5)
+            RoundedRectangle(cornerRadius: MadeToKeepTheme.Radius.photo)
+                .strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.7), lineWidth: MadeToKeepTheme.Stroke.hairline)
 
             if let countdownValue {
                 Text("\(countdownValue)")
-                    .font(.system(size: 142, weight: .black, design: .rounded))
+                    .font(MadeToKeepTheme.Typography.serif(size: 168))
                     .foregroundStyle(.white)
                     .shadow(color: .black.opacity(0.68), radius: 18, x: 0, y: 8)
                     .transition(.scale(scale: 0.86).combined(with: .opacity))
@@ -552,17 +452,20 @@ struct BoothSessionView: View {
 
             if shutterFlashActive {
                 Color.white
-                    .opacity(PocketPixelsTheme.Motion.shutterFlashOpacity)
+                    .opacity(MadeToKeepTheme.Motion.shutterFlashOpacity)
                     .allowsHitTesting(false)
                     .transition(.opacity)
             }
         }
         .animation(.easeOut(duration: 0.18), value: countdownValue)
-        .animation(PocketPixelsTheme.Motion.quickAnimation, value: viewModel.transientCapturedPhoto != nil)
-        .animation(PocketPixelsTheme.Motion.quickAnimation, value: shutterFlashActive)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
-        .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.16), radius: 20, x: 0, y: 8)
-        .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.10), radius: 14, x: 0, y: 8)
+        .animation(MadeToKeepTheme.Motion.quickAnimation, value: viewModel.transientCapturedPhoto != nil)
+        .animation(MadeToKeepTheme.Motion.quickAnimation, value: shutterFlashActive)
+        .clipShape(RoundedRectangle(cornerRadius: MadeToKeepTheme.Radius.photo))
+        // Printed-photo mount: ivory border around the live feed, never texture on top of it.
+        .padding(10)
+        .background(MadeToKeepTheme.ColorPalette.ivoryLight)
+        .overlay(Rectangle().strokeBorder(MadeToKeepTheme.ColorPalette.hairline, lineWidth: 1))
+        .shadow(color: MadeToKeepTheme.ColorPalette.shadowTint.opacity(0.14), radius: 14, x: 0, y: 6)
     }
 
     private var reviewScreen: some View {
@@ -609,7 +512,7 @@ struct BoothSessionView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .padding(PocketPixelsTheme.Spacing.screenPadding)
+        .padding(MadeToKeepTheme.Spacing.screenPadding)
         .onAppear {
             startReviewMotion()
         }
@@ -617,28 +520,17 @@ struct BoothSessionView: View {
 
     private var reviewHeader: some View {
         VStack(spacing: 0) {
-            PocketPixelsLightboxLockup(scale: .compact)
+            MadeToKeepLockup(scale: .compact)
 
-            Text("Love these?")
-                .font(.system(size: 50, weight: .black))
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
-                .multilineTextAlignment(.center)
-                .padding(.top, 14)
-
-            Text(viewModel.isPassportSession
-                 ? "Retake either photo, then add your name."
-                 : "Retake any photo, or continue when you're ready.")
-                .font(.system(size: 20, weight: .medium))
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
-                .multilineTextAlignment(.center)
-                .padding(.top, 12)
-
-            if let selectedBoothFormat = viewModel.selectedBoothFormat {
-                Text(selectedBoothFormat.photoCountLabel)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.maroon)
-                    .padding(.top, 9)
-            }
+            MadeToKeepEditorialHeader(
+                eyebrow: viewModel.selectedBoothFormat.map { "\($0.displayName) · \($0.photoCountLabel)".uppercased() } ?? "YOUR PHOTOS",
+                title: "love these?",
+                subtitle: viewModel.isPassportSession
+                    ? "Retake either photo, then add your name."
+                    : "Retake any photo, or continue when you're ready.",
+                titleSize: 52
+            )
+            .padding(.top, 16)
         }
     }
 
@@ -682,13 +574,10 @@ struct BoothSessionView: View {
         let index = role.rawValue
         return VStack(spacing: 10) {
             VStack(spacing: 2) {
-                Text("PHOTO \(index + 1)")
-                    .font(.system(size: 14, weight: .bold, design: .monospaced))
-                    .tracking(1.4)
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.maroon)
-                Text(role.title)
-                    .font(.system(size: 19, weight: .bold))
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
+                MadeToKeepLabel(text: "Photo \(index + 1)", size: 12)
+                Text(role.title.lowercased())
+                    .font(MadeToKeepTheme.Typography.italicSerif(size: 24))
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
             }
 
             reviewPhoto(index: index, presentation: role == .hero ? .landscape : .portrait, passportRole: role)
@@ -697,7 +586,7 @@ struct BoothSessionView: View {
             Button("Retake Photo \(index + 1)") {
                 viewModel.retakePhoto(at: index)
             }
-            .buttonStyle(PocketPixelsSecondaryButtonStyle())
+            .buttonStyle(MadeToKeepSecondaryButtonStyle())
             .disabled(!viewModel.capturedPhotos.indices.contains(index) || !viewModel.canReturnToReview)
             .accessibilityLabel("Retake Photo \(index + 1), \(role.title)")
         }
@@ -792,7 +681,7 @@ struct BoothSessionView: View {
             Button("Retake") {
                 viewModel.retakePhoto(at: index)
             }
-            .buttonStyle(PocketPixelsSecondaryButtonStyle())
+            .buttonStyle(MadeToKeepSecondaryButtonStyle())
             .disabled(!viewModel.capturedPhotos.indices.contains(index) || !viewModel.canReturnToReview)
             .accessibilityLabel("Retake photo \(index + 1)")
         }
@@ -800,8 +689,8 @@ struct BoothSessionView: View {
 
     private func reviewPhoto(index: Int, presentation: ReviewPhotoPresentation = .portrait, passportRole: PassportPhotoRole? = nil) -> some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 14)
-                .fill(PocketPixelsTheme.ColorPalette.acrylic)
+            Rectangle()
+                .fill(MadeToKeepTheme.ColorPalette.ivoryShade)
 
             if viewModel.capturedPhotos.indices.contains(index) {
                 let image = if let passportRole {
@@ -822,19 +711,21 @@ struct BoothSessionView: View {
             } else {
                 Text("Missing")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
             }
         }
         .aspectRatio(presentation.aspectRatio, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .clipped()
+        // Photobooth print: thin ivory border and a soft paper shadow.
+        .padding(5)
+        .background(MadeToKeepTheme.ColorPalette.ivoryLight)
         .overlay {
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.58), lineWidth: 1)
+            Rectangle()
+                .strokeBorder(MadeToKeepTheme.ColorPalette.hairline, lineWidth: 1)
         }
-        .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.10), radius: 12, x: 0, y: 5)
-        .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.08), radius: 9, x: 0, y: 5)
+        .shadow(color: MadeToKeepTheme.ColorPalette.shadowTint.opacity(0.14), radius: 8, x: 0, y: 4)
         .accessibilityLabel(passportRole.map { "Photo \(index + 1), \($0.title)" } ?? "Photo \(index + 1)")
-        .animation(PocketPixelsTheme.Motion.standardAnimation, value: reviewPhotoIdentifier(at: index))
+        .animation(MadeToKeepTheme.Motion.standardAnimation, value: reviewPhotoIdentifier(at: index))
     }
 
     private func reviewActionArea(width: CGFloat) -> some View {
@@ -845,31 +736,33 @@ struct BoothSessionView: View {
                 Text(viewModel.isPassportSession ? "Continue to Details" : "Continue")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(PocketPixelsPrimaryButtonStyle())
+            .buttonStyle(MadeToKeepPrimaryButtonStyle())
             .frame(width: width * 0.74)
             .disabled(!viewModel.canContinueFromReview)
 
             Button("Retake All") {
                 viewModel.retakeAll()
             }
-            .buttonStyle(PocketPixelsSecondaryButtonStyle())
+            .buttonStyle(MadeToKeepSecondaryButtonStyle())
             .disabled(!viewModel.canReturnToReview)
             .padding(.top, 16)
 
             Button("Cancel") {
                 showingCancelConfirmation = true
             }
-            .font(.system(size: 18, weight: .semibold))
-            .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+            .font(.system(size: 15, weight: .medium))
+            .tracking(15 * 0.18)
+            .textCase(.uppercase)
+            .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
             .frame(minHeight: 48)
-            .padding(.top, 20)
+            .padding(.top, 18)
         }
         .frame(width: width)
     }
 
     private var receiptScreen: some View {
         GeometryReader { proxy in
-            let availableHeight = max(1, proxy.size.height - (PocketPixelsTheme.Spacing.screenPadding * 2))
+            let availableHeight = max(1, proxy.size.height - (MadeToKeepTheme.Spacing.screenPadding * 2))
             let contentWidth = clampedContentWidth(for: proxy, maximum: 640)
             let isPostPrintFlow = viewModel.state != .receiptPreview
             let statusCardWidth = min(contentWidth * 0.78, 560)
@@ -895,8 +788,8 @@ struct BoothSessionView: View {
                         active: receiptMotionActive,
                         reduceMotion: reduceMotion,
                         delay: 0,
-                        offset: PocketPixelsTheme.Motion.receiptOffset,
-                        scale: PocketPixelsTheme.Motion.subtleScale
+                        offset: MadeToKeepTheme.Motion.receiptOffset,
+                        scale: MadeToKeepTheme.Motion.subtleScale
                     )
 
                 receiptCustomerActions(width: contentWidth, preferredControlWidth: receiptMaxWidth)
@@ -918,7 +811,7 @@ struct BoothSessionView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.vertical, 6)
         }
-        .padding(PocketPixelsTheme.Spacing.screenPadding)
+        .padding(MadeToKeepTheme.Spacing.screenPadding)
         .onAppear {
             startReceiptMotion()
         }
@@ -926,16 +819,17 @@ struct BoothSessionView: View {
 
     private var receiptCustomerHeader: some View {
         VStack(spacing: 8) {
-            PocketPixelsLightboxLockup(scale: .compact)
+            MadeToKeepLockup(scale: .compact)
 
-            Text(receiptScreenTitle)
-                .font(.system(size: 34, weight: .black))
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
+            Text(receiptScreenTitle.lowercased())
+                .font(MadeToKeepTheme.Typography.italicSerif(size: 38))
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
                 .multilineTextAlignment(.center)
+                .accessibilityAddTraits(.isHeader)
 
             Text(receiptScreenSubtitle)
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                .font(MadeToKeepTheme.Typography.sans(size: 16, weight: .regular))
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
                 .multilineTextAlignment(.center)
         }
     }
@@ -980,18 +874,18 @@ struct BoothSessionView: View {
                 } else {
                     Text("Receipt preview is getting ready.")
                         .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                        .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
                         .frame(width: maxWidth, height: min(maxHeight, 320))
-                        .background(PocketPixelsTheme.ColorPalette.surface)
+                        .background(MadeToKeepTheme.ColorPalette.surface)
                 }
             }
-            .background(showsPrinterSlot ? Color.clear : PocketPixelsTheme.ColorPalette.surface)
+            .background(showsPrinterSlot ? Color.clear : MadeToKeepTheme.ColorPalette.surface)
             .overlay {
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(PocketPixelsTheme.ColorPalette.border.opacity(showsPrinterSlot ? 0 : 0.58), lineWidth: 1)
+                Rectangle()
+                    .strokeBorder(MadeToKeepTheme.ColorPalette.hairline.opacity(showsPrinterSlot ? 0 : 1), lineWidth: 1)
             }
-            .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.12), radius: 18, x: 0, y: 8)
-            .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.10), radius: 14, x: 0, y: 7)
+            .shadow(color: MadeToKeepTheme.ColorPalette.amberGlow.opacity(0.12), radius: 18, x: 0, y: 8)
+            .shadow(color: MadeToKeepTheme.ColorPalette.charcoal.opacity(0.10), radius: 14, x: 0, y: 7)
         }
         .accessibilityLabel("Receipt preview")
     }
@@ -1007,8 +901,8 @@ struct BoothSessionView: View {
         VStack(spacing: 4) {
             LinearGradient(
                 colors: [
-                    PocketPixelsTheme.ColorPalette.surface.opacity(0),
-                    PocketPixelsTheme.ColorPalette.surface.opacity(0.92)
+                    MadeToKeepTheme.ColorPalette.surface.opacity(0),
+                    MadeToKeepTheme.ColorPalette.surface.opacity(0.92)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -1017,7 +911,7 @@ struct BoothSessionView: View {
 
             Text("Scroll to see the full receipt")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
                 .padding(.bottom, 8)
         }
         .frame(width: width)
@@ -1092,20 +986,18 @@ struct BoothSessionView: View {
             if viewModel.printerState.isWorking {
                 HStack(spacing: 10) {
                     ProgressView()
-                        .tint(PocketPixelsTheme.ColorPalette.maroon)
+                        .tint(MadeToKeepTheme.ColorPalette.maroon)
 
                     Text(viewModel.printProgressText)
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                        .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
                 }
                 .transition(.opacity)
             }
 
             if !viewModel.printerState.isWorking {
                 VStack(spacing: 6) {
-                    Text("Copies")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                    MadeToKeepLabel(text: "Copies", size: 12, color: MadeToKeepTheme.ColorPalette.mutedInk)
 
                     receiptCopyStepper
                         .frame(width: min(controlWidth * 0.66, 210))
@@ -1119,12 +1011,12 @@ struct BoothSessionView: View {
                 Text(viewModel.printButtonTitle)
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(PocketPixelsPrimaryButtonStyle())
+            .buttonStyle(MadeToKeepPrimaryButtonStyle())
             .frame(width: controlWidth)
             .disabled(viewModel.receiptRasterizedImage == nil || viewModel.printerState.isWorking || viewModel.isPrintBatchActive || viewModel.printerState.requiresPrinterRestart)
         }
         .frame(width: width)
-        .animation(PocketPixelsTheme.Motion.quickAnimation, value: viewModel.printerState.isWorking)
+        .animation(MadeToKeepTheme.Motion.quickAnimation, value: viewModel.printerState.isWorking)
     }
 
     private var receiptCopyStepper: some View {
@@ -1142,9 +1034,9 @@ struct BoothSessionView: View {
             .accessibilityLabel("Decrease copies")
 
             Text("\(viewModel.selectedPrintCopies)")
-                .font(.system(size: 24, weight: .black))
+                .font(MadeToKeepTheme.Typography.serif(size: 28))
                 .monospacedDigit()
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.brandMaroon)
                 .frame(maxWidth: .infinity, minHeight: 48)
                 .accessibilityLabel("\(viewModel.selectedPrintCopies) \(viewModel.selectedPrintCopies == 1 ? "copy" : "copies") selected")
 
@@ -1160,17 +1052,16 @@ struct BoothSessionView: View {
             .disabled(!viewModel.canIncreasePrintCopies)
             .accessibilityLabel("Increase copies")
         }
-        .background(PocketPixelsTheme.ColorPalette.surface.opacity(0.92))
+        .background(Capsule().fill(MadeToKeepTheme.ColorPalette.ivoryLight.opacity(0.85)))
         .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.24), lineWidth: 1)
+            Capsule()
+                .strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.4), lineWidth: 1)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.10), radius: 10, x: 0, y: 4)
+        .clipShape(Capsule())
     }
 
     private func copyStepperControlColor(isEnabled: Bool) -> Color {
-        isEnabled ? PocketPixelsTheme.ColorPalette.brandMaroon : PocketPixelsTheme.ColorPalette.secondaryText.opacity(0.32)
+        isEnabled ? MadeToKeepTheme.ColorPalette.brandMaroon : MadeToKeepTheme.ColorPalette.secondaryText.opacity(0.32)
     }
 
     private func receiptGalleryStatus(qrSize: CGFloat) -> some View {
@@ -1188,13 +1079,13 @@ struct BoothSessionView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Scan to save your photos")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
+                Text("scan to save your photos")
+                    .font(MadeToKeepTheme.Typography.italicSerif(size: 26))
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
 
                 Text(receiptGalleryStatusText)
                     .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .id(receiptGalleryStatusText)
@@ -1204,14 +1095,13 @@ struct BoothSessionView: View {
         }
         .padding(.vertical, 18)
         .padding(.horizontal, 24)
-        .background(PocketPixelsTheme.ColorPalette.acrylic.opacity(0.82))
+        .background(MadeToKeepTheme.ColorPalette.ivoryLight.opacity(0.9))
         .overlay {
-            RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card)
-                .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.18), lineWidth: 1)
+            RoundedRectangle(cornerRadius: MadeToKeepTheme.Radius.card)
+                .strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.3), lineWidth: 1)
         }
-        .clipShape(RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card))
-        .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.10), radius: 12, x: 0, y: 5)
-        .animation(PocketPixelsTheme.Motion.standardAnimation, value: receiptGalleryStatusText)
+        .clipShape(RoundedRectangle(cornerRadius: MadeToKeepTheme.Radius.card))
+        .animation(MadeToKeepTheme.Motion.standardAnimation, value: receiptGalleryStatusText)
     }
 
 #if DEBUG
@@ -1228,7 +1118,7 @@ struct BoothSessionView: View {
                         .font(.system(size: 12, weight: .semibold))
                 }
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
                 .padding(.vertical, 8)
                 .padding(.horizontal, 12)
                 .contentShape(Rectangle())
@@ -1300,7 +1190,7 @@ struct BoothSessionView: View {
         .padding(18)
         .frame(width: width, alignment: .leading)
         .background(Color.black.opacity(0.82))
-        .clipShape(RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card))
+        .clipShape(RoundedRectangle(cornerRadius: MadeToKeepTheme.Radius.card))
     }
 #endif
 
@@ -1315,22 +1205,20 @@ struct BoothSessionView: View {
             VStack(spacing: 18) {
                 Spacer()
 
-                PocketPixelsLightboxLockup(scale: .compact)
+                MadeToKeepLockup(scale: .compact)
 
-                Text("Printer needs attention")
-                    .font(.system(size: 46, weight: .black))
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
-                    .multilineTextAlignment(.center)
+                MadeToKeepEditorialHeader(eyebrow: "A LITTLE PAUSE", title: "printer needs attention", titleSize: 46)
 
                 Text("Please ask the booth operator for help. Your photos are still saved for this session.")
-                    .font(.system(size: 20, weight: .medium))
+                    .font(MadeToKeepTheme.Typography.sans(size: 19, weight: .regular))
                     .multilineTextAlignment(.center)
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(width: contentWidth)
 
                 Text("Staff assistance required")
                     .font(.footnote)
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
                     .onLongPressGesture(minimumDuration: 2) { openAdminAccess() }
 
                 Spacer()
@@ -1338,7 +1226,7 @@ struct BoothSessionView: View {
             .frame(width: contentWidth)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(PocketPixelsTheme.Spacing.screenPadding)
+        .padding(MadeToKeepTheme.Spacing.screenPadding)
     }
 
     private var thankYouScreen: some View {
@@ -1349,13 +1237,21 @@ struct BoothSessionView: View {
             VStack(spacing: 0) {
                 Spacer(minLength: 48)
 
-                VStack(spacing: 12) {
-                    PocketPixelsLightboxLockup(scale: .medium)
+                VStack(spacing: 16) {
+                    MadeToKeepLockup(scale: .medium)
 
-                    Text("You're all set!")
-                        .font(.system(size: 52, weight: .black))
-                        .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
-                        .multilineTextAlignment(.center)
+                    MadeToKeepTrackedText(
+                        text: MadeToKeepBrand.thankYouHeadline,
+                        font: MadeToKeepTheme.Typography.sans(size: 22, weight: .medium),
+                        size: 22,
+                        tracking: MadeToKeepTheme.Tracking.descriptor
+                    )
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                    .accessibilityAddTraits(.isHeader)
+
+                    MadeToKeepRule(width: 54)
                 }
                 .pocketPixelsEntrance(active: thankYouMotionActive, reduceMotion: reduceMotion, delay: 0, offset: 0, scale: 0.985)
 
@@ -1364,14 +1260,14 @@ struct BoothSessionView: View {
                     .pocketPixelsEntrance(active: thankYouMotionActive, reduceMotion: reduceMotion, delay: 0.08, offset: 0, scale: 0.97)
 
                 VStack(spacing: 10) {
-                    Text("Scan to view and save your photos.")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(PocketPixelsTheme.ColorPalette.charcoal)
+                    Text("scan to view and save your photos.")
+                        .font(MadeToKeepTheme.Typography.italicSerif(size: 28))
+                        .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
                         .multilineTextAlignment(.center)
 
                     Text("The same QR is on your receipt.")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                        .font(MadeToKeepTheme.Typography.sans(size: 17, weight: .regular))
+                        .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
                         .multilineTextAlignment(.center)
                 }
                 .padding(.top, 22)
@@ -1383,7 +1279,7 @@ struct BoothSessionView: View {
 
                 if let message = customerThankYouMessage {
                     Text(message)
-                        .font(.system(size: 18, weight: .medium, design: .serif))
+                        .font(MadeToKeepTheme.Typography.italicSerif(size: 22))
                         .foregroundStyle(viewModel.customerTheme.customerTextColor)
                         .multilineTextAlignment(.center)
                         .lineLimit(3)
@@ -1397,7 +1293,7 @@ struct BoothSessionView: View {
                     Text("Start Another Session")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(PocketPixelsPrimaryButtonStyle())
+                .buttonStyle(MadeToKeepPrimaryButtonStyle())
                 .frame(width: contentWidth * 0.74)
                 .padding(.top, 40)
                 .pocketPixelsEntrance(active: thankYouMotionActive, reduceMotion: reduceMotion, delay: 0.28, offset: 8)
@@ -1407,7 +1303,7 @@ struct BoothSessionView: View {
             .frame(width: contentWidth)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(PocketPixelsTheme.Spacing.screenPadding)
+        .padding(MadeToKeepTheme.Spacing.screenPadding)
         .transition(.opacity)
         .onAppear {
             startThankYouMotion()
@@ -1426,35 +1322,34 @@ struct BoothSessionView: View {
             } else {
                 Text("QR is getting ready.")
                     .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
                     .frame(width: size, height: size)
             }
         }
-        .padding(16)
+        // Solid white quiet zone: no paper texture or imagery ever sits behind the QR.
+        .padding(18)
         .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay {
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.52), lineWidth: 1)
+            Rectangle()
+                .strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.35), lineWidth: 1)
         }
-        .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.14), radius: 18, x: 0, y: 8)
-        .shadow(color: PocketPixelsTheme.ColorPalette.charcoal.opacity(0.09), radius: 12, x: 0, y: 7)
+        .shadow(color: MadeToKeepTheme.ColorPalette.shadowTint.opacity(0.14), radius: 12, x: 0, y: 6)
     }
 
     private var thankYouGalleryStatus: some View {
         Text(thankYouGalleryStatusText)
             .font(.system(size: 18, weight: .medium))
-            .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+            .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.vertical, 12)
             .padding(.horizontal, 18)
-            .background(PocketPixelsTheme.ColorPalette.acrylic.opacity(0.82))
+            .background(MadeToKeepTheme.ColorPalette.ivoryLight.opacity(0.85))
             .overlay {
-                RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card)
-                    .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.16), lineWidth: 1)
+                RoundedRectangle(cornerRadius: MadeToKeepTheme.Radius.card)
+                    .strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.22), lineWidth: 1)
             }
-            .clipShape(RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card))
+            .clipShape(RoundedRectangle(cornerRadius: MadeToKeepTheme.Radius.card))
     }
 
     private func progressScreen(title: String, message: String) -> some View {
@@ -1464,22 +1359,22 @@ struct BoothSessionView: View {
             VStack(spacing: 18) {
                 Spacer()
 
-                PocketPixelsLightboxLockup(scale: .compact)
+                MadeToKeepLockup(scale: .compact)
 
                 ProgressView()
-                    .tint(PocketPixelsTheme.ColorPalette.maroon)
+                    .tint(MadeToKeepTheme.ColorPalette.maroon)
                     .scaleEffect(1.35)
                     .opacity(reduceMotion || !progressMotionActive ? 1 : 0.64)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 1.15).repeatForever(autoreverses: true), value: progressMotionActive)
 
-                Text(title)
-                    .font(.system(size: 44, weight: .black))
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
+                Text(title.lowercased())
+                    .font(MadeToKeepTheme.Typography.italicSerif(size: 44))
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
                     .multilineTextAlignment(.center)
 
                 Text(message)
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                    .font(MadeToKeepTheme.Typography.sans(size: 19, weight: .regular))
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(width: contentWidth)
@@ -1489,7 +1384,7 @@ struct BoothSessionView: View {
             .frame(width: contentWidth)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(PocketPixelsTheme.Spacing.screenPadding)
+        .padding(MadeToKeepTheme.Spacing.screenPadding)
         .onAppear {
             progressMotionActive = false
             guard !reduceMotion else {
@@ -1511,26 +1406,24 @@ struct BoothSessionView: View {
             VStack(spacing: 18) {
                 Spacer()
 
-                PocketPixelsLightboxLockup(scale: .compact)
+                MadeToKeepLockup(scale: .compact)
 
-                Text(customerError.title)
-                    .font(.system(size: 46, weight: .black))
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
-                    .multilineTextAlignment(.center)
+                MadeToKeepEditorialHeader(eyebrow: "A LITTLE PAUSE", title: customerError.title.lowercased(), titleSize: 46)
 
                 Text(customerError.guidance)
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                    .font(MadeToKeepTheme.Typography.sans(size: 19, weight: .regular))
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
                     .multilineTextAlignment(.center)
 
                 Button("Cancel") {
                     showingCancelConfirmation = true
                 }
-                .buttonStyle(PocketPixelsSecondaryButtonStyle())
+                .buttonStyle(MadeToKeepSecondaryButtonStyle())
                 .padding(.top, 16)
 
                 Text("Staff assistance required")
                     .font(.footnote)
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
                     .onLongPressGesture(minimumDuration: 2) { openAdminAccess() }
 
                 Spacer()
@@ -1538,7 +1431,7 @@ struct BoothSessionView: View {
             .frame(width: contentWidth)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(PocketPixelsTheme.Spacing.screenPadding)
+        .padding(MadeToKeepTheme.Spacing.screenPadding)
     }
 
     private var customerThankYouMessage: String? {
@@ -1552,29 +1445,29 @@ struct BoothSessionView: View {
 
     private var idleWarningOverlay: some View {
         ZStack {
-            Color.black.opacity(0.42)
+            MadeToKeepTheme.ColorPalette.ink.opacity(0.38)
                 .ignoresSafeArea()
 
             VStack(spacing: 16) {
-                Text("Still there?")
-                    .font(.system(size: 42, weight: .black))
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
+                Text("still there?")
+                    .font(MadeToKeepTheme.Typography.italicSerif(size: 46))
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
 
                 Text("Session resets in \(idleSecondsRemaining) seconds")
-                    .font(.system(size: 21, weight: .medium))
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                    .font(MadeToKeepTheme.Typography.sans(size: 19, weight: .regular))
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
 
                 Button("Continue Session") {
                     scheduleIdleReset()
                 }
-                .buttonStyle(PocketPixelsPrimaryButtonStyle())
+                .buttonStyle(MadeToKeepPrimaryButtonStyle())
                 .frame(minWidth: 300)
                 .padding(.top, 8)
             }
             .padding(38)
-            .background(PocketPixelsTheme.ColorPalette.acrylic)
-            .clipShape(RoundedRectangle(cornerRadius: 18))
-            .shadow(radius: 24)
+            .background(MadeToKeepPaperBackground().clipped())
+            .overlay(Rectangle().strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.35), lineWidth: 1))
+            .shadow(color: .black.opacity(0.18), radius: 24)
             .accessibilityElement(children: .contain)
         }
     }
@@ -1619,16 +1512,16 @@ struct BoothSessionView: View {
     private var sessionTopBar: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                PocketPixelsLightboxLockup(scale: .compact)
+                MadeToKeepLockup(scale: .compact)
                 Text(viewModel.sessionIdentifier ?? viewModel.state.title)
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
             }
 
             Spacer()
 
             Text(viewModel.state.title)
                 .font(.headline)
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.brandMaroon)
         }
     }
 
@@ -1667,11 +1560,11 @@ struct BoothSessionView: View {
                 Label("Use Sample Photo", systemImage: "photo")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(PocketPixelsPrimaryButtonStyle())
+            .buttonStyle(MadeToKeepPrimaryButtonStyle())
 
             Text("Sample photos selected: \(viewModel.samplePhotoCount) of \(viewModel.requiredPhotoCount)")
                 .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
                 .frame(maxWidth: .infinity, alignment: .center)
         }
     }
@@ -1921,15 +1814,9 @@ struct BoothSessionView: View {
 
     private func startWelcomeMotion() {
         welcomeMotionActive = false
-        welcomeReceiptFloatActive = false
 
         DispatchQueue.main.async {
             welcomeMotionActive = true
-            guard !reduceMotion else {
-                return
-            }
-
-            welcomeReceiptFloatActive = true
         }
     }
 
@@ -1986,7 +1873,7 @@ struct BoothSessionView: View {
             shutterFlashActive = true
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + PocketPixelsTheme.Motion.shutterFlashDuration) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + MadeToKeepTheme.Motion.shutterFlashDuration) {
             withAnimation(.easeOut(duration: 0.10)) {
                 shutterFlashActive = false
             }
@@ -2015,82 +1902,52 @@ struct BoothSessionView: View {
         viewModel.testPrinterConnection(host: printerIP, port: parsedPort)
     }
 
-    private var printerWarning: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "printer.fill")
-                .font(.system(size: 16, weight: .bold))
-
-            Text("Printer needs attention before receipt printing.")
-                .font(.system(size: 16, weight: .semibold))
-        }
-        .foregroundStyle(PocketPixelsTheme.ColorPalette.warningText)
-        .padding(.vertical, 11)
-        .padding(.horizontal, 14)
-        .background(PocketPixelsTheme.ColorPalette.warningSurface.opacity(0.92))
-        .overlay {
-            RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card)
-                .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.18), lineWidth: 1)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card))
-    }
-
-    private var welcomeReceiptVisual: some View {
-        Image("WelcomeReceiptVisual")
-            .resizable()
-            .scaledToFit()
-            .accessibilityHidden(true)
-            .allowsHitTesting(false)
-            .onAppear {
-                assertWelcomeReceiptVisualAssetExists()
-            }
-    }
-
     private func formatCard(_ format: BoothFormat, cardHeight: CGFloat, previewHeight: CGFloat) -> some View {
         return Button {
             viewModel.selectBoothFormat(format)
         } label: {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 14) {
                 formatPreview(format)
                     .frame(maxWidth: .infinity)
                     .frame(height: previewHeight)
 
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(format.displayName.uppercased())
-                        .font(.system(size: 26, weight: .bold))
-                        .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+                Rectangle()
+                    .fill(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.22))
+                    .frame(height: 1)
 
-                    Text(format.photoCountLabel)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(PocketPixelsTheme.ColorPalette.maroon)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(format.displayName.lowercased())
+                        .font(MadeToKeepTheme.Typography.italicSerif(size: 32))
+                        .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+
+                    MadeToKeepLabel(text: format.photoCountLabel, size: 12)
 
                     Text(customerFormatDescription(for: format))
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                        .font(MadeToKeepTheme.Typography.sans(size: 15, weight: .regular))
+                        .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
                 }
             }
-            .padding(PocketPixelsTheme.Spacing.card)
+            .padding(MadeToKeepTheme.Spacing.card)
             .frame(maxWidth: .infinity, minHeight: cardHeight, alignment: .topLeading)
             .overlay(alignment: .topTrailing) {
                 if format == .passport {
-                    Text("KEEPSAKE")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .tracking(1.2)
-                        .foregroundStyle(PocketPixelsTheme.ColorPalette.lightText)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(PocketPixelsTheme.ColorPalette.brandMaroon))
+                    MadeToKeepLabel(text: "Keepsake", size: 10)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 4)
+                        .overlay(Capsule().strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.6), lineWidth: 1))
                         .padding(12)
                         .accessibilityHidden(true)
                 }
             }
-            .background(PocketPixelsTheme.ColorPalette.acrylic.opacity(0.94))
+            // Printed contact-sheet card: ivory stock, hairline burgundy edge, near-square corners.
+            .background(MadeToKeepTheme.ColorPalette.ivoryLight.opacity(0.9))
             .overlay {
-                RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card)
-                    .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(format == .passport ? 0.42 : 0.22), lineWidth: format == .passport ? 1.5 : 1)
+                RoundedRectangle(cornerRadius: MadeToKeepTheme.Radius.card)
+                    .strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(format == .passport ? 0.55 : 0.28), lineWidth: 1)
             }
-            .clipShape(RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.card))
+            .clipShape(RoundedRectangle(cornerRadius: MadeToKeepTheme.Radius.card))
         }
         .buttonStyle(FormatCardButtonStyle())
         .accessibilityLabel(formatAccessibilityLabel(for: format))
@@ -2166,15 +2023,15 @@ struct BoothSessionView: View {
     }
 
     private func previewPhoto(width: CGFloat, height: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: 3)
-            .fill(PocketPixelsTheme.ColorPalette.brandBlush.opacity(0.38))
+        Rectangle()
+            .fill(MadeToKeepTheme.ColorPalette.ivoryShade)
             .overlay {
                 abstractPhotoMotif()
-                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                    .clipped()
             }
             .overlay {
-                RoundedRectangle(cornerRadius: 3)
-                    .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(0.22), lineWidth: 1)
+                Rectangle()
+                    .strokeBorder(MadeToKeepTheme.ColorPalette.taupe.opacity(0.55), lineWidth: 1)
             }
             .frame(width: width, height: height)
     }
@@ -2187,17 +2044,17 @@ struct BoothSessionView: View {
 
             ZStack {
                 Circle()
-                    .fill(PocketPixelsTheme.ColorPalette.paperWarm.opacity(0.52))
+                    .fill(MadeToKeepTheme.ColorPalette.ivoryLight.opacity(0.7))
                     .frame(width: baseSize * 0.34, height: baseSize * 0.34)
                     .offset(x: -width * 0.22, y: -height * 0.22)
 
                 RoundedRectangle(cornerRadius: baseSize * 0.18)
-                    .fill(PocketPixelsTheme.ColorPalette.maroonMuted.opacity(0.10))
+                    .fill(MadeToKeepTheme.ColorPalette.taupe.opacity(0.32))
                     .frame(width: width * 0.58, height: height * 0.46)
                     .offset(x: width * 0.16, y: height * 0.06)
 
                 RoundedRectangle(cornerRadius: baseSize * 0.16)
-                    .fill(PocketPixelsTheme.ColorPalette.acrylic.opacity(0.30))
+                    .fill(MadeToKeepTheme.ColorPalette.taupe.opacity(0.18))
                     .frame(width: width * 0.62, height: height * 0.34)
                     .offset(x: -width * 0.05, y: height * 0.22)
             }
@@ -2271,12 +2128,6 @@ struct BoothSessionView: View {
             }
         }
     }
-
-    private func assertWelcomeReceiptVisualAssetExists() {
-#if DEBUG
-        assert(UIImage(named: "WelcomeReceiptVisual") != nil, "Missing WelcomeReceiptVisual image asset")
-#endif
-    }
 }
 
 private enum ReviewPhotoPresentation {
@@ -2299,14 +2150,14 @@ private struct FormatBackButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(isEnabled ? PocketPixelsTheme.ColorPalette.brandMaroon : PocketPixelsTheme.ColorPalette.secondaryText)
+            .foregroundStyle(isEnabled ? MadeToKeepTheme.ColorPalette.burgundy : MadeToKeepTheme.ColorPalette.secondaryText)
             .background(
-                RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.button)
-                    .fill(PocketPixelsTheme.ColorPalette.brandBlush.opacity(configuration.isPressed ? 0.30 : 0.16))
+                Capsule()
+                    .fill(MadeToKeepTheme.ColorPalette.ivoryLight.opacity(configuration.isPressed ? 0.95 : 0.6))
             )
             .overlay {
-                RoundedRectangle(cornerRadius: PocketPixelsTheme.Radius.button)
-                    .stroke(PocketPixelsTheme.ColorPalette.brandMaroon.opacity(isEnabled ? 0.18 : 0.12), lineWidth: 1)
+                Capsule()
+                    .strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(isEnabled ? 0.45 : 0.18), lineWidth: 1)
             }
             .scaleEffect(reduceMotion ? 1 : (configuration.isPressed ? 0.985 : 1))
             .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
@@ -2318,14 +2169,14 @@ private extension View {
         active: Bool,
         reduceMotion: Bool,
         delay: TimeInterval = 0,
-        offset: CGFloat = PocketPixelsTheme.Motion.entranceOffset,
+        offset: CGFloat = MadeToKeepTheme.Motion.entranceOffset,
         scale: CGFloat = 1
     ) -> some View {
         opacity(active ? 1 : 0)
             .offset(y: reduceMotion ? 0 : (active ? 0 : offset))
             .scaleEffect(reduceMotion ? 1 : (active ? 1 : scale))
             .animation(
-                (reduceMotion ? Animation.easeOut(duration: PocketPixelsTheme.Motion.quick) : PocketPixelsTheme.Motion.entranceAnimation)
+                (reduceMotion ? Animation.easeOut(duration: MadeToKeepTheme.Motion.quick) : MadeToKeepTheme.Motion.entranceAnimation)
                     .delay(delay),
                 value: active
             )
@@ -2335,7 +2186,7 @@ private extension View {
         pocketPixelsEntrance(
             active: active,
             reduceMotion: reduceMotion,
-            delay: Double(index) * PocketPixelsTheme.Motion.stagger,
+            delay: Double(index) * MadeToKeepTheme.Motion.stagger,
             offset: 8,
             scale: 0.975
         )
@@ -2364,12 +2215,12 @@ private struct FeedingReceiptView: View {
         let height = image.size.height * scale
         VStack(spacing: 0) {
             RoundedRectangle(cornerRadius: 4)
-                .fill(PocketPixelsTheme.ColorPalette.charcoal)
+                .fill(MadeToKeepTheme.ColorPalette.charcoal)
                 .frame(width: width + 16, height: 8)
                 .zIndex(1)
             TimelineView(.animation(paused: !isPrinting || reduceMotion || scenePhase != .active)) { context in
                 let elapsed = feedStartedAt.map { max(0, context.date.timeIntervalSince($0)) } ?? 0
-                let progress = min(1, elapsed / PocketPixelsTheme.Motion.printerFeedDuration)
+                let progress = min(1, elapsed / MadeToKeepTheme.Motion.printerFeedDuration)
                 // Move the actual paper once, from behind the slot into a fixed viewport.
                 // At the end it stays out: there is no loop or upward reset.
                 let visibleFraction = reduceMotion ? 1 : (isPrinting ? progress : 0.025)

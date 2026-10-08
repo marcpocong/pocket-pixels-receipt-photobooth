@@ -58,7 +58,7 @@ struct OperatorDashboardView: View {
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("Operator")
-        // The admin sheet header already shows "Pocket Pixels · Operator"; the title is kept for back buttons.
+        // The admin sheet header already shows "Made to Keep Studios · Operator"; the title is kept for back buttons.
         .toolbar(.hidden, for: .navigationBar)
         .task { operations.start() }
         .onAppear {

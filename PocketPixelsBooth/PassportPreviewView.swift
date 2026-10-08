@@ -14,7 +14,7 @@ struct PassportPreviewView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let contentWidth = max(1, min(proxy.size.width - PocketPixelsTheme.Spacing.screenPadding * 2, 760))
+            let contentWidth = max(1, min(proxy.size.width - MadeToKeepTheme.Spacing.screenPadding * 2, 760))
             let actionHeight: CGFloat = 170
             let headerHeight: CGFloat = 200
             let previewMaxHeight = max(240, proxy.size.height - actionHeight - headerHeight)
@@ -38,7 +38,7 @@ struct PassportPreviewView: View {
                         Text("Looks Great — Continue")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(PocketPixelsPrimaryButtonStyle())
+                    .buttonStyle(MadeToKeepPrimaryButtonStyle())
                     .disabled(!viewModel.canContinueToReceipt || viewModel.passportPreviewImage == nil)
                     .accessibilityHint("Builds your printable receipt and gallery.")
 
@@ -46,12 +46,12 @@ struct PassportPreviewView: View {
                         Button("Back to Details") {
                             viewModel.backToPassportDetails()
                         }
-                        .buttonStyle(PocketPixelsSecondaryButtonStyle())
+                        .buttonStyle(MadeToKeepSecondaryButtonStyle())
 
                         Button("Redo Signature") {
                             viewModel.redoPassportSignature()
                         }
-                        .buttonStyle(PocketPixelsSecondaryButtonStyle())
+                        .buttonStyle(MadeToKeepSecondaryButtonStyle())
                     }
                 }
                 .frame(width: min(contentWidth, 560))
@@ -60,7 +60,7 @@ struct PassportPreviewView: View {
             .padding(.top, 28)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(.horizontal, PocketPixelsTheme.Spacing.screenPadding)
+        .padding(.horizontal, MadeToKeepTheme.Spacing.screenPadding)
     }
 
     @ViewBuilder
@@ -72,27 +72,26 @@ struct PassportPreviewView: View {
                 .interpolation(.high)
                 .frame(width: image.size.width * scale, height: image.size.height * scale)
                 .background(Color.white)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.58), lineWidth: 1)
+                    Rectangle()
+                        .strokeBorder(MadeToKeepTheme.ColorPalette.hairline, lineWidth: 1)
                 }
-                .shadow(color: PocketPixelsTheme.ColorPalette.amberGlow.opacity(0.14), radius: 18, x: 0, y: 8)
+                .shadow(color: MadeToKeepTheme.ColorPalette.amberGlow.opacity(0.14), radius: 18, x: 0, y: 8)
                 .accessibilityLabel(previewAccessibilityLabel)
         } else if viewModel.passportPreviewFailed {
             Text("We couldn't prepare the preview. Please ask the booth operator for help.")
-                .font(.system(size: 19, weight: .semibold))
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                .font(MadeToKeepTheme.Typography.sans(size: 18, weight: .regular))
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
                 .multilineTextAlignment(.center)
                 .frame(width: maxWidth, height: min(maxHeight, 320))
         } else {
             VStack(spacing: 14) {
                 ProgressView()
-                    .tint(PocketPixelsTheme.ColorPalette.maroon)
+                    .tint(MadeToKeepTheme.ColorPalette.maroon)
                     .scaleEffect(1.3)
-                Text("Preparing your Photo Pass...")
-                    .font(.system(size: 19, weight: .semibold))
-                    .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                Text("preparing your photo pass...")
+                    .font(MadeToKeepTheme.Typography.italicSerif(size: 26))
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
             }
             .frame(width: maxWidth, height: min(maxHeight, 320))
         }
@@ -117,7 +116,7 @@ struct PassportPreviewView: View {
 struct PassportFormatPreview: View {
     let size: CGSize
 
-    private let ink = PocketPixelsTheme.ColorPalette.brandMaroon
+    private let ink = MadeToKeepTheme.ColorPalette.brandMaroon
 
     var body: some View {
         let gap = size.height * 0.04
@@ -201,7 +200,7 @@ struct PassportFormatPreview: View {
 
     private func frame(width: CGFloat, height: CGFloat) -> some View {
         Rectangle()
-            .fill(PocketPixelsTheme.ColorPalette.brandBlush.opacity(0.4))
+            .fill(MadeToKeepTheme.ColorPalette.brandBlush.opacity(0.4))
             .overlay { Rectangle().stroke(ink.opacity(0.7), lineWidth: 1) }
             .frame(width: width, height: height)
     }

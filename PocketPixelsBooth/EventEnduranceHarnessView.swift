@@ -81,7 +81,7 @@ final class EventEnduranceHarnessViewModel: ObservableObject {
     @Published private(set) var averageSessionDuration = 0.0
     @Published private(set) var longestSessionDuration = 0.0
     @Published private(set) var statusMessage = "Ready."
-    @Published private(set) var reliabilityReport = "POCKET PIXELS RELIABILITY RUN\n\nResult has not run."
+    @Published private(set) var reliabilityReport = "MADE TO KEEP RELIABILITY RUN\n\nResult has not run."
 
     private let uploadService = GoogleDriveGalleryUploadService()
     private let recoveryStore = try? AppRecoveryStore()
@@ -127,7 +127,7 @@ final class EventEnduranceHarnessViewModel: ObservableObject {
         simulatedPrinterLedger = SimulatedPrintLedger()
         expectedSessionMarkers = [:]
         let seed = parsedSeed
-        reliabilityReport = "POCKET PIXELS RELIABILITY RUN\n\nSeed: \(seed)\nResult is running."
+        reliabilityReport = "MADE TO KEEP RELIABILITY RUN\n\nSeed: \(seed)\nResult is running."
         statusMessage = "Starting reliability run with seed \(seed)..."
 
         Task {
@@ -440,7 +440,7 @@ final class EventEnduranceHarnessViewModel: ObservableObject {
     private func makeReliabilityReport(seed: Int) -> String {
         let result = reliabilityRunPassed ? "PASS" : "FAIL"
         return """
-        POCKET PIXELS RELIABILITY RUN
+        MADE TO KEEP RELIABILITY RUN
 
         Seed: \(seed)
         Scenario: \(chaosMode.displayName)

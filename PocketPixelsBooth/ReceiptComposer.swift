@@ -233,7 +233,15 @@ enum ReceiptComposerError: Error, LocalizedError {
 }
 
 enum ReceiptComposer {
-    nonisolated static let mastheadEstablishedText = "EST. 2024"
+    /// Small tracked line above the Made to Keep wordmark (the slot that held the legacy "EST." line).
+    nonisolated static let mastheadEstablishedText = MadeToKeepBrand.descriptor
+    /// Footer identity line that replaced the legacy monogram and social handle.
+    nonisolated static let footerBrandLine = MadeToKeepBrand.tagline
+    /// Fill-plus-stroke (percent of point size) that keeps high-contrast serif hairlines solid
+    /// after 1-bit thermal rasterization.
+    nonisolated private static let thermalSerifStrokeWidth: CGFloat = -2.2
+    nonisolated private static let mastheadEstablishedTracking: CGFloat = 3.6
+    nonisolated private static let mastheadSecondaryTracking: CGFloat = 9.0
 
     nonisolated static let sessionIdentifierTimeZone = TimeZone(identifier: "Asia/Manila") ?? TimeZone(secondsFromGMT: 8 * 60 * 60)!
     nonisolated static let receiptQRCodeSize = 177
@@ -253,7 +261,6 @@ enum ReceiptComposer {
     nonisolated private static let footerBrandRowHeight = 26
     nonisolated private static let footerClosingHeight = 16
     nonisolated private static let footerHandleMonogramSize = 24
-    nonisolated private static let footerHandleMonogramToTextGap = 8
     nonisolated private static let footerBottomPadding = 8
 
     nonisolated static func makeSessionIdentifier(date: Date = Date()) -> String {
@@ -617,12 +624,12 @@ enum ReceiptComposer {
         var configuration = eventProfile?.receiptHeader.normalized() ?? .default
         if configuration.mode == .customEventHeader, headerSourceSize == nil {
             configuration = .default
-            debugLog("[ReceiptHeader] Missing custom asset; using Pocket Pixels default header.")
+            debugLog("[ReceiptHeader] Missing custom asset; using the Made to Keep default header.")
         }
         return ReceiptTextSnapshot(
             established: mastheadEstablishedText,
-            wordmark: "Pocket Pixels",
-            descriptor: "RECEIPT PHOTOBOOTH",
+            wordmark: MadeToKeepBrand.wordmark,
+            descriptor: MadeToKeepBrand.secondary,
             eventContent: eventProfile?.activeReceiptSnapshot?.receiptBlockContent,
             eventTypography: eventProfile?.activeReceiptSnapshot?.receiptDesign.typography.resolved ?? .preset(.classic),
             headerConfiguration: configuration,
@@ -631,7 +638,7 @@ enum ReceiptComposer {
             subCTA: "& SAVE YOUR PHOTOS",
             formattedDate: receiptDateFormatter.string(from: date).uppercased(),
             sessionIdentifier: sessionIdentifier,
-            handle: "@pocketpixels.ceb",
+            handle: footerBrandLine,
             closing: "— THANK YOU —"
         )
     }
@@ -690,14 +697,14 @@ enum ReceiptComposer {
 
         switch textSnapshot.headerConfiguration.mode {
         case .pocketPixelsDefault:
-            let establishedHeight = measuredWrappedTextHeight(textSnapshot.established, font: mastheadEstablishedFont, width: textWidth, tracking: 1.4)
-            establishedFrame = wrappedTextFrame(x: textX, y: y, width: textWidth, height: establishedHeight, tracking: 1.4)
+            let establishedHeight = measuredWrappedTextHeight(textSnapshot.established, font: mastheadEstablishedFont, width: textWidth, tracking: mastheadEstablishedTracking)
+            establishedFrame = wrappedTextFrame(x: textX, y: y, width: textWidth, height: establishedHeight, tracking: mastheadEstablishedTracking)
             y += establishedHeight + mastheadEstablishedBottomGap
             let wordmarkHeight = measuredWrappedTextHeight(textSnapshot.wordmark, font: mastheadWordmarkFont, width: textWidth)
             wordmarkFrame = wrappedTextFrame(x: textX, y: y, width: textWidth, height: wordmarkHeight)
             y += wordmarkHeight + mastheadWordmarkBottomGap
-            let descriptorHeight = measuredWrappedTextHeight(textSnapshot.descriptor, font: mastheadLabelFont, width: textWidth, tracking: 4.0)
-            descriptorFrame = wrappedTextFrame(x: textX, y: y, width: textWidth, height: descriptorHeight, tracking: 4.0)
+            let descriptorHeight = measuredWrappedTextHeight(textSnapshot.descriptor, font: mastheadLabelFont, width: textWidth, tracking: mastheadSecondaryTracking)
+            descriptorFrame = wrappedTextFrame(x: textX, y: y, width: textWidth, height: descriptorHeight, tracking: mastheadSecondaryTracking)
             y += descriptorHeight + mastheadBottomGap
         case .customEventHeader:
             let config = textSnapshot.headerConfiguration
@@ -1071,16 +1078,18 @@ enum ReceiptComposer {
         }
 
         let textWidth = mastheadTextWidth(margin: BoothConfiguration.receiptHorizontalMargin, width: BoothConfiguration.receiptWidth)
-        let wordmarkBounds = measuredTextBounds("Pocket Pixels", font: mastheadWordmarkFont)
-        let labelBounds = measuredTextBounds("RECEIPT PHOTOBOOTH", font: mastheadLabelFont, tracking: 4.0)
-        let establishedBounds = measuredTextBounds(mastheadEstablishedText, font: mastheadEstablishedFont, tracking: 1.4)
+        let wordmarkBounds = measuredTextBounds(MadeToKeepBrand.wordmark, font: mastheadWordmarkFont)
+        let labelBounds = measuredTextBounds(MadeToKeepBrand.secondary, font: mastheadLabelFont, tracking: mastheadSecondaryTracking)
+        let establishedBounds = measuredTextBounds(mastheadEstablishedText, font: mastheadEstablishedFont, tracking: mastheadEstablishedTracking)
 
-        guard wordmarkBounds.width >= CGFloat(textWidth) * 0.70,
-              wordmarkBounds.width <= CGFloat(textWidth) * 0.82,
-              labelBounds.width >= CGFloat(textWidth) * 0.45,
-              labelBounds.width <= CGFloat(textWidth) * 0.65,
+        guard wordmarkBounds.width >= CGFloat(textWidth) * 0.62,
+              wordmarkBounds.width <= CGFloat(textWidth) * 0.86,
+              labelBounds.width >= CGFloat(textWidth) * 0.22,
+              labelBounds.width <= CGFloat(textWidth) * 0.50,
+              establishedBounds.width >= CGFloat(textWidth) * 0.45,
+              establishedBounds.width <= CGFloat(textWidth) * 0.80,
               establishedBounds.height >= 13,
-              establishedBounds.height <= 20 else {
+              establishedBounds.height <= 26 else {
             throw debugSelfCheckFailure("Event masthead typography proportions drifted.")
         }
 
@@ -1475,8 +1484,8 @@ enum ReceiptComposer {
         let mainRowBottom = max(Int(ceil(qrRect.maxY)), rightStackBottom)
         let textColumnRect = CGRect(x: textColumnX, y: mainRowTop, width: textColumnWidth, height: max(1, mainRowBottom - mainRowTop))
         let brandRowY = mainRowBottom + metrics.brandTopPadding
-        let handleWidth = Int(ceil(measuredTextWidth("@pocketpixels.ceb", font: footerHandleFont))) + 6
-        let brandRowWidth = footerHandleMonogramSize + footerHandleMonogramToTextGap + handleWidth
+        let handleWidth = Int(ceil(measuredTextWidth(footerBrandLine, font: footerHandleFont))) + 6
+        let brandRowWidth = handleWidth
         let brandRowX = (width - brandRowWidth) / 2
         let handleY = brandRowY + Int(floor((CGFloat(footerHandleMonogramSize) - footerHandleFont.lineHeight) / 2)) - 1
         let monogramRect = CGRect(x: brandRowX, y: brandRowY, width: footerHandleMonogramSize, height: footerHandleMonogramSize)
@@ -1506,7 +1515,7 @@ enum ReceiptComposer {
             brandRowY: brandRowY,
             brandRowHeight: footerBrandRowHeight,
             monogramRect: monogramRect,
-            handleX: brandRowX + footerHandleMonogramSize + footerHandleMonogramToTextGap,
+            handleX: brandRowX,
             handleY: handleY,
             handleWidth: handleWidth,
             brandRowWidth: brandRowWidth,
@@ -1569,8 +1578,8 @@ enum ReceiptComposer {
         let mainRowBottom = max(Int(ceil(qrRect.maxY)), rightStackBottom)
         let textColumnRect = CGRect(x: textColumnX, y: mainRowTop, width: textColumnWidth, height: max(1, mainRowBottom - mainRowTop))
         let brandRowY = mainRowBottom + legacyMetrics.brandTopPadding
-        let handleWidth = Int(ceil(measuredTextWidth("@pocketpixels.ceb", font: footerHandleFont))) + 6
-        let brandRowWidth = footerHandleMonogramSize + footerHandleMonogramToTextGap + handleWidth
+        let handleWidth = Int(ceil(measuredTextWidth(footerBrandLine, font: footerHandleFont))) + 6
+        let brandRowWidth = handleWidth
         let brandRowX = (width - brandRowWidth) / 2
         let handleY = brandRowY + Int(floor((CGFloat(footerHandleMonogramSize) - footerHandleFont.lineHeight) / 2)) - 1
         let monogramRect = CGRect(x: brandRowX, y: brandRowY, width: footerHandleMonogramSize, height: footerHandleMonogramSize)
@@ -1601,7 +1610,7 @@ enum ReceiptComposer {
             brandRowY: brandRowY,
             brandRowHeight: footerBrandRowHeight,
             monogramRect: monogramRect,
-            handleX: brandRowX + footerHandleMonogramSize + footerHandleMonogramToTextGap,
+            handleX: brandRowX,
             handleY: handleY,
             handleWidth: handleWidth,
             brandRowWidth: brandRowWidth,
@@ -1759,7 +1768,7 @@ enum ReceiptComposer {
         switch layout.mode {
         case .pocketPixelsDefault:
             drawCenteredWrapped(textSnapshot.established, in: layout.establishedFrame, font: mastheadEstablishedFont)
-            drawCenteredWrapped(textSnapshot.wordmark, in: layout.wordmarkFrame, font: mastheadWordmarkFont)
+            drawCenteredWrapped(textSnapshot.wordmark, in: layout.wordmarkFrame, font: mastheadWordmarkFont, strokeWidth: thermalSerifStrokeWidth)
             drawCenteredWrapped(textSnapshot.descriptor, in: layout.descriptorFrame, font: mastheadLabelFont)
         case .customEventHeader:
             if let customArtwork, let frame = layout.customImageFrame {
@@ -1862,8 +1871,8 @@ enum ReceiptComposer {
         )
 
         let brandRowY = mainRowBottom + metrics.brandTopPadding
-        let handleWidth = Int(ceil(measuredTextWidth("@pocketpixels.ceb", font: footerHandleFont))) + 6
-        let brandRowWidth = footerHandleMonogramSize + footerHandleMonogramToTextGap + handleWidth
+        let handleWidth = Int(ceil(measuredTextWidth(footerBrandLine, font: footerHandleFont))) + 6
+        let brandRowWidth = handleWidth
         let brandRowX = (width - brandRowWidth) / 2
         let handleY = brandRowY + Int(floor((CGFloat(footerHandleMonogramSize) - footerHandleFont.lineHeight) / 2)) - 1
         let monogramRect = CGRect(
@@ -1898,7 +1907,7 @@ enum ReceiptComposer {
             brandRowY: brandRowY,
             brandRowHeight: footerBrandRowHeight,
             monogramRect: monogramRect,
-            handleX: brandRowX + footerHandleMonogramSize + footerHandleMonogramToTextGap,
+            handleX: brandRowX,
             handleY: handleY,
             handleWidth: handleWidth,
             brandRowWidth: brandRowWidth,
@@ -1934,7 +1943,15 @@ enum ReceiptComposer {
         drawDivider(y: layout.dividerY, margin: BoothConfiguration.receiptHorizontalMargin, width: BoothConfiguration.receiptWidth)
         drawCentered(textSnapshot.formattedDate, y: layout.dateY, width: BoothConfiguration.receiptWidth, font: .monospacedDigitSystemFont(ofSize: 15, weight: .regular))
         drawCentered(textSnapshot.sessionIdentifier, y: layout.sessionY, width: BoothConfiguration.receiptWidth, font: .monospacedDigitSystemFont(ofSize: 13, weight: .regular))
-        drawCentered(textSnapshot.handle, y: layout.handleY, width: BoothConfiguration.receiptWidth, font: .systemFont(ofSize: 19, weight: .semibold))
+        drawCenteredWrapped(
+            textSnapshot.handle,
+            x: 0,
+            y: layout.handleY,
+            width: BoothConfiguration.receiptWidth,
+            font: footerHandleFont,
+            lineBreakMode: .byClipping,
+            strokeWidth: thermalSerifStrokeWidth
+        )
         drawDivider(y: layout.closingDividerY, margin: BoothConfiguration.receiptHorizontalMargin, width: BoothConfiguration.receiptWidth)
     }
 
@@ -2020,15 +2037,6 @@ enum ReceiptComposer {
         image.draw(in: CGRect(origin: origin, size: drawSize))
 
         context.restoreGState()
-    }
-
-    nonisolated private static func drawFooterMonogram(in rect: CGRect) {
-        guard let monogram = UIImage(named: "PocketPixelsMonogram") else {
-            return
-        }
-
-        let blackMonogram = trimmedToVisibleAlpha(monogram).withTintColor(.black, renderingMode: .alwaysOriginal)
-        blackMonogram.draw(in: aspectFitRect(for: blackMonogram.size, in: rect))
     }
 
     nonisolated private static func trimmedToVisibleAlpha(_ image: UIImage) -> UIImage {
@@ -2154,13 +2162,16 @@ enum ReceiptComposer {
         layout: ReceiptFooterLayout,
         textSnapshot: ReceiptTextSnapshot = defaultLayoutTextSnapshot()
     ) {
-        drawFooterMonogram(in: layout.monogramRect)
-        drawMeasuredText(
+        // `monogramRect` is kept only as the reserved brand-row anchor; the legacy PP monogram is
+        // no longer printed. The Made to Keep tagline is centred on the receipt instead.
+        drawCenteredWrapped(
             textSnapshot.handle,
-            x: layout.handleX,
+            x: 0,
             y: layout.handleY,
+            width: BoothConfiguration.receiptWidth,
             font: footerHandleFont,
-            availableWidth: layout.handleWidth
+            lineBreakMode: .byClipping,
+            strokeWidth: thermalSerifStrokeWidth
         )
         drawCentered(textSnapshot.closing, y: layout.closingY, width: BoothConfiguration.receiptWidth, font: footerClosingFont)
     }
@@ -2178,19 +2189,24 @@ enum ReceiptComposer {
         font: UIFont,
         tracking: CGFloat = 0,
         lineSpacing: CGFloat = 0,
-        lineBreakMode: NSLineBreakMode = .byWordWrapping
+        lineBreakMode: NSLineBreakMode = .byWordWrapping,
+        strokeWidth: CGFloat = 0
     ) -> Int {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
         paragraph.lineBreakMode = lineBreakMode
         paragraph.lineSpacing = lineSpacing
 
-        let attributes: [NSAttributedString.Key: Any] = [
+        var attributes: [NSAttributedString.Key: Any] = [
             .font: font,
             .kern: tracking,
             .foregroundColor: UIColor.black,
             .paragraphStyle: paragraph
         ]
+        if strokeWidth != 0 {
+            attributes[.strokeWidth] = strokeWidth
+            attributes[.strokeColor] = UIColor.black
+        }
         let height = measuredWrappedTextHeight(text, font: font, width: width, tracking: tracking, lineSpacing: lineSpacing, lineBreakMode: lineBreakMode)
 
         NSString(string: text).draw(
@@ -2204,19 +2220,24 @@ enum ReceiptComposer {
     nonisolated private static func drawCenteredWrapped(
         _ text: String,
         in frame: ReceiptWrappedTextFrame,
-        font: UIFont
+        font: UIFont,
+        strokeWidth: CGFloat = 0
     ) {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
         paragraph.lineBreakMode = frame.lineBreakMode
         paragraph.lineSpacing = frame.lineSpacing
 
-        let attributes: [NSAttributedString.Key: Any] = [
+        var attributes: [NSAttributedString.Key: Any] = [
             .font: font,
             .kern: frame.tracking,
             .foregroundColor: UIColor.black,
             .paragraphStyle: paragraph
         ]
+        if strokeWidth != 0 {
+            attributes[.strokeWidth] = strokeWidth
+            attributes[.strokeColor] = UIColor.black
+        }
 
         NSString(string: text).draw(
             in: CGRect(
@@ -2380,22 +2401,19 @@ enum ReceiptComposer {
         width - (mastheadTextX(margin: margin) * 2)
     }
 
+    /// `RECEIPT PHOTOBOOTH`, small tracked sans (semibold so it survives 1-bit output).
     nonisolated private static var mastheadEstablishedFont: UIFont {
-        .monospacedSystemFont(ofSize: 11, weight: .medium)
+        .systemFont(ofSize: 16, weight: .semibold)
     }
 
+    /// `made to keep`, the same high-contrast italic serif as the guest screens.
     nonisolated private static var mastheadWordmarkFont: UIFont {
-        let size: CGFloat = 60
-        let base = UIFont.systemFont(ofSize: size, weight: .semibold)
-        guard let serifDescriptor = base.fontDescriptor.withDesign(.serif) else {
-            return base
-        }
-
-        return UIFont(descriptor: serifDescriptor, size: size)
+        MadeToKeepTheme.Typography.italicSerifUIFont(size: 84)
     }
 
+    /// `studios`, widely tracked sans. Medium rather than light so it stays crisp on thermal paper.
     nonisolated private static var mastheadLabelFont: UIFont {
-        .systemFont(ofSize: 17, weight: .semibold)
+        .systemFont(ofSize: 22, weight: .medium)
     }
 
     nonisolated private static var footerCTAFont: UIFont {
@@ -2422,8 +2440,9 @@ enum ReceiptComposer {
         .monospacedDigitSystemFont(ofSize: 14, weight: .medium)
     }
 
+    /// Footer tagline `little moments, made to keep.`
     nonisolated private static var footerHandleFont: UIFont {
-        .systemFont(ofSize: 18, weight: .semibold)
+        MadeToKeepTheme.Typography.italicSerifUIFont(size: 23)
     }
 
     nonisolated private static var footerClosingFont: UIFont {

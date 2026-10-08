@@ -68,7 +68,9 @@ final class OperatorExperienceTests: XCTestCase {
     }
 
     func testOperatorFacingHeaderNames() {
-        XCTAssertEqual(ReceiptHeaderMode.pocketPixelsDefault.displayName, "Pocket Pixels")
+        XCTAssertEqual(ReceiptHeaderMode.pocketPixelsDefault.displayName, "Made to Keep")
+        // Visible name changed; the persisted raw value must stay for stored event profiles.
+        XCTAssertEqual(ReceiptHeaderMode.pocketPixelsDefault.rawValue, "pocketPixelsDefault")
         XCTAssertEqual(ReceiptHeaderMode.customEventHeader.displayName, "Event Artwork")
         XCTAssertEqual(ReceiptHeaderMode.none.displayName, "None")
     }

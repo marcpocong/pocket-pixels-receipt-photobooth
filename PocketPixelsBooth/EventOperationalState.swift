@@ -343,7 +343,7 @@ final class EventOperationalState: ObservableObject {
             severity: .optional,
             title: "Event Profile",
             status: eventProfile.isEnabled && eventProfile.activeReceiptSnapshot == nil ? .warning : .pass,
-            detail: eventProfile.activeReceiptSnapshot?.eventName ?? "Pocket Pixels default"
+            detail: eventProfile.activeReceiptSnapshot?.eventName ?? MadeToKeepBrand.defaultEventName
         ))
         checks.append(EventReadinessCheck(
             severity: .optional,

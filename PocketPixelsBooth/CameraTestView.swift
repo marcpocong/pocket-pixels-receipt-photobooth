@@ -58,7 +58,7 @@ struct CameraTestView: View {
                     .frame(maxWidth: 1_180, alignment: .topLeading)
                 }
             }
-            .navigationTitle("Pocket Pixels Camera Test")
+            .navigationTitle("Made to Keep Camera Test")
             .navigationBarTitleDisplayMode(.inline)
             .task {
                 setupCameraIfNeeded()
@@ -82,57 +82,57 @@ struct CameraTestView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Color Reference")
                 .font(.headline)
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.brandMaroon)
 
-            Text("DEBUG reference swatches using production PocketPixelsTheme colors.")
+            Text("DEBUG reference swatches using production Made to Keep theme colors.")
                 .font(.subheadline)
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
 
             LazyVGrid(columns: colorReferenceColumns, alignment: .leading, spacing: 12) {
                 colorReferenceSwatch(
                     name: "paper",
-                    color: PocketPixelsTheme.ColorPalette.paper,
+                    color: MadeToKeepTheme.ColorPalette.paper,
                     rgb: "255 / 248 / 242",
                     hex: "#FFF8F2"
                 )
                 colorReferenceSwatch(
                     name: "paperWarm",
-                    color: PocketPixelsTheme.ColorPalette.paperWarm,
+                    color: MadeToKeepTheme.ColorPalette.paperWarm,
                     rgb: "255 / 240 / 230",
                     hex: "#FFF0E6"
                 )
                 colorReferenceSwatch(
                     name: "brandBlush",
-                    color: PocketPixelsTheme.ColorPalette.brandBlush,
+                    color: MadeToKeepTheme.ColorPalette.brandBlush,
                     rgb: "249 / 217 / 199",
                     hex: "#F9D9C7"
                 )
                 colorReferenceSwatch(
                     name: "brandMaroon",
-                    color: PocketPixelsTheme.ColorPalette.brandMaroon,
+                    color: MadeToKeepTheme.ColorPalette.brandMaroon,
                     rgb: "119 / 33 / 48",
                     hex: "#772130"
                 )
                 colorReferenceSwatch(
                     name: "surface",
-                    color: PocketPixelsTheme.ColorPalette.surface,
+                    color: MadeToKeepTheme.ColorPalette.surface,
                     rgb: "255 / 253 / 249",
                     hex: "#FFFDF9"
                 )
                 colorReferenceSwatch(
                     name: "secondaryText",
-                    color: PocketPixelsTheme.ColorPalette.secondaryText,
+                    color: MadeToKeepTheme.ColorPalette.secondaryText,
                     rgb: "112 / 92 / 84",
                     hex: "#705C54"
                 )
             }
         }
         .padding(18)
-        .background(PocketPixelsTheme.ColorPalette.acrylic)
+        .background(MadeToKeepTheme.ColorPalette.acrylic)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8)
-                .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.58), lineWidth: 1)
+                .stroke(MadeToKeepTheme.ColorPalette.border.opacity(0.58), lineWidth: 1)
         }
     }
 
@@ -149,23 +149,23 @@ struct CameraTestView: View {
                 .frame(height: 56)
                 .overlay {
                     RoundedRectangle(cornerRadius: 6)
-                        .stroke(PocketPixelsTheme.ColorPalette.border.opacity(0.72), lineWidth: 1)
+                        .stroke(MadeToKeepTheme.ColorPalette.border.opacity(0.72), lineWidth: 1)
                 }
 
             Text(name)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.brandMaroon)
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.brandMaroon)
 
             Text("\(hex)  \(rgb)")
                 .font(.caption2.monospacedDigit())
-                .foregroundStyle(PocketPixelsTheme.ColorPalette.secondaryText)
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
         }
     }
 #endif
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Pocket Pixels Camera Test")
+            Text("Made to Keep Camera Test")
                 .font(.largeTitle)
                 .fontWeight(.semibold)
                 .foregroundStyle(.white)

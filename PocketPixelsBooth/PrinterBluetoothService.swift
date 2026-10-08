@@ -737,7 +737,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         }
 
         let payload = Data([0x1B, 0x40])
-            + Data("POCKET PIXELS\nBT OK\n\n\n".utf8)
+            + Data("MADE TO KEEP\nBT OK\n\n\n".utf8)
         let maximumLength = max(1, peripheral.maximumWriteValueLength(for: .withoutResponse))
         let chunkSize = max(1, min(Self.fastInitialChunkLimit, maximumLength))
         let chunks = payload.chunked(maximumLength: chunkSize)
@@ -954,7 +954,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
 
     private func silentBLEPayload(for test: SilentBLETest) -> Data {
         var payload = Data([0x1B, 0x40])
-        payload.appendASCII("POCKET PIXELS SILENT TEST \(test.rawValue)\n")
+        payload.appendASCII("MADE TO KEEP SILENT TEST \(test.rawValue)\n")
         payload.append(Self.silentCutCommonFeed)
 
         if let cutterCommand = test.cutterCommand {

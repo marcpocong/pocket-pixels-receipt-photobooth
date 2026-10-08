@@ -116,7 +116,7 @@ struct PrinterTestView: View {
                 .padding(24)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .navigationTitle("Pocket Pixels Printer Test")
+            .navigationTitle("Made to Keep Printer Test")
             .onChange(of: selectedPhotoItem) { _, newItem in
                 loadPhoto(from: newItem)
             }
@@ -148,7 +148,7 @@ struct PrinterTestView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Pocket Pixels Printer Test")
+            Text("Made to Keep Printer Test")
                 .font(.largeTitle)
                 .fontWeight(.semibold)
 
@@ -1839,7 +1839,7 @@ struct PrinterTestView: View {
 
             let title = String(format: "STRESS %03d / %03d", index, total)
             let marker = String(repeating: index.isMultiple(of: 2) ? "# " : "* ", count: 20)
-            let text = "\(title)\nPocket Pixels Print Spooler\n\(marker)\n\(UUID().uuidString.prefix(8))"
+            let text = "\(title)\nMade to Keep Print Spooler\n\(marker)\n\(UUID().uuidString.prefix(8))"
             let paragraph = NSMutableParagraphStyle()
             paragraph.alignment = .center
             let attributes: [NSAttributedString.Key: Any] = [

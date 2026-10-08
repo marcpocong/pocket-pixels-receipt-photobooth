@@ -183,7 +183,7 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         case (true, true): "Guest screens and printed receipts"
         case (true, false): "Guest screens only"
         case (false, true): "Printed receipts only"
-        case (false, false): "Pocket Pixels standard mode"
+        case (false, false): MadeToKeepBrand.standardModeSummary
         }
     }
 
@@ -293,7 +293,7 @@ struct EventSetupView: View {
                     )
                     .font(.title3.bold())
                     .foregroundStyle(savedProfile.isEventModeActive ? .green : .secondary)
-                    Text(savedProfile.isEventModeActive ? savedProfile.eventModeSummary : "Guests see the standard Pocket Pixels booth.")
+                    Text(savedProfile.isEventModeActive ? savedProfile.eventModeSummary : MadeToKeepBrand.standardModeGuestDescription)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -591,12 +591,12 @@ struct CustomerExperiencePreviewView: View {
     }
 
     private var eventTitle: String {
-        guard let activeProfile, !activeProfile.customerDisplayTitle.isEmpty else { return "Pocket Pixels" }
+        guard let activeProfile, !activeProfile.customerDisplayTitle.isEmpty else { return MadeToKeepBrand.shortName }
         return activeProfile.customerDisplayTitle
     }
 
     private var eventSubtitle: String { activeProfile?.customerDisplaySubtitle ?? "Receipt Photobooth" }
-    private var welcomeText: String { activeProfile?.customerWelcomeMessage.nonEmpty ?? "Make your moment. Print your keepsake." }
+    private var welcomeText: String { activeProfile?.customerWelcomeMessage.nonEmpty ?? MadeToKeepBrand.tagline }
     private var thankYouText: String { activeProfile?.customerThankYouMessage.nonEmpty ?? "Thanks for making memories with us." }
 }
 

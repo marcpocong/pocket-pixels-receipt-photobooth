@@ -57,7 +57,7 @@ final class CustomerExperienceTests: XCTestCase {
     func testEventModeSummaryClearlyDistinguishesScreenAndReceiptActivation() {
         var profile = EventProfile.pocketPixelsDefault
         XCTAssertFalse(profile.isEventModeActive)
-        XCTAssertEqual(profile.eventModeSummary, "Pocket Pixels standard mode")
+        XCTAssertEqual(profile.eventModeSummary, "Made to Keep standard mode")
 
         profile.eventName = "Wedding Night"
         profile.customerScreenEnabled = true

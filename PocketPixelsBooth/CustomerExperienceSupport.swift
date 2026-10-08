@@ -16,7 +16,7 @@ nonisolated enum CustomerScreenTheme: String, Codable, CaseIterable, Identifiabl
 
     nonisolated var displayName: String {
         switch self {
-        case .classic: "Pocket Pixels Classic"
+        case .classic: "Made to Keep Classic"
         case .warmCelebration: "Warm Celebration"
         case .minimalLight: "Minimal Light"
         case .evening: "Evening"
@@ -26,7 +26,7 @@ nonisolated enum CustomerScreenTheme: String, Codable, CaseIterable, Identifiabl
 
     nonisolated var summary: String {
         switch self {
-        case .classic: "Blush and warm paper with the Pocket Pixels maroon accent."
+        case .classic: "Ivory printed paper with the Made to Keep burgundy accent."
         case .warmCelebration: "Soft peach and cream for weddings and celebrations."
         case .minimalLight: "Clean ivory surfaces with restrained contrast."
         case .evening: "Dusty plum and candlelit blush with strong maroon contrast."
@@ -39,7 +39,7 @@ extension CustomerScreenTheme {
     var backgroundColors: [Color] {
         switch self {
         case .classic:
-            [PocketPixelsTheme.ColorPalette.paper, PocketPixelsTheme.ColorPalette.brandBlush.opacity(0.34), PocketPixelsTheme.ColorPalette.paperWarm.opacity(0.72)]
+            [MadeToKeepTheme.ColorPalette.paper, MadeToKeepTheme.ColorPalette.brandBlush.opacity(0.34), MadeToKeepTheme.ColorPalette.paperWarm.opacity(0.72)]
         case .warmCelebration:
             [Color(red: 1.00, green: 0.97, blue: 0.92), Color(red: 0.99, green: 0.84, blue: 0.74), Color(red: 0.96, green: 0.90, blue: 0.83)]
         case .minimalLight:
@@ -52,15 +52,15 @@ extension CustomerScreenTheme {
     }
 
     var customerTextColor: Color {
-        PocketPixelsTheme.ColorPalette.brandMaroon
+        MadeToKeepTheme.ColorPalette.brandMaroon
     }
 
     var customerSecondaryTextColor: Color {
-        PocketPixelsTheme.ColorPalette.secondaryText
+        MadeToKeepTheme.ColorPalette.secondaryText
     }
 
     var previewSurfaceColor: Color {
-        PocketPixelsTheme.ColorPalette.acrylic.opacity(0.82)
+        MadeToKeepTheme.ColorPalette.acrylic.opacity(0.82)
     }
 }
 

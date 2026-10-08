@@ -457,7 +457,7 @@ private struct RecentSessionRow: View {
                 .frame(width: 112, height: 54)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(summary.eventName ?? "Pocket Pixels Receipt")
+                Text(summary.eventName ?? MadeToKeepBrand.defaultReceiptTitle)
                     .font(.headline)
                     .lineLimit(1)
 
@@ -642,7 +642,7 @@ private struct ArchivedSessionDetailView: View {
 
     private func metadata(_ archive: RecentSessionArchive) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(archive.summary.eventName ?? "Pocket Pixels Receipt")
+            Text(archive.summary.eventName ?? MadeToKeepBrand.defaultReceiptTitle)
                 .font(.title3.weight(.semibold))
             Text(RecentSessionsViewModel.detailDateFormatter.string(from: archive.summary.createdAt))
             Text("\(archive.summary.format.displayName) • \(archive.summary.photoCount) photos • \(Int(archive.summary.estimatedLengthMillimeters.rounded())) mm")

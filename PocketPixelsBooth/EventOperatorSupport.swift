@@ -87,10 +87,10 @@ extension EventOperationalState {
     }
     var diagnosticReport: String {
         var lines = [
-            "POCKET PIXELS EVENT DIAGNOSTICS",
+            "MADE TO KEEP EVENT DIAGNOSTICS",
             "Time: \(Date().formatted())",
             "App uptime: \(uptimeText)",
-            "Event: \(EventProfileStore.load().activeReceiptSnapshot?.eventName ?? "Pocket Pixels default")",
+            "Event: \(EventProfileStore.load().activeReceiptSnapshot?.eventName ?? MadeToKeepBrand.defaultEventName)",
             "Status: \(readinessReport.title)",
             "Sessions this launch: \(sessionsCompletedThisLaunch)",
             "Camera: \(cameraCheckMessage)",

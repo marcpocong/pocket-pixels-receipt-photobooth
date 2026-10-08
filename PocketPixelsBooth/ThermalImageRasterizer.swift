@@ -122,7 +122,7 @@ enum ThermalImageRasterizer {
         var heading = Data()
         heading.append(contentsOf: [0x1B, 0x40])
         heading.append(contentsOf: [0x1B, 0x61, 0x01])
-        heading.appendASCII("POCKET PIXELS\n")
+        heading.appendASCII("MADE TO KEEP STUDIOS\n")
         heading.appendASCII("Photo raster test\n\n")
         return heading
     }

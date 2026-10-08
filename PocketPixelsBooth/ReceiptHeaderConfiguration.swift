@@ -14,7 +14,7 @@ nonisolated enum ReceiptHeaderMode: String, Codable, CaseIterable, Identifiable,
 
     var displayName: String {
         switch self {
-        case .pocketPixelsDefault: "Pocket Pixels"
+        case .pocketPixelsDefault: MadeToKeepBrand.shortName
         case .customEventHeader: "Event Artwork"
         case .none: "None"
         }

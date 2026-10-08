@@ -50,7 +50,7 @@ nonisolated enum PassportTitleSource: String, Codable, CaseIterable, Identifiabl
     var displayName: String {
         switch self {
         case .automatic: "Automatic"
-        case .pocketPixels: "Pocket Passport Branding"
+        case .pocketPixels: "Made to Keep Branding"
         case .eventText: "Event Name"
         case .eventHeaderGraphic: "Event Header Graphic"
         }
@@ -58,7 +58,7 @@ nonisolated enum PassportTitleSource: String, Codable, CaseIterable, Identifiabl
 
     var summary: String {
         switch self {
-        case .automatic: "Uses the event header graphic when one is set, otherwise the event name, otherwise Pocket Passport branding."
+        case .automatic: "Uses the event header graphic when one is set, otherwise the event name, otherwise Made to Keep branding."
         case .pocketPixels: "Always shows the Passport Title below."
         case .eventText: "Shows the event name with the event label underneath."
         case .eventHeaderGraphic: "Shows the custom event header artwork inside the passport card."
@@ -139,7 +139,7 @@ nonisolated struct PassportConfiguration: Codable, Equatable, Sendable {
     }
 
     /// Passport customization belongs to printed-receipt event branding. Standard mode always
-    /// uses the deterministic Pocket Pixels default.
+    /// uses the deterministic Made to Keep default.
     nonisolated static func effective(for eventProfile: EventProfile?) -> PassportConfiguration {
         eventProfile?.activeReceiptSnapshot?.passport.normalized() ?? .default
     }

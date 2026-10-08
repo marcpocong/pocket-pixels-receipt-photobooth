@@ -14,7 +14,7 @@ enum ESCPOSTestReceipt {
         data.append(contentsOf: [0x1B, 0x40])
         data.append(contentsOf: [0x1B, 0x61, 0x01])
         data.append(contentsOf: [0x1B, 0x45, 0x01])
-        data.appendASCII("POCKET PIXELS\n")
+        data.appendASCII("MADE TO KEEP STUDIOS\n")
         data.append(contentsOf: [0x1B, 0x45, 0x00])
         data.appendASCII("Receipt Photobooth\n\n")
 
