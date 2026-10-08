@@ -35,6 +35,7 @@ final class BoothSessionViewModel: ObservableObject {
     @Published var isCameraRunning = false
     @Published var samplePhotoCount = 0
     @Published var selectedBoothFormat: BoothFormat?
+    @Published private(set) var isPrintBatchActive = false
     @Published var selectedPrintCopies = 1 {
         didSet {
             guard printBatchTask == nil,
@@ -122,10 +123,6 @@ final class BoothSessionViewModel: ObservableObject {
 
     var supportedPrintCopies: [Int] {
         Array(Self.printCopyRange)
-    }
-
-    var isPrintBatchActive: Bool {
-        printBatchTask != nil
     }
 
     var printButtonTitle: String {
@@ -690,6 +687,7 @@ final class BoothSessionViewModel: ObservableObject {
         let receiptFingerprint = Self.receiptPayloadFingerprint(for: rasterized)
         currentPrintCopy = 0
         completedPrintCopies = 0
+        isPrintBatchActive = true
         state = .connectingToPrinter
         statusMessage = "Preparing printer..."
         debugLog("[MULTI-COPY] requestedCopies=\(requestedCopies)")
@@ -1104,6 +1102,7 @@ final class BoothSessionViewModel: ObservableObject {
         isCameraRunning = false
         clearCustomerData()
         state = .welcome
+        refreshCustomerExperience()
         statusMessage = "Ready."
         errorMessage = nil
         printerState = .disconnected
@@ -1146,6 +1145,7 @@ final class BoothSessionViewModel: ObservableObject {
         activeTask = nil
         printBatchTask?.cancel()
         printBatchTask = nil
+        isPrintBatchActive = false
         cameraWatchdogTask?.cancel()
         cameraWatchdogTask = nil
         passportPreviewTask?.cancel()
@@ -1187,6 +1187,7 @@ final class BoothSessionViewModel: ObservableObject {
         defer {
             if isCurrentCustomerSession(sessionGeneration) {
                 printBatchTask = nil
+                isPrintBatchActive = false
             }
         }
 

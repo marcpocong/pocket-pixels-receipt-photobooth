@@ -770,7 +770,7 @@ struct BoothSessionView: View {
             let verticalSpacing: CGFloat = isPostPrintFlow ? 12 : 12
             let reservedHeight = receiptReservedScreenHeight(
                 statusQRSize: statusQRSize,
-                isPrinterWorking: viewModel.printerState.isWorking,
+                isPrinterWorking: viewModel.isPrintBatchActive,
                 showsGalleryStatus: isPostPrintFlow
             )
             let receiptMaxWidth = isPostPrintFlow
@@ -983,7 +983,7 @@ struct BoothSessionView: View {
         let controlWidth = min(preferredControlWidth ?? width * 0.58, 420)
 
         return VStack(spacing: 9) {
-            if viewModel.printerState.isWorking {
+            if viewModel.isPrintBatchActive {
                 HStack(spacing: 10) {
                     ProgressView()
                         .tint(MadeToKeepTheme.ColorPalette.maroon)
@@ -995,7 +995,7 @@ struct BoothSessionView: View {
                 .transition(.opacity)
             }
 
-            if !viewModel.printerState.isWorking {
+            if !viewModel.isPrintBatchActive {
                 VStack(spacing: 6) {
                     MadeToKeepLabel(text: "Copies", size: 12, color: MadeToKeepTheme.ColorPalette.mutedInk)
 
@@ -1013,10 +1013,10 @@ struct BoothSessionView: View {
             }
             .buttonStyle(MadeToKeepPrimaryButtonStyle())
             .frame(width: controlWidth)
-            .disabled(viewModel.receiptRasterizedImage == nil || viewModel.printerState.isWorking || viewModel.isPrintBatchActive || viewModel.printerState.requiresPrinterRestart)
+            .disabled(viewModel.receiptRasterizedImage == nil || viewModel.isPrintBatchActive || viewModel.printerState.requiresPrinterRestart)
         }
         .frame(width: width)
-        .animation(MadeToKeepTheme.Motion.quickAnimation, value: viewModel.printerState.isWorking)
+        .animation(MadeToKeepTheme.Motion.quickAnimation, value: viewModel.isPrintBatchActive)
     }
 
     private var receiptCopyStepper: some View {

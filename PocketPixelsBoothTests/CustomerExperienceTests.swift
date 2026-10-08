@@ -72,6 +72,32 @@ final class CustomerExperienceTests: XCTestCase {
         XCTAssertEqual(profile.eventModeSummary, "Guest screens and printed receipts")
     }
 
+    func testReturningToWelcomeReloadsEventModeAfterItWasTurnedOffMidSession() {
+        let originalProfile = EventProfileStore.load()
+        defer { EventProfileStore.save(originalProfile) }
+
+        var activeProfile = EventProfile.pocketPixelsDefault
+        activeProfile.eventName = "Wedding Night"
+        activeProfile.isEnabled = true
+        activeProfile.customerScreenEnabled = true
+        EventProfileStore.save(activeProfile)
+
+        let model = BoothSessionViewModel()
+        model.state = .review
+        XCTAssertTrue(model.customerEventProfile.isEventModeActive)
+
+        var disabledProfile = activeProfile
+        disabledProfile.isEnabled = false
+        disabledProfile.customerScreenEnabled = false
+        EventProfileStore.save(disabledProfile)
+
+        model.resetAfterDone()
+
+        XCTAssertEqual(model.state, .welcome)
+        XCTAssertFalse(model.customerEventProfile.isEventModeActive)
+        XCTAssertNil(model.customerEventProfile.activeCustomerSnapshot)
+    }
+
     func testReceiptOutputSelectionsUseControlledProductionProfiles() {
         XCTAssertEqual(ReceiptBluetoothTransferMode.balanced.transportPolicy, .experimentalBalanced)
         XCTAssertEqual(ReceiptBluetoothTransferMode.compatibility.transportPolicy, .safeIntegrity)
