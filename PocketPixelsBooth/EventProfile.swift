@@ -302,12 +302,22 @@ struct EventSetupView: View {
                 NavigationLink {
                     EventPreviewView(draft: draft)
                 } label: {
-                    Label("Preview Event", systemImage: "eye.fill")
+                    Label(savedProfile.isEventModeActive ? "Preview Event" : "Preview Saved Event", systemImage: "eye.fill")
                         .font(.headline)
                         .foregroundStyle(.tint)
                         .frame(minHeight: 36)
                 }
-                .accessibilityHint("Shows guest screens, the receipt and Photo Pass without printing.")
+                .accessibilityHint(
+                    savedProfile.isEventModeActive
+                        ? "Shows guest screens, the receipt and Photo Pass without printing."
+                        : "Previews saved event settings without turning Event Mode on."
+                )
+
+                if !savedProfile.isEventModeActive {
+                    Text("Previewing saved settings does not turn Event Mode on.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
                 if hasUnsavedChanges {
                     Label("Unsaved changes", systemImage: "pencil.circle.fill")

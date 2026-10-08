@@ -21,11 +21,17 @@ struct OperatorDashboardView: View {
             VStack(spacing: 20) {
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: 20) {
-                        OperatorEventCard(eventName: eventProfile.eventName, isActive: eventProfile.isEventModeActive)
+                        OperatorEventCard(
+                            eventName: eventProfile.isEventModeActive ? eventProfile.eventName : "",
+                            isActive: eventProfile.isEventModeActive
+                        )
                         OperatorReadinessCard(status: status)
                     }
                     VStack(spacing: 20) {
-                        OperatorEventCard(eventName: eventProfile.eventName, isActive: eventProfile.isEventModeActive)
+                        OperatorEventCard(
+                            eventName: eventProfile.isEventModeActive ? eventProfile.eventName : "",
+                            isActive: eventProfile.isEventModeActive
+                        )
                         OperatorReadinessCard(status: status)
                     }
                 }
@@ -116,10 +122,10 @@ private struct OperatorEventCard: View {
                 .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("CURRENT EVENT")
+                Text(isActive ? "CURRENT EVENT" : "EVENT MODE")
                     .font(.caption.bold())
                     .foregroundStyle(.secondary)
-                Text(eventName.isEmpty ? "No event configured" : eventName)
+                Text(eventName.isEmpty ? "No active event" : eventName)
                     .font(.title2.bold())
                     .foregroundStyle(eventName.isEmpty ? .secondary : .primary)
                     .lineLimit(2)
