@@ -10,6 +10,11 @@ import Foundation
 enum BoothSessionState: Equatable {
     case welcome
     case choosingFormat
+    case choosingCopies
+    case choosingPayment
+    case awaitingQRPayment
+    case cashAttestation
+    case paymentReconciliation
     case preparingCamera
     case cameraReady
     case countdown(photoIndex: Int, value: Int)
@@ -32,7 +37,8 @@ enum BoothSessionState: Equatable {
         switch self {
         case .welcome, .choosingFormat, .thankYou:
             false
-        case .preparingCamera, .cameraReady, .countdown, .capturing, .betweenPhotos, .review, .retaking,
+        case .choosingCopies, .choosingPayment, .awaitingQRPayment, .cashAttestation, .paymentReconciliation,
+             .preparingCamera, .cameraReady, .countdown, .capturing, .betweenPhotos, .review, .retaking,
              .passportDetails, .passportSignature, .passportPreview,
              .composingReceipt, .receiptPreview, .connectingToPrinter, .printing, .recoveryRequired, .error:
             true
@@ -43,7 +49,8 @@ enum BoothSessionState: Equatable {
         switch self {
         case .welcome, .choosingFormat, .thankYou:
             false
-        case .preparingCamera, .cameraReady, .countdown, .capturing, .betweenPhotos, .review, .retaking,
+        case .choosingCopies, .choosingPayment, .awaitingQRPayment, .cashAttestation, .paymentReconciliation,
+             .preparingCamera, .cameraReady, .countdown, .capturing, .betweenPhotos, .review, .retaking,
              .passportDetails, .passportSignature, .passportPreview,
              .composingReceipt, .receiptPreview, .connectingToPrinter, .printing, .recoveryRequired, .error:
             true
@@ -56,6 +63,16 @@ enum BoothSessionState: Equatable {
             "Welcome"
         case .choosingFormat:
             "Choose Format"
+        case .choosingCopies:
+            "Choose Copies"
+        case .choosingPayment:
+            "Choose Payment"
+        case .awaitingQRPayment:
+            "QR Ph Payment"
+        case .cashAttestation:
+            "Cash Payment"
+        case .paymentReconciliation:
+            "Checking Payment"
         case .preparingCamera:
             "Preparing Camera"
         case .cameraReady:

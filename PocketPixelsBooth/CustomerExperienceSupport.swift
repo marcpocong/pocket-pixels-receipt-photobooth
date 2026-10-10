@@ -81,9 +81,9 @@ nonisolated enum CustomerIdleResetPolicy {
         }
 
         switch state {
-        case .choosingFormat, .cameraReady, .review, .passportDetails, .passportSignature, .passportPreview, .receiptPreview, .thankYou:
+        case .choosingFormat, .choosingCopies, .choosingPayment, .cashAttestation, .cameraReady, .review, .passportDetails, .passportSignature, .passportPreview, .receiptPreview, .thankYou:
             return true
-        case .welcome, .preparingCamera, .countdown, .capturing, .betweenPhotos, .retaking,
+        case .welcome, .awaitingQRPayment, .paymentReconciliation, .preparingCamera, .countdown, .capturing, .betweenPhotos, .retaking,
              .composingReceipt, .connectingToPrinter, .printing, .recoveryRequired, .error:
             return false
         }

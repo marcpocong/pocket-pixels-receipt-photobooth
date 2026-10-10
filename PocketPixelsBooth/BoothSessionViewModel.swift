@@ -36,6 +36,11 @@ final class BoothSessionViewModel: ObservableObject {
     @Published var isCameraRunning = false
     @Published var samplePhotoCount = 0
     @Published var selectedBoothFormat: BoothFormat?
+    @Published private(set) var commercialEvent = CommercialEventRunStore.load()
+    @Published private(set) var checkoutEntitlement: CheckoutEntitlement?
+    @Published private(set) var paymentOrder: PaymentOrder?
+    @Published private(set) var paymentAttempt: PaymentAttempt?
+    @Published var selectedCheckoutCopies = 1
     @Published private(set) var isPrintBatchActive = false
     @Published var selectedPrintCopies = 1 {
         didSet {
@@ -67,6 +72,8 @@ final class BoothSessionViewModel: ObservableObject {
     private var archiveCommitTask: Task<String?, Never>?
     private var archiveCommitPayload: RecentSessionArchivePayload?
     private let operationalState = EventOperationalState.shared
+    private let paymentsClient = PaymentsConfiguration.bundled.map { PaymentsAPIClient(configuration: $0) }
+    private let offlineCashLedger = try? OfflineCashLedger()
     private var activeTask: Task<Void, Never>?
     private var printBatchTask: Task<Void, Never>?
     private var cameraWatchdogTask: Task<Void, Never>?
@@ -98,7 +105,7 @@ final class BoothSessionViewModel: ObservableObject {
 
     var canBeginPhotos: Bool {
         if case .cameraReady = state {
-            return !isTransitionActive && !isCameraUnavailable
+            return !isTransitionActive && !isCameraUnavailable && checkoutEntitlement?.permitsCapture == true
         }
 
         return false
@@ -123,7 +130,10 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     var supportedPrintCopies: [Int] {
-        Array(Self.printCopyRange)
+        if let checkoutEntitlement, commercialEvent.activePolicy.commercialMode == .payPerPrint {
+            return [checkoutEntitlement.purchasedCopies]
+        }
+        return Array(1...commercialEvent.activePolicy.maxCopies)
     }
 
     var printButtonTitle: String {
@@ -131,11 +141,11 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     var canDecreasePrintCopies: Bool {
-        !isPrintBatchActive && selectedPrintCopies > Self.printCopyRange.lowerBound
+        checkoutEntitlement?.authorizationSource == .privatePrepaid && !isPrintBatchActive && selectedPrintCopies > 1
     }
 
     var canIncreasePrintCopies: Bool {
-        !isPrintBatchActive && selectedPrintCopies < Self.printCopyRange.upperBound
+        checkoutEntitlement?.authorizationSource == .privatePrepaid && commercialEvent.activePolicy.prepaidGuestCopyChoice && !isPrintBatchActive && selectedPrintCopies < commercialEvent.activePolicy.maxCopies
     }
 
     var printProgressText: String {
@@ -198,6 +208,11 @@ final class BoothSessionViewModel: ObservableObject {
 
         operationalState.refresh()
         refreshCustomerExperience()
+        commercialEvent = CommercialEventRunStore.load()
+        guard commercialEvent.acceptsNewSessions, commercialEvent.activePolicy.validationMessage == nil else {
+            state = .error("This event is paused or needs operator setup.")
+            return
+        }
         guard !printerCoordinator.requiresRecovery, !operationalState.hasUnresolvedPrint else {
             state = .recoveryRequired("Printer needs operator attention.")
             return
@@ -217,6 +232,10 @@ final class BoothSessionViewModel: ObservableObject {
         }
 
         selectedBoothFormat = format
+        guard commercialEvent.activePolicy.supports(format) else {
+            state = .error("That format is not available for this event.")
+            return
+        }
         let sessionDate = Date()
         sessionCreatedAt = sessionDate
         sessionIdentifier = ReceiptComposer.makeSessionIdentifier(date: sessionDate)
@@ -243,6 +262,80 @@ final class BoothSessionViewModel: ObservableObject {
             uploadPhase = .failed(error.localizedDescription)
             uploadStatusMessage = "Gallery setup needs operator attention."
         }
+        if commercialEvent.activePolicy.commercialMode == .payPerPrint {
+            selectedCheckoutCopies = min(commercialEvent.activePolicy.defaultCopies, commercialEvent.activePolicy.maxCopies)
+            selectedPrintCopies = selectedCheckoutCopies
+            statusMessage = "Choose how many identical copies to print."
+            state = .choosingCopies
+            return
+        }
+        selectedPrintCopies = commercialEvent.activePolicy.defaultCopies
+        checkoutEntitlement = CheckoutEntitlement(id: "prepaid-\(sessionIdentifier ?? UUID().uuidString)", orderID: nil, eventID: commercialEvent.id, policyRevisionID: commercialEvent.activePolicy.revisionID, sessionID: sessionIdentifier, selectedFormatRawValue: format.rawValue, purchasedCopies: selectedPrintCopies, unitPriceCentavos: 0, totalCentavos: 0, authorizationSource: .privatePrepaid, authorizedAt: Date(), receiptFingerprint: nil)
+        prepareCameraAfterAuthorization()
+    }
+
+    func confirmCopySelection() {
+        guard state == .choosingCopies, selectedBoothFormat != nil, commercialEvent.activePolicy.totalCentavos(for: selectedCheckoutCopies) != nil else { return }
+        selectedPrintCopies = selectedCheckoutCopies
+        state = .choosingPayment
+    }
+
+    func chooseCash() { if state == .choosingPayment && commercialEvent.activePolicy.cashEnabled { state = .cashAttestation } }
+
+    func declareCashPaid() {
+        guard state == .cashAttestation, let format = selectedBoothFormat, let sessionIdentifier else { return }
+        isTransitionActive = true
+        activeTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                if operationalState.networkPathStatus == "Online", let paymentsClient {
+                    let order = try await paymentsClient.createOrder(eventID: commercialEvent.id, format: format, copies: selectedCheckoutCopies, idempotencyKey: "cash-order-\(sessionIdentifier)")
+                    let response = try await paymentsClient.declareCash(orderID: order.id)
+                    guard let entitlement = response.entitlement else { throw PaymentsAPIError.invalidResponse }
+                    paymentOrder = order; checkoutEntitlement = entitlement
+                } else {
+                    guard let offlineCashLedger else { throw PaymentsAPIError.configuration("Offline cash storage is unavailable.") }
+                    let (_, entitlement) = try await offlineCashLedger.declare(event: commercialEvent, sessionID: sessionIdentifier, format: format, copies: selectedCheckoutCopies)
+                    checkoutEntitlement = entitlement
+                }
+                selectedPrintCopies = selectedCheckoutCopies; isTransitionActive = false; prepareCameraAfterAuthorization()
+            } catch { isTransitionActive = false; state = .error(error.localizedDescription) }
+        }
+    }
+
+    func chooseQRPh() {
+        guard state == .choosingPayment, commercialEvent.activePolicy.qrPhEnabled, operationalState.networkPathStatus == "Online", let format = selectedBoothFormat, let sessionIdentifier, let paymentsClient else { return }
+        isTransitionActive = true
+        activeTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let order = try await paymentsClient.createOrder(eventID: commercialEvent.id, format: format, copies: selectedCheckoutCopies, idempotencyKey: "qr-order-\(sessionIdentifier)")
+                paymentOrder = order; paymentAttempt = try await paymentsClient.createQR(orderID: order.id); isTransitionActive = false; state = .awaitingQRPayment
+                pollQRStatus(orderID: order.id)
+            } catch { isTransitionActive = false; state = .error(error.localizedDescription) }
+        }
+    }
+
+    private func pollQRStatus(orderID: String) {
+        guard let paymentsClient else { return }
+        activeTask = Task { [weak self] in
+            guard let self else { return }
+            for _ in 0..<90 {
+                guard !Task.isCancelled else { return }
+                do {
+                    let response = try await paymentsClient.status(orderID: orderID); paymentAttempt = response.attempt
+                    if let entitlement = response.entitlement, entitlement.authorizationSource == .verifiedQRPh { checkoutEntitlement = entitlement; selectedPrintCopies = entitlement.purchasedCopies; prepareCameraAfterAuthorization(); return }
+                    if response.attempt?.state == "PAYMENT_FAILED" || response.attempt?.state == "QR_EXPIRED_CONFIRMED" { state = .error("QR Ph was not confirmed. No session was authorized."); return }
+                } catch { state = .paymentReconciliation; statusMessage = "Payment status is unknown. Reconnecting—do not pay again." }
+                try? await Task.sleep(for: .seconds(2))
+            }
+            state = .paymentReconciliation; statusMessage = "Payment is still being reconciled. Please ask the attendant for help; do not pay again."
+        }
+    }
+
+    private func prepareCameraAfterAuthorization() {
+        guard checkoutEntitlement?.permitsCapture == true else { state = .error("Payment authorization is required before the camera can start."); return }
+        let format = selectedBoothFormat ?? .solo
         isTransitionActive = true
         isCameraUnavailable = false
         errorMessage = nil
@@ -284,7 +377,7 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     func beginPhotoSequence() {
-        guard canBeginPhotos, selectedBoothFormat != nil, committedGallerySession == nil else {
+        guard checkoutEntitlement?.permitsCapture == true, canBeginPhotos, selectedBoothFormat != nil, committedGallerySession == nil else {
             return
         }
 
@@ -686,6 +779,10 @@ final class BoothSessionViewModel: ObservableObject {
         debugLog("[PrintTap] state=\(state) printerState=\(printerState) batchTaskActive=\(printBatchTask != nil) port=\(port.map(String.init) ?? "nil") rasterReady=\(receiptRasterizedImage != nil)")
         guard printBatchTask == nil else {
             debugLog("[PrintTap] ignored: a print batch is already running")
+            return
+        }
+        guard let checkoutEntitlement, checkoutEntitlement.purchasedCopies == selectedPrintCopies else {
+            printerState = .failure("This print quantity is not authorized for the session.")
             return
         }
 
@@ -1178,6 +1275,10 @@ final class BoothSessionViewModel: ObservableObject {
         uploadStatusMessage = "Gallery upload has not started."
         samplePhotoCount = 0
         selectedBoothFormat = nil
+        checkoutEntitlement = nil
+        paymentOrder = nil
+        paymentAttempt = nil
+        selectedCheckoutCopies = 1
         selectedPrintCopies = 1
         currentPrintCopy = 0
         completedPrintCopies = 0

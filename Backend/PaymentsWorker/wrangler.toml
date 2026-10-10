@@ -1,0 +1,38 @@
+name = "pocket-pixels-payments-test"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+PAYMENTS_ENVIRONMENT = "test"
+LIVE_PAYMENTS_ENABLED = "false"
+PAYMONGO_API_BASE = "https://api.paymongo.com/v1"
+QR_EXPIRY_SECONDS = "300"
+RECONCILIATION_BATCH_SIZE = "25"
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "pocket-pixels-payments-test"
+database_id = "REPLACE_WITH_TEST_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+[env.live]
+name = "pocket-pixels-payments-live"
+
+[env.live.vars]
+PAYMENTS_ENVIRONMENT = "live"
+LIVE_PAYMENTS_ENABLED = "false"
+PAYMONGO_API_BASE = "https://api.paymongo.com/v1"
+QR_EXPIRY_SECONDS = "300"
+RECONCILIATION_BATCH_SIZE = "25"
+
+[env.live.triggers]
+crons = []
+
+[[env.live.d1_databases]]
+binding = "DB"
+database_name = "pocket-pixels-payments-live"
+database_id = "REPLACE_WITH_LIVE_D1_DATABASE_ID"
+migrations_dir = "migrations"

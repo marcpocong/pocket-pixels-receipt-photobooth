@@ -155,6 +155,16 @@ struct BoothSessionView: View {
             "welcome"
         case .choosingFormat:
             "choosingFormat"
+        case .choosingCopies:
+            "choosingCopies"
+        case .choosingPayment:
+            "choosingPayment"
+        case .awaitingQRPayment:
+            "awaitingQRPayment"
+        case .cashAttestation:
+            "cashAttestation"
+        case .paymentReconciliation:
+            "paymentReconciliation"
         case .preparingCamera, .cameraReady, .countdown, .capturing, .betweenPhotos, .retaking:
             "camera"
         case .review:
@@ -200,6 +210,16 @@ struct BoothSessionView: View {
             welcomeScreen
         case .choosingFormat:
             formatSelectionScreen
+        case .choosingCopies:
+            CheckoutCopySelectionView(viewModel: viewModel)
+        case .choosingPayment:
+            CheckoutPaymentMethodView(viewModel: viewModel)
+        case .awaitingQRPayment:
+            QRPhPaymentView(viewModel: viewModel)
+        case .cashAttestation:
+            CashAttestationView(viewModel: viewModel)
+        case .paymentReconciliation:
+            PaymentReconciliationView(message: viewModel.statusMessage)
         case .preparingCamera, .cameraReady, .countdown, .capturing, .betweenPhotos, .retaking:
             cameraScreen
         case .review:
@@ -750,9 +770,18 @@ struct BoothSessionView: View {
                 VStack(spacing: 6) {
                     MadeToKeepLabel(text: "Copies", size: 12, color: MadeToKeepTheme.ColorPalette.mutedInk)
 
-                    receiptCopyStepper
-                        .frame(width: min(controlWidth * 0.66, 210))
-                        .disabled(viewModel.isPrintBatchActive || viewModel.printerState.requiresPrinterRestart)
+                    if viewModel.commercialEvent.activePolicy.commercialMode == .payPerPrint {
+                        Text(viewModel.selectedPrintCopies, format: .number)
+                            .font(.title.bold())
+                            .accessibilityLabel("\(viewModel.selectedPrintCopies) purchased copies")
+                        Text("Purchased before the photo session")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        receiptCopyStepper
+                            .frame(width: min(controlWidth * 0.66, 210))
+                            .disabled(viewModel.isPrintBatchActive || viewModel.printerState.requiresPrinterRestart)
+                    }
                 }
             }
 

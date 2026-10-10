@@ -1,0 +1,9 @@
+{
+  "name": "pocket-pixels-payments-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "check": "node --check src/index.js"
+  }
+}

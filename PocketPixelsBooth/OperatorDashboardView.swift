@@ -423,6 +423,8 @@ struct OperatorManageEventView: View {
             Section("Event Activity") {
                 LabeledContent("Sessions this launch", value: "\(operations.sessionsCompletedThisLaunch)")
                 LabeledContent("Waiting galleries", value: "\(operations.pendingUploadCount)")
+                NavigationLink("Commercial Events & Sales") { PaymentsOperatorView() }
+                NavigationLink("Local Commercial Fallback") { CommercialEventSetupView() }
             }
 
             Section("Sessions") {
