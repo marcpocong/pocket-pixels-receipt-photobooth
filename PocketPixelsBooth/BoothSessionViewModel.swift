@@ -83,6 +83,10 @@ final class BoothSessionViewModel: ObservableObject {
     private var offlinePolicyPayload: OfflinePolicyPayload?
     private var supersedeOrderID: String?
     private var checkoutAttempt = 0
+    /// One stable print batch per paid entitlement so a retry continues the same receipt.
+    private var paidPrintBatchID: UUID?
+    private let checkpointStore = CheckoutCheckpointStore.shared
+    private let printOutbox = PrintOutcomeOutbox.shared
     private var activeTask: Task<Void, Never>?
     private var printBatchTask: Task<Void, Never>?
     private var cameraWatchdogTask: Task<Void, Never>?
@@ -222,6 +226,12 @@ final class BoothSessionViewModel: ObservableObject {
             return
         }
 
+        // An operator-armed, single-use recovery continues the original paid checkout.
+        if let resume = PaymentRecoveryCoordinator.shared.takeArmedResume() {
+            beginRecoveredCheckout(resume)
+            return
+        }
+
         guard CommercialPolicySource.load() == .serverManaged else {
             // Private / Prepaid booths never need the Payments Worker and never charge guests.
             let local = CommercialEventRunStore.load()
@@ -287,6 +297,7 @@ final class BoothSessionViewModel: ObservableObject {
                 let response = try await client.activeEvent()
                 try? OfflineGrantStore.recordServerContact(device: response.device, environment: configuration.environment, serverTime: response.serverTime, grant: response.offlinePolicy)
                 syncOfflineCashInBackground(client: client)
+                syncPrintOutboxInBackground()
                 guard let event = response.event, event.lifecycle == .active else {
                     let paused = response.inactiveEvent.map { "\($0.name) is \($0.lifecycle.lowercased())." } ?? "No event is active."
                     return .failure(PolicyResolutionFailure(message: "\(paused) Please see the attendant."))
@@ -343,8 +354,25 @@ final class BoothSessionViewModel: ObservableObject {
             return
         }
         let sessionDate = Date()
+        prepareSessionContext(format: format, sessionIdentifier: ReceiptComposer.makeSessionIdentifier(date: sessionDate), createdAt: sessionDate)
+        if commercialEvent.activePolicy.commercialMode == .payPerPrint {
+            selectedCheckoutCopies = min(commercialEvent.activePolicy.defaultCopies, commercialEvent.activePolicy.maxCopies)
+            selectedPrintCopies = selectedCheckoutCopies
+            statusMessage = "Choose how many identical copies to print."
+            state = .choosingCopies
+            return
+        }
+        selectedPrintCopies = commercialEvent.activePolicy.defaultCopies
+        checkoutEntitlement = CheckoutEntitlement(id: "prepaid-\(sessionIdentifier ?? UUID().uuidString)", orderID: nil, eventID: commercialEvent.id, policyRevisionID: commercialEvent.activePolicy.revisionID, sessionID: sessionIdentifier, selectedFormatRawValue: format.rawValue, purchasedCopies: selectedPrintCopies, unitPriceCentavos: 0, totalCentavos: 0, authorizationSource: .privatePrepaid, authorizedAt: Date(), receiptFingerprint: nil)
+        prepareCameraAfterAuthorization()
+    }
+
+    /// Session-scoped context shared by new sessions and recovered paid checkouts. Never loads a
+    /// previous guest's photos; galleries always get a fresh token.
+    private func prepareSessionContext(format: BoothFormat, sessionIdentifier identifier: String, createdAt sessionDate: Date) {
+        selectedBoothFormat = format
         sessionCreatedAt = sessionDate
-        sessionIdentifier = ReceiptComposer.makeSessionIdentifier(date: sessionDate)
+        sessionIdentifier = identifier
         let savedEventProfile = EventProfileStore.load().normalized()
         customerEventProfile = savedEventProfile
         sessionEventProfile = savedEventProfile.activeReceiptSnapshot
@@ -368,16 +396,6 @@ final class BoothSessionViewModel: ObservableObject {
             uploadPhase = .failed(error.localizedDescription)
             uploadStatusMessage = "Gallery setup needs operator attention."
         }
-        if commercialEvent.activePolicy.commercialMode == .payPerPrint {
-            selectedCheckoutCopies = min(commercialEvent.activePolicy.defaultCopies, commercialEvent.activePolicy.maxCopies)
-            selectedPrintCopies = selectedCheckoutCopies
-            statusMessage = "Choose how many identical copies to print."
-            state = .choosingCopies
-            return
-        }
-        selectedPrintCopies = commercialEvent.activePolicy.defaultCopies
-        checkoutEntitlement = CheckoutEntitlement(id: "prepaid-\(sessionIdentifier ?? UUID().uuidString)", orderID: nil, eventID: commercialEvent.id, policyRevisionID: commercialEvent.activePolicy.revisionID, sessionID: sessionIdentifier, selectedFormatRawValue: format.rawValue, purchasedCopies: selectedPrintCopies, unitPriceCentavos: 0, totalCentavos: 0, authorizationSource: .privatePrepaid, authorizedAt: Date(), receiptFingerprint: nil)
-        prepareCameraAfterAuthorization()
     }
 
     func confirmCopySelection() {
@@ -416,10 +434,12 @@ final class BoothSessionViewModel: ObservableObject {
                 case .serverConfirmed:
                     guard let event = serverEventPolicy, let client = paymentsClient else { throw PaymentsAPIError.configuration("Payments are not set up on this iPad.") }
                     checkoutGuard.serverCheckoutStarted = true
-                    let order = try await createCheckoutOrder(client: client, event: event, format: format, copies: copies, sessionID: sessionIdentifier)
+                    let order = try await createCheckoutOrder(client: client, event: event, format: format, copies: copies, sessionID: sessionIdentifier, method: "CASH_DECLARED")
+                    checkpointStore?.update(id: sessionIdentifier) { $0.phase = .paymentRequested }
                     let response = try await retryingUnknownOutcome { try await client.declareCash(orderID: order.id) }
-                    guard isCurrentCustomerSession(generation) else { return }
                     guard let entitlement = response.entitlement else { throw PaymentsAPIError.invalidResponse }
+                    checkpointStore?.update(id: sessionIdentifier) { $0.phase = .entitled; $0.entitlementID = entitlement.id }
+                    guard isCurrentCustomerSession(generation) else { return }
                     try await claimAndPrepareCamera(entitlement, client: client, sessionID: sessionIdentifier, generation: generation)
                 case .signedOffline:
                     // Offline cash is never a fallback for a session that already reached the server.
@@ -430,7 +450,10 @@ final class BoothSessionViewModel: ObservableObject {
                     guard policy.snapshotId == offlinePolicyPayload?.snapshotId, policy.unitPriceCentavos == commercialEvent.activePolicy.unitPriceCentavos else {
                         throw OfflineCashLedger.LedgerError.invalidPolicy
                     }
-                    let (_, entitlement) = try await offlineCashLedger.declare(policy: policy, sessionID: sessionIdentifier, format: format, copies: copies)
+                    try beginCheckpoint(sessionID: sessionIdentifier, eventID: policy.eventId, policyRevisionID: policy.policyRevisionId,
+                                        unitPriceCentavos: policy.unitPriceCentavos, copies: copies, format: format, method: "OFFLINE_CASH", environment: configuration.environment)
+                    let (record, entitlement) = try await offlineCashLedger.declare(policy: policy, sessionID: sessionIdentifier, format: format, copies: copies)
+                    checkpointStore?.update(id: sessionIdentifier) { $0.phase = .entitled; $0.offlineRecordID = record.id }
                     guard isCurrentCustomerSession(generation) else { return }
                     checkoutEntitlement = entitlement
                     selectedPrintCopies = entitlement.purchasedCopies
@@ -457,9 +480,11 @@ final class BoothSessionViewModel: ObservableObject {
             guard let self else { return }
             do {
                 checkoutGuard.serverCheckoutStarted = true
-                let order = try await createCheckoutOrder(client: client, event: event, format: format, copies: copies, sessionID: sessionIdentifier)
+                let order = try await createCheckoutOrder(client: client, event: event, format: format, copies: copies, sessionID: sessionIdentifier, method: "QRPH")
                 checkoutGuard.qrAttemptUnresolved = true
+                checkpointStore?.update(id: sessionIdentifier) { $0.phase = .paymentRequested }
                 let attempt = try await retryingUnknownOutcome { try await client.createQR(orderID: order.id) }
+                checkpointStore?.update(id: sessionIdentifier) { $0.phase = .awaitingProvider; $0.lastServerState = attempt.state }
                 guard isCurrentCustomerSession(generation) else { return }
                 paymentAttempt = attempt
                 isTransitionActive = false
@@ -491,15 +516,30 @@ final class BoothSessionViewModel: ObservableObject {
         state = .choosingPayment
     }
 
-    private func createCheckoutOrder(client: PaymentsAPIClient, event: ServerEventPolicy, format: BoothFormat, copies: Int, sessionID: String) async throws -> PaymentOrder {
+    private func createCheckoutOrder(client: PaymentsAPIClient, event: ServerEventPolicy, format: BoothFormat, copies: Int, sessionID: String, method: String) async throws -> PaymentOrder {
+        // Durable before the first server mutation: if it cannot be written, nothing is sent.
+        try beginCheckpoint(sessionID: sessionID, eventID: event.id, policyRevisionID: event.policyRevisionId, unitPriceCentavos: event.unitPriceCentavos,
+                            copies: copies, format: format, method: method, environment: client.environment)
         let key = "order-\(sessionID)-\(checkoutAttempt)"
         let supersedes = supersedeOrderID
         let order = try await retryingUnknownOutcome {
             try await client.createOrder(event: event, format: format, copies: copies, checkoutSessionID: sessionID, supersedesOrderID: supersedes, idempotencyKey: key)
         }
+        checkpointStore?.update(id: sessionID) { $0.orderID = order.id; $0.lastServerState = order.state }
         paymentOrder = order
         supersedeOrderID = nil
         return order
+    }
+
+    private func beginCheckpoint(sessionID: String, eventID: String, policyRevisionID: String, unitPriceCentavos: Int, copies: Int, format: BoothFormat, method: String, environment: String) throws {
+        guard let checkpointStore else { throw CheckoutCheckpointStore.StoreError.persistFailed("checkout storage unavailable") }
+        let identity = OfflineGrantStore.load()
+        let now = Date()
+        try checkpointStore.begin(CheckoutCheckpoint(
+            id: sessionID, environment: environment, deviceID: identity?.deviceID, accountID: identity?.accountID,
+            eventID: eventID, policyRevisionID: policyRevisionID, unitPriceCentavos: unitPriceCentavos, copies: copies,
+            format: format.rawValue, method: method, orderID: nil, entitlementID: nil, offlineRecordID: nil,
+            phase: .orderRequested, lastServerState: nil, createdAt: now, updatedAt: now, resolution: nil, resolvedAt: nil))
     }
 
     /// Retries a write whose outcome is unknown with the same idempotent request.
@@ -522,6 +562,7 @@ final class BoothSessionViewModel: ObservableObject {
                 try await client.claim(entitlementID: entitlement.id, sessionID: sessionID, idempotencyKey: "claim-\(entitlement.id)")
             }
         }
+        checkpointStore?.update(id: sessionID) { $0.phase = .claimed; $0.entitlementID = claimed.id; $0.lastServerState = claimed.serverState }
         guard isCurrentCustomerSession(generation) else { return }
         guard claimed.permitsCapture, claimed.sessionID == sessionID else {
             state = .paymentReconciliation
@@ -597,6 +638,9 @@ final class BoothSessionViewModel: ObservableObject {
                     paymentOrder = response.order
                     paymentAttempt = response.attempt
                     if let entitlement = response.entitlement {
+                        if let sessionIdentifier {
+                            checkpointStore?.update(id: sessionIdentifier) { $0.phase = .entitled; $0.entitlementID = entitlement.id; $0.lastServerState = entitlement.serverState }
+                        }
                         guard entitlement.serverState != "REVIEW_REQUIRED" else {
                             state = .paymentReconciliation
                             statusMessage = "Your payment was received but needs attendant review. Please do not pay again."
@@ -630,30 +674,148 @@ final class BoothSessionViewModel: ObservableObject {
         }
     }
 
-    /// Best-effort ledger of physical copy outcomes for server entitlements. It never authorizes
-    /// or triggers printing; failures are logged and the local print flow is unaffected.
-    private func reportPrintOutcome(copy: Int, outcome: String, batchID: UUID, receiptFingerprint: String) {
-        guard let entitlement = checkoutEntitlement, entitlement.orderID != nil, let sessionID = entitlement.sessionID, let client = paymentsClient else { return }
-        let record = PrintProgressRecord(
-            batchID: batchID.uuidString.lowercased(),
-            entitlementId: entitlement.id,
-            sessionId: sessionID,
-            receiptFingerprint: receiptFingerprint,
-            copyIndex: copy,
-            outcome: outcome,
-            transport: printerCoordinator.activeTransport.rawValue,
-            idempotencyKey: "print-\(batchID.uuidString.lowercased())-\(copy)"
-        )
-        Task {
-            do { try await client.recordPrint(record) } catch { debugLog("[PrintLedger] copy=\(copy) not recorded: \(error.localizedDescription)") }
+    /// Paid sessions (server or offline cash) keep one batch so a retry continues the same receipt.
+    private var isPaidSession: Bool {
+        guard let source = checkoutEntitlement?.authorizationSource else { return false }
+        return source != .privatePrepaid
+    }
+
+    /// Runs inside the spooler's fail-closed gate, after the recovery snapshot: the copy intent
+    /// is durable before any byte is sent, or the copy is not sent at all.
+    private func journalCopyIntent(_ envelope: PrintJobEnvelope) throws {
+        guard let printOutbox else {
+            if isPaidSession { throw PrintCheckpointError.persistenceFailed("Print accounting storage is unavailable.") }
+            return
+        }
+        do {
+            try printOutbox.beginCopy(
+                batchID: envelope.batchID.uuidString.lowercased(),
+                sessionID: envelope.sessionIdentifier,
+                entitlementID: checkoutEntitlement?.orderID == nil ? nil : checkoutEntitlement?.id,
+                receiptFingerprint: envelope.payloadFingerprint.lowercased(),
+                copyIndex: envelope.copyIndex,
+                copyCount: envelope.copyCount,
+                transport: printerCoordinator.activeTransport.rawValue
+            )
+        } catch {
+            // Private/prepaid prints keep their existing behaviour: the journal is local evidence only.
+            guard isPaidSession else { return }
+            throw PrintCheckpointError.persistenceFailed(error.localizedDescription)
+        }
+        if let sessionIdentifier, isPaidSession {
+            checkpointStore?.update(id: sessionIdentifier) { $0.phase = .printing }
         }
     }
 
-    private func completeServerEntitlement() {
-        guard let entitlement = checkoutEntitlement, entitlement.orderID != nil, let sessionID = entitlement.sessionID, let client = paymentsClient else { return }
-        Task {
-            do { try await client.complete(entitlementID: entitlement.id, sessionID: sessionID) } catch { debugLog("[PrintLedger] completion not recorded: \(error.localizedDescription)") }
+    /// Records what the transport proved about one copy. Never stronger than the evidence.
+    private func recordCopyOutcome(copy: Int, batchID: UUID, result: Result<Void, Error>) {
+        let state: PrintCopyLocalState
+        switch result {
+        case .success:
+            state = .delivered
+        case .failure(let error) where error is PrintCheckpointError:
+            state = .notStarted
+        case .failure(let error):
+            // Unknown failures are treated as possibly printed.
+            state = ((error as? PrintTransportFailure)?.bytesStarted ?? true) ? .uncertain : .notStarted
         }
+        printOutbox?.finishCopy(batchID: batchID.uuidString.lowercased(), copyIndex: copy, state: state)
+        syncPrintOutboxInBackground()
+    }
+
+    private func finishPaidCheckout(batchID: UUID) {
+        guard let entitlement = checkoutEntitlement, let sessionID = entitlement.sessionID ?? sessionIdentifier, isPaidSession else { return }
+        if entitlement.orderID != nil {
+            printOutbox?.enqueueCompletion(batchID: batchID.uuidString.lowercased(), sessionID: sessionID, entitlementID: entitlement.id)
+        }
+        checkpointStore?.update(id: sessionID) { $0.phase = .completed }
+        checkpointStore?.resolve(id: sessionID, reason: "completed")
+        syncPrintOutboxInBackground()
+    }
+
+    private func syncPrintOutboxInBackground() {
+        Task { await PaymentRecoveryCoordinator.shared.syncOutbox() }
+    }
+
+    /// Continues an operator-armed interrupted paid checkout: same checkout session, same paid
+    /// quantity and format, fresh photos. Never charges, never rebinds to another session.
+    private func beginRecoveredCheckout(_ item: CheckoutRecoveryItem) {
+        let checkpoint = item.checkpoint
+        guard let format = BoothFormat(rawValue: checkpoint.format) else {
+            state = .error("This paid session could not be resumed. Please see the attendant.")
+            return
+        }
+        cancelTasks()
+        clearCustomerData()
+        beginNewCustomerSession()
+        let generation = customerSessionGeneration
+        isTransitionActive = true
+        statusMessage = "Resuming your paid session…"
+        state = .paymentReconciliation
+        activeTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let entitlement = try await recoveredEntitlement(for: checkpoint)
+                guard isCurrentCustomerSession(generation) else { return }
+                commercialEvent = CommercialEventRun(
+                    id: checkpoint.eventID, name: commercialEvent.name, venue: "", lifecycle: .active,
+                    activePolicy: PaymentPolicySnapshot(revisionID: checkpoint.policyRevisionID, revision: 0, commercialMode: .payPerPrint,
+                                                        unitPriceCentavos: checkpoint.unitPriceCentavos, maxCopies: checkpoint.copies, defaultCopies: checkpoint.copies,
+                                                        cashEnabled: false, qrPhEnabled: false, prepaidGuestCopyChoice: false,
+                                                        supportedFormatRawValues: [checkpoint.format], offlineValidUntil: nil),
+                    startsAt: nil, endsAt: nil, updatedAt: Date())
+                prepareSessionContext(format: format, sessionIdentifier: checkpoint.id, createdAt: Date())
+                checkoutGuard = CheckoutGuard(serverCheckoutStarted: true, qrAttemptUnresolved: false, newCheckoutAllowed: false)
+                checkoutEntitlement = entitlement
+                selectedCheckoutCopies = entitlement.purchasedCopies
+                selectedPrintCopies = entitlement.purchasedCopies
+                checkpointStore?.update(id: checkpoint.id) { $0.phase = .claimed }
+                isTransitionActive = false
+                prepareCameraAfterAuthorization()
+            } catch {
+                guard isCurrentCustomerSession(generation) else { return }
+                isTransitionActive = false
+                state = .error("This paid session could not be resumed. Please see the attendant.")
+                Task { await PaymentRecoveryCoordinator.shared.refresh() }
+            }
+        }
+    }
+
+    private func recoveredEntitlement(for checkpoint: CheckoutCheckpoint) async throws -> CheckoutEntitlement {
+        // Paper may already exist for this checkout: only the operator's paper inspection decides.
+        guard printOutbox?.copiesThatMayHavePrinted(sessionID: checkpoint.id).isEmpty ?? false else {
+            throw PaymentsAPIError.configuration("Printing had already started for this checkout.")
+        }
+        if checkpoint.method == "OFFLINE_CASH" {
+            guard let ledger = offlineCashLedger,
+                  let record = await ledger.allRecords().first(where: { $0.sessionID == checkpoint.id }) else {
+                throw OfflineCashLedger.LedgerError.invalidPolicy
+            }
+            policyAuthority = .signedOffline(snapshotID: record.snapshotID ?? "", expiresAt: record.declaredAt)
+            return CheckoutEntitlement(id: "offline-cash-\(record.id)", orderID: nil, eventID: record.eventID, policyRevisionID: record.policyRevisionID,
+                                       sessionID: checkpoint.id, selectedFormatRawValue: record.format, purchasedCopies: record.copies,
+                                       unitPriceCentavos: record.unitPriceCentavos, totalCentavos: record.totalCentavos,
+                                       authorizationSource: .localUnsyncedCashDeclared, authorizedAt: record.declaredAt, receiptFingerprint: nil)
+        }
+        guard let configuration = PaymentsConfiguration.current(), configuration.environment == checkpoint.environment else {
+            throw PaymentsAPIError.configuration("Payments are not set up for this checkout's environment.")
+        }
+        let client = PaymentsAPIClient(configuration: configuration)
+        let server = try await client.checkoutRecovery(checkoutSessionID: checkpoint.id)
+        let classification = CheckoutRecoveryClassifier.classify(checkpoint: checkpoint, server: server, localPrintStarted: false, offlineRecordExists: false)
+        guard classification.isResumable,
+              let open = server.orders.first(where: { $0.order.id == server.openOrderId }),
+              let entitlement = open.entitlement,
+              entitlement.purchasedCopies == checkpoint.copies else {
+            throw PaymentsAPIError.configuration("This checkout is not resumable.")
+        }
+        let claimed = try await retryingUnknownOutcome {
+            try await client.claim(entitlementID: entitlement.id, sessionID: checkpoint.id, idempotencyKey: "claim-\(entitlement.id)", recovery: true)
+        }
+        guard claimed.sessionID == checkpoint.id, claimed.permitsCapture else { throw PaymentsAPIError.invalidResponse }
+        policyAuthority = .serverConfirmed(fetchedAt: Date())
+        paymentOrder = open.order
+        return claimed
     }
 
     private func prepareCameraAfterAuthorization() {
@@ -1138,10 +1300,24 @@ final class BoothSessionViewModel: ObservableObject {
 
         let requestedCopies = selectedPrintCopies
         let sessionGeneration = customerSessionGeneration
-        let printBatchID = UUID()
+        let printBatchID: UUID
+        var firstCopy = 1
+        if isPaidSession {
+            // A paid retry continues the same batch from the first copy that cannot have printed.
+            let batch = paidPrintBatchID ?? UUID()
+            paidPrintBatchID = batch
+            printBatchID = batch
+            guard let next = printOutbox?.nextCopyToPrint(batchID: batch.uuidString.lowercased(), copyCount: requestedCopies) else {
+                printerState = .failure("All paid copies were already sent. Please see the attendant.")
+                return
+            }
+            firstCopy = next
+        } else {
+            printBatchID = UUID()
+        }
         let receiptFingerprint = Self.receiptPayloadFingerprint(for: rasterized)
-        currentPrintCopy = 0
-        completedPrintCopies = 0
+        currentPrintCopy = firstCopy - 1
+        completedPrintCopies = firstCopy - 1
         isPrintBatchActive = true
         state = .connectingToPrinter
         statusMessage = "Preparing printer..."
@@ -1151,6 +1327,7 @@ final class BoothSessionViewModel: ObservableObject {
         printBatchTask = Task { [weak self] in
             guard let self else { return }
             await self.printReceiptCopies(
+                firstCopy: firstCopy,
                 requestedCopies: requestedCopies,
                 rasterizedImage: rasterized,
                 wifiHost: host,
@@ -1604,6 +1781,7 @@ final class BoothSessionViewModel: ObservableObject {
         checkoutGuard = CheckoutGuard()
         supersedeOrderID = nil
         checkoutAttempt = 0
+        paidPrintBatchID = nil
         paymentNotice = nil
         selectedCheckoutCopies = 1
         selectedPrintCopies = 1
@@ -1653,6 +1831,7 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     private func printReceiptCopies(
+        firstCopy: Int = 1,
         requestedCopies: Int,
         rasterizedImage: ThermalRasterizedImage,
         wifiHost: String,
@@ -1679,7 +1858,7 @@ final class BoothSessionViewModel: ObservableObject {
             return
         }
 
-        for copy in 1...requestedCopies {
+        for copy in firstCopy...requestedCopies {
             guard !Task.isCancelled else { return }
             guard isCurrentCustomerSession(sessionGeneration) else {
                 debugLog("[Session] stopped stale print batch")
@@ -1714,7 +1893,7 @@ final class BoothSessionViewModel: ObservableObject {
             switch result {
             case .success:
                 completedPrintCopies = copy
-                reportPrintOutcome(copy: copy, outcome: "CONFIRMED", batchID: printBatchID, receiptFingerprint: receiptFingerprint)
+                recordCopyOutcome(copy: copy, batchID: printBatchID, result: result)
                 debugLog("[MULTI-COPY] completedCopy=\(copy)")
                 debugLog("[PrintBatch \(printBatchID)] copy=\(copy)/\(requestedCopies) complete fingerprint=\(receiptFingerprint) elapsed=\(Self.formatDuration(completionReportedAt.timeIntervalSince(copyRequestedAt)))")
                 if copy < requestedCopies {
@@ -1722,7 +1901,7 @@ final class BoothSessionViewModel: ObservableObject {
                 }
             case .failure(let error) where error is PrintCheckpointError:
                 // Fail-closed checkpoint: no bytes for this copy, no recovery lock, data kept.
-                reportPrintOutcome(copy: copy, outcome: "NOT_STARTED", batchID: printBatchID, receiptFingerprint: receiptFingerprint)
+                recordCopyOutcome(copy: copy, batchID: printBatchID, result: result)
                 let message = "\(completedPrintCopies) of \(requestedCopies) copies printed. \(error.localizedDescription)"
                 state = .receiptPreview
                 printerState = .failure(message)
@@ -1730,8 +1909,8 @@ final class BoothSessionViewModel: ObservableObject {
                 return
             case .failure:
                 let message = "\(completedPrintCopies) of \(requestedCopies) copies printed. Printer needs attention before continuing."
-                // Physical output is ambiguous; recorded as UNCERTAIN and never auto-reprinted.
-                reportPrintOutcome(copy: copy, outcome: "UNCERTAIN", batchID: printBatchID, receiptFingerprint: receiptFingerprint)
+                // Bytes may have reached the printer: recorded as UNCERTAIN and never auto-reprinted.
+                recordCopyOutcome(copy: copy, batchID: printBatchID, result: result)
                 debugLog("[MULTI-COPY] failedCopy=\(copy) completedCopies=\(completedPrintCopies) requestedCopies=\(requestedCopies)")
                 debugLog("[PrintBatch] copy \(copy) failed after \(Self.formatDuration(completionReportedAt.timeIntervalSince(copyRequestedAt))). completed=\(completedPrintCopies) requested=\(requestedCopies). stopping batch.")
                 if printerState.requiresPrinterRestart {
@@ -1745,7 +1924,7 @@ final class BoothSessionViewModel: ObservableObject {
             }
         }
 
-        completeServerEntitlement()
+        finishPaidCheckout(batchID: printBatchID)
         showThankYou()
     }
 
@@ -1771,13 +1950,14 @@ final class BoothSessionViewModel: ObservableObject {
                 copyCount: requestedCopies,
                 batchID: batchID ?? UUID(),
                 transportPolicy: printerCoordinator.productionReceiptTransportPolicy,
-                prePrintCheckpoint: PrePrintCheckpointGate { [weak self] _ in
+                prePrintCheckpoint: PrePrintCheckpointGate { [weak self] envelope in
                     // Runs inside the print spooler immediately before transport. A stale session
                     // or a failed durable write blocks the job before any bytes are sent.
                     guard let self, self.isCurrentCustomerSession(sessionGeneration) else {
                         throw PrintCheckpointError.persistenceFailed("Customer session changed before printing.")
                     }
                     try self.persistCriticalRecoverySnapshot(stage: .printStatusUnknown)
+                    try self.journalCopyIntent(envelope)
                 }
             ) { [weak self] printerState in
                 guard let self else { return }

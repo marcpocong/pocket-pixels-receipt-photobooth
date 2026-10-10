@@ -156,6 +156,7 @@ actor PaymentsAPIClient {
     private struct ClaimBody: Encodable {
         let sessionId: String
         let idempotencyKey: String
+        let recovery: Bool?
     }
 
     private let configuration: PaymentsConfiguration
@@ -230,11 +231,16 @@ actor PaymentsAPIClient {
         try await send("v1/orders/\(orderID)/status", method: "GET", body: Optional<EmptyBody>.none)
     }
 
-    func claim(entitlementID: String, sessionID: String, idempotencyKey: String) async throws -> CheckoutEntitlement {
+    func claim(entitlementID: String, sessionID: String, idempotencyKey: String, recovery: Bool = false) async throws -> CheckoutEntitlement {
         struct Response: Decodable { let entitlement: CheckoutEntitlement }
-        let body = ClaimBody(sessionId: sessionID, idempotencyKey: idempotencyKey)
+        let body = ClaimBody(sessionId: sessionID, idempotencyKey: idempotencyKey, recovery: recovery ? true : nil)
         let response: Response = try await send("v1/entitlements/\(entitlementID)/claim", method: "POST", body: body, idempotencyKey: idempotencyKey)
         return response.entitlement
+    }
+
+    /// Device-scoped, read-only view of every order this iPad created for one checkout session.
+    func checkoutRecovery(checkoutSessionID: String) async throws -> CheckoutRecoveryResponse {
+        try await send("v1/checkouts/\(checkoutSessionID)", method: "GET", body: Optional<EmptyBody>.none)
     }
 
     func complete(entitlementID: String, sessionID: String) async throws {
@@ -552,6 +558,8 @@ nonisolated struct ServerPolicyDraft: Equatable, Sendable {
             return "Enter a price in pesos with at most two decimals, from ₱0.01 to ₱100,000.00."
         }
         guard qrPhEnabled || cashEnabled else { return "Enable QR Ph, Cash, or both." }
+        // PayMongo's QR Ph minimum is PHP 1.00 per transaction; one copy must meet it.
+        if qrPhEnabled && centavos < 100 { return "QR Ph needs a price of at least ₱1.00 per copy." }
         if offlineCashEnabled {
             guard cashEnabled else { return "Offline cash requires Cash to be enabled." }
             guard offlineValidUntil > now else { return "The offline cash limit must be in the future." }

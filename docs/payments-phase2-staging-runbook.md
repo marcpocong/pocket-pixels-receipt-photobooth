@@ -1,6 +1,6 @@
 # Test-mode staging runbook
 
-> **Superseded by `docs/payments-phase3-test-staging-runbook.md`.** Phase 3 added the explicit `[env.test]` these commands assumed (Phase 2's config had none, so `--env test` failed).
+> **Superseded by `docs/payments-test-staging-runbook.md`.** Phase 3 added the explicit `[env.test]` these commands assumed (Phase 2's config had none, so `--env test` failed).
 
 No command below was executed against Cloudflare or PayMongo.
 

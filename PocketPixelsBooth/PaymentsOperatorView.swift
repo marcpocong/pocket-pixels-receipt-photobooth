@@ -16,6 +16,9 @@ struct PaymentsOperatorView: View {
     @State private var localPending = 0
     @State private var localConflicts: [OfflineCashRecord] = []
     @State private var ledgerFault: String?
+    @ObservedObject private var recovery = PaymentRecoveryCoordinator.shared
+    @State private var resumeCandidate: CheckoutRecoveryItem?
+    @State private var dismissCandidate: CheckoutRecoveryItem?
 
     private var client: PaymentsAPIClient? { configuration.map { PaymentsAPIClient(configuration: $0) } }
 
@@ -40,6 +43,8 @@ struct PaymentsOperatorView: View {
                     .disabled(isLoading || client == nil)
             }
 
+            recoverySection
+            printAccountingSection
             pairingSection
             offlineLedgerSection
 
@@ -77,6 +82,94 @@ struct PaymentsOperatorView: View {
         if let revision = event.activeRevision { parts.append("revision \(revision)") } else { parts.append("not published") }
         if let price = event.activeUnitPriceCentavos, price > 0 { parts.append("\(PHPPriceFormatter.string(centavos: price))/copy") }
         return parts.joined(separator: " · ")
+    }
+
+    @ViewBuilder private var recoverySection: some View {
+        Section {
+            if let fault = CheckoutCheckpointStore.shared?.integrityFault {
+                Label(fault, systemImage: "exclamationmark.octagon").foregroundStyle(.red)
+                Button("Acknowledge (server orders remain listed)", role: .destructive) {
+                    try? CheckoutCheckpointStore.shared?.acknowledgeIntegrityFault()
+                    Task { await recovery.refresh() }
+                }
+            }
+            if recovery.items.isEmpty {
+                Text("No interrupted paid checkouts on this iPad.").foregroundStyle(.secondary)
+            }
+            ForEach(recovery.items) { item in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("\(item.checkpoint.copies)× \(item.checkpoint.format) · \(PHPPriceFormatter.string(centavos: item.checkpoint.unitPriceCentavos * item.checkpoint.copies))")
+                        .font(.headline)
+                    Text(item.classification.operatorDescription).font(.subheadline)
+                    Text("Checkout \(item.checkpoint.id) · started \(item.checkpoint.createdAt.formatted(date: .omitted, time: .shortened))")
+                        .font(.caption).foregroundStyle(.secondary)
+                    HStack {
+                        if item.classification.isResumable {
+                            Button("Resume for This Guest") { resumeCandidate = item }
+                                .buttonStyle(.borderedProminent)
+                        }
+                        Button("Dismiss on iPad") { dismissCandidate = item }
+                            .buttonStyle(.bordered)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            if let armed = recovery.armedResume {
+                Label("Armed: the next tap on the welcome screen continues checkout \(armed.item.id) (until \(armed.expiresAt.formatted(date: .omitted, time: .shortened))).", systemImage: "hand.tap")
+                Button("Cancel Armed Resume") { recovery.disarmResume() }
+            }
+            Button("Check Interrupted Checkouts") { Task { await recovery.refresh() } }
+            if !recovery.lastRefreshMessage.isEmpty {
+                Text(recovery.lastRefreshMessage).font(.footnote).foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Interrupted Paid Checkouts")
+        } footer: {
+            Text("Resume only with the paying guest present. Resuming continues the original checkout with the same copies; it never charges again or shows earlier photos. Dismissing hides the item here only — the paid entitlement stays outstanding on the server.")
+        }
+        .confirmationDialog("Resume this paid session?", isPresented: Binding(get: { resumeCandidate != nil }, set: { if !$0 { resumeCandidate = nil } }), titleVisibility: .visible, presenting: resumeCandidate) { item in
+            Button("Resume for Guest Present Now") {
+                if !recovery.armResume(item) { status = "This checkout is no longer resumable." }
+                resumeCandidate = nil
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { item in
+            Text("Close the operator screen and ask the guest to tap the welcome screen within 5 minutes. \(item.classification.operatorDescription)")
+        }
+        .confirmationDialog("Dismiss this checkout on this iPad?", isPresented: Binding(get: { dismissCandidate != nil }, set: { if !$0 { dismissCandidate = nil } }), titleVisibility: .visible, presenting: dismissCandidate) { item in
+            Button("Dismiss — Guest Left or Resolved Elsewhere", role: .destructive) {
+                recovery.dismiss(item, reason: "guest_left_or_resolved")
+                dismissCandidate = nil
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("The reason is kept in this iPad's records. Server orders, payments and entitlements are not changed.")
+        }
+    }
+
+    @ViewBuilder private var printAccountingSection: some View {
+        Section {
+            let summary = recovery.outboxSummary
+            LabeledContent("Reports waiting to send", value: "\(summary.pending)")
+            LabeledContent("Copies of uncertain output", value: "\(summary.uncertain)")
+            if summary.awaiting > 0 { LabeledContent("Copies in flight", value: "\(summary.awaiting)") }
+            if summary.conflicts > 0 {
+                Label("\(summary.conflicts) print record(s) refused by the server — review below", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                ForEach(PrintOutcomeOutbox.shared?.conflicts ?? []) { entry in
+                    Text("Copy \(entry.copyIndex) of \(entry.copyCount) · \(entry.localState.rawValue) · \(entry.lastError ?? "refused")")
+                        .font(.caption)
+                }
+            }
+            if let fault = PrintOutcomeOutbox.shared?.integrityFault {
+                Label(fault, systemImage: "exclamationmark.octagon").foregroundStyle(.red)
+            }
+            Button("Send Print Reports Now") { Task { await recovery.syncOutbox() } }
+                .disabled(client == nil)
+        } header: {
+            Text("Print Accounting")
+        } footer: {
+            Text("Delivered means the printer accepted every byte; paper is not sensor-verified. Uncertain copies need a paper check in Fix Printer; nothing is reprinted automatically.")
+        }
     }
 
     @ViewBuilder private var pairingSection: some View {
@@ -123,6 +216,7 @@ struct PaymentsOperatorView: View {
     private func refresh() async {
         configuration = PaymentsConfiguration.current()
         await loadLedger()
+        await recovery.refresh()
         guard let client else { status = "Payments API is not configured."; return }
         isLoading = true
         defer { isLoading = false }

@@ -12,6 +12,7 @@ import UIKit
 struct BoothSessionView: View {
     @StateObject private var viewModel = BoothSessionViewModel()
     @ObservedObject private var operations = EventOperationalState.shared
+    @ObservedObject private var paymentRecovery = PaymentRecoveryCoordinator.shared
     private let onAdminAccessRequested: (() -> Void)?
     private let showsReceiptDebugTools: Bool
     @State private var selectedSamplePhotoItem: PhotosPickerItem?
@@ -243,6 +244,27 @@ struct BoothSessionView: View {
         }
     }
 
+    /// Neutral guest notice: reveals nothing about any previous guest or payment.
+    @ViewBuilder private var interruptedCheckoutNotice: some View {
+        if paymentRecovery.armedResume != nil {
+            noticeText("Your attendant has prepared your session. Tap to continue.")
+        } else if paymentRecovery.items.contains(where: { !$0.classification.isTerminal }) {
+            noticeText("Was your session interrupted? Please ask our attendant.")
+        }
+    }
+
+    private func noticeText(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 15, weight: .medium, design: .serif))
+            .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+            .background(.thinMaterial, in: Capsule())
+            .padding(.top, 54)
+            .accessibilityAddTraits(.isStaticText)
+    }
+
     private var welcomeScreen: some View {
         MadeToKeepWelcomeView(
             eventIdentity: welcomeEventIdentity,
@@ -252,6 +274,7 @@ struct BoothSessionView: View {
             onStart: { viewModel.startSession() },
             onAdminLongPress: onAdminAccessRequested == nil ? nil : { openAdminAccess() }
         )
+        .overlay(alignment: .top) { interruptedCheckoutNotice }
 #if DEBUG
         .overlay(alignment: .bottom) {
             if onAdminAccessRequested != nil {

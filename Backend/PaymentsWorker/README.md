@@ -16,7 +16,8 @@ Standalone authenticated Payments/Event API. It must not share a route, D1 datab
 - **Late payments reconcile to the original order.** Paid evidence on a superseded order creates a `REVIEW_REQUIRED` entitlement and `LATE_PAID_REVIEW` order (refund review), never a usable entitlement or a second charge.
 - **Verified paid is final.** `PAID_VERIFIED` cannot regress (trigger). Webhook `payment.paid` is HMAC-verified *and* the Payment Intent is re-read server-to-server before authorizing. Webhook IDs are claimed before processing; failed processing is retryable.
 - **Entitlements** require matching payment evidence (trigger), bind to one session at first claim, and are consumed at completion.
-- **Prints**: one receipt fingerprint and one batch per entitlement; each copy outcome is recorded once (append-only). The API never authorizes a reprint.
+- **Prints**: one receipt fingerprint and one batch per entitlement; each copy outcome is recorded once (append-only). `DELIVERED` = every byte accepted by the transport (paper not sensor-verified); `UNCERTAIN` = may or may not have printed; `CONFIRMED` is reserved for physically verified paper. The API never authorizes a reprint.
+- **Crash recovery**: `GET /v1/checkouts/:checkoutSessionId` returns this device's orders for one checkout session (read-only, no QR image) so an interrupted iPad resumes the original checkout instead of charging again; recovery claims pass `recovery: true` and are audited.
 - **Snapshots**: published policy revisions and order price snapshots are immutable. Lifecycle transitions are enforced by trigger; at most one `ACTIVE` event per account.
 
 ## Offline cash policy signing
@@ -39,6 +40,7 @@ Authenticated routes use `Authorization: Bearer <per-device-token>`; D1 stores o
 - `GET /v1/events/active`
 - `POST /v1/orders` (requires `Idempotency-Key`, `checkoutSessionId`, `expectedPolicyRevisionId`, `expectedUnitPriceCentavos`; optional `supersedesOrderId`)
 - `POST /v1/orders/:id/qrph`, `POST /v1/orders/:id/cash-declaration`, `GET /v1/orders/:id/status` (includes `newCheckout.allowed`)
+- `GET /v1/checkouts/:checkoutSessionId` (device-scoped recovery view)
 - `POST /v1/entitlements/:id/claim`, `POST /v1/entitlements/:id/complete`
 - `POST /v1/prints/:batchId/progress`
 - `POST /v1/sync/offline-cash`
@@ -64,4 +66,4 @@ Route tests run the real Worker module in `workerd` against a freshly migrated l
 
 ## Staging
 
-See `docs/payments-phase3-test-staging-runbook.md`. Nothing in this repository deploys, migrates remote D1, or sets secrets automatically.
+See `docs/payments-test-staging-runbook.md`. Nothing in this repository deploys, migrates remote D1, or sets secrets automatically.

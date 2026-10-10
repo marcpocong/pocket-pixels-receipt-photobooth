@@ -1,5 +1,7 @@
 # Payments Phase 3 — test report
 
+> **Correction (Phase 4, 2026-10-11):** the simulator used for the Phase 3 Swift runs (`20AA9450…`, iPad Pro 11-inch M5) runs the **iOS 26.5** runtime, not iOS 27.0 as stated below; the SDK was iOS 27.0. The `.iso8601` observation was therefore made on iOS 26.5. Phase 4 runs on both 26.5 and 27.0 (`payments-phase4-test-report.md`).
+
 Executed 2026-10-10 (Asia/Manila) in an isolated no-hardlink clone of `codex/madetokeep-payments-phase2` (base PR head `39401e3`), on macOS with Xcode 27.0 (27A266a), iOS 27.0 SDK/simulator runtime, Node 24.16.0, Wrangler 4.149.0, Miniflare 5.20261006.1-alpha (workerd 1.20261006.1). No Cloudflare, D1-remote, PayMongo or live endpoint was contacted; nothing was deployed.
 
 ## Summary

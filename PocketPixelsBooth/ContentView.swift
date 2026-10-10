@@ -18,6 +18,8 @@ struct ContentView: View {
             .onAppear {
                 setIdleTimerDisabled(true)
                 operationalState.start()
+                // Settles any print left in flight by a crash and reconciles interrupted checkouts.
+                PaymentRecoveryCoordinator.shared.launch()
             }
             .onDisappear {
                 setIdleTimerDisabled(false)
@@ -27,6 +29,7 @@ struct ContentView: View {
                 if newPhase != .active { operationalState.invalidateCameraCheck() }
                 if newPhase == .active {
                     operationalState.handleScenePhaseActive()
+                    Task { await PaymentRecoveryCoordinator.shared.refresh() }
                 }
             }
     }

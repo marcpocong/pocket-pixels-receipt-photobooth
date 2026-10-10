@@ -1,5 +1,7 @@
 # Payments Phase 3 — TEST-mode staging runbook
 
+> **Superseded by `docs/payments-test-staging-runbook.md`** (adds migration 0005, recovery and print-accounting checks, PayMongo doc reconciliation).
+
 > **Status: prepare-only.** No command in this document was executed against Cloudflare or PayMongo during Phase 3. Running any remote step requires separate, explicit owner authorization. **Production go-live is NOT AUTHORIZED.**
 
 ## Environment model (why `--env test`)

@@ -42,12 +42,13 @@ export async function route(request, env) {
     await enforceRateLimit(env, principal.id, request.method === "GET" ? 240 : 60);
     if (request.method === "GET" && path === "/v1/device") return deviceInfo(env, principal);
 
-    if (/^\/v1\/(events\/active|orders|entitlements|prints|sync)(\/|$)/.test(path)) requireScope(principal, "booth");
+    if (/^\/v1\/(events\/active|orders|checkouts|entitlements|prints|sync)(\/|$)/.test(path)) requireScope(principal, "booth");
     if (request.method === "GET" && path === "/v1/events/active") return getActiveEvent(env, principal);
     if (request.method === "POST" && path === "/v1/orders") return createOrder(request, env, principal);
     if (request.method === "POST" && /^\/v1\/orders\/[^/]+\/qrph$/.test(path)) return createQR(request, env, principal, segment(path, 3));
     if (request.method === "POST" && /^\/v1\/orders\/[^/]+\/cash-declaration$/.test(path)) return declareCash(request, env, principal, segment(path, 3));
     if (request.method === "GET" && /^\/v1\/orders\/[^/]+\/status$/.test(path)) return orderStatus(env, principal, segment(path, 3));
+    if (request.method === "GET" && /^\/v1\/checkouts\/[^/]+$/.test(path)) return checkoutRecovery(env, principal, segment(path, 3));
     if (request.method === "POST" && /^\/v1\/entitlements\/[^/]+\/claim$/.test(path)) return claimEntitlement(request, env, principal, segment(path, 3));
     if (request.method === "POST" && /^\/v1\/entitlements\/[^/]+\/complete$/.test(path)) return completeEntitlement(request, env, principal, segment(path, 3));
     if (request.method === "POST" && /^\/v1\/prints\/[^/]+\/progress$/.test(path)) return recordPrint(request, env, principal, segment(path, 3));
@@ -501,6 +502,29 @@ async function orderStatus(env, principal, orderId) {
 
 // MARK: - Booth: entitlements and prints
 
+/// Read-only recovery view of every order this device created for one checkout session, so an
+/// iPad that crashed before receiving an order ID can find the original checkout instead of
+/// charging again. Device-scoped: another iPad or account sees nothing.
+async function checkoutRecovery(env, principal, checkoutSessionId) {
+    const orders = (await env.DB.prepare("SELECT * FROM orders WHERE device_id=? AND checkout_session_id=? ORDER BY created_at, id LIMIT 20")
+        .bind(principal.id, checkoutSessionId).all()).results || [];
+    const views = [];
+    for (const order of orders) {
+        const attempt = await env.DB.prepare("SELECT * FROM payment_attempts WHERE order_id=?").bind(order.id).first();
+        const entitlement = await entitlementRow(env, "e.order_id=?", order.id);
+        const prints = entitlement
+            ? await env.DB.prepare(`SELECT po.copy_index, po.outcome FROM print_copy_outcomes po JOIN print_batches pb ON pb.id=po.batch_id WHERE pb.entitlement_id=? ORDER BY po.copy_index`).bind(entitlement.id).all()
+            : null;
+        views.push({
+            // Recovery never needs the QR image; omit it so the response carries the minimum data.
+            order: publicOrder(order), attempt: attempt && { ...publicAttempt(attempt), qrImageDataURL: null }, entitlement: entitlement && publicEntitlement(entitlement),
+            newCheckout: supersedeDecision(order, attempt), printOutcomes: prints?.results || []
+        });
+    }
+    const open = orders.find(order => !order.superseded_by_order_id);
+    return json({ checkoutSessionId, orders: views, openOrderId: open?.id || null, serverTime: now() });
+}
+
 async function claimEntitlement(request, env, principal, entitlementId) {
     const body = await bodyJSON(request);
     if (!ID_PATTERN.test(body.sessionId || "") || !ID_PATTERN.test(body.idempotencyKey || "")) throw http(422, "Session and idempotency key are required.", "invalid_claim");
@@ -515,7 +539,12 @@ async function claimEntitlement(request, env, principal, entitlementId) {
             .bind(timestamp, before.order_id, entitlementId, body.sessionId)
     ]);
     const claimed = await entitlementRow(env, "e.id=?", entitlementId);
-    if (claimed.state === "IN_SESSION" && claimed.session_id === body.sessionId) return json({ entitlement: publicEntitlement(claimed), replay: before.state === "IN_SESSION" });
+    if (claimed.state === "IN_SESSION" && claimed.session_id === body.sessionId) {
+        if (body.recovery === true) {
+            await audit(env, principal.id, claimed.entitlement_event_id, claimed.order_id, "ENTITLEMENT_RECOVERY_CLAIM", { entitlementId, sessionId: body.sessionId, previousState: before.state });
+        }
+        return json({ entitlement: publicEntitlement(claimed), replay: before.state === "IN_SESSION" });
+    }
     if (claimed.state === "CONSUMED") throw http(409, "This entitlement was already used.", "entitlement_consumed");
     if (claimed.state === "REVIEW_REQUIRED") throw http(409, "This payment needs operator review before it can be used.", "entitlement_under_review");
     if (claimed.session_id && claimed.session_id !== body.sessionId) throw http(409, "Entitlement is already bound to another session.", "entitlement_session_mismatch");
@@ -545,7 +574,8 @@ async function recordPrint(request, env, principal, batchId) {
     if (index < 1 || index > entitlement.purchased_copies) throw http(422, "Copy is not authorized.", "copy_not_authorized");
     const fingerprint = String(body.receiptFingerprint || "").toLowerCase();
     if (!/^[a-f0-9]{64}$/.test(fingerprint)) throw http(422, "Receipt fingerprint is required.", "invalid_fingerprint");
-    const outcome = ["CONFIRMED", "UNCERTAIN", "FAILED", "NOT_STARTED"].includes(body.outcome) ? body.outcome : null;
+    // DELIVERED: every byte accepted by the transport and the physical handoff elapsed; paper not verified.
+    const outcome = ["CONFIRMED", "DELIVERED", "UNCERTAIN", "FAILED", "NOT_STARTED"].includes(body.outcome) ? body.outcome : null;
     if (!outcome) throw http(422, "Valid print outcome is required.", "invalid_outcome");
 
     const prior = await env.DB.prepare("SELECT * FROM print_copy_outcomes WHERE idempotency_key=?").bind(body.idempotencyKey).first();
@@ -836,6 +866,7 @@ async function eventSummary(request, env, principal, eventId) {
     const purchased = await env.DB.prepare(`SELECT COALESCE(SUM(en.purchased_copies),0) purchased FROM entitlements en JOIN orders o ON o.id=en.order_id WHERE o.event_id=? AND en.state<>'REVIEW_REQUIRED'`).bind(eventId).first();
     const outcomes = await env.DB.prepare(`SELECT
       COALESCE(SUM(CASE WHEN po.outcome='CONFIRMED' THEN 1 ELSE 0 END),0) confirmed,
+      COALESCE(SUM(CASE WHEN po.outcome='DELIVERED' THEN 1 ELSE 0 END),0) delivered,
       COALESCE(SUM(CASE WHEN po.outcome='UNCERTAIN' THEN 1 ELSE 0 END),0) uncertain,
       COALESCE(SUM(CASE WHEN po.outcome='FAILED' THEN 1 ELSE 0 END),0) failed,
       COALESCE(SUM(CASE WHEN po.outcome='NOT_STARTED' THEN 1 ELSE 0 END),0) not_started
@@ -850,7 +881,7 @@ async function eventSummary(request, env, principal, eventId) {
         qrSessions: row.qr_sessions, cashSessions: row.cash_sessions, unresolvedQRCount: row.qr_unresolved,
         lateQRPaidReviewCentavos: row.qr_late_review_centavos, reviewOrderCount: row.review_orders, offlineConflictCount: offlineConflicts,
         physicalCashCount: count ? { countedCentavos: count.counted_centavos, provisional: !!count.provisional || pendingLocal > 0 || offlineConflicts > 0, createdAt: count.created_at, varianceCentavos: count.counted_centavos - selfReported } : null,
-        printUtilization: { purchased: purchased.purchased, confirmed: outcomes.confirmed, uncertain: outcomes.uncertain, failed: outcomes.failed, notStarted: outcomes.not_started },
+        printUtilization: { purchased: purchased.purchased, confirmed: outcomes.confirmed, delivered: outcomes.delivered, uncertain: outcomes.uncertain, failed: outcomes.failed, notStarted: outcomes.not_started },
         settlementStatus: "NOT_REPORTED",
         unsupported: { refunds: "UNSUPPORTED", complimentaryPrints: "UNSUPPORTED", processorFees: "UNSUPPORTED", payouts: "UNSUPPORTED" },
         categories: ["QRPH_VERIFIED_TEST", "QRPH_VERIFIED_LIVE", "CASH_SELF_REPORTED", "CASH_LOCAL_UNSYNCED", "CASH_PHYSICALLY_COUNTED", "VARIANCE"]
@@ -862,6 +893,7 @@ const ORDER_FILTERS = {
     unresolved: "a.method='QRPH' AND a.state IN ('CREATING','AWAITING_PAYMENT','UNKNOWN_RECONCILIATION','MANUAL_REVIEW')",
     review: "o.state IN ('LATE_PAID_REVIEW','MANUAL_REVIEW')",
     cash: "a.method='CASH_DECLARED'",
+    outstanding: "en.state IN ('AUTHORIZED','IN_SESSION')",
     qr: "a.method='QRPH'"
 };
 
@@ -961,6 +993,8 @@ export function validatePolicy(value = {}) {
     const supportedFormats = Array.isArray(value.supportedFormats) ? [...new Set(value.supportedFormats)] : [];
     if (!commercialMode || maxCopies < 1 || maxCopies > 10 || defaultCopies < 1 || defaultCopies > maxCopies || supportedFormats.length === 0 || supportedFormats.some(item => !ALLOWED_FORMATS.has(item))) throw http(422, "Invalid event policy.", "invalid_policy");
     if (commercialMode === "PAY_PER_PRINT" && (unitPriceCentavos <= 0 || unitPriceCentavos > MAX_UNIT_PRICE_CENTAVOS || (!value.cashEnabled && !value.qrphEnabled))) throw http(422, "Paid events require a price from ₱0.01 to ₱100,000.00 and a payment method.", "invalid_policy");
+    // PayMongo QR Ph minimum is PHP 1.00 (docs.paymongo.com, QR Ph). One copy must meet it.
+    if (commercialMode === "PAY_PER_PRINT" && value.qrphEnabled && unitPriceCentavos < 100) throw http(422, "QR Ph requires a price of at least ₱1.00 per copy.", "invalid_policy");
     if (commercialMode === "PRIVATE_PREPAID" && (unitPriceCentavos !== 0 || value.cashEnabled || value.qrphEnabled)) throw http(422, "Prepaid events must not set a guest price or payment method.", "invalid_policy");
     const features = value.features && typeof value.features === "object" && !Array.isArray(value.features) ? value.features : {};
     if (JSON.stringify(features).length > 4096) throw http(422, "Feature settings are too large.", "invalid_policy");

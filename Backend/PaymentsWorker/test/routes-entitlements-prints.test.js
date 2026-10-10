@@ -100,7 +100,7 @@ test("print records: one receipt per entitlement, copy bounds, replay and confli
     assert.deepEqual(rows, [{ copy_index: 1, outcome: "CONFIRMED" }, { copy_index: 2, outcome: "UNCERTAIN" }]);
     await assert.rejects(h.db.prepare("UPDATE print_copy_outcomes SET outcome='CONFIRMED' WHERE copy_index=2").run(), /print_outcome_append_only/);
     const summary = await h.request("GET", `/v1/admin/events/${event.eventId}/summary`, { token: TOKENS.operator });
-    assert.deepEqual(summary.json.printUtilization, { purchased: 2, confirmed: 1, uncertain: 1, failed: 0, notStarted: 0 });
+    assert.deepEqual(summary.json.printUtilization, { purchased: 2, confirmed: 1, delivered: 0, uncertain: 1, failed: 0, notStarted: 0 });
 }));
 
 test("concurrent first print records with different fingerprints bind exactly one receipt", () => withHarness(async h => {

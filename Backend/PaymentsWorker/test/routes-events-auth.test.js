@@ -111,7 +111,7 @@ for (const [name, patch] of [
     ["decimal string", { unitPriceCentavos: "50.50" }], ["boolean price", { unitPriceCentavos: true }], ["over maximum", { unitPriceCentavos: 10_000_001 }],
     ["no payment method", { cashEnabled: false, qrphEnabled: false }], ["default above max", { defaultCopies: 6 }], ["max over 10", { maxCopies: 11 }],
     ["unknown format", { supportedFormats: ["poster"] }], ["no formats", { supportedFormats: [] }], ["bad offline date", { offlineValidUntil: "tomorrow" }],
-    ["prepaid with price", { commercialMode: "PRIVATE_PREPAID", unitPriceCentavos: 100 }], ["oversized features", { features: { x: "y".repeat(5000) } }]
+    ["prepaid with price", { commercialMode: "PRIVATE_PREPAID", unitPriceCentavos: 100 }], ["QR Ph below PayMongo minimum", { unitPriceCentavos: 99 }], ["oversized features", { features: { x: "y".repeat(5000) } }]
 ]) {
     test(`invalid commercial policy is rejected: ${name}`, () => withHarness(async h => {
         const created = await op(h, "POST", "/v1/admin/events", { body: { name: "Validation" } });
