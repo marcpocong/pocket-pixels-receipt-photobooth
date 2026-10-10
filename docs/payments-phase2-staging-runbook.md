@@ -1,5 +1,7 @@
 # Test-mode staging runbook
 
+> **Superseded by `docs/payments-phase3-test-staging-runbook.md`.** Phase 3 added the explicit `[env.test]` these commands assumed (Phase 2's config had none, so `--env test` failed).
+
 No command below was executed against Cloudflare or PayMongo.
 
 1. Create a dedicated test D1 database; review then apply migrations with `wrangler d1 migrations apply <TEST_DB> --env test`.

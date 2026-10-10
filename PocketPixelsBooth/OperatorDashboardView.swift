@@ -424,7 +424,7 @@ struct OperatorManageEventView: View {
                 LabeledContent("Sessions this launch", value: "\(operations.sessionsCompletedThisLaunch)")
                 LabeledContent("Waiting galleries", value: "\(operations.pendingUploadCount)")
                 NavigationLink("Commercial Events & Sales") { PaymentsOperatorView() }
-                NavigationLink("Local Commercial Fallback") { CommercialEventSetupView() }
+                NavigationLink("Booth Charging Mode") { CommercialEventSetupView() }
             }
 
             Section("Sessions") {

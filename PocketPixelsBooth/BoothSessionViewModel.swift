@@ -41,6 +41,10 @@ final class BoothSessionViewModel: ObservableObject {
     @Published private(set) var paymentOrder: PaymentOrder?
     @Published private(set) var paymentAttempt: PaymentAttempt?
     @Published var selectedCheckoutCopies = 1
+    @Published private(set) var policyAuthority: PolicyAuthority = .localPrepaid
+    @Published private(set) var checkoutGuard = CheckoutGuard()
+    /// Guest-visible checkout notice (for example an updated price or a failed QR start).
+    @Published private(set) var paymentNotice: String?
     @Published private(set) var isPrintBatchActive = false
     @Published var selectedPrintCopies = 1 {
         didSet {
@@ -72,8 +76,13 @@ final class BoothSessionViewModel: ObservableObject {
     private var archiveCommitTask: Task<String?, Never>?
     private var archiveCommitPayload: RecentSessionArchivePayload?
     private let operationalState = EventOperationalState.shared
-    private let paymentsClient = PaymentsConfiguration.bundled.map { PaymentsAPIClient(configuration: $0) }
-    private let offlineCashLedger = try? OfflineCashLedger()
+    /// Resolved per use so pairing changes take effect without relaunching.
+    private var paymentsClient: PaymentsAPIClient? { PaymentsConfiguration.current().map { PaymentsAPIClient(configuration: $0) } }
+    private let offlineCashLedger = OfflineCashLedger.shared
+    private var serverEventPolicy: ServerEventPolicy?
+    private var offlinePolicyPayload: OfflinePolicyPayload?
+    private var supersedeOrderID: String?
+    private var checkoutAttempt = 0
     private var activeTask: Task<Void, Never>?
     private var printBatchTask: Task<Void, Never>?
     private var cameraWatchdogTask: Task<Void, Never>?
@@ -208,22 +217,119 @@ final class BoothSessionViewModel: ObservableObject {
 
         operationalState.refresh()
         refreshCustomerExperience()
-        commercialEvent = CommercialEventRunStore.load()
-        guard commercialEvent.acceptsNewSessions, commercialEvent.activePolicy.validationMessage == nil else {
-            state = .error("This event is paused or needs operator setup.")
-            return
-        }
         guard !printerCoordinator.requiresRecovery, !operationalState.hasUnresolvedPrint else {
             state = .recoveryRequired("Printer needs operator attention.")
             return
         }
+
+        guard CommercialPolicySource.load() == .serverManaged else {
+            // Private / Prepaid booths never need the Payments Worker and never charge guests.
+            let local = CommercialEventRunStore.load()
+            guard local.activePolicy.commercialMode == .privatePrepaid,
+                  local.acceptsNewSessions, local.activePolicy.validationMessage == nil else {
+                state = .error("This event is paused or needs operator setup.")
+                return
+            }
+            beginChoosingFormat(run: local, authority: .localPrepaid, serverPolicy: nil, offlinePolicy: nil)
+            return
+        }
+
+        isTransitionActive = true
+        statusMessage = "Checking today's event…"
+        activeTask = Task { [weak self] in
+            guard let self else { return }
+            let resolution = await resolveServerPolicy()
+            isTransitionActive = false
+            guard state == .welcome, !Task.isCancelled else { return }
+            switch resolution {
+            case .success(let resolved):
+                beginChoosingFormat(run: resolved.run, authority: resolved.authority, serverPolicy: resolved.serverPolicy, offlinePolicy: resolved.offlinePolicy)
+            case .failure(let failure):
+                state = .error(failure.message)
+            }
+        }
+    }
+
+    private func beginChoosingFormat(run: CommercialEventRun, authority: PolicyAuthority, serverPolicy: ServerEventPolicy?, offlinePolicy: OfflinePolicyPayload?) {
         cancelTasks()
         clearCustomerData()
+        commercialEvent = run
+        policyAuthority = authority
+        serverEventPolicy = serverPolicy
+        offlinePolicyPayload = offlinePolicy
         customerPrintPhotoProfile = CustomerReceiptPhotoToneStore.load().profile
         beginNewCustomerSession()
         errorMessage = nil
         statusMessage = "Choose your format."
         state = .choosingFormat
+    }
+
+    private struct ResolvedPolicy {
+        let run: CommercialEventRun
+        let authority: PolicyAuthority
+        let serverPolicy: ServerEventPolicy?
+        let offlinePolicy: OfflinePolicyPayload?
+    }
+
+    private struct PolicyResolutionFailure: Error {
+        let message: String
+    }
+
+    /// Server-managed booths take price, methods and lifecycle only from the server. Without a
+    /// server answer, only a verified signed offline policy may authorize (cash only).
+    private func resolveServerPolicy() async -> Result<ResolvedPolicy, PolicyResolutionFailure> {
+        guard let configuration = PaymentsConfiguration.current() else {
+            return .failure(PolicyResolutionFailure(message: "Payments are not set up on this iPad. Please see the attendant."))
+        }
+        let client = PaymentsAPIClient(configuration: configuration)
+        if operationalState.networkPathStatus == "Online" {
+            do {
+                let response = try await client.activeEvent()
+                try? OfflineGrantStore.recordServerContact(device: response.device, environment: configuration.environment, serverTime: response.serverTime, grant: response.offlinePolicy)
+                syncOfflineCashInBackground(client: client)
+                guard let event = response.event, event.lifecycle == .active else {
+                    let paused = response.inactiveEvent.map { "\($0.name) is \($0.lifecycle.lowercased())." } ?? "No event is active."
+                    return .failure(PolicyResolutionFailure(message: "\(paused) Please see the attendant."))
+                }
+                let run = event.eventRun
+                guard run.activePolicy.validationMessage == nil else {
+                    return .failure(PolicyResolutionFailure(message: "This event needs operator setup."))
+                }
+                return .success(ResolvedPolicy(run: run, authority: .serverConfirmed(fetchedAt: Date()), serverPolicy: event, offlinePolicy: nil))
+            } catch let error as PaymentsAPIError where error == .unavailable || error == .outcomeUnknown {
+                // Unreachable server: fall through to a signed offline policy, if any.
+            } catch {
+                return .failure(PolicyResolutionFailure(message: error.localizedDescription))
+            }
+        }
+        do {
+            let payload = try verifiedOfflinePolicy(environment: configuration.environment)
+            return .success(ResolvedPolicy(run: payload.eventRun, authority: .signedOffline(snapshotID: payload.snapshotId, expiresAt: payload.expiresAt), serverPolicy: nil, offlinePolicy: payload))
+        } catch {
+            return .failure(PolicyResolutionFailure(message: "This iPad is offline and cannot start a paid session. \(error.localizedDescription)"))
+        }
+    }
+
+    private func verifiedOfflinePolicy(environment: String, now: Date = Date()) throws -> OfflinePolicyPayload {
+        guard let record = OfflineGrantStore.load(), let grant = record.grant, record.environment == environment else {
+            throw OfflinePolicyError.malformed
+        }
+        return try OfflinePolicyVerifier.bundled(environment: environment)
+            .verify(grant, deviceID: record.deviceID, accountID: record.accountID, now: now, trustedClockFloor: record.trustedClockFloor)
+    }
+
+    private func syncOfflineCashInBackground(client: PaymentsAPIClient) {
+        guard let offlineCashLedger else { return }
+        Task {
+            do {
+                let result = try await offlineCashLedger.syncPending(using: client)
+                if result.synced + result.conflicts > 0 {
+                    debugLog("[OfflineCash] synced=\(result.synced) conflicts=\(result.conflicts)")
+                }
+            } catch {
+                debugLog("[OfflineCash] sync deferred: \(error.localizedDescription)")
+            }
+        }
     }
 
     func selectBoothFormat(_ format: BoothFormat) {
@@ -277,59 +383,276 @@ final class BoothSessionViewModel: ObservableObject {
     func confirmCopySelection() {
         guard state == .choosingCopies, selectedBoothFormat != nil, commercialEvent.activePolicy.totalCentavos(for: selectedCheckoutCopies) != nil else { return }
         selectedPrintCopies = selectedCheckoutCopies
+        paymentNotice = nil
         state = .choosingPayment
     }
 
-    func chooseCash() { if state == .choosingPayment && commercialEvent.activePolicy.cashEnabled { state = .cashAttestation } }
+    var canChooseCash: Bool {
+        checkoutGuard.canChooseCash(authority: policyAuthority, cashEnabled: commercialEvent.activePolicy.cashEnabled)
+    }
+
+    var canChooseQRPh: Bool {
+        checkoutGuard.canChooseQR(authority: policyAuthority, qrEnabled: commercialEvent.activePolicy.qrPhEnabled, online: operationalState.networkPathStatus == "Online")
+    }
+
+    var canStartNewCheckout: Bool {
+        state == .paymentReconciliation && checkoutGuard.canStartNewCheckout() && paymentOrder != nil
+    }
+
+    func chooseCash() {
+        guard state == .choosingPayment, canChooseCash else { return }
+        state = .cashAttestation
+    }
 
     func declareCashPaid() {
-        guard state == .cashAttestation, let format = selectedBoothFormat, let sessionIdentifier else { return }
+        guard state == .cashAttestation, !isTransitionActive, let format = selectedBoothFormat, let sessionIdentifier, canChooseCash else { return }
         isTransitionActive = true
+        let generation = customerSessionGeneration
+        let copies = selectedCheckoutCopies
         activeTask = Task { [weak self] in
             guard let self else { return }
             do {
-                if operationalState.networkPathStatus == "Online", let paymentsClient {
-                    let order = try await paymentsClient.createOrder(eventID: commercialEvent.id, format: format, copies: selectedCheckoutCopies, idempotencyKey: "cash-order-\(sessionIdentifier)")
-                    let response = try await paymentsClient.declareCash(orderID: order.id)
+                switch policyAuthority {
+                case .serverConfirmed:
+                    guard let event = serverEventPolicy, let client = paymentsClient else { throw PaymentsAPIError.configuration("Payments are not set up on this iPad.") }
+                    checkoutGuard.serverCheckoutStarted = true
+                    let order = try await createCheckoutOrder(client: client, event: event, format: format, copies: copies, sessionID: sessionIdentifier)
+                    let response = try await retryingUnknownOutcome { try await client.declareCash(orderID: order.id) }
+                    guard isCurrentCustomerSession(generation) else { return }
                     guard let entitlement = response.entitlement else { throw PaymentsAPIError.invalidResponse }
-                    paymentOrder = order; checkoutEntitlement = entitlement
-                } else {
-                    guard let offlineCashLedger else { throw PaymentsAPIError.configuration("Offline cash storage is unavailable.") }
-                    let (_, entitlement) = try await offlineCashLedger.declare(event: commercialEvent, sessionID: sessionIdentifier, format: format, copies: selectedCheckoutCopies)
+                    try await claimAndPrepareCamera(entitlement, client: client, sessionID: sessionIdentifier, generation: generation)
+                case .signedOffline:
+                    // Offline cash is never a fallback for a session that already reached the server.
+                    guard !checkoutGuard.serverCheckoutStarted, let offlineCashLedger, let configuration = PaymentsConfiguration.current() else {
+                        throw OfflineCashLedger.LedgerError.invalidPolicy
+                    }
+                    let policy = try verifiedOfflinePolicy(environment: configuration.environment)
+                    guard policy.snapshotId == offlinePolicyPayload?.snapshotId, policy.unitPriceCentavos == commercialEvent.activePolicy.unitPriceCentavos else {
+                        throw OfflineCashLedger.LedgerError.invalidPolicy
+                    }
+                    let (_, entitlement) = try await offlineCashLedger.declare(policy: policy, sessionID: sessionIdentifier, format: format, copies: copies)
+                    guard isCurrentCustomerSession(generation) else { return }
                     checkoutEntitlement = entitlement
+                    selectedPrintCopies = entitlement.purchasedCopies
+                    isTransitionActive = false
+                    prepareCameraAfterAuthorization()
+                case .localPrepaid:
+                    isTransitionActive = false
                 }
-                selectedPrintCopies = selectedCheckoutCopies; isTransitionActive = false; prepareCameraAfterAuthorization()
-            } catch { isTransitionActive = false; state = .error(error.localizedDescription) }
+            } catch {
+                guard isCurrentCustomerSession(generation) else { return }
+                isTransitionActive = false
+                handleCheckoutError(error)
+            }
         }
     }
 
     func chooseQRPh() {
-        guard state == .choosingPayment, commercialEvent.activePolicy.qrPhEnabled, operationalState.networkPathStatus == "Online", let format = selectedBoothFormat, let sessionIdentifier, let paymentsClient else { return }
+        guard state == .choosingPayment, !isTransitionActive, canChooseQRPh, let format = selectedBoothFormat, let sessionIdentifier,
+              let event = serverEventPolicy, let client = paymentsClient else { return }
         isTransitionActive = true
+        let generation = customerSessionGeneration
+        let copies = selectedCheckoutCopies
         activeTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let order = try await paymentsClient.createOrder(eventID: commercialEvent.id, format: format, copies: selectedCheckoutCopies, idempotencyKey: "qr-order-\(sessionIdentifier)")
-                paymentOrder = order; paymentAttempt = try await paymentsClient.createQR(orderID: order.id); isTransitionActive = false; state = .awaitingQRPayment
-                pollQRStatus(orderID: order.id)
-            } catch { isTransitionActive = false; state = .error(error.localizedDescription) }
+                checkoutGuard.serverCheckoutStarted = true
+                let order = try await createCheckoutOrder(client: client, event: event, format: format, copies: copies, sessionID: sessionIdentifier)
+                checkoutGuard.qrAttemptUnresolved = true
+                let attempt = try await retryingUnknownOutcome { try await client.createQR(orderID: order.id) }
+                guard isCurrentCustomerSession(generation) else { return }
+                paymentAttempt = attempt
+                isTransitionActive = false
+                state = .awaitingQRPayment
+                pollQRStatus(orderID: order.id, generation: generation)
+            } catch {
+                guard isCurrentCustomerSession(generation) else { return }
+                isTransitionActive = false
+                handleCheckoutError(error)
+            }
         }
     }
 
-    private func pollQRStatus(orderID: String) {
-        guard let paymentsClient else { return }
+    /// A deliberate new checkout after the server confirmed the previous QR cannot be paid.
+    func startNewCheckout() {
+        guard canStartNewCheckout, let order = paymentOrder else { return }
+        activeTask?.cancel()
+        activeTask = nil
+        prepareSupersedingCheckout(of: order.id, notice: "The previous QR code was not paid. Please choose how to pay.")
+    }
+
+    private func prepareSupersedingCheckout(of orderID: String, notice: String) {
+        supersedeOrderID = orderID
+        checkoutAttempt += 1
+        paymentOrder = nil
+        paymentAttempt = nil
+        checkoutGuard = CheckoutGuard(serverCheckoutStarted: true, qrAttemptUnresolved: false, newCheckoutAllowed: false)
+        paymentNotice = notice
+        state = .choosingPayment
+    }
+
+    private func createCheckoutOrder(client: PaymentsAPIClient, event: ServerEventPolicy, format: BoothFormat, copies: Int, sessionID: String) async throws -> PaymentOrder {
+        let key = "order-\(sessionID)-\(checkoutAttempt)"
+        let supersedes = supersedeOrderID
+        let order = try await retryingUnknownOutcome {
+            try await client.createOrder(event: event, format: format, copies: copies, checkoutSessionID: sessionID, supersedesOrderID: supersedes, idempotencyKey: key)
+        }
+        paymentOrder = order
+        supersedeOrderID = nil
+        return order
+    }
+
+    /// Retries a write whose outcome is unknown with the same idempotent request.
+    private func retryingUnknownOutcome<Value>(_ operation: () async throws -> Value) async throws -> Value {
+        var attempt = 0
+        while true {
+            do {
+                return try await operation()
+            } catch let error as PaymentsAPIError where error == .outcomeUnknown && attempt < 2 {
+                attempt += 1
+                try await Task.sleep(for: .seconds(Double(attempt) * 1.5))
+            }
+        }
+    }
+
+    private func claimAndPrepareCamera(_ entitlement: CheckoutEntitlement, client: PaymentsAPIClient, sessionID: String, generation: Int) async throws {
+        var claimed = entitlement
+        if entitlement.requiresServerClaim {
+            claimed = try await retryingUnknownOutcome {
+                try await client.claim(entitlementID: entitlement.id, sessionID: sessionID, idempotencyKey: "claim-\(entitlement.id)")
+            }
+        }
+        guard isCurrentCustomerSession(generation) else { return }
+        guard claimed.permitsCapture, claimed.sessionID == sessionID else {
+            state = .paymentReconciliation
+            statusMessage = "This payment needs attendant review before the session can start."
+            return
+        }
+        checkoutEntitlement = claimed
+        selectedPrintCopies = claimed.purchasedCopies
+        checkoutGuard.qrAttemptUnresolved = false
+        isTransitionActive = false
+        prepareCameraAfterAuthorization()
+    }
+
+    private func handleCheckoutError(_ error: Error) {
+        guard let apiError = error as? PaymentsAPIError else {
+            state = .error(error.localizedDescription)
+            return
+        }
+        switch apiError.code {
+        case "policy_changed":
+            struct Details: Decodable { let currentPolicy: ServerEventPolicy }
+            guard let policy = apiError.decodeDetails(Details.self)?.currentPolicy, policy.lifecycle == .active else {
+                state = .error("This event changed. Please see the attendant.")
+                return
+            }
+            serverEventPolicy = policy
+            commercialEvent = policy.eventRun
+            selectedCheckoutCopies = min(max(1, selectedCheckoutCopies), policy.maxCopies)
+            selectedPrintCopies = selectedCheckoutCopies
+            paymentNotice = "The price was updated to \(PHPPriceFormatter.string(centavos: policy.unitPriceCentavos)) per copy. Please review before paying."
+            state = .choosingCopies
+        case "qr_create_failed":
+            guard let order = paymentOrder else { state = .error(apiError.localizedDescription); return }
+            prepareSupersedingCheckout(of: order.id, notice: "QR Ph could not be started. No payment was taken. Please choose how to pay.")
+        case "checkout_already_open", "previous_payment_unresolved":
+            struct Details: Decodable { let openOrder: PaymentOrder? }
+            if let open = apiError.decodeDetails(Details.self)?.openOrder { paymentOrder = open }
+            enterReconciliation("A payment for this session is still being checked. Please do not pay again.")
+        case "payment_method_locked", "qr_status_unknown", "qr_creation_in_progress":
+            checkoutGuard.qrAttemptUnresolved = paymentOrder != nil
+            enterReconciliation("Checking your QR Ph payment. Please do not pay again or pay another way.")
+        case "event_not_active", "cash_disabled", "qrph_disabled":
+            state = .error("\(apiError.localizedDescription) Please see the attendant.")
+        default:
+            if apiError == .outcomeUnknown {
+                enterReconciliation("We could not confirm your payment request. Please see the attendant and do not pay again.")
+            } else {
+                state = .error(apiError.localizedDescription)
+            }
+        }
+    }
+
+    private func enterReconciliation(_ message: String) {
+        state = .paymentReconciliation
+        statusMessage = message
+        if let order = paymentOrder {
+            pollQRStatus(orderID: order.id, generation: customerSessionGeneration)
+        }
+    }
+
+    /// Polls the server until the QR is verified paid (claim and start), conclusively unpaid (a
+    /// deliberate new checkout becomes available), or the session is reset. Never falls back to cash.
+    private func pollQRStatus(orderID: String, generation: Int) {
+        guard let client = paymentsClient else { return }
         activeTask = Task { [weak self] in
             guard let self else { return }
-            for _ in 0..<90 {
-                guard !Task.isCancelled else { return }
+            var iteration = 0
+            while !Task.isCancelled, isCurrentCustomerSession(generation) {
+                iteration += 1
                 do {
-                    let response = try await paymentsClient.status(orderID: orderID); paymentAttempt = response.attempt
-                    if let entitlement = response.entitlement, entitlement.authorizationSource == .verifiedQRPh { checkoutEntitlement = entitlement; selectedPrintCopies = entitlement.purchasedCopies; prepareCameraAfterAuthorization(); return }
-                    if response.attempt?.state == "PAYMENT_FAILED" || response.attempt?.state == "QR_EXPIRED_CONFIRMED" { state = .error("QR Ph was not confirmed. No session was authorized."); return }
-                } catch { state = .paymentReconciliation; statusMessage = "Payment status is unknown. Reconnecting—do not pay again." }
-                try? await Task.sleep(for: .seconds(2))
+                    let response = try await client.status(orderID: orderID)
+                    guard isCurrentCustomerSession(generation), !Task.isCancelled else { return }
+                    paymentOrder = response.order
+                    paymentAttempt = response.attempt
+                    if let entitlement = response.entitlement {
+                        guard entitlement.serverState != "REVIEW_REQUIRED" else {
+                            state = .paymentReconciliation
+                            statusMessage = "Your payment was received but needs attendant review. Please do not pay again."
+                            return
+                        }
+                        if let sessionIdentifier {
+                            try await claimAndPrepareCamera(entitlement, client: client, sessionID: sessionIdentifier, generation: generation)
+                        }
+                        return
+                    }
+                    if let attempt = response.attempt, attempt.isConclusivelyUnpaid {
+                        checkoutGuard.qrAttemptUnresolved = false
+                        checkoutGuard.newCheckoutAllowed = response.newCheckout?.allowed ?? false
+                        state = .paymentReconciliation
+                        statusMessage = checkoutGuard.newCheckoutAllowed
+                            ? "The QR code was not paid. You can start a new checkout."
+                            : "The QR code is expiring. Please wait a moment and do not pay the old code."
+                    } else if response.attempt?.state == "AWAITING_PAYMENT", state == .paymentReconciliation, !checkoutGuard.newCheckoutAllowed {
+                        state = .awaitingQRPayment
+                    } else if response.attempt?.state == "UNKNOWN_RECONCILIATION" || response.attempt?.state == "MANUAL_REVIEW" {
+                        state = .paymentReconciliation
+                        statusMessage = "Payment status is being confirmed. Please do not pay again."
+                    }
+                } catch {
+                    guard isCurrentCustomerSession(generation), !Task.isCancelled else { return }
+                    state = .paymentReconciliation
+                    statusMessage = "Payment status is unknown. Reconnecting — please do not pay again."
+                }
+                try? await Task.sleep(for: .seconds(iteration < 90 ? 2 : 5))
             }
-            state = .paymentReconciliation; statusMessage = "Payment is still being reconciled. Please ask the attendant for help; do not pay again."
+        }
+    }
+
+    /// Best-effort ledger of physical copy outcomes for server entitlements. It never authorizes
+    /// or triggers printing; failures are logged and the local print flow is unaffected.
+    private func reportPrintOutcome(copy: Int, outcome: String, batchID: UUID, receiptFingerprint: String) {
+        guard let entitlement = checkoutEntitlement, entitlement.orderID != nil, let sessionID = entitlement.sessionID, let client = paymentsClient else { return }
+        let record = PrintProgressRecord(
+            batchID: batchID.uuidString.lowercased(),
+            entitlementId: entitlement.id,
+            sessionId: sessionID,
+            receiptFingerprint: receiptFingerprint,
+            copyIndex: copy,
+            outcome: outcome,
+            transport: printerCoordinator.activeTransport.rawValue,
+            idempotencyKey: "print-\(batchID.uuidString.lowercased())-\(copy)"
+        )
+        Task {
+            do { try await client.recordPrint(record) } catch { debugLog("[PrintLedger] copy=\(copy) not recorded: \(error.localizedDescription)") }
+        }
+    }
+
+    private func completeServerEntitlement() {
+        guard let entitlement = checkoutEntitlement, entitlement.orderID != nil, let sessionID = entitlement.sessionID, let client = paymentsClient else { return }
+        Task {
+            do { try await client.complete(entitlementID: entitlement.id, sessionID: sessionID) } catch { debugLog("[PrintLedger] completion not recorded: \(error.localizedDescription)") }
         }
     }
 
@@ -1278,6 +1601,10 @@ final class BoothSessionViewModel: ObservableObject {
         checkoutEntitlement = nil
         paymentOrder = nil
         paymentAttempt = nil
+        checkoutGuard = CheckoutGuard()
+        supersedeOrderID = nil
+        checkoutAttempt = 0
+        paymentNotice = nil
         selectedCheckoutCopies = 1
         selectedPrintCopies = 1
         currentPrintCopy = 0
@@ -1387,6 +1714,7 @@ final class BoothSessionViewModel: ObservableObject {
             switch result {
             case .success:
                 completedPrintCopies = copy
+                reportPrintOutcome(copy: copy, outcome: "CONFIRMED", batchID: printBatchID, receiptFingerprint: receiptFingerprint)
                 debugLog("[MULTI-COPY] completedCopy=\(copy)")
                 debugLog("[PrintBatch \(printBatchID)] copy=\(copy)/\(requestedCopies) complete fingerprint=\(receiptFingerprint) elapsed=\(Self.formatDuration(completionReportedAt.timeIntervalSince(copyRequestedAt)))")
                 if copy < requestedCopies {
@@ -1394,6 +1722,7 @@ final class BoothSessionViewModel: ObservableObject {
                 }
             case .failure(let error) where error is PrintCheckpointError:
                 // Fail-closed checkpoint: no bytes for this copy, no recovery lock, data kept.
+                reportPrintOutcome(copy: copy, outcome: "NOT_STARTED", batchID: printBatchID, receiptFingerprint: receiptFingerprint)
                 let message = "\(completedPrintCopies) of \(requestedCopies) copies printed. \(error.localizedDescription)"
                 state = .receiptPreview
                 printerState = .failure(message)
@@ -1401,6 +1730,8 @@ final class BoothSessionViewModel: ObservableObject {
                 return
             case .failure:
                 let message = "\(completedPrintCopies) of \(requestedCopies) copies printed. Printer needs attention before continuing."
+                // Physical output is ambiguous; recorded as UNCERTAIN and never auto-reprinted.
+                reportPrintOutcome(copy: copy, outcome: "UNCERTAIN", batchID: printBatchID, receiptFingerprint: receiptFingerprint)
                 debugLog("[MULTI-COPY] failedCopy=\(copy) completedCopies=\(completedPrintCopies) requestedCopies=\(requestedCopies)")
                 debugLog("[PrintBatch] copy \(copy) failed after \(Self.formatDuration(completionReportedAt.timeIntervalSince(copyRequestedAt))). completed=\(completedPrintCopies) requested=\(requestedCopies). stopping batch.")
                 if printerState.requiresPrinterRestart {
@@ -1414,6 +1745,7 @@ final class BoothSessionViewModel: ObservableObject {
             }
         }
 
+        completeServerEntitlement()
         showThankYou()
     }
 

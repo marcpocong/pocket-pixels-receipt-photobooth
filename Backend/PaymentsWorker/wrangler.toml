@@ -1,6 +1,14 @@
-name = "pocket-pixels-payments-test"
+# Environments are explicit. Every remote command MUST name one:
+#   --env test   TEST staging Worker + TEST D1 (PayMongo test keys only)
+#   --env live   LIVE Worker + LIVE D1 (inert: LIVE_PAYMENTS_ENABLED=false, no Cron)
+# The top level is a local-development configuration only (`wrangler dev` / local tests). It has
+# a placeholder D1 ID and no Cron, so a remote command that forgets `--env` cannot reach TEST or LIVE data.
+# `vars`, `triggers` and `d1_databases` are not inherited by named environments; each is redeclared.
+
+name = "pocket-pixels-payments-local"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
+workers_dev = false
 
 [vars]
 PAYMENTS_ENVIRONMENT = "test"
@@ -8,11 +16,35 @@ LIVE_PAYMENTS_ENABLED = "false"
 PAYMONGO_API_BASE = "https://api.paymongo.com/v1"
 QR_EXPIRY_SECONDS = "300"
 RECONCILIATION_BATCH_SIZE = "25"
+OFFLINE_MAX_WINDOW_SECONDS = "14400"
+OFFLINE_MAX_DECLARATIONS = "40"
 
 [triggers]
-crons = ["*/5 * * * *"]
+crons = []
 
 [[d1_databases]]
+binding = "DB"
+database_name = "pocket-pixels-payments-local"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[env.test]
+name = "pocket-pixels-payments-test"
+workers_dev = false
+
+[env.test.vars]
+PAYMENTS_ENVIRONMENT = "test"
+LIVE_PAYMENTS_ENABLED = "false"
+PAYMONGO_API_BASE = "https://api.paymongo.com/v1"
+QR_EXPIRY_SECONDS = "300"
+RECONCILIATION_BATCH_SIZE = "25"
+OFFLINE_MAX_WINDOW_SECONDS = "14400"
+OFFLINE_MAX_DECLARATIONS = "40"
+
+[env.test.triggers]
+crons = ["*/5 * * * *"]
+
+[[env.test.d1_databases]]
 binding = "DB"
 database_name = "pocket-pixels-payments-test"
 database_id = "REPLACE_WITH_TEST_D1_DATABASE_ID"
@@ -20,6 +52,7 @@ migrations_dir = "migrations"
 
 [env.live]
 name = "pocket-pixels-payments-live"
+workers_dev = false
 
 [env.live.vars]
 PAYMENTS_ENVIRONMENT = "live"
@@ -27,6 +60,8 @@ LIVE_PAYMENTS_ENABLED = "false"
 PAYMONGO_API_BASE = "https://api.paymongo.com/v1"
 QR_EXPIRY_SECONDS = "300"
 RECONCILIATION_BATCH_SIZE = "25"
+OFFLINE_MAX_WINDOW_SECONDS = "14400"
+OFFLINE_MAX_DECLARATIONS = "40"
 
 [env.live.triggers]
 crons = []

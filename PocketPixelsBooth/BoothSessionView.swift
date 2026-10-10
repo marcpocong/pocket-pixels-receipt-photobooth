@@ -219,7 +219,7 @@ struct BoothSessionView: View {
         case .cashAttestation:
             CashAttestationView(viewModel: viewModel)
         case .paymentReconciliation:
-            PaymentReconciliationView(message: viewModel.statusMessage)
+            PaymentReconciliationView(viewModel: viewModel)
         case .preparingCamera, .cameraReady, .countdown, .capturing, .betweenPhotos, .retaking:
             cameraScreen
         case .review:

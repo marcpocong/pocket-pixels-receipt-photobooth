@@ -76,69 +76,36 @@ struct CashOfflineRecoveryTests {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cash-ledger-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
-
-        let event = CommercialEventRun(
-            id: "offline-event",
-            name: "Offline Event",
-            venue: "",
-            lifecycle: .active,
-            activePolicy: PaymentPolicySnapshot(
-            revisionID: "revision-1",
-            revision: 1,
-            commercialMode: .payPerPrint,
-            unitPriceCentavos: 5_000,
-            maxCopies: 10,
-            defaultCopies: 1,
-            cashEnabled: true,
-            qrPhEnabled: true,
-            prepaidGuestCopyChoice: false,
-            supportedFormatRawValues: [BoothFormat.solo.rawValue],
-                offlineValidUntil: Date().addingTimeInterval(3_600)
-            ),
-            startsAt: nil,
-            endsAt: nil,
-            updatedAt: Date()
-        )
+        let policy = OfflinePolicyFixtures.payload()
+        let now = OfflinePolicyFixtures.validNow
 
         let first = try OfflineCashLedger(directory: root)
-        let (record, entitlement) = try await first.declare(event: event, sessionID: "session-1", format: .solo, copies: 3)
+        let (record, entitlement) = try await first.declare(policy: policy, sessionID: "session-1", format: .solo, copies: 3, at: now)
         #expect(record.syncState == .pending)
         #expect(record.totalCentavos == 15_000)
+        #expect(record.snapshotID == policy.snapshotId)
         #expect(entitlement.authorizationSource == .localUnsyncedCashDeclared)
 
         let restarted = try OfflineCashLedger(directory: root)
         #expect(await restarted.pendingRecords().map(\.id) == [record.id])
         #expect(await restarted.unsyncedTotalCentavos() == 15_000)
 
-        await #expect(throws: OfflineCashLedger.LedgerError.self) {
-            _ = try await restarted.declare(event: event, sessionID: "session-1", format: .solo, copies: 3)
+        await #expect(throws: OfflineCashLedger.LedgerError.duplicateSession) {
+            _ = try await restarted.declare(policy: policy, sessionID: "session-1", format: .solo, copies: 3, at: now)
         }
 
-        try await restarted.applySync(localID: record.id, serverOrderID: "server-order", conflict: nil)
+        try await restarted.applySync([OfflineSyncResult(localId: record.id, orderId: "server-order", result: "synced", reason: nil, reviewFlag: nil)])
         #expect(await restarted.pendingRecords().isEmpty)
     }
 
-    @Test func staleOfflinePolicyIsRejected() async throws {
+    @Test func expiredOfflinePolicyIsRejected() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cash-ledger-stale-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let ledger = try OfflineCashLedger(directory: root)
-        var event = CommercialEventRun.legacy
-        event.activePolicy = PaymentPolicySnapshot(
-            revisionID: "stale",
-            revision: 1,
-            commercialMode: .payPerPrint,
-            unitPriceCentavos: 5_000,
-            maxCopies: 1,
-            defaultCopies: 1,
-            cashEnabled: true,
-            qrPhEnabled: false,
-            prepaidGuestCopyChoice: false,
-            supportedFormatRawValues: [BoothFormat.solo.rawValue],
-            offlineValidUntil: Date().addingTimeInterval(-1)
-        )
-        await #expect(throws: OfflineCashLedger.LedgerError.self) {
-            _ = try await ledger.declare(event: event, sessionID: "session", format: .solo, copies: 1)
+        let policy = OfflinePolicyFixtures.payload()
+        await #expect(throws: OfflineCashLedger.LedgerError.invalidPolicy) {
+            _ = try await ledger.declare(policy: policy, sessionID: "session", format: .solo, copies: 1, at: policy.expiresAt.addingTimeInterval(1))
         }
     }
 }

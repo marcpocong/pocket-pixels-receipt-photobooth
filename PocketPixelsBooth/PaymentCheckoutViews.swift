@@ -14,6 +14,7 @@ struct CheckoutCopySelectionView: View {
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
+                CheckoutNoticeView(message: viewModel.paymentNotice)
 
                 Stepper(
                     value: $viewModel.selectedCheckoutCopies,
@@ -66,6 +67,7 @@ struct CheckoutPaymentMethodView: View {
                     Text("Total: \(PHPPriceFormatter.string(centavos: total))")
                         .font(.title2)
                 }
+                CheckoutNoticeView(message: viewModel.paymentNotice)
 
                 if viewModel.commercialEvent.activePolicy.qrPhEnabled {
                     Button {
@@ -76,7 +78,7 @@ struct CheckoutPaymentMethodView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
-                    .disabled(operations.networkPathStatus != "Online")
+                    .disabled(!viewModel.canChooseQRPh)
                     if operations.networkPathStatus != "Online" {
                         Text("QR Ph is unavailable while this iPad is offline. A pending QR payment is never switched to cash automatically.")
                             .font(.callout)
@@ -84,7 +86,14 @@ struct CheckoutPaymentMethodView: View {
                     }
                 }
 
-                if viewModel.commercialEvent.activePolicy.cashEnabled {
+                if viewModel.policyAuthority.isOfflineCashOnly {
+                    Text("This iPad is offline. Cash is available under the event's signed offline policy.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+
+                if viewModel.commercialEvent.activePolicy.cashEnabled && viewModel.canChooseCash {
                     Button {
                         viewModel.chooseCash()
                     } label: {
@@ -185,7 +194,9 @@ struct QRPhPaymentView: View {
 }
 
 struct PaymentReconciliationView: View {
-    let message: String
+    @ObservedObject var viewModel: BoothSessionViewModel
+
+    private var message: String { viewModel.statusMessage }
 
     var body: some View {
         ScrollView {
@@ -198,12 +209,38 @@ struct PaymentReconciliationView: View {
                 Text(message)
                     .font(.title3)
                     .multilineTextAlignment(.center)
-                Text("Do not make a second payment while this status is unknown.")
-                    .font(.headline)
-                    .foregroundStyle(.red)
+                if viewModel.canStartNewCheckout {
+                    Button("Start a New Checkout") {
+                        viewModel.startNewCheckout()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .accessibilityHint("Starts a new payment. The previous QR code can no longer be paid.")
+                } else {
+                    Text("Do not make a second payment while this status is unknown.")
+                        .font(.headline)
+                        .foregroundStyle(.red)
+                }
             }
             .frame(maxWidth: 620)
             .padding(40)
+        }
+    }
+}
+
+/// Short guest-facing notice, for example after a price update or a QR that could not start.
+struct CheckoutNoticeView: View {
+    let message: String?
+
+    var body: some View {
+        if let message {
+            Label(message, systemImage: "info.circle")
+                .font(.callout)
+                .multilineTextAlignment(.leading)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .accessibilityElement(children: .combine)
         }
     }
 }

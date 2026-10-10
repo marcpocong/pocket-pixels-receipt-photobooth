@@ -1,91 +1,210 @@
 import SwiftUI
 
+/// Server events, pairing and diagnostics. Each event opens `ServerEventEditorView`, the single
+/// place where paid policy is edited, published and moved through its lifecycle.
 struct PaymentsOperatorView: View {
+    @State private var configuration = PaymentsConfiguration.current()
     @State private var events: [OperatorEventSummary] = []
-    @State private var selection: OperatorEventSummary?
-    @State private var summary: OperatorSalesSummary?
+    @State private var diagnostics: OperatorDiagnostics?
     @State private var eventName = ""
     @State private var venue = ""
-    @State private var countedCentavos = 0
-    @State private var countReason = "End-of-event physical count"
-    @State private var exportURL: URL?
-    @State private var status = "Connect and pair this iPad to load server events."
+    @State private var status = ""
+    @State private var isLoading = false
+    @State private var pairingURL = PaymentsConfiguration.current()?.baseURL.absoluteString ?? ""
+    @State private var pairingToken = ""
+    @State private var pairedDevice: DeviceInfoResponse.Device?
+    @State private var localPending = 0
+    @State private var localConflicts: [OfflineCashRecord] = []
+    @State private var ledgerFault: String?
 
-    private var client: PaymentsAPIClient? { PaymentsConfiguration.bundled.map { PaymentsAPIClient(configuration: $0) } }
+    private var client: PaymentsAPIClient? { configuration.map { PaymentsAPIClient(configuration: $0) } }
 
     var body: some View {
         List {
-            Section("Worker Status") {
-                LabeledContent("Environment", value: PaymentsConfiguration.bundled?.environment.uppercased() ?? "NOT CONFIGURED")
-                Text(status).font(.footnote).foregroundStyle(.secondary)
-                Button("Refresh Events") { Task { await refresh() } }
+            Section("Payments Server") {
+                LabeledContent("Environment", value: configuration?.environment.uppercased() ?? "NOT CONFIGURED")
+                if let pairedDevice {
+                    LabeledContent("This iPad", value: "\(pairedDevice.displayName ?? pairedDevice.id) · \(pairedDevice.scopes.joined(separator: ", "))")
+                    LabeledContent("Account", value: pairedDevice.accountId)
+                }
+                if let diagnostics {
+                    LabeledContent("Live payments", value: diagnostics.liveEnabled ? "ENABLED" : "Disabled")
+                    LabeledContent("Offline signing", value: diagnostics.offlineSigningConfigured ? "Configured" : "Not configured — offline cash off")
+                    LabeledContent("Unresolved QR Ph", value: "\(diagnostics.unresolvedIntentCount)")
+                    LabeledContent("Needs review", value: "\(diagnostics.reviewOrderCount + diagnostics.offlineConflictCount)")
+                }
+                if !status.isEmpty {
+                    Text(status).font(.footnote).foregroundStyle(.secondary)
+                }
+                Button(isLoading ? "Refreshing…" : "Refresh") { Task { await refresh() } }
+                    .disabled(isLoading || client == nil)
             }
+
+            pairingSection
+            offlineLedgerSection
+
             Section("Create Draft Event") {
-                TextField("Event name", text: $eventName).textContentType(.organizationName)
+                TextField("Event name", text: $eventName)
                 TextField("Venue", text: $venue)
-                Button("Create Draft") { Task { await createEvent() } }.disabled(eventName.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button("Create Draft on Server") { Task { await createEvent() } }
+                    .disabled(eventName.trimmingCharacters(in: .whitespaces).isEmpty || client == nil)
             }
+
             Section("Server Events") {
+                if events.isEmpty {
+                    Text(client == nil ? "Pair this iPad to load events." : "No events yet.").foregroundStyle(.secondary)
+                }
                 ForEach(events) { event in
-                    Button { selection = event; Task { await loadSummary(event.id) } } label: {
+                    NavigationLink {
+                        ServerEventEditorView(eventID: event.id)
+                    } label: {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(event.name).font(.headline)
-                            Text("\(event.lifecycle) · revision \(event.activePolicyRevisionId ?? "not published")")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }.frame(minHeight: 44, alignment: .leading)
-                    }.accessibilityLabel("\(event.name), \(event.lifecycle)")
-                }
-            }
-            if let event = selection {
-                Section("Lifecycle — \(event.name)") {
-                    HStack {
-                        Button("Pause") { Task { await transition(event, "pause") } }
-                        Button("Resume") { Task { await transition(event, "resume") } }
-                        Button("End", role: .destructive) { Task { await transition(event, "end") } }
+                            Text(summaryLine(event)).font(.caption).foregroundStyle(.secondary)
+                        }
+                        .frame(minHeight: 44, alignment: .leading)
                     }
-                    Text("Existing paid entitlements remain recoverable after pause or end.").font(.footnote).foregroundStyle(.secondary)
+                    .accessibilityLabel("\(event.name), \(event.lifecycle)")
                 }
-                if let summary { sales(summary, event: event) }
             }
         }
         .navigationTitle("Commercial Events & Sales")
         .task { await refresh() }
     }
 
-    @ViewBuilder private func sales(_ value: OperatorSalesSummary, event: OperatorEventSummary) -> some View {
-        Section("Sales Provenance") {
-            LabeledContent("QR Ph Verified (live)", value: PHPPriceFormatter.string(centavos: value.verifiedQRPhLiveCentavos))
-            LabeledContent("QR Ph TEST (excluded)", value: PHPPriceFormatter.string(centavos: value.verifiedQRPhTestCentavos))
-            LabeledContent("Cash Self-Reported", value: PHPPriceFormatter.string(centavos: value.cashSelfReportedCentavos))
-            if let physical = value.physicalCashCount {
-                LabeledContent("Cash Physically Counted", value: PHPPriceFormatter.string(centavos: physical.countedCentavos))
-                LabeledContent("Cash Variance", value: PHPPriceFormatter.string(centavos: physical.varianceCentavos))
-                if physical.provisional { Label("Provisional: offline sync is incomplete", systemImage: "exclamationmark.triangle") }
-            } else { Text("Cash reconciliation: NOT RECONCILED").foregroundStyle(.secondary) }
-            Text("Provider fees and bank settlement are not reported because no authoritative payout data is available.").font(.footnote)
-        }
-        Section("Print Utilization") {
-            LabeledContent("Purchased", value: "\(value.printUtilization.purchased)")
-            LabeledContent("Confirmed", value: "\(value.printUtilization.confirmed)")
-            LabeledContent("Uncertain", value: "\(value.printUtilization.uncertain)")
-            LabeledContent("Failed", value: "\(value.printUtilization.failed)")
-        }
-        Section("End-of-Event Cash Count") {
-            TextField("Counted centavos", value: $countedCentavos, format: .number).keyboardType(.numberPad)
-            TextField("Reason", text: $countReason)
-            Button("Save New Count") { Task { await saveCount(event.id) } }.disabled(countedCentavos < 0 || countReason.isEmpty)
-            Text("Corrections append a new audited count; they never overwrite guest-declared cash.").font(.footnote).foregroundStyle(.secondary)
-        }
-        Section("Export") {
-            Button("Prepare Event CSV") { Task { await export(event) } }
-            if let exportURL { ShareLink(item: exportURL) { Label("Share CSV", systemImage: "square.and.arrow.up") } }
+    private func summaryLine(_ event: OperatorEventSummary) -> String {
+        var parts = [event.lifecycle]
+        if let revision = event.activeRevision { parts.append("revision \(revision)") } else { parts.append("not published") }
+        if let price = event.activeUnitPriceCentavos, price > 0 { parts.append("\(PHPPriceFormatter.string(centavos: price))/copy") }
+        return parts.joined(separator: " · ")
+    }
+
+    @ViewBuilder private var pairingSection: some View {
+        Section {
+            TextField("https://payments-test.example.workers.dev", text: $pairingURL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.URL)
+            SecureField("Device credential", text: $pairingToken)
+                .textContentType(.oneTimeCode)
+            Button("Pair This iPad") { Task { await pair() } }
+                .disabled(PaymentsConfiguration.validatedURL(pairingURL) == nil || pairingToken.count < 32)
+            if configuration != nil {
+                Button("Unpair This iPad", role: .destructive) { unpair() }
+            }
+        } header: {
+            Text("Device Pairing")
+        } footer: {
+            Text("The credential is stored only in this iPad's Keychain and is never shown again. The environment is read from the server.")
         }
     }
 
-    private func refresh() async { guard let client else { status = "Payments API is not configured."; return }; do { events = try await client.listEvents(); status = "Loaded \(events.count) server events." } catch { status = error.localizedDescription } }
-    private func createEvent() async { guard let client else { return }; do { _ = try await client.createEvent(name:eventName,venue:venue); eventName=""; venue=""; await refresh() } catch { status=error.localizedDescription } }
-    private func transition(_ event: OperatorEventSummary, _ action: String) async { guard let client else { return }; do { _ = try await client.transitionEvent(id:event.id,action:action); await refresh(); await loadSummary(event.id) } catch { status=error.localizedDescription } }
-    private func loadSummary(_ id: String) async { guard let client else { return }; do { summary = try await client.eventSummary(id:id) } catch { status=error.localizedDescription } }
-    private func saveCount(_ id: String) async { guard let client else { return }; do { _ = try await client.recordCashCount(eventID:id,countedCentavos:countedCentavos,reason:countReason); await loadSummary(id) } catch { status=error.localizedDescription } }
-    private func export(_ event: OperatorEventSummary) async { guard let client else { return }; do { let data=try await client.exportCSV(eventID:event.id); let url=FileManager.default.temporaryDirectory.appending(path:"\(event.id)-sales.csv"); try data.write(to:url,options:.atomic); exportURL=url } catch { status=error.localizedDescription } }
+    @ViewBuilder private var offlineLedgerSection: some View {
+        Section("Offline Cash on This iPad") {
+            if OfflineCashLedger.shared == nil {
+                Label("Offline cash storage is unavailable on this iPad.", systemImage: "xmark.octagon").foregroundStyle(.red)
+            }
+            if let ledgerFault {
+                Label(ledgerFault, systemImage: "exclamationmark.octagon").foregroundStyle(.red)
+                Button("Acknowledge and Start a New Journal", role: .destructive) { Task { await acknowledgeLedgerFault() } }
+            }
+            LabeledContent("Waiting to sync", value: "\(localPending)")
+            ForEach(localConflicts) { record in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(PHPPriceFormatter.string(centavos: record.totalCentavos)) · \(record.copies) copies · seq \(record.localSequence)")
+                    Text("Rejected: \(record.failureMessage ?? "unknown")").font(.caption).foregroundStyle(.red)
+                }
+            }
+            Button("Sync Offline Cash Now") { Task { await syncOffline() } }
+                .disabled(client == nil || localPending == 0)
+        }
+    }
+
+    private func refresh() async {
+        configuration = PaymentsConfiguration.current()
+        await loadLedger()
+        guard let client else { status = "Payments API is not configured."; return }
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            pairedDevice = try await client.device().device
+            events = try await client.listEvents()
+            diagnostics = try? await client.diagnostics()
+            status = "Loaded \(events.count) server events at \(Date().formatted(date: .omitted, time: .shortened))."
+        } catch {
+            status = "Not refreshed: \(error.localizedDescription)"
+        }
+    }
+
+    private func loadLedger() async {
+        guard let ledger = OfflineCashLedger.shared else { return }
+        localPending = await ledger.pendingRecords().count
+        localConflicts = await ledger.conflictRecords()
+        ledgerFault = await ledger.integrityFault
+    }
+
+    private func acknowledgeLedgerFault() async {
+        guard let ledger = OfflineCashLedger.shared else { return }
+        do {
+            try await ledger.acknowledgeIntegrityFaultAndStartNewJournal()
+            status = "A new offline cash journal was started. The unreadable file was kept for review."
+        } catch {
+            status = "Could not start a new journal: \(error.localizedDescription)"
+        }
+        await loadLedger()
+    }
+
+    private func syncOffline() async {
+        guard let client, let ledger = OfflineCashLedger.shared else { return }
+        do {
+            let result = try await ledger.syncPending(using: client)
+            status = "Offline sync: \(result.synced) synced, \(result.conflicts) rejected for review."
+        } catch {
+            status = "Offline sync failed: \(error.localizedDescription)"
+        }
+        await loadLedger()
+    }
+
+    private func pair() async {
+        guard let url = PaymentsConfiguration.validatedURL(pairingURL) else { return }
+        let store = PaymentDeviceCredentialStore()
+        do {
+            try store.save(pairingToken)
+            pairingToken = ""
+            // Ask the server which environment and device this credential belongs to.
+            let probe = PaymentsAPIClient(configuration: PaymentsConfiguration(baseURL: url, environment: "test"))
+            let info = try await probe.device()
+            PaymentsConfiguration.savePaired(baseURL: url, environment: info.environment)
+            pairedDevice = info.device
+            status = "Paired as \(info.device.id) in \(info.environment.uppercased())."
+            await refresh()
+        } catch {
+            try? store.delete()
+            PaymentsConfiguration.clearPaired()
+            configuration = nil
+            status = "Pairing failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func unpair() {
+        try? PaymentDeviceCredentialStore().delete()
+        PaymentsConfiguration.clearPaired()
+        configuration = nil
+        pairedDevice = nil
+        events = []
+        diagnostics = nil
+        status = "This iPad is no longer paired. Server-managed sessions are unavailable."
+    }
+
+    private func createEvent() async {
+        guard let client else { return }
+        do {
+            _ = try await client.createEvent(name: eventName, venue: venue)
+            eventName = ""
+            venue = ""
+            await refresh()
+        } catch {
+            status = "Event not created: \(error.localizedDescription)"
+        }
+    }
 }

@@ -4,60 +4,64 @@ Standalone authenticated Payments/Event API. It must not share a route, D1 datab
 
 ## Safety defaults
 
-- Default environment is test.
-- Live endpoint is inert unless `PAYMENTS_ENVIRONMENT=live`, `LIVE_PAYMENTS_ENABLED=true`, and live secrets exist.
-- Test and live use separate Worker names, D1 databases, PayMongo secrets, and webhook secrets.
-- No secret is returned to the iPad or logged. QR creation fails closed if credentials are absent.
+- Environments are explicit: `--env test` and `--env live`. The top-level config is local-only (placeholder D1 ID, no Cron), so a command that forgets `--env` cannot reach TEST or LIVE data.
+- Live is inert unless `PAYMENTS_ENVIRONMENT=live`, `LIVE_PAYMENTS_ENABLED=true`, and live secrets exist. Live Cron is empty.
+- Test and live use separate Worker names, D1 databases, PayMongo keys, webhook secrets and offline signing keys.
+- No secret is returned to the iPad or logged. Provider error bodies are never echoed. QR creation fails closed if credentials are absent.
+
+## Payment invariants (enforced in D1, not only in route code)
+
+- **One payment method per order.** QR creation and cash declaration both start with one guarded `UPDATE orders … WHERE state='AWAITING_PAYMENT' AND payment_method IS NULL`, and the attempt row is inserted in the same transaction (`batch`). Triggers reject a second attempt, an attempt whose method differs from the order lock, and any change to a locked method.
+- **No silent cash fallback.** A QR order stays locked to QR until the provider is conclusively non-paid (`CREATE_FAILED_NO_QR`, or failed/expired *and* past the QR expiry + 60 s). Only then may a *new* order for the same checkout session supersede it (`supersedesOrderId`); a partial unique index allows one open order per device session. History is retained.
+- **Late payments reconcile to the original order.** Paid evidence on a superseded order creates a `REVIEW_REQUIRED` entitlement and `LATE_PAID_REVIEW` order (refund review), never a usable entitlement or a second charge.
+- **Verified paid is final.** `PAID_VERIFIED` cannot regress (trigger). Webhook `payment.paid` is HMAC-verified *and* the Payment Intent is re-read server-to-server before authorizing. Webhook IDs are claimed before processing; failed processing is retryable.
+- **Entitlements** require matching payment evidence (trigger), bind to one session at first claim, and are consumed at completion.
+- **Prints**: one receipt fingerprint and one batch per entitlement; each copy outcome is recorded once (append-only). The API never authorizes a reprint.
+- **Snapshots**: published policy revisions and order price snapshots are immutable. Lifecycle transitions are enforced by trigger; at most one `ACTIVE` event per account.
+
+## Offline cash policy signing
+
+`GET /v1/events/active` returns `offlinePolicy` — an Ed25519-signed, device/account/event/revision-bound cash-only policy — when the active revision has `offlineValidUntil` and the Worker has `OFFLINE_POLICY_SIGNING_KEY` (PKCS#8, base64) and `OFFLINE_POLICY_KEY_ID`. Validity is `min(now + OFFLINE_MAX_WINDOW_SECONDS, offlineValidUntil, ends_at)`; at most `OFFLINE_MAX_DECLARATIONS` declarations per snapshot are accepted. Pause/end/archive/publish revoke issued snapshots; declarations synced after revocation are accepted but flagged for review because a disconnected iPad cannot learn of the revocation.
+
+Generate keys locally (private key goes to a mode-0600 file, never stdout):
+
+```sh
+npm run offline-key:generate -- test-k1 ./offline-test.private.pkcs8.b64
+```
+
+The printed `keyId:publicKey` is pinned in the iPad build as `PAYMENTS_OFFLINE_POLICY_PUBLIC_KEYS`. Without a pinned key the iPad disables offline paid cash.
 
 ## API
 
-Authenticated device routes use `Authorization: Bearer <per-device-token>`. Store only the SHA-256 token hash in `devices.credential_hash`. Scopes are comma-separated (`booth`, `operator`).
+Authenticated routes use `Authorization: Bearer <per-device-token>`; D1 stores only the SHA-256 hash. Scopes: `booth` (checkout routes) and `operator` (admin routes). Failed authentication is rate limited per client address.
 
-- `GET /v1/health`
+- `GET /v1/health`, `GET /v1/device`
 - `GET /v1/events/active`
-- `GET /v1/admin/events` and `GET /v1/admin/events/:id`
-- `POST /v1/admin/events`
-- `PATCH /v1/admin/events/:id`
-- `POST /v1/admin/events/:id/activate|pause|resume|end`
-- `POST /v1/orders`
-- `POST /v1/orders/:id/qrph`
-- `POST /v1/orders/:id/cash-declaration`
-- `GET /v1/orders/:id/status`
-- `POST /v1/entitlements/:id/claim`
+- `POST /v1/orders` (requires `Idempotency-Key`, `checkoutSessionId`, `expectedPolicyRevisionId`, `expectedUnitPriceCentavos`; optional `supersedesOrderId`)
+- `POST /v1/orders/:id/qrph`, `POST /v1/orders/:id/cash-declaration`, `GET /v1/orders/:id/status` (includes `newCheckout.allowed`)
+- `POST /v1/entitlements/:id/claim`, `POST /v1/entitlements/:id/complete`
 - `POST /v1/prints/:batchId/progress`
 - `POST /v1/sync/offline-cash`
-- `GET /v1/admin/events/:id/summary`
-- `GET /v1/admin/events/:id/orders`
-- `GET /v1/admin/events/:id/export.csv`
-- `POST /v1/admin/events/:id/cash-counts`
+- `GET|POST /v1/admin/events`, `GET|PATCH /v1/admin/events/:id` (PATCH saves a *draft* revision; `If-Match` required)
+- `POST /v1/admin/events/:id/activate|publish|pause|resume|end|archive` (`If-Match`; publish/activate need `policyRevisionId` + `acknowledgedUnitPriceCentavos`)
+- `GET /v1/admin/events/:id/summary|orders|offline-conflicts|export.csv`, `POST /v1/admin/events/:id/cash-counts`
 - `GET /v1/admin/diagnostics`
-- `POST /v1/webhooks/paymongo/test`
-- `POST /v1/webhooks/paymongo/live`
+- `POST /v1/webhooks/paymongo/test`, `POST /v1/webhooks/paymongo/live`
 
-All order creation requires `Idempotency-Key`. Amount and currency are server-derived. D1 unique constraints cover order/device idempotency, provider IDs, webhook IDs, offline device/local IDs, entitlements, and print copy indices.
-
-Operator routes are account-scoped; policy edits require `If-Match` or `expectedVersion`. Cash counts are append-only. CSV responses are authenticated and guard spreadsheet formula prefixes.
-
-The Worker exports a non-public `scheduled()` handler. Test Cron checks a bounded batch of unresolved Payment Intents server-to-server with backoff. The live environment has no configured Cron and remains inert behind the live gate.
+Lifecycle: `DRAFT → ACTIVE ⇄ PAUSED → ENDED → ARCHIVED` (and `DRAFT → ARCHIVED`). CSV export is paged (5,000 rows) with `x-export-complete` / `x-export-next-cursor` headers.
 
 ## Local verification
 
 ```sh
 cd Backend/PaymentsWorker
-npm test
+npm ci
+npm test                 # domain + route tests in workerd (Miniflare) with local D1
 npm run check
+npm run validate:config  # wrangler deploy --dry-run for test and live; uploads nothing
 ```
 
-No dependency install is required. Do not deploy from an implementation run.
+Route tests run the real Worker module in `workerd` against a freshly migrated local D1 per test; PayMongo is an outbound stub. `test/migrations.test.js` also applies all migrations with Wrangler's own D1 runner (`--local`). See `docs/payments-phase3-test-report.md`.
 
-## Test setup (manual)
+## Staging
 
-1. Create a test D1 database and replace only the test placeholder ID.
-2. Apply migrations with Wrangler after review.
-3. Generate a high-entropy device token locally, store its SHA-256 hash/scopes in D1, and provision the token into iOS Keychain through protected operator setup.
-4. Configure Worker test secrets: `PAYMONGO_SECRET_KEY_TEST`, `PAYMONGO_PUBLIC_KEY_TEST`, and `PAYMONGO_WEBHOOK_SECRET_TEST`.
-5. Deploy only the test environment after owner authorization.
-6. Register the exact `/v1/webhooks/paymongo/test` URL for applicable events.
-7. Use PayMongo's returned `test_url`. Never scan/pay a test QR with a real bank or wallet app.
-
-`wrangler secret put` may publish a Worker version. Commands are intentionally not automated here.
+See `docs/payments-phase3-test-staging-runbook.md`. Nothing in this repository deploys, migrates remote D1, or sets secrets automatically.
