@@ -2,94 +2,57 @@
 
 Date: 2026-10-13 (Asia/Manila)
 
-**LIVE INFRASTRUCTURE DEPLOYED — PAYMENTS DISABLED**
+**CONTROLLED LIVE PILOT VERIFIED — FULL ROLLOUT PENDING**
 
-## Source and preservation
+## Operator workspace
 
-- Canonical project: `/Users/marc/Desktop/PocketPixelsBooth`; no clone, worktree, duplicate project or new dependency was created.
-- Starting local and fetched remote main: `b35f92ca03ddd74d7edb6c34887308817feae5f7`.
-- Final reviewed implementation: `802795ebe7fb0176136df9eef5b7c46020c96a89`, pushed normally to the existing repository; local and remote matched after push. The subsequent documentation commit contains this report and is identified in the handoff/Git history, since a file cannot contain its own commit SHA.
-- Verified TEST commit `f5e6c3c17d794882d9e840fe4ae8ad5acbdebd8f` remains an ancestor. Newer receipt/sticker artwork changes, tracked renders, ignored owner work and the existing consolidation stash are preserved.
-- The completion-outbox drain fix remains intact. No payment system was rebuilt. Changes protect operator entry, separate LIVE operator credentials, preserve old pairing on failure, provision inert infrastructure, and change provider descriptions to `Made to Keep Studios order <existing-id>`.
-- Bundle ID `com.pocketpixels.PocketPixelsBooth` and signing team `PQ26682725` are unchanged. Camera, receipt, printer and gallery implementations were not changed.
-- Credential/private-key pattern review of 415 tracked files and available text history across 96 commits found no matching LIVE keys, webhook secrets, GitHub tokens or private-key blocks. This is a bounded scan, not a certification of every historical binary/image. The repository remains public and includes preview imagery; the owner should decide whether private visibility is preferable. Visibility was not changed. No secret, device-token value, customer archive or database export was committed.
+The owner reproduced returning from Safari to the general operator page with the unsaved ₱2 value reset to ₱1. Process identity was unchanged: this was view-state loss, with no observed crash. Authentication previously removed the controls subtree on locking/backgrounding; recreating the editor then loaded server values over local state.
 
-## Isolated infrastructure
+The authenticated controls now mount once and remain behind a concealed, disabled, accessibility-hidden lock overlay. A UIKit window cover protects inactive/app-switcher snapshots, including sheets. Backgrounding revokes the operator permit; Face ID cancellation keeps controls concealed. Face ID and the explicit native iPad-passcode option remain available.
 
-| Item | Evidence |
-|---|---|
-| Account inventory | Authenticated Cloudflare account inspected before creation: gallery and TEST Workers existed; only TEST D1 existed; no custom DNS zones were returned. Owner approved new isolated LIVE resources and the proposed workers.dev hostname. |
-| TEST | Worker/configuration/database/secrets/routes/Cron were not remotely modified. Health returned TEST with LIVE disabled. Existing TEST secret names remain present. |
-| LIVE Worker | `pocket-pixels-payments-live`; first inert version `bd9ac10c-2afa-48d9-ac4f-b98da7feaa2a`. Owner secret changes produced current version `71d66b05-429a-4cbb-9e11-77ee9d96e7cb`. |
-| LIVE HTTPS | `https://pocket-pixels-payments-live.madetokeepstudios.workers.dev`; workers.dev enabled, preview URLs disabled. Gallery hostname is not the Payments API. |
-| LIVE D1 | `pocket-pixels-payments-live`, ID `3417d35d-3d47-457a-bd45-0d6371fadc8f`, APAC. New and empty before migration. Correct destination and empty schema inspected first; migrations 0001–0005 applied in order and history independently reread. No TEST rows copied. |
-| TEST D1 | `d7b7bfe1-b981-4289-b69b-bd120703887d`; independent of LIVE. |
-| Payment gate | Deployed health returns service `pocket-pixels-payments`, version `3`, environment `live`, `liveEnabled: false`. Authenticated LIVE QR probe returned 503 `live_payments_disabled` before any order lookup/provider call; no checkout/order was created for that probe. |
-| Secrets | Owner securely entered `PAYMONGO_SECRET_KEY_LIVE`, `PAYMONGO_PUBLIC_KEY_LIVE`, `PAYMONGO_WEBHOOK_SECRET_LIVE` with Wrangler. Names/presence verified without retrieving values. TEST secret names were not reused. Presence alone does not establish successful provider authentication. |
-| LIVE webhook | Owner created enabled webhook `hook_1nxgEtcAEwcmm5AJt4EuEDDQ` in dashboard LIVE mode, URL `/v1/webhooks/paymongo/live`, events exactly `payment.paid`, `payment.failed`, `qrph.expired`. Details inspected; signing secret hidden afterward. No genuine LIVE payment delivery has occurred. |
-| Reconciliation | `*/5 * * * *` registered and independently confirmed through Cloudflare's schedule API. Automated runtime tests verify disabled LIVE Cron skips D1/provider work. Remote `reconciliation_runs` remains empty while disabled. Tail produced no captured scheduled-event evidence; enabled LIVE reconciliation/provider success remains to be verified during the approved pilot. |
-| Operational records | Two separate device rows, one draft event and one draft policy. Zero LIVE orders, attempts, entitlements and print batches at verification. |
-| Backups | Private mode-0600 LIVE export loaded into local SQLite; integrity check passed. SHA-256 `68b11a6c712bfd291c0a2b13925636088071848b32c901565b3988f56f32eb32`. It contains the two hashed device rows and draft policy, no payment records. D1 Time Travel bookmark retrieval succeeded. No destructive restore was attempted. |
-| Recovery procedures | Concrete monitoring, backup/restore cautions, compatible Worker rollback, credential revocation and operator incident instructions added to `docs/payment-operations.md`. Backup retention is plan-dependent; no unverified 30-day claim. |
+A stable workspace retains typed navigation. Versioned non-sensitive forms and navigation are written atomically to a protected on-device setup file. Resume Operator Setup requires authentication after relaunch. No credential, authentication state, photo or customer record is persisted there. Corrupt original snapshots are preserved; storage failures display an error. Returning to the booth offers an explicit keep/discard choice for unfinished drafts.
 
-## Merchant and payment readiness
+Restored server drafts retain their original version and exact environment/endpoint binding. Refresh preserves edits; a newer server version blocks saving/publishing until explicit review or confirmed discard. Recovery never submits or activates a draft.
 
-- Authenticated owner account inspected: Individual account, QR Ph **Active**, LIVE API keys available, dashboard Test mode switch off. Existing merchant legal/trade identity was inspected privately and was not renamed to match app branding.
-- LIVE payment acceptance and wallet enablement are separate. Wallet page confirms in-network PayMongo balance movement, with an upgrade required for external bank/e-wallet transfers. Bank information remains unset. This is an external withdrawal restriction, not a reason to declare active QR Ph unavailable.
-- Payout Overview shows weekly Wednesday generation into PayMongo Payments, Inc./the PayMongo wallet, and no payout history. There is no evidence of this application's LIVE money being received, settled or withdrawn.
-- Official standard QR Ph online pricing is **1.34%, excluding VAT**; account-specific pricing/actual assessed fees must be checked on the eventual transaction. No instant-settlement add-on or payout change was purchased.
-- Current official QR Ph documentation confirms dynamic Payment Intent/method attachment and the three selected webhook events. Existing signature verification, independent provider reread, idempotency, unique entitlements, session-bound claims, durable per-copy outcomes, printer recovery and completion behavior were reviewed and preserved.
-- Photo keepsakes are not represented as BIR sales invoices. Applicable registration/invoicing arrangements have not been supplied by the owner. PayMongo QR eligibility is not evidence of tax compliance. This remains an owner confirmation before collecting customer revenue, not a requirement to enable unrelated payment methods.
+Changed files: `OperatorWorkspace.swift`, `OperatorAuthentication.swift`, `ContentView.swift`, `OperatorDashboardView.swift`, `ServerEventEditorView.swift`, `PaymentsOperatorView.swift`, `PaymentsAPIClient.swift`, `CommercialEventSetupView.swift`, `EventProfile.swift`, and `OperatorWorkspaceTests.swift`.
 
-## Operator and device readiness
+## Validation and preservation
 
-- All operator tools behind the Welcome gesture now require Apple device-owner authentication. Explicit **Use iPad Passcode** uses a passcode-only Keychain ACL. No app PIN is hardcoded or stored; owner setup/recovery uses iPad Settings/Apple recovery. Face ID, passcode access, and renewed authentication after Done were physically confirmed by the owner.
-- Sessions lock on dismissal, backgrounding or five minutes. Cancelled/failed/late authentication cannot grant access; automated denial/retry/background-race checks pass. Locking does not erase evidence or archives.
-- LIVE booth row `ipad-carlo-live-20261013` has only `booth`; operator row `owner-carlo-live-20261013` has only `operator`. Remote probes verified booth administration and operator booth access both return 403. Operator Keychain credentials bind to exact environment/URL and require a current local authentication permit. LIVE never falls back to the booth token for administration.
-- Physical device independently identified as **Carlo**, iPad Pro 11-inch (4th generation), iPadOS **26.6.1**. Reviewed development-signed Release configuration **1.0 (1)** built, signature verified, installed in place and launched. No uninstall or archive reset.
-- Application Support and settings backed up privately before install. All **288 customer archive files** independently matched their pre-install SHA-256 fingerprints after final installation and LIVE pairing. The resolved checkout journal, all three delivered outbox entries and printer preferences compared unchanged after the initial install. Original gallery endpoints/assets and queued-upload storage are preserved.
-- Before update, owner confirmed Welcome; local checkout was resolved, both copy reports and completion delivered, and AppRecoveryStateV1 contained no session file. A historical TEST cash order remains `IN_SESSION` with zero print batches (`863c6254-3265-45f1-a464-3b6b68d559d7`); it was retained, not completed or deleted without evidence. Separate old staging-account authorizations also remain in TEST.
-- Owner explicitly approved changing Carlo to disabled LIVE. An initial attempt retained TEST because the pairing destination had not been changed. After correction, an independent on-device settings copy confirms the exact LIVE URL and environment `live`; the owner confirmed Refresh displays the LIVE pilot draft and **Live payments: Disabled**, demonstrating operator API access. Credentials clearing from a field was not treated as proof of success.
-- The two temporary mode-0600 device-token transfer files created during this execution were removed after confirmed pairing. Device credentials remain in Keychain; D1/backups contain hashes only. No owner file or operational record was deleted.
-- TEST simulator URL exposure remains guarded by environment and provider TEST evidence. LIVE has no usable simulator URL. Private / Prepaid remains available through authenticated operator controls; no new guest session was started.
-- Owner confirmed VOZY G80 connected/ready and Print Accounting clear of pending/uncertain reports after LIVE pairing. Earlier TEST paper acceptance is preserved evidence, not a claim that new LIVE paper printed.
+- Focused simulator suite: **45 tests / 50 executions**, zero failures/skips. Workspace persistence, retained native SwiftUI hierarchy, authorization denial, API behavior, checkout recovery, camera handoff, print outbox and pricing covered.
+- Physical Carlo suite: **8/8 passed**, including retained view hierarchy and setup recovery tests.
+- Owner reported the requested Safari/background, cancelled Face ID, passcode reauthentication and force-termination/resume checks now work. Duration and individual interactions were owner-observed, not independently instrumented.
+- A metadata-only update advanced the existing server event from version 2 to 3 for a real version-conflict check. The owner reported a conflict and its resolution through Discard Local Edits; an independent device-file copy confirmed zero remaining server drafts. Price and policy revision remained unchanged; no order was created for this check.
+- Final Release build and signature verification passed. The corrected app was installed and launched in place on Carlo, iPad Pro 11-inch (4th generation), iPadOS 26.6.1. Bundle `com.pocketpixels.PocketPixelsBooth`, signing team `PQ26682725` and Release 1.0 (1) unchanged.
+- All **288 pre-existing customer archive files** matched their original hashes after installation. Private backups remain outside Git. Camera, receipt renderer, printer transport and gallery implementation were not changed. Existing artwork, pairing and printer settings preserved.
+- Backend syntax checks and **7 focused runtime tests** passed for LIVE gate, webhook verification/idempotency, entitlement and reconciliation behavior. The prior 196-test baseline remains recorded in the previous release evidence; no new full campaign or TEST payment was run.
+- No new dependency, clone, worktree, alternate project or migration. Existing owner stash preserved. TEST infrastructure was not modified.
 
-## Proposed supervised event
+## Controlled LIVE pilot
 
-- Name delegated by owner: **Made to Keep Studios — Supervised LIVE Pilot**.
-- Event ID `3e056cab-264f-446f-875d-6c8d13668b0e`; event version **2**; draft policy revision **1**, ID `1718beb4-2cc4-45ac-a86c-a94ba5bb2dd7`.
-- Proposed acceptance-only price **₱1.00**, default/max **one copy**, QR Ph only, attended/offline cash disabled, no offline-valid policy. All six current formats retained.
-- Venue left empty rather than invented. Normal customer pricing, venue and maximum-copy policy are not yet established.
-- Event remains **DRAFT**, no active policy, no publish/activate call. This proposed low-value acceptance policy requires explicit owner price/method acknowledgment and financial authorization before activation.
+The owner explicitly authorized exactly one real **₱1.00 QR Ph payment / one physical receipt**, using the existing event. Restricted external withdrawals and the absence of 100-session hardware qualification are not engineering blockers for this private supervised pilot. Merchant eligibility does not establish tax or invoicing compliance.
 
-## Validation and launch decision
+- Worker: `pocket-pixels-payments-live`, environment `live`.
+- Endpoint: `https://pocket-pixels-payments-live.madetokeepstudios.workers.dev`.
+- D1: existing isolated LIVE database `3417d35d-3d47-457a-bd45-0d6371fadc8f`.
+- LIVE secret names/presence verified without retrieving their values. Enabled LIVE webhook was inspected in PayMongo for `payment.paid`, `payment.failed`, `qrph.expired` at the existing LIVE endpoint.
+- Reconciliation schedule: every five minutes. Operational gate enabled with a runtime CLI override, Worker version `a032df55-fd37-442b-ab9e-9e715e4f7b03`; checked-in configuration remains false. New acceptance is stopped by the event lifecycle while verification remains operational.
+- Pilot: **Made to Keep Studios — Supervised LIVE Pilot**, event `3e056cab-264f-446f-875d-6c8d13668b0e`; existing revision 1, `1718beb4-2cc4-45ac-a86c-a94ba5bb2dd7`; PAY_PER_PRINT, 100 centavos, default/max one copy, QR Ph only, cash/offline cash disabled, existing six formats. Venue remains empty.
+- Carlo remains paired to LIVE with separate booth/operator credentials and server-managed charging. Temporary release administration used an operator-only principal, now independently verified revoked; its temporary token transfer file was removed. Carlo's booth/operator credentials remain unchanged and unrevoked.
+- Exactly **one LIVE ₱1 order and QR attempt** created on Carlo. PayMongo dashboard independently confirms QR Ph, API origin, Live mode, PAID, gross ₱1.00, actual fee ₱0.02, withholding ₱0.00 and net ₱0.98. Settlement is Scheduled; no completed settlement or withdrawal is claimed.
+- Owner paid once but the QR page initially did not advance. Tail captured LIVE webhook HTTP **401**, with no verified webhook row; the initial signing-secret configuration failed verification. No signature protection was bypassed.
+- Scheduled reconciliation at `2026-10-12T20:50:39Z` independently retrieved provider evidence, resolved one attempt with no failure, and reached **PAID_VERIFIED**. Exactly one VERIFIED_QRPH entitlement was issued and claimed (**IN_SESSION**). The camera became available for the same session. Final D1 reread confirms one **COMPLETE order**, one **COMPLETE batch**, one **DELIVERED copy**, and one **CONSUMED entitlement**. The owner confirmed one complete readable physical VOZY G80 receipt and return to Welcome. Paper confirmation is separate from the transport’s DELIVERED outcome; no outcome was manually rewritten.
+- Event **PAUSED**, version 5, preserving the same active ₱1 revision. No second payment/order created. LIVE gate/webhook/Cron remain enabled to reconcile the accepted payment.
+- Independent post-pilot device copy: both checkout journals completed; all five historical/current outbox entries delivered, including this pilot’s copy and completion reports. All original 288 archives still match; the pilot added six archive files (294 total).
+- Owner securely replaced the LIVE webhook secret in Wrangler. Current Worker version **`043c9012-0b3e-4b0d-a8ad-0e0c71172fd6`**; health still confirms `liveEnabled: true`. The existing payment event subsequently delivered successfully in PayMongo. D1 records one signed LIVE `payment.paid` event with **ALREADY_PAID**: reconciliation had already verified it, so redelivery issued no duplicate entitlement. No second payment was attempted.
+- Final reconciliation run at `2026-10-12T20:55:39Z` finished with zero pending attempts inspected, zero conflicts and no failure. All recorded pilot states are final; no outstanding payment/print recovery remains. Settlement remains scheduled, not completed.
 
-- Backend suite: **196/196 passed** after the branding change; syntax checks and TEST/LIVE Wrangler dry runs passed.
-- Final focused iOS suite: **34/34 tests, 36 executions**, zero failures/skips; auth/access separation, API encoding/error paths, checkout recovery, camera handoff, print durability and completion drain covered. Local result bundle: `BuildArtifacts/PayMongoProductionPasscodeValidation.xcresult` (not committed).
-- Final Release build passed; no new warning in modified files. Existing unrelated warnings remain. Codesign verification and physical in-place installation/launch succeeded.
-- TEST acceptance evidence from the existing final report remains valid: provider TEST QR, server-confirmed payment, one entitlement, exactly two owner-confirmed paper receipts, two DELIVERED outcomes, COMPLETE order/batch, CONSUMED entitlement and Welcome reset. No new TEST payment order was created to repeat it.
-- Historical gallery behavior was preserved by source/configuration inspection and data preservation; no new physical historical-gallery scan was claimed.
-- **No LIVE transaction attempted or authorized.** No bank/e-wallet payment, LIVE entitlement, LIVE paper, settled funds or withdrawal is claimed.
-- Full production qualification is **not complete**: device records include a stopped 18-session physical run (17 receipts sent, 10 confirmed) and a completed 100-session **simulation** (zero physical receipts). Neither meets the mandatory 100-session end-to-end physical gate. Unrestricted rollout remains NO-GO.
+The operational gate is enabled without committing `LIVE_PAYMENTS_ENABLED=true`. Further acceptance is paused through the event lifecycle; webhook/provider reconciliation for the accepted payment remains available.
 
-### Pre-activation checkpoint: infrastructure GO; payment activation held
+## Source and rollout
 
-Infrastructure, authenticated LIVE iPad pairing, operator authentication and current printer/recovery readiness are confirmed. Payment activation remains held pending the owner's applicable registration/invoicing acknowledgment, acceptance of restricted external withdrawals, exact draft-price/method acknowledgment and separate financial approval. Enabled LIVE webhook delivery and provider reconciliation will require the single approved supervised acceptance transaction; they are not already proven by secret presence or TEST evidence. No public or unattended customer collection is authorized.
+- Starting local/fetched remote main: `0ab3bed45253b90176a575b02ac21f4b5ecf7423`.
+- Reviewed implementation: `93c000140167818d925e97ab05496a282b0a77b6` — committed and pushed normally to the existing main branch. The final report commit is identified in Git history and the handoff; this file cannot contain its own SHA.
+- No secrets, customer images, payment records, setup snapshots or local backups staged. Repository visibility unchanged.
+- Full unattended rollout is not verified. Historical 100-session simulation is not physical qualification; no new endurance result is claimed. Normal event pricing and any broader rollout remain owner decisions.
 
-### Outstanding owner actions
-
-1. Confirm applicable invoicing/registration arrangements and whether the limited pilot's proceeds remaining in the restricted PayMongo wallet are acceptable. External withdrawal requires PayMongo wallet enablement; it is separate from QR-only acceptance.
-2. Acknowledge the exact proposed ₱1/one-copy/QR-only revision and supply venue or confirm this is an owner-supervised bench acceptance. Only then give **explicit separate approval** to enable payments and initiate exactly one real-money transaction. Owner must perform bank/e-wallet payment and physically confirm paper.
-3. Before unrestricted rollout, supply normal production pricing/event details and complete the mandatory real 100-session hardware/operational qualification. Simulation must not be counted as physical acceptance.
-
-### Official sources reviewed
-
-- [PayMongo QR Ph and events](https://docs.paymongo.com/docs/payment-acceptance-qr-ph)
-- [Activation versus wallet enablement](https://docs.paymongo.com/docs/account-settings-troubleshooting)
-- [PayMongo pricing](https://www.paymongo.com/en/pricing)
-- [Wallet capabilities](https://docs.paymongo.com/docs/money-movement-wallets)
-- [Cloudflare Wrangler environment configuration](https://developers.cloudflare.com/workers/wrangler/configuration/)
-- [D1 Time Travel/backups](https://developers.cloudflare.com/d1/reference/time-travel/)
-- [BIR invoicing clarification](https://bir-cdn.bir.gov.ph/BIR/pdf/RMC%20No.%2077-2024.pdf)
-
-Final status: **LIVE INFRASTRUCTURE DEPLOYED — PAYMENTS DISABLED**.
+Final acceptance state: **existing pilot PAUSED; LIVE verification/webhook/Cron operational; no additional payment authorized.** The operator usability fix and one supervised payment-to-paper acceptance are complete. No remaining engineering blocker for this completed pilot; broader commercial rollout and scheduled settlement are separate.
