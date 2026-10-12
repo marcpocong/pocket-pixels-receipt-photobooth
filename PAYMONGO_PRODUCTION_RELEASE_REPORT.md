@@ -56,3 +56,37 @@ The operational gate is enabled without committing `LIVE_PAYMENTS_ENABLED=true`.
 - Full unattended rollout is not verified. Historical 100-session simulation is not physical qualification; no new endurance result is claimed. Normal event pricing and any broader rollout remain owner decisions.
 
 Final acceptance state: **existing pilot PAUSED; LIVE verification/webhook/Cron operational; no additional payment authorized.** The operator usability fix and one supervised payment-to-paper acceptance are complete. No remaining engineering blocker for this completed pilot; broader commercial rollout and scheduled settlement are separate.
+
+## Second LIVE ₱1 Verification
+
+2026-10-13, Asia/Manila. **Fresh webhook-first authorization verified.** This run used the owner's separate authorization for exactly one additional ₱1 payment and one receipt. New order reference: `4058e955…` (redacted).
+
+- Source at execution: `20530e54c8bb011bd590e4caf00d5f6f9a03b0bb`, independently fetched and matched remote main. App/backend source unchanged; no build, redeployment, secret rotation, infrastructure change or broad test campaign was necessary. The report-only final commit is identified in the handoff/Git history.
+- LIVE Worker unchanged: `043c9012-0b3e-4b0d-a8ad-0e0c71172fd6`; health confirms LIVE enabled. Existing webhook and five-minute Cron remain operational; checked-in gate remains false. TEST untouched.
+- Same event/revision and ₱1/default-max-one/QR-only policy checked remotely. Owner authenticated on Carlo and resumed through the existing operator API: PAUSED version 5 → ACTIVE version 6 → **PAUSED version 7** after completion. Both lifecycle calls returned HTTP 200. Credentials unchanged; no temporary principal created.
+
+All times below are **2026-10-13, Asia/Manila (UTC+8)**. Provider timestamps have one-second precision; Worker/D1 timestamps have milliseconds.
+
+| Evidence | Time |
+|---|---|
+| New order persisted, one copy / 100 centavos | 05:08:06.159 |
+| QR API request / successful HTTP 201 response | 05:08:06.488 / approximately 05:08:07.898 |
+| Provider payment confirmed (`paid_at`) | 05:08:22 |
+| New signed `payment.paid` webhook received | 05:08:23.662 |
+| Provider independently reread; PAID_VERIFIED and one entitlement persisted | 05:08:24.052 |
+| Webhook finished, HTTP 200 | approximately 05:08:24.236 |
+| Carlo claim request / successful HTTP 200 response | 05:08:26.564 / approximately 05:08:26.920 |
+| Order COMPLETE / entitlement CONSUMED | 05:09:00.046 |
+| Pause request, HTTP 200 | 05:10:07.423 |
+
+The webhook recorded **PAID_VERIFIED**, not ALREADY_PAID; PayMongo shows **Success, zero retries**. The new attempt's reconciliation count is **zero**. Cron at 05:05:39 inspected zero attempts, and the next run at 05:10:39 also inspected zero: the webhook authorized first, with no reconciliation fallback or manual webhook retry.
+
+Payment-to-verification was about **2.1 seconds**; payment-to-successful camera entitlement claim was about **4.9 seconds**. The owner reached photo selection promptly and completed the session. Exact QR rendering and physical camera-open instants were not separately instrumented; QR API completion and entitlement-claim completion are timestamped proxies, not claims of exact screen-render timing.
+
+Exactly one new LIVE order/attempt, one VERIFIED_QRPH entitlement, one COMPLETE print batch and one DELIVERED copy. The entitlement is CONSUMED and the order COMPLETE. The owner confirmed **one good physical receipt**. The owner initially described remaining on the QR screen after printing; this was the gallery thank-you screen rather than a pending payment. That screen intentionally offers Start Another Session to reset to Welcome without creating a checkout. The owner subsequently confirmed Carlo was already back at Home/Welcome. No payment or navigation defect was observed, and no customer-screen change was made.
+
+PayMongo confirms Live mode, PAID, gross **₱1.00**, actual fee **₱0.02**, withholding **₱0.00**, net **₱0.98**. Settlement is scheduled/forecast for October 15; completed settlement or withdrawal is not claimed.
+
+All six sets of previous payment/print/webhook records compared unchanged. All **294 pre-run archive files** retain identical hashes; the second session added six files (**300 total**). All three checkout journals completed and all seven historical/current print-outbox reports delivered. No duplicate payment, entitlement or print; no unresolved financial/print record. Final acceptance state: **pilot PAUSED; LIVE webhook and reconciliation operational**.
+
+Second verification final status: **webhook-first LIVE payment-to-paper verified; Carlo at Home/Welcome; pilot PAUSED; zero outstanding payment/print recovery.** Across the two separately authorized runs there are exactly two COMPLETE orders, two CONSUMED entitlements, two COMPLETE batches and two DELIVERED outcomes; this run added exactly one of each.
