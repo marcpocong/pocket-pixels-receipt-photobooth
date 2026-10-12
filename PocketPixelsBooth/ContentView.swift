@@ -41,7 +41,7 @@ struct ContentView: View {
             isShowingAdmin = true
         })
         .fullScreenCover(isPresented: $isShowingAdmin) {
-            PocketPixelsAdminView()
+            OperatorAuthenticationView { PocketPixelsAdminView() }
         }
     }
 

@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import CryptoKit
 
 nonisolated struct PaymentsConfiguration: Sendable, Equatable {
     let baseURL: URL
@@ -60,12 +61,15 @@ nonisolated struct PaymentDeviceCredentialStore: PaymentCredentialProviding {
         guard value.count >= 32, value.count <= 512, let data = value.data(using: .utf8) else {
             throw PaymentsAPIError.configuration("The device credential is invalid.")
         }
-        SecItemDelete(query as CFDictionary)
-        var item = query
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        item[kSecValueData as String] = data
-        let status = SecItemAdd(item as CFDictionary, nil)
-        guard status == errSecSuccess else {
+        var attributes: [String: Any] = [kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
+        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            attributes.merge(query) { _, new in new }
+            guard SecItemAdd(attributes as CFDictionary, nil) == errSecSuccess else {
+                throw PaymentsAPIError.configuration("Could not securely save the payment device credential.")
+            }
+        } else if status != errSecSuccess {
             throw PaymentsAPIError.configuration("Could not securely save the payment device credential.")
         }
     }
@@ -99,6 +103,64 @@ nonisolated struct PaymentDeviceCredentialStore: PaymentCredentialProviding {
             kSecAttrAccount as String: account
         ]
     }
+}
+
+nonisolated struct PaymentOperatorCredentialStore: PaymentCredentialProviding {
+    private let configuration: PaymentsConfiguration
+    private let testFallback: any PaymentCredentialProviding
+    private let permit: OperatorAccessPermit
+
+    init(configuration: PaymentsConfiguration,
+         testFallback: any PaymentCredentialProviding = PaymentDeviceCredentialStore(),
+         permit: OperatorAccessPermit = .shared) {
+        self.configuration = configuration
+        self.testFallback = testFallback
+        self.permit = permit
+    }
+
+    private var query: [String: Any] {
+        let binding = "\(configuration.environment):\(configuration.baseURL.absoluteString)"
+        let account = SHA256.hash(data: Data(binding.utf8)).map { String(format: "%02x", $0) }.joined()
+        return [kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: "com.pocketpixels.payments.operator", kSecAttrAccount as String: account]
+    }
+
+    func save(_ token: String) throws {
+        guard permit.isAuthorized else { throw PaymentsAPIError.unauthorized }
+        guard (32...512).contains(token.count) else { throw PaymentsAPIError.configuration("Invalid operator credential.") }
+        var attributes: [String: Any] = [kSecValueData as String: Data(token.utf8),
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly]
+        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            attributes.merge(query) { _, new in new }
+            guard SecItemAdd(attributes as CFDictionary, nil) == errSecSuccess else {
+                throw PaymentsAPIError.configuration("Could not securely save the operator credential.")
+            }
+        } else if status != errSecSuccess {
+            throw PaymentsAPIError.configuration("Could not securely save the operator credential.")
+        }
+    }
+
+    func load() throws -> String? {
+        guard permit.isAuthorized else { throw PaymentsAPIError.unauthorized }
+        var request = query
+        request[kSecReturnData as String] = true
+        request[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(request as CFDictionary, &result)
+        if status == errSecItemNotFound {
+            // Existing combined TEST pairing remains compatible. LIVE never falls back to booth.
+            return configuration.environment == "test" ? try testFallback.load() : nil
+        }
+        guard status == errSecSuccess, let data = result as? Data,
+              let token = String(data: data, encoding: .utf8) else { throw PaymentsAPIError.unauthorized }
+        return token
+    }
+}
+
+nonisolated struct PaymentPairingCredential: PaymentCredentialProviding {
+    let token: String
+    func load() throws -> String? { token }
 }
 
 nonisolated enum PaymentsAPIError: Error, LocalizedError, Sendable, Equatable {
@@ -161,6 +223,7 @@ actor PaymentsAPIClient {
 
     private let configuration: PaymentsConfiguration
     private let credentials: any PaymentCredentialProviding
+    private let operatorCredentials: any PaymentCredentialProviding
     private let session: URLSession
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
@@ -168,10 +231,12 @@ actor PaymentsAPIClient {
     init(
         configuration: PaymentsConfiguration,
         credentialStore: any PaymentCredentialProviding = PaymentDeviceCredentialStore(),
+        operatorCredentialStore: (any PaymentCredentialProviding)? = nil,
         session: URLSession = .shared
     ) {
         self.configuration = configuration
         self.credentials = credentialStore
+        self.operatorCredentials = operatorCredentialStore ?? PaymentOperatorCredentialStore(configuration: configuration, testFallback: credentialStore)
         self.session = session
         encoder = PaymentsJSON.encoder()
         decoder = Self.makeDecoder()
@@ -346,8 +411,9 @@ actor PaymentsAPIClient {
     }
 
     private func perform(_ path: String, method: String, bodyData: Data?, idempotencyKey: String?, ifMatch: Int?) async throws -> (Data, HTTPURLResponse) {
-        guard let token = try credentials.load() else {
-            throw PaymentsAPIError.configuration("Payment device pairing is required.")
+        let selectedCredentials = path.hasPrefix("v1/admin/") ? operatorCredentials : credentials
+        guard let token = try selectedCredentials.load() else {
+            throw PaymentsAPIError.configuration(path.hasPrefix("v1/admin/") ? "Separate operator pairing is required for LIVE administration." : "Payment device pairing is required.")
         }
         guard let url = configuration.url(for: path) else {
             throw PaymentsAPIError.configuration("The payments URL is invalid.")

@@ -12,6 +12,7 @@ struct PaymentsOperatorView: View {
     @State private var isLoading = false
     @State private var pairingURL = PaymentsConfiguration.current()?.baseURL.absoluteString ?? ""
     @State private var pairingToken = ""
+    @State private var operatorToken = ""
     @State private var pairedDevice: DeviceInfoResponse.Device?
     @State private var localPending = 0
     @State private var localConflicts: [OfflineCashRecord] = []
@@ -21,6 +22,27 @@ struct PaymentsOperatorView: View {
     @State private var dismissCandidate: CheckoutRecoveryItem?
 
     private var client: PaymentsAPIClient? { configuration.map { PaymentsAPIClient(configuration: $0) } }
+
+    private var pairingBlockedReason: String? {
+        let operations = EventOperationalState.shared
+        if operations.customerSessionActive || PrinterCoordinator.shared.isWorking {
+            return "Finish the current guest session and print job before changing pairing."
+        }
+        if operations.hasUnresolvedPrint || operations.recoverableSession != nil {
+            return "Resolve the preserved session or printer recovery before changing pairing."
+        }
+        guard let checkpoints = CheckoutCheckpointStore.shared, let outbox = PrintOutcomeOutbox.shared else {
+            return "Payment recovery storage must be available before changing pairing."
+        }
+        if checkpoints.integrityFault != nil || !checkpoints.unresolved.isEmpty {
+            return "Resolve interrupted checkouts before changing pairing."
+        }
+        let summary = outbox.summary
+        if outbox.integrityFault != nil || summary.pending + summary.conflicts + summary.uncertain + summary.awaiting > 0 {
+            return "Resolve queued or uncertain print accounting before changing pairing."
+        }
+        return nil
+    }
 
     var body: some View {
         List {
@@ -47,6 +69,17 @@ struct PaymentsOperatorView: View {
             printAccountingSection
             pairingSection
             offlineLedgerSection
+
+            if configuration != nil {
+                Section("Operator API Access") {
+                    SecureField("Separate operator credential", text: $operatorToken)
+                        .textContentType(.oneTimeCode)
+                    Button("Authorize Operator API") { Task { await pairOperator() } }
+                        .disabled(operatorToken.count < 32)
+                    Text("LIVE uses an operator-only credential, stored in this iPad's Keychain for this server. Booth credentials cannot administer events.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
 
             Section("Create Draft Event") {
                 TextField("Event name", text: $eventName)
@@ -205,9 +238,13 @@ struct PaymentsOperatorView: View {
             SecureField("Device credential", text: $pairingToken)
                 .textContentType(.oneTimeCode)
             Button("Pair This iPad") { Task { await pair() } }
-                .disabled(PaymentsConfiguration.validatedURL(pairingURL) == nil || pairingToken.count < 32)
+                .disabled(PaymentsConfiguration.validatedURL(pairingURL) == nil || pairingToken.count < 32 || pairingBlockedReason != nil)
             if configuration != nil {
                 Button("Unpair This iPad", role: .destructive) { unpair() }
+                    .disabled(pairingBlockedReason != nil)
+            }
+            if let reason = pairingBlockedReason {
+                Text(reason).font(.footnote).foregroundStyle(.secondary)
             }
         } header: {
             Text("Device Pairing")
@@ -284,27 +321,49 @@ struct PaymentsOperatorView: View {
     }
 
     private func pair() async {
+        guard pairingBlockedReason == nil else { status = pairingBlockedReason ?? "Pairing is locked."; return }
         guard let url = PaymentsConfiguration.validatedURL(pairingURL) else { return }
         let store = PaymentDeviceCredentialStore()
         do {
+            // Ask the server which environment and device this credential belongs to.
+            let probe = PaymentsAPIClient(configuration: PaymentsConfiguration(baseURL: url, environment: "test"),
+                                          credentialStore: PaymentPairingCredential(token: pairingToken))
+            let info = try await probe.device()
+            guard pairingBlockedReason == nil, OperatorAccessPermit.shared.isAuthorized else { throw PaymentsAPIError.unauthorized }
+            guard info.device.scopes.contains("booth"),
+                  info.environment != "live" || !info.device.scopes.contains("operator") else {
+                throw PaymentsAPIError.configuration("LIVE booth pairing requires a booth-only credential. Authorize the operator separately.")
+            }
             try store.save(pairingToken)
             pairingToken = ""
-            // Ask the server which environment and device this credential belongs to.
-            let probe = PaymentsAPIClient(configuration: PaymentsConfiguration(baseURL: url, environment: "test"))
-            let info = try await probe.device()
             PaymentsConfiguration.savePaired(baseURL: url, environment: info.environment)
             pairedDevice = info.device
             status = "Paired as \(info.device.id) in \(info.environment.uppercased())."
             await refresh()
         } catch {
-            try? store.delete()
-            PaymentsConfiguration.clearPaired()
-            configuration = nil
+            pairingToken = ""
             status = "Pairing failed: \(error.localizedDescription)"
         }
     }
 
+    private func pairOperator() async {
+        guard let configuration, let pairedDevice else { return }
+        let token = operatorToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        operatorToken = ""
+        do {
+            let probe = PaymentsAPIClient(configuration: configuration, credentialStore: PaymentPairingCredential(token: token))
+            let info = try await probe.device()
+            guard info.environment == configuration.environment, info.device.accountId == pairedDevice.accountId,
+                  info.device.scopes == ["operator"] else {
+                throw PaymentsAPIError.configuration("Use an operator-only credential for the same account and environment.")
+            }
+            try PaymentOperatorCredentialStore(configuration: configuration).save(token)
+            await refresh()
+        } catch { status = "Operator pairing failed: \(error.localizedDescription)" }
+    }
+
     private func unpair() {
+        guard pairingBlockedReason == nil, OperatorAccessPermit.shared.isAuthorized else { return }
         try? PaymentDeviceCredentialStore().delete()
         PaymentsConfiguration.clearPaired()
         configuration = nil

@@ -43,6 +43,6 @@ Record the app commit SHA, signed build number, iPad model/iPadOS, VOZY G80 iden
 
 ## Intentionally outside this phase
 
-- Operator PIN
+- A separate custom operator PIN (device-owner authentication now protects operator entry; physical access checks are recorded in the production report)
 - A new privacy/consent/retention framework
 - Cloudflare R2 migration

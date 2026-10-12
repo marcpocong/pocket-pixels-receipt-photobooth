@@ -5,7 +5,7 @@ Standalone authenticated Payments/Event API. It must not share a route, D1 datab
 ## Safety defaults
 
 - Environments are explicit: `--env test` and `--env live`. The top-level config is local-only (placeholder D1 ID, no Cron), so a command that forgets `--env` cannot reach TEST or LIVE data.
-- Live is inert unless `PAYMENTS_ENVIRONMENT=live`, `LIVE_PAYMENTS_ENABLED=true`, and live secrets exist. Live Cron is empty.
+- Live is inert unless `PAYMENTS_ENVIRONMENT=live`, `LIVE_PAYMENTS_ENABLED=true`, and live secrets exist. The LIVE five-minute Cron exits before database/provider work while disabled.
 - Test and live use separate Worker names, D1 databases, PayMongo keys, webhook secrets and offline signing keys.
 - No secret is returned to the iPad or logged. Provider error bodies are never echoed. QR creation fails closed if credentials are absent.
 
@@ -35,6 +35,8 @@ The printed `keyId:publicKey` is pinned in the iPad build as `PAYMENTS_OFFLINE_P
 ## API
 
 Authenticated routes use `Authorization: Bearer <per-device-token>`; D1 stores only the SHA-256 hash. Scopes: `booth` (checkout routes) and `operator` (admin routes). Failed authentication is rate limited per client address.
+
+The LIVE iPad must be paired with a booth-only credential. A separate operator-only credential is stored in the iPad Keychain, bound to the exact environment and API URL; administration also requires a current device-owner authentication session. Existing combined TEST pairing remains compatible behind the same authentication screen. See `docs/payment-operations.md` from the project root for recovery and launch controls.
 
 - `GET /v1/health`, `GET /v1/device`
 - `GET /v1/events/active`
@@ -67,3 +69,7 @@ Route tests run the real Worker module in `workerd` against a freshly migrated l
 ## Staging
 
 See `docs/payments-test-staging-runbook.md`. Nothing in this repository deploys, migrates remote D1, or sets secrets automatically.
+
+## Isolated LIVE deployment
+
+The owner-approved HTTPS hostname is `https://pocket-pixels-payments-live.madetokeepstudios.workers.dev`. Its D1 database is independent of TEST and has migrations 0001–0005. Keep the checked-in `LIVE_PAYMENTS_ENABLED=false` until the separate pre-activation assessment and explicit financial authorization. Secret values are entered directly with `wrangler secret put <name> --env live`; never pass them as command arguments or commit them. The presence of secret names does not prove provider authentication, webhook delivery, payment success or payout.

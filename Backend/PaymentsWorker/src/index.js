@@ -401,7 +401,7 @@ async function createQR(request, env, principal, orderId) {
     let intent;
     try {
         intent = await paymongo(env, secretKey, "/payment_intents", {
-            data: { attributes: { amount: order.total_centavos, currency: "PHP", payment_method_allowed: ["qrph"], description: `Pocket Pixels order ${order.id}` } }
+            data: { attributes: { amount: order.total_centavos, currency: "PHP", payment_method_allowed: ["qrph"], description: `Made to Keep Studios order ${order.id}` } }
         });
         if (!intent?.data?.id || !intent.data.attributes?.client_key) throw Object.assign(new Error("Provider returned no payment intent."), { definitive: true });
     } catch (error) {

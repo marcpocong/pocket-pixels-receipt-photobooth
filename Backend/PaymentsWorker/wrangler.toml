@@ -1,6 +1,6 @@
 # Environments are explicit. Every remote command MUST name one:
 #   --env test   TEST staging Worker + TEST D1 (PayMongo test keys only)
-#   --env live   LIVE Worker + LIVE D1 (inert: LIVE_PAYMENTS_ENABLED=false, no Cron)
+#   --env live   LIVE Worker + LIVE D1 (inert: LIVE_PAYMENTS_ENABLED=false; Cron skips)
 # The top level is a local-development configuration only (`wrangler dev` / local tests). It has
 # a placeholder D1 ID and no Cron, so a remote command that forgets `--env` cannot reach TEST or LIVE data.
 # `vars`, `triggers` and `d1_databases` are not inherited by named environments; each is redeclared.
@@ -53,7 +53,8 @@ migrations_dir = "migrations"
 
 [env.live]
 name = "pocket-pixels-payments-live"
-workers_dev = false
+workers_dev = true
+preview_urls = false
 
 [env.live.vars]
 PAYMENTS_ENVIRONMENT = "live"
@@ -65,10 +66,10 @@ OFFLINE_MAX_WINDOW_SECONDS = "14400"
 OFFLINE_MAX_DECLARATIONS = "40"
 
 [env.live.triggers]
-crons = []
+crons = ["*/5 * * * *"]
 
 [[env.live.d1_databases]]
 binding = "DB"
 database_name = "pocket-pixels-payments-live"
-database_id = "REPLACE_WITH_LIVE_D1_DATABASE_ID"
+database_id = "3417d35d-3d47-457a-bd45-0d6371fadc8f"
 migrations_dir = "migrations"

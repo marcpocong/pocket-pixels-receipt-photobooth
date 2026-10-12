@@ -2,7 +2,7 @@
 
 ## Test-mode trial
 
-1. Review and deploy a dedicated test Worker/D1 only; apply both migrations.
+1. Review and deploy a dedicated test Worker/D1 only; apply ordered migrations 0001–0005.
 2. Configure test PayMongo secret/public keys and a distinct test webhook secret in Worker secrets.
 3. Pair one iPad with a per-device booth credential in Keychain. Configure `PAYMENTS_API_BASE_URL` as HTTPS and `PAYMENTS_ENVIRONMENT=test` without embedding secrets.
 4. Create and activate a test pay-per-print event. Verify QR-only, cash-only, both methods, paused/ended, and private/prepaid.
@@ -22,6 +22,6 @@
 
 Live requires a separate live Worker, D1, domain, API key, webhook secret/endpoint, device provisioning, and `LIVE_PAYMENTS_ENABLED=true`. Perform a small controlled transaction only after explicit owner authorization and checklist sign-off. Never reuse test records or secrets.
 
-## PRODUCTION GO-LIVE NOT AUTHORIZED
+## Production activation remains a separate owner checkpoint
 
-This repository change does not authorize live deployment, production D1 migrations, secret publication, real QR payment, or gallery routing changes.
+The owner approved isolated LIVE infrastructure provisioning on 2026-10-13 (Asia/Manila). The deployment is inert and does not authorize real QR payment or gallery routing changes. See `PAYMONGO_PRODUCTION_RELEASE_REPORT.md` for current evidence. PayMongo account activation and wallet enablement are separate: QR Ph can be active while external payout access remains restricted. Do not require extra payment methods for a QR-only pilot, or equate a successful payment with withdrawn funds.
