@@ -394,7 +394,7 @@ final class BoothSessionViewModel: ObservableObject {
             return
         }
         let sessionDate = Date()
-        prepareSessionContext(format: format, sessionIdentifier: ReceiptComposer.makeSessionIdentifier(date: sessionDate), createdAt: sessionDate)
+        prepareSessionContext(format: format, sessionIdentifier: environment.makeSessionIdentifier(sessionDate), createdAt: sessionDate)
         if commercialEvent.activePolicy.commercialMode == .payPerPrint {
             selectedCheckoutCopies = min(commercialEvent.activePolicy.defaultCopies, commercialEvent.activePolicy.maxCopies)
             selectedPrintCopies = selectedCheckoutCopies

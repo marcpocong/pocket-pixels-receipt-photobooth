@@ -510,7 +510,7 @@ nonisolated struct ServerPolicyDraft: Equatable, Sendable {
     var maxCopies = 3
     var defaultCopies = 1
     var qrPhEnabled = true
-    var cashEnabled = true
+    var cashEnabled = false
     var prepaidGuestCopyChoice = false
     var supportedFormats: Set<String> = Set(BoothFormat.allCases.map(\.rawValue))
     var offlineCashEnabled = false

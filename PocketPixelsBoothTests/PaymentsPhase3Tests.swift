@@ -80,6 +80,7 @@ struct PesoAmountTests {
     @Test func offlineCashDraftRequiresCashAndFutureLimit() {
         var draft = ServerPolicyDraft()
         draft.priceText = "50"
+        draft.cashEnabled = true
         draft.offlineCashEnabled = true
         draft.offlineValidUntil = Date().addingTimeInterval(-60)
         #expect(draft.validationMessage() == "The offline cash limit must be in the future.")
@@ -274,6 +275,14 @@ struct CheckoutGuardTests {
     private let online = PolicyAuthority.serverConfirmed(fetchedAt: Date())
     private let offline = PolicyAuthority.signedOffline(snapshotID: "s", expiresAt: Date().addingTimeInterval(60))
 
+    @Test func newPaidEventDefaultsToQRPhOnly() {
+        let draft = ServerPolicyDraft()
+
+        #expect(draft.qrPhEnabled)
+        #expect(!draft.cashEnabled)
+        #expect(!draft.offlineCashEnabled)
+    }
+
     @Test func unresolvedQRBlocksCashAndAnotherQR() {
         var guardState = CheckoutGuard()
         #expect(guardState.canChooseCash(authority: online, cashEnabled: true))
@@ -296,6 +305,30 @@ struct CheckoutGuardTests {
     @Test func localPrepaidNeverOffersQR() {
         #expect(!CheckoutGuard().canChooseQR(authority: .localPrepaid, qrEnabled: true, online: true))
         #expect(!CheckoutGuard().canChooseCash(authority: online, cashEnabled: false))
+    }
+
+    @Test func testSimulatorIsAvailableOnlyForAnAwaitingTESTAttempt() throws {
+        let url = try #require(URL(string: "https://payments.example.test/simulate"))
+        let awaiting = PaymentAttempt(
+            id: "attempt",
+            method: "QRPH",
+            state: "AWAITING_PAYMENT",
+            qrImageDataURL: nil,
+            testURL: url,
+            expiresAt: Date().addingTimeInterval(300)
+        )
+        #expect(awaiting.testSimulatorURL(environment: "test") == url)
+        #expect(awaiting.testSimulatorURL(environment: "live") == nil)
+
+        let paid = PaymentAttempt(
+            id: "attempt",
+            method: "QRPH",
+            state: "PAID_VERIFIED",
+            qrImageDataURL: nil,
+            testURL: url,
+            expiresAt: nil
+        )
+        #expect(paid.testSimulatorURL(environment: "test") == nil)
     }
 
     @Test func entitlementUnderReviewCannotStartCapture() {

@@ -439,6 +439,7 @@ struct ProviderLimitTests {
         #expect(draft.validationMessage() == nil)
         draft.priceText = "0.50"
         draft.qrPhEnabled = false
+        draft.cashEnabled = true
         #expect(draft.validationMessage() == nil, "cash-only events have no provider minimum")
     }
 }
