@@ -28,7 +28,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Worker tests
+      - name: Payments Worker tests
+        working-directory: Backend/PaymentsWorker
+        run: |
+          npm ci
+          npm test
+      - name: Gallery Worker tests
         working-directory: Backend/CloudflareGalleryProxy
         run: npm test
       - name: Apps Script pure checks

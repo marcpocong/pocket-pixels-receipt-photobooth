@@ -145,6 +145,8 @@ struct CashAttestationView: View {
 
 struct QRPhPaymentView: View {
     @ObservedObject var viewModel: BoothSessionViewModel
+    @Environment(\.openURL) private var openURL
+    @State private var isShowingTestSimulatorConfirmation = false
 
     var body: some View {
         ScrollView {
@@ -152,6 +154,11 @@ struct QRPhPaymentView: View {
                 Text("Scan to Pay")
                     .font(.largeTitle.bold())
                     .accessibilityAddTraits(.isHeader)
+                    .onLongPressGesture(minimumDuration: 2) {
+                        guard testSimulatorURL != nil else { return }
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        isShowingTestSimulatorConfirmation = true
+                    }
                 if let total = viewModel.commercialEvent.activePolicy.totalCentavos(for: viewModel.selectedCheckoutCopies) {
                     Text("Scan to pay \(PHPPriceFormatter.string(centavos: total)) using a QR Ph-supported app. Your session will begin when payment is confirmed.")
                         .font(.title3)
@@ -181,6 +188,25 @@ struct QRPhPaymentView: View {
             .frame(maxWidth: 660)
             .padding(40)
         }
+        .confirmationDialog(
+            "Open PayMongo TEST simulator?",
+            isPresented: $isShowingTestSimulatorConfirmation,
+            titleVisibility: .visible
+        ) {
+            if let testSimulatorURL {
+                Button("Open TEST Simulator") {
+                    openURL(testSimulatorURL)
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Operator testing only. Opening the simulator does not prove payment or unlock the camera; the server must still verify the Payment Intent.")
+        }
+    }
+
+    private var testSimulatorURL: URL? {
+        guard let environment = PaymentsConfiguration.current()?.environment else { return nil }
+        return viewModel.paymentAttempt?.testSimulatorURL(environment: environment)
     }
 
     private var qrImage: UIImage? {

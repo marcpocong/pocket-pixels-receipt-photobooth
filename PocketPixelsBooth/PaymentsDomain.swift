@@ -229,6 +229,19 @@ nonisolated struct PaymentAttempt: Codable, Equatable, Sendable, Identifiable {
     var isConclusivelyUnpaid: Bool {
         ["CREATE_FAILED_NO_QR", "PAYMENT_FAILED", "QR_EXPIRED_CONFIRMED"].contains(state)
     }
+
+    /// PayMongo's simulator is an operator aid for TEST checkouts only. Opening it never changes
+    /// local authorization state; capture still depends on the server issuing a verified entitlement.
+    func testSimulatorURL(environment: String) -> URL? {
+        guard environment.caseInsensitiveCompare("test") == .orderedSame,
+              state == "AWAITING_PAYMENT",
+              let testURL,
+              testURL.scheme?.lowercased() == "https",
+              testURL.host != nil else {
+            return nil
+        }
+        return testURL
+    }
 }
 
 nonisolated struct PaymentStatusResponse: Codable, Sendable {

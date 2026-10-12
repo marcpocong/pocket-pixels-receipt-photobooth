@@ -411,19 +411,22 @@ async function createQR(request, env, principal, orderId) {
     }
     // Persist the intent and a worst-case QR expiry before attaching, so an interrupted request
     // still leaves a record that reconciliation can settle.
-    const expiresAt = new Date(Date.now() + (qrExpiry(env) + 60) * 1000).toISOString();
-    await env.DB.prepare("UPDATE payment_attempts SET provider_payment_intent_id=?,expires_at=?,updated_at=? WHERE id=? AND state='CREATING'").bind(intent.data.id, expiresAt, now(), attemptId).run();
+    const expirySeconds = qrExpiry(env);
+    const attachStartedAt = Date.now();
+    const recoveryExpiresAt = new Date(attachStartedAt + (expirySeconds + 60) * 1000).toISOString();
+    await env.DB.prepare("UPDATE payment_attempts SET provider_payment_intent_id=?,expires_at=?,updated_at=? WHERE id=? AND state='CREATING'").bind(intent.data.id, recoveryExpiresAt, now(), attemptId).run();
 
     let attributes;
     try {
-        const method = await paymongo(env, publicKey, "/payment_methods", { data: { attributes: { type: "qrph", expiry_seconds: qrExpiry(env) } } });
+        const method = await paymongo(env, publicKey, "/payment_methods", { data: { attributes: { type: "qrph", expiry_seconds: expirySeconds } } });
         const attached = await paymongo(env, publicKey, `/payment_intents/${encodeURIComponent(intent.data.id)}/attach`, {
             data: { attributes: { payment_method: method.data.id, client_key: intent.data.attributes.client_key } }
         });
         attributes = attached?.data?.attributes;
         if (attributes?.status !== "awaiting_next_action" || !attributes.next_action?.code?.image_url) throw new Error("Provider did not return a usable QR.");
+        const confirmedExpiresAt = new Date(attachStartedAt + expirySeconds * 1000).toISOString();
         await env.DB.prepare(`UPDATE payment_attempts SET provider_payment_method_id=?,qr_image_data_url=?,provider_test_url=?,expires_at=?,state='AWAITING_PAYMENT',updated_at=?
-            WHERE id=? AND state='CREATING'`).bind(method.data.id, attributes.next_action.code.image_url, attributes.next_action.code.test_url || attributes.next_action.test_url || null, expiresAt, now(), attemptId).run();
+            WHERE id=? AND state='CREATING'`).bind(method.data.id, attributes.next_action.code.image_url, attributes.next_action.code.test_url || attributes.next_action.test_url || null, confirmedExpiresAt, now(), attemptId).run();
     } catch (error) {
         if (error.definitive) {
             await setAttemptState(env, attemptId, "CREATE_FAILED_NO_QR", safeError(error));
@@ -431,7 +434,7 @@ async function createQR(request, env, principal, orderId) {
         }
         // Attach outcome is ambiguous: keep the order locked to QR and let reconciliation decide.
         await env.DB.prepare(`UPDATE payment_attempts SET state='UNKNOWN_RECONCILIATION',expires_at=?,reconcile_after=?,last_reconcile_error=?,updated_at=? WHERE id=? AND state='CREATING'`)
-            .bind(expiresAt, now(), safeError(error), now(), attemptId).run();
+            .bind(recoveryExpiresAt, now(), safeError(error), now(), attemptId).run();
         throw http(503, "QR Ph status is unknown. Do not pay another way; the booth is checking.", "qr_status_unknown", { attemptState: "UNKNOWN_RECONCILIATION" });
     }
     const attempt = await env.DB.prepare("SELECT * FROM payment_attempts WHERE id=?").bind(attemptId).first();

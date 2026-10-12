@@ -82,6 +82,21 @@ test("repeated concurrent QR creation creates one provider intent and one attemp
     assert.equal(replay.json.replay, true);
 }));
 
+test("QR creation uses the configured provider expiry and returns the same local lifetime", () => withHarness(async h => {
+    const event = await activePaidEvent(h);
+    const { order } = await newOrder(h, event);
+    const before = Date.now();
+    const response = await h.request("POST", `/v1/orders/${order.id}/qrph`);
+    const paymentMethodCall = h.provider.calls.find(call => call.route === "POST /payment_methods");
+
+    assert.equal(response.status, 201);
+    assert.equal(paymentMethodCall.body.data.attributes.type, "qrph");
+    assert.equal(paymentMethodCall.body.data.attributes.expiry_seconds, 300);
+    assert.equal(response.json.attempt.testURL, `https://test.paymongo.example/${h.provider.intents.keys().next().value}`);
+    const localLifetime = Date.parse(response.json.attempt.expiresAt) - before;
+    assert.ok(localLifetime > 295_000 && localLifetime <= 301_000, `unexpected local QR lifetime: ${localLifetime}`);
+}));
+
 test("repeated cash taps are idempotent and authorize one entitlement", () => withHarness(async h => {
     const event = await activePaidEvent(h);
     const { order } = await newOrder(h, event);
