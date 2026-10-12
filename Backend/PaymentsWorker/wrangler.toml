@@ -30,7 +30,8 @@ migrations_dir = "migrations"
 
 [env.test]
 name = "pocket-pixels-payments-test"
-workers_dev = false
+workers_dev = true
+preview_urls = false
 
 [env.test.vars]
 PAYMENTS_ENVIRONMENT = "test"

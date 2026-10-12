@@ -267,36 +267,44 @@ final class PrintOutcomeOutbox {
         isSyncing = true
         defer { isSyncing = false }
         var sent = 0, conflicted = 0, retries = 0
-        for entry in dueReports(now: now) {
-            guard let entitlementID = entry.entitlementID else { continue }
-            do {
-                switch entry.kind {
-                case .copy:
-                    guard let outcome = entry.localState.serverOutcome else { continue }
-                    try await client.recordPrint(PrintProgressRecord(
-                        batchID: entry.batchID, entitlementId: entitlementID, sessionId: entry.sessionID,
-                        receiptFingerprint: entry.receiptFingerprint, copyIndex: entry.copyIndex, outcome: outcome,
-                        transport: entry.transport, idempotencyKey: entry.idempotencyKey))
-                case .completion:
-                    try await client.complete(entitlementID: entitlementID, sessionID: entry.sessionID)
-                }
-                markReported(id: entry.id)
-                sent += 1
-            } catch let error as PaymentsAPIError {
-                switch error {
-                case .rejected(let code, _, let status, _) where status != 429 && status < 500:
-                    markConflict(id: entry.id, code: code)
-                    conflicted += 1
-                case .rejected(let code, _, _, _):
-                    markRetry(id: entry.id, code: code)
+        var attemptedEntryIDs = Set<String>()
+        while true {
+            // A completion becomes due only after every copy report in its batch is acknowledged.
+            // Drain again in the same sync so an overlapping background trigger cannot strand it.
+            let entries = dueReports(now: now).filter { !attemptedEntryIDs.contains($0.id) }
+            guard !entries.isEmpty else { break }
+            for entry in entries {
+                attemptedEntryIDs.insert(entry.id)
+                guard let entitlementID = entry.entitlementID else { continue }
+                do {
+                    switch entry.kind {
+                    case .copy:
+                        guard let outcome = entry.localState.serverOutcome else { continue }
+                        try await client.recordPrint(PrintProgressRecord(
+                            batchID: entry.batchID, entitlementId: entitlementID, sessionId: entry.sessionID,
+                            receiptFingerprint: entry.receiptFingerprint, copyIndex: entry.copyIndex, outcome: outcome,
+                            transport: entry.transport, idempotencyKey: entry.idempotencyKey))
+                    case .completion:
+                        try await client.complete(entitlementID: entitlementID, sessionID: entry.sessionID)
+                    }
+                    markReported(id: entry.id)
+                    sent += 1
+                } catch let error as PaymentsAPIError {
+                    switch error {
+                    case .rejected(let code, _, let status, _) where status != 429 && status < 500:
+                        markConflict(id: entry.id, code: code)
+                        conflicted += 1
+                    case .rejected(let code, _, _, _):
+                        markRetry(id: entry.id, code: code)
+                        retries += 1
+                    case .outcomeUnknown, .unavailable, .unauthorized, .invalidResponse, .configuration:
+                        markRetry(id: entry.id, code: String(describing: error).prefix(40).description)
+                        retries += 1
+                    }
+                } catch {
+                    markRetry(id: entry.id, code: "transport")
                     retries += 1
-                case .outcomeUnknown, .unavailable, .unauthorized, .invalidResponse, .configuration:
-                    markRetry(id: entry.id, code: String(describing: error).prefix(40).description)
-                    retries += 1
                 }
-            } catch {
-                markRetry(id: entry.id, code: "transport")
-                retries += 1
             }
         }
         return (sent, conflicted, retries)

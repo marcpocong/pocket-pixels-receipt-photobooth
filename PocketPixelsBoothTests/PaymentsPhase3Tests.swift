@@ -86,7 +86,8 @@ struct PesoAmountTests {
         #expect(draft.validationMessage() == "The offline cash limit must be in the future.")
         draft.offlineValidUntil = Date().addingTimeInterval(3_600)
         draft.cashEnabled = false
-        #expect(draft.validationMessage() == "Offline cash requires Cash to be enabled.")
+        #expect(!draft.offlineCashEnabled)
+        #expect(draft.validationMessage() == nil)
     }
 }
 

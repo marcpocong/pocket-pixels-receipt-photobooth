@@ -510,7 +510,13 @@ nonisolated struct ServerPolicyDraft: Equatable, Sendable {
     var maxCopies = 3
     var defaultCopies = 1
     var qrPhEnabled = true
-    var cashEnabled = false
+    var cashEnabled = false {
+        didSet {
+            if !cashEnabled {
+                offlineCashEnabled = false
+            }
+        }
+    }
     var prepaidGuestCopyChoice = false
     var supportedFormats: Set<String> = Set(BoothFormat.allCases.map(\.rawValue))
     var offlineCashEnabled = false
@@ -540,7 +546,7 @@ nonisolated struct ServerPolicyDraft: Equatable, Sendable {
         cashEnabled = revision.cashEnabled
         prepaidGuestCopyChoice = revision.prepaidGuestCopyChoice
         supportedFormats = Set(revision.supportedFormats)
-        offlineCashEnabled = revision.offlineValidUntil != nil
+        offlineCashEnabled = revision.cashEnabled && revision.offlineValidUntil != nil
         offlineValidUntil = revision.offlineValidUntil ?? Date().addingTimeInterval(12 * 60 * 60)
     }
 

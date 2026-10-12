@@ -240,6 +240,29 @@ struct PrintOutboxTests {
         #expect(reopened.summary.pending == 0)
     }
 
+    @Test func oneSyncDrainsCopyReportsThenNewlyEligibleCompletion() async throws {
+        let root = tempDirectory("outbox-drain")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let outbox = try PrintOutcomeOutbox(directory: root)
+        try beginCopy(outbox, 1, of: 2)
+        outbox.finishCopy(batchID: "batch-1", copyIndex: 1, state: .delivered)
+        try beginCopy(outbox, 2, of: 2)
+        outbox.finishCopy(batchID: "batch-1", copyIndex: 2, state: .delivered)
+        outbox.enqueueCompletion(batchID: "batch-1", sessionID: "PP-1", entitlementID: "ent-1")
+
+        Phase4StubProtocol.captured = []
+        Phase4StubProtocol.handler = { request in
+            if request.url?.path.hasSuffix("/complete") == true { return (200, Data(#"{"entitlement":{}}"#.utf8)) }
+            return (200, Data(#"{"accepted":true,"replay":false}"#.utf8))
+        }
+
+        let result = await outbox.sync(using: stubClient())
+
+        #expect(result.sent == 3)
+        #expect(Phase4StubProtocol.captured.last?.path.hasSuffix("/complete") == true)
+        #expect(outbox.summary.pending == 0)
+    }
+
     @Test func serverConflictIsQuarantinedAndUnavailabilityBacksOff() async throws {
         let root = tempDirectory("outbox")
         defer { try? FileManager.default.removeItem(at: root) }
