@@ -48,7 +48,7 @@ nonisolated struct PrintOutboxEntry: Codable, Equatable, Identifiable, Sendable 
     let receiptFingerprint: String
     let copyIndex: Int
     let copyCount: Int
-    let transport: String
+    var transport: String
     /// Stable server idempotency key; identical on every replay.
     let idempotencyKey: String
     let createdAt: Date
@@ -160,6 +160,26 @@ final class PrintOutcomeOutbox {
         try commit(candidate)
     }
 
+    /// Refines the already-durable intent after the coordinator resolves the concrete transport
+    /// and immediately before that transport may send bytes. A failed write blocks printing.
+    func selectTransportBeforeBytes(
+        batchID: String,
+        copyIndex: Int,
+        transport: PrinterTransportSelection,
+        now: Date = Date()
+    ) throws {
+        guard transport != .none,
+              let index = payload.entries.lastIndex(where: {
+                  $0.kind == .copy && $0.batchID == batchID && $0.copyIndex == copyIndex && $0.localState == .inFlight
+              }) else {
+            throw OutboxError.persistFailed("the in-flight copy was not found")
+        }
+        var candidate = payload
+        candidate.entries[index].transport = transport.rawValue
+        candidate.entries[index].updatedAt = now
+        try commit(candidate)
+    }
+
     /// Records the transport result for the in-flight copy. If this write fails the entry stays
     /// `inFlight` on disk and becomes `uncertain` at the next launch (conservative, never lost).
     @discardableResult
@@ -242,11 +262,11 @@ final class PrintOutcomeOutbox {
     }
 
     /// Sends due reports. Unreachable server → retry later; definitive refusal → conflict.
-    func sync(using client: PaymentsAPIClient, now: Date = Date()) async -> (sent: Int, conflicts: Int) {
-        guard !isSyncing else { return (0, 0) }
+    func sync(using client: PaymentsAPIClient, now: Date = Date()) async -> (sent: Int, conflicts: Int, retries: Int) {
+        guard !isSyncing else { return (0, 0, 0) }
         isSyncing = true
         defer { isSyncing = false }
-        var sent = 0, conflicted = 0
+        var sent = 0, conflicted = 0, retries = 0
         for entry in dueReports(now: now) {
             guard let entitlementID = entry.entitlementID else { continue }
             do {
@@ -269,14 +289,17 @@ final class PrintOutcomeOutbox {
                     conflicted += 1
                 case .rejected(let code, _, _, _):
                     markRetry(id: entry.id, code: code)
+                    retries += 1
                 case .outcomeUnknown, .unavailable, .unauthorized, .invalidResponse, .configuration:
                     markRetry(id: entry.id, code: String(describing: error).prefix(40).description)
+                    retries += 1
                 }
             } catch {
                 markRetry(id: entry.id, code: "transport")
+                retries += 1
             }
         }
-        return (sent, conflicted)
+        return (sent, conflicted, retries)
     }
 
     private func mutate(id: String, now: Date, _ change: (inout PrintOutboxEntry) -> Void) {

@@ -455,9 +455,12 @@ struct MadeToKeepReviewFormatSpec {
                 ]
             )
         case .passport:
-            // Photo Pass: portrait card and landscape hero side by side at equal heights.
+            // Photo Pass: both photos are approved upright, side by side at equal heights. The hero
+            // prints a quarter turn on the sideways upper card, exactly as framed here.
             return Self(
-                aspectRatios: PassportPhotoRole.allCases.map { $0.aspectRatio.width / $0.aspectRatio.height },
+                aspectRatios: PassportPhotoRole.allCases.map {
+                    PhotoPresentationGeometry.resolve(format: .passport, photoIndex: $0.rawValue).aspectRatio
+                },
                 portraitArrangements: [.stacked([[0, 1]], columnGap: 32)],
                 landscapeArrangements: [.stacked([[0, 1]], columnGap: 40)],
                 minimumPhotoHeight: 150

@@ -223,3 +223,56 @@ enum ReliabilityFixtures {
         }
     }
 }
+
+/// Steps the captured-photo confirmation deterministically. Each `release()` grants exactly one
+/// pending or future confirmation permission to finish, so tests never race a real timer.
+@MainActor
+final class CaptureConfirmationGate {
+    private var permits = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private(set) var pauseCount = 0
+
+    var pause: @MainActor () async -> Void {
+        { [unowned self] in await self.wait() }
+    }
+
+    private func wait() async {
+        pauseCount += 1
+        if permits > 0 {
+            permits -= 1
+            return
+        }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    /// Yields until `count` confirmations have reached the gate. Bounded so a broken flow fails
+    /// the test instead of hanging it.
+    func waitUntilPaused(count: Int, file: StaticString = #filePath, line: UInt = #line) async {
+        for _ in 0..<1_000 where pauseCount < count {
+            await Task.yield()
+        }
+        XCTAssertGreaterThanOrEqual(pauseCount, count, "Confirmation never started", file: file, line: line)
+    }
+
+    func release() {
+        if waiters.isEmpty {
+            permits += 1
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
+}
+
+extension BoothSessionViewModel {
+    /// A model whose confirmation finishes as soon as it is awaited; for flow tests that do not
+    /// inspect the confirmation interval itself.
+    static func immediateConfirmation() -> BoothSessionViewModel {
+        BoothSessionViewModel(captureConfirmationPause: {})
+    }
+
+    /// Adds a sample photo and waits for its real confirmation task to finish.
+    func addSamplePhotoAndConfirm(_ image: UIImage) async {
+        addSamplePhoto(image)
+        await awaitCaptureConfirmation()
+    }
+}

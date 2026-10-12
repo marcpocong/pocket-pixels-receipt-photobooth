@@ -25,7 +25,7 @@ struct GalleryUploadRequest: Codable, Sendable {
     let thermalReceipt: GalleryUploadImage?
     let gif: GalleryUploadImage?
 
-    init(schemaVersion: Int, deviceToken: String, galleryToken: String, sessionID: String, createdAt: String,
+    nonisolated init(schemaVersion: Int, deviceToken: String, galleryToken: String, sessionID: String, createdAt: String,
          photos: [GalleryUploadImage], receipt: GalleryUploadImage? = nil,
          colorReceipt: GalleryUploadImage? = nil, thermalReceipt: GalleryUploadImage? = nil,
          gif: GalleryUploadImage? = nil) {

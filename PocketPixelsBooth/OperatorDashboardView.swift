@@ -7,6 +7,7 @@ struct OperatorDashboardView: View {
     @StateObject private var bluetooth = PrinterBluetoothService.shared
     @StateObject private var spooler = PrintSpooler.shared
     @State private var eventProfile = EventProfileStore.load()
+    @State private var stickerStudioEnabled = StickerStudioSettingsStore.load().isEnabled
 
     var body: some View {
         let status = OperatorStatusSummary(
@@ -49,9 +50,13 @@ struct OperatorDashboardView: View {
                     waitingGalleries: operations.pendingUploadCount
                 )
 
-                HStack(spacing: 16) {
+                // Two columns so four links keep readable titles on an 11-inch iPad.
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
                     OperatorSecondaryLink(title: "Receipt Design & Branding", systemImage: "doc.text.image") {
                         ReceiptDesignAndBrandingView()
+                    }
+                    OperatorSecondaryLink(title: stickerStudioEnabled ? "Sticker Studio · ON" : "Sticker Studio · OFF", systemImage: "face.smiling") {
+                        StickerStudioOperatorView()
                     }
                     OperatorSecondaryLink(title: "Equipment", systemImage: "printer.fill.and.paper.fill") {
                         OperatorEquipmentView()
@@ -77,6 +82,9 @@ struct OperatorDashboardView: View {
         .onReceive(NotificationCenter.default.publisher(for: EventProfileStore.didChangeNotification)) { _ in
             eventProfile = EventProfileStore.load()
             operations.refresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: StickerStudioSettingsStore.didChangeNotification)) { _ in
+            stickerStudioEnabled = StickerStudioSettingsStore.load().isEnabled
         }
         .onChange(of: printer.state) { _, _ in operations.refresh() }
         .onChange(of: bluetooth.isConnectedAndReady) { _, _ in operations.refresh() }
@@ -580,6 +588,18 @@ struct OperatorAdvancedView: View {
                 NavigationLink("Recovery") { OperatorRecoveryView() }
                 NavigationLink("Print History") { OperatorPrintAuditView() }
                 NavigationLink("Storage") { OperatorStorageView() }
+            }
+
+            Section {
+                NavigationLink {
+                    HardwareQualificationView()
+                } label: {
+                    Label("Hardware Qualification", systemImage: "checkmark.shield")
+                }
+            } header: {
+                Text("Qualification")
+            } footer: {
+                Text("Operator-approved endurance tests for this iPad, camera and printer. Opens in simulation; physical tests need explicit approval.")
             }
 
             Section("Diagnostics") {

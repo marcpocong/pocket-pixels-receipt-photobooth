@@ -22,6 +22,10 @@ struct ComposedReceipt: Sendable {
     let photoQualityProfile: PocketPixelsThermalPhotoProfile
     /// Whether this exact composition carries the gallery QR. Frozen with the print.
     var includesPrintedGalleryQR: Bool = false
+    /// Measured sticker-safe regions of this exact composition (photos and approved blank bands).
+    var stickerLayout: StickerLayoutSnapshot? = nil
+    /// Stickers drawn into this composition, in z-order. Empty when none were placed.
+    var drawnStickerPlacementIDs: [UUID] = []
 
     nonisolated var estimatedLengthMillimeters: Double {
         Double(height) / 8.0
@@ -253,7 +257,8 @@ enum ReceiptComposer {
         eventProfile: EventProfile? = nil,
         passport: PassportSessionData? = nil,
         photoQualityProfile: PocketPixelsThermalPhotoProfile = .customerPrintDefault,
-        printOptions: ReceiptPrintOptions = .default
+        printOptions: ReceiptPrintOptions = .default,
+        stickers: [FrozenStickerDecoration] = []
     ) throws -> ComposedReceipt {
         try Task.checkCancellation()
         guard photos.count == format.photoCount else {
@@ -302,6 +307,8 @@ enum ReceiptComposer {
             profile: photoQualityProfile
         )
         try Task.checkCancellation()
+        let stickerLayout = makeStickerLayout(for: plan)
+        var drawnStickerIDs: [UUID] = []
 
         let rendererFormat = UIGraphicsImageRendererFormat()
         rendererFormat.scale = 1
@@ -346,6 +353,13 @@ enum ReceiptComposer {
                 }
             }
 
+            // Guest stickers sit on the photographs, clipped to measured safe regions, and are
+            // drawn before the editorial section so the QR and its quiet zone always stay clean.
+            // With no stickers nothing is drawn and the receipt is byte-for-byte unchanged.
+            if !stickers.isEmpty {
+                drawnStickerIDs = StickerCompositionRenderer.draw(stickers, regions: stickerLayout.regions, context: cgContext)
+            }
+
             drawEditorial(
                 layout: plan.editorialLayout,
                 textSnapshot: textSnapshot,
@@ -381,8 +395,52 @@ enum ReceiptComposer {
             createdAt: date,
             format: format,
             photoQualityProfile: photoQualityProfile,
-            includesPrintedGalleryQR: plan.includesPrintedGalleryQR
+            includesPrintedGalleryQR: plan.includesPrintedGalleryQR,
+            stickerLayout: stickerLayout,
+            drawnStickerPlacementIDs: drawnStickerIDs
         )
+    }
+
+    /// Sticker-safe regions measured from the exact plan that is being drawn.
+    nonisolated static func makeStickerLayout(for plan: ReceiptLayoutPlan) -> StickerLayoutSnapshot {
+        StickerLayoutSnapshot(
+            canvasWidth: plan.width,
+            canvasHeight: plan.height,
+            regions: StickerGeometry.regions(
+                photoFrames: plan.photoFrames,
+                protectedRects: stickerProtectedRects(for: plan),
+                canvasWidth: plan.width,
+                canvasHeight: plan.height
+            )
+        )
+    }
+
+    /// Every printed element a sticker must never cover: branding, header artwork, caption,
+    /// footer date, event text and signature, studio credit, QR with its quiet zone and label,
+    /// the session identifier and the Passport / Photo Pass cards (name, note, signature).
+    nonisolated static func stickerProtectedRects(for plan: ReceiptLayoutPlan) -> [CGRect] {
+        let header = plan.headerLayout
+        let editorial = plan.editorialLayout
+        var rects: [CGRect] = header.mastheadTexts.map(\.rect)
+        rects += [header.customImageFrame].compactMap { $0 }
+        rects += header.eventTextFrames.map(\.rect)
+        rects += editorial.captionRules
+        rects += editorial.captionTexts.map(\.rect)
+        rects += editorial.footerTexts.map(\.rect)
+        rects += [editorial.signatureFrame, editorial.qrSeparator, editorial.qrLabel?.rect].compactMap { $0 }
+        rects += editorial.eventTextFrames.map(\.rect)
+        rects += editorial.creditTexts.map(\.rect)
+        if let qrRect = editorial.qrRect {
+            rects.append(qrRect.insetBy(dx: -StickerGeometry.qrQuietZoneDots, dy: -StickerGeometry.qrQuietZoneDots))
+        }
+        rects.append(editorial.sessionText.rect)
+        if let passport = plan.passportLayout {
+            rects += [passport.upperCard, passport.lowerCard]
+        }
+        if let photoPass = plan.photoPassLayout {
+            rects += [photoPass.template.upperCardRect, photoPass.template.lowerCardRect]
+        }
+        return rects
     }
 
     nonisolated static func makeLayoutPlan(
@@ -1232,17 +1290,17 @@ enum ReceiptComposer {
                 throw ReceiptComposerError.renderFailed
             }
 
-            let passportRole = plan.format == .passport ? PassportPhotoRole(photoIndex: index) : nil
-            let isPhotoPassHero = plan.photoPassLayout != nil && index == PhotoPassReceiptLayout.heroPhotoIndex
-            let sourcePhoto = isPhotoPassHero
-                ? PassportPhotoProcessor.photoPassHeroPresentationPhoto(from: photo)
-                : passportRole.map { PassportPhotoProcessor.presentationPhoto(from: photo, role: $0) } ?? photo
-            let targetPixelSize = isPhotoPassHero
-                ? CGSize(width: frame.rect.height, height: frame.rect.width)
-                : frame.rect.size
-            let presentationMode: ThermalPhotoPresentationMode = isPhotoPassHero
-                ? .portrait
-                : passportRole?.thermalPresentationMode ?? plan.format.photoPresentationMode
+            // The same geometry framed the live camera, confirmation and review for this slot.
+            let geometry = PhotoPresentationGeometry.resolve(
+                format: plan.format,
+                photoIndex: index,
+                passportDesign: plan.passportLayout != nil ? .legacyPassport : .photoPassV2
+            )
+            // Passport keeps the full frame in storage, so its upright crop is applied here.
+            // Other formats are stored at their capture crop and the thermal centre crop matches.
+            let sourcePhoto = plan.format == .passport ? geometry.uprightPhoto(from: photo) : photo
+            let targetPixelSize = geometry.preparedPixelSize(forOpening: frame.rect.size)
+            let presentationMode = geometry.thermalPresentationMode
             let prepared = try autoreleasepool {
                 try ThermalPhotoProcessor.prepare(
                     sourcePhoto,
@@ -1516,15 +1574,4 @@ nonisolated private func debugLog(_ message: String) {
 #if DEBUG
     print("[ReceiptComposer] \(message)")
 #endif
-}
-
-private extension BoothFormat {
-    nonisolated var photoPresentationMode: ThermalPhotoPresentationMode {
-        switch self {
-        case .solo, .grid, .gridSix, .passport:
-            .portrait
-        case .duo, .strip:
-            .landscape
-        }
-    }
 }

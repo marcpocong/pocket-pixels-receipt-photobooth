@@ -156,6 +156,19 @@ test("completed gallery is fetched once and then served from edge cache", async 
   });
 });
 
+test("completed cache uses an internal release version without changing the upstream or customer URL", async () => {
+  await withMemoryCache(async (entries) => {
+    await withMockFetch([completedGalleryResponse()], async (calls) => {
+      const customerURL = `https://gallery.example.com/?g=${token}`;
+      const response = await worker.fetch(new Request(customerURL), env);
+      assert.equal(response.status, 200);
+      assert.equal(calls[0].url, `https://script.google.com/macros/s/DEPLOYMENT_ID/exec?proxy=raw&g=${token}`);
+      assert.ok([...entries.keys()].some((key) => key.includes("gallery-cache=made-to-keep-20261009")));
+      assert.ok(!customerURL.includes("gallery-cache"));
+    });
+  });
+});
+
 test("completed schema-v2 GIF gallery HTML passes through and remains in cache", async () => {
   await withMemoryCache(async () => {
     const gifHTML = '<!doctype html><title>Pocket Pixels Gallery</title><main data-pocket-pixels-gallery-status="complete"><h2>Your GIF</h2><img id="image-session.gif" data-open="session.gif"><button data-download="session.gif">Save GIF</button></main>';
@@ -317,7 +330,7 @@ async function withMemoryCache(operation) {
   };
 
   try {
-    await operation();
+    await operation(entries);
   } finally {
     if (originalCaches === undefined) {
       delete globalThis.caches;

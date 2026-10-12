@@ -81,10 +81,11 @@ nonisolated enum CustomerIdleResetPolicy {
         }
 
         switch state {
-        case .choosingFormat, .choosingCopies, .choosingPayment, .cashAttestation, .cameraReady, .review, .passportDetails, .passportSignature, .passportPreview, .receiptPreview, .thankYou:
+        case .choosingFormat, .choosingCopies, .choosingPayment, .cashAttestation, .cameraReady, .review,
+             .passportDetails, .passportSignature, .passportPreview, .stickerStudio, .receiptPreview, .thankYou:
             return true
         case .welcome, .awaitingQRPayment, .paymentReconciliation, .preparingCamera, .countdown, .capturing, .betweenPhotos, .retaking,
-             .composingReceipt, .connectingToPrinter, .printing, .recoveryRequired, .error:
+             .preparingStickers, .composingReceipt, .connectingToPrinter, .printing, .recoveryRequired, .error:
             return false
         }
     }
@@ -120,7 +121,7 @@ nonisolated enum CustomerErrorKind: Equatable, Sendable {
             .printer
         case .preparingCamera, .cameraReady, .countdown, .capturing, .betweenPhotos, .retaking:
             .camera
-        case .composingReceipt:
+        case .composingReceipt, .preparingStickers:
             .photoPreparation
         default:
             .general
@@ -147,4 +148,30 @@ nonisolated enum CustomerExperiencePreviewPolicy {
     static let createsArchive = false
     static let sendsPrint = false
     static let changesEventCounters = false
+}
+
+/// Which rendering the pre-print receipt preview shows. The keepsake view is the composed receipt;
+/// "As printed" is the exact thermal raster preview the printer receives (never an approximation).
+enum ReceiptPreviewMode: String, CaseIterable, Sendable {
+    case keepsake
+    case thermal
+
+    static let printNote = "Prints in black and white on thermal paper."
+    /// Reserved vertical space for the toggle and note on the receipt screen.
+    static let pickerHeightEstimate: CGFloat = 62
+
+    var title: String {
+        switch self {
+        case .keepsake: "Keepsake"
+        case .thermal: "As printed"
+        }
+    }
+
+    /// The thermal view falls back to the keepsake while the raster preview is still rendering.
+    func image(keepsake: UIImage?, thermal: UIImage?) -> UIImage? {
+        switch self {
+        case .keepsake: keepsake
+        case .thermal: thermal ?? keepsake
+        }
+    }
 }

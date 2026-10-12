@@ -556,7 +556,8 @@ async function completeEntitlement(request, env, principal, entitlementId) {
     const timestamp = now();
     await env.DB.batch([
         env.DB.prepare("UPDATE entitlements SET state='CONSUMED',updated_at=? WHERE id=? AND device_id=? AND session_id=? AND state='IN_SESSION'").bind(timestamp, entitlementId, principal.id, body.sessionId || ""),
-        env.DB.prepare("UPDATE orders SET state='COMPLETE',updated_at=? WHERE id=(SELECT order_id FROM entitlements WHERE id=? AND state='CONSUMED') AND state='IN_SESSION'").bind(timestamp, entitlementId)
+        env.DB.prepare("UPDATE orders SET state='COMPLETE',updated_at=? WHERE id=(SELECT order_id FROM entitlements WHERE id=? AND state='CONSUMED') AND state='IN_SESSION'").bind(timestamp, entitlementId),
+        env.DB.prepare("UPDATE print_batches SET state='COMPLETE' WHERE entitlement_id=? AND session_id=? AND state='PRINTING'").bind(entitlementId, body.sessionId || "")
     ]);
     const row = await entitlementRow(env, "e.id=? AND e.device_id=?", entitlementId, principal.id);
     if (!row || row.session_id !== body.sessionId || row.state !== "CONSUMED") throw http(409, "Entitlement is not in this session.", "entitlement_session_mismatch");

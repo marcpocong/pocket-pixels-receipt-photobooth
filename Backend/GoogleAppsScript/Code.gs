@@ -37,7 +37,7 @@ const MAX_GALLERY_DECODED_BYTES = 6 * 1024 * 1024;
 
 const MAX_GALLERY_BASE64_CHARS = 9 * 1024 * 1024;
 
-const BACKEND_VERSION = 'gallery-v2-gif-dual-receipts-20261007';
+const BACKEND_VERSION = 'made-to-keep-gallery-v2-optional-gif-20261009';
 
 // Customer-visible Made to Keep Studios identity. Script Property names, the completed-gallery
 // marker and self-test entry points keep their legacy Pocket Pixels identifiers for compatibility.
@@ -300,6 +300,13 @@ function runPocketPixelsSelfTest() {
 
   assert_(validateUploadPayload_(validPayload).ok, 'Valid payload should pass validation.');
 
+  const withoutGIF = JSON.parse(JSON.stringify(validPayload));
+  delete withoutGIF.gif;
+  assert_(validateUploadPayload_(withoutGIF).ok, 'Schema-v2 payload should remain valid when optional GIF creation fails.');
+  const withoutGIFManifest = makeCompleteManifest_(withoutGIF);
+  assert_(withoutGIFManifest.gif === undefined, 'Degraded schema-v2 manifest must omit the GIF.');
+  assert_(manifestHasExpectedFiles_(withoutGIFManifest, withoutGIF.photos.length), 'Schema-v2 manifest without GIF should remain renderable.');
+
   for (let count = MIN_PHOTO_COUNT; count <= MAX_PHOTO_COUNT; count++) {
 
     assert_(validateUploadPayload_(makeSelfTestPayload_(count)).ok, count + '-photo payload should pass validation.');
@@ -384,7 +391,7 @@ function runPhase6CBackendSelfChecks() {
 
   assertValidationCode_(badCount, 'INVALID_PHOTO_COUNT');
 
-  const tooMany = makeSelfTestPayload_(5);
+  const tooMany = makeSelfTestPayload_(7);
 
   assertValidationCode_(tooMany, 'INVALID_PHOTO_COUNT');
 
@@ -420,9 +427,9 @@ function runPhase6CBackendSelfChecks() {
 
   const badReceipt = JSON.parse(JSON.stringify(validPayload));
 
-  badReceipt.receipt.filename = 'receipt.png';
+  badReceipt.colorReceipt.filename = 'receipt.png';
 
-  assertValidationCode_(badReceipt, 'INVALID_RECEIPT');
+  assertValidationCode_(badReceipt, 'INVALID_PHOTO_FILENAME');
 
   const driveError = classifyUnexpectedError_(new Error('Exception: Unexpected error while getting the method or property getFolderById on object DriveApp.'));
 
@@ -491,6 +498,12 @@ function runFastGalleryRenderSelfChecks_() {
   assert_(script.indexOf('window.open(dataURL') === -1, 'Open Full Size should not open embedded base64 data URLs directly.');
 
   assert_(script.indexOf('google.script.run') === -1, 'Gallery client should remain self-contained without per-image script calls.');
+
+  assert_(script.indexOf('requestIdleCallback') !== -1, 'Gallery client should defer non-critical image initialization.');
+
+  assert_(script.indexOf('new File([bytes],item.filename,{type:item.mimeType})') !== -1, 'Downloads and shares must preserve the original filename and MIME type.');
+
+  assert_(script.indexOf('canvas') === -1, 'Gallery client must not flatten animated GIFs through canvas conversion.');
 
 }
 
@@ -606,7 +619,7 @@ function validateUploadPayload_(body) {
 
   }
 
-  const versionFields = body.schemaVersion === 1 ? ['receipt'] : ['colorReceipt', 'thermalReceipt', 'gif'];
+  const versionFields = body.schemaVersion === 1 ? ['receipt'] : ['colorReceipt', 'thermalReceipt'];
   for (let i = 0; i < versionFields.length; i++) {
     if (!Object.prototype.hasOwnProperty.call(body, versionFields[i])) {
       return validationError_('MISSING_FIELD', 'Missing required field.', versionFields[i]);
@@ -689,9 +702,12 @@ function validateUploadPayload_(body) {
     if (!colorError.ok) return colorError;
     const thermalError = validateImage_(body.thermalReceipt, THERMAL_RECEIPT_FILENAME, 'thermalReceipt', 'image/png');
     if (!thermalError.ok) return thermalError;
-    const gifError = validateImage_(body.gif, GIF_FILENAME, 'gif', 'image/gif');
-    if (!gifError.ok) return gifError;
-    validatedImages.push(colorError.image, thermalError.image, gifError.image);
+    validatedImages.push(colorError.image, thermalError.image);
+    if (body.gif !== undefined && body.gif !== null) {
+      const gifError = validateImage_(body.gif, GIF_FILENAME, 'gif', 'image/gif');
+      if (!gifError.ok) return gifError;
+      validatedImages.push(gifError.image);
+    }
   }
 
   const renderBudget = validateUploadGalleryBudget_(validatedImages, body);
@@ -730,7 +746,7 @@ function validateUploadGalleryBudget_(validatedImages, body) {
   let base64Chars = 0;
   for (let i = 0; i < validatedImages.length; i++) decodedBytes += validatedImages[i].bytes.length;
   const wireImages = body.photos.concat(body.schemaVersion === 2
-    ? [body.colorReceipt, body.thermalReceipt, body.gif]
+    ? [body.colorReceipt, body.thermalReceipt].concat(body.gif ? [body.gif] : [])
     : [body.receipt]);
   for (let i = 0; i < wireImages.length; i++) base64Chars += String(wireImages[i].base64Data || '').length;
   if (decodedBytes > MAX_GALLERY_DECODED_BYTES || base64Chars > MAX_GALLERY_BASE64_CHARS) {
@@ -827,7 +843,7 @@ function validateImage_(image, expectedFilename, field, expectedMimeType) {
 function createOrReturnGallery_(root, body) {
 
   const folderName = 'gallery-' + body.galleryToken;
-  const expected = expectedFilenames_(body.photos.length, body.schemaVersion);
+  const expected = expectedFilenames_(body.photos.length, body.schemaVersion, !!body.gif);
   const expectedFileCount = expected.length + 1;
 
   const folders = collectFoldersByName_(root, folderName);
@@ -959,7 +975,7 @@ function createOrReturnGallery_(root, body) {
 function saveExpectedImages_(folder, body, existingCounts) {
 
   const images = body.schemaVersion === 2
-    ? body.photos.concat([body.colorReceipt, body.thermalReceipt, body.gif])
+    ? body.photos.concat([body.colorReceipt, body.thermalReceipt]).concat(body.gif ? [body.gif] : [])
     : body.photos.concat([body.receipt]);
 
   const validatedImages = body._validatedImages || [];
@@ -1136,7 +1152,8 @@ function manifestHasExpectedFiles_(manifest, expectedPhotoCount) {
   const rolesOK = manifest.schemaVersion === 1
     ? manifest.receipt === RECEIPT_FILENAME
     : manifest.schemaVersion === 2 && manifest.colorReceipt === RECEIPT_FILENAME &&
-      manifest.thermalReceipt === THERMAL_RECEIPT_FILENAME && manifest.gif === GIF_FILENAME;
+      manifest.thermalReceipt === THERMAL_RECEIPT_FILENAME &&
+      (manifest.gif === undefined || manifest.gif === null || manifest.gif === GIF_FILENAME);
 
   return rolesOK &&
 
@@ -1239,7 +1256,7 @@ function findCompleteGalleryByToken_(token, timings) {
 
   }
 
-  const expected = expectedFilenames_(manifest.photos.length, manifest.schemaVersion);
+  const expected = expectedFilenames_(manifest.photos.length, manifest.schemaVersion, !!manifest.gif);
   const exactInspection = inspectGalleryFolder_(folder, expected);
 
   if (!exactInspection.safe || !hasExactlyExpectedImages_(exactInspection, expected) || exactInspection.manifests.length !== 1) {
@@ -1304,7 +1321,7 @@ function findCompleteGalleryByNameFallback_(root, token, timings) {
     return null;
   }
 
-  const expected = expectedFilenames_(manifest.photos.length, manifest.schemaVersion);
+  const expected = expectedFilenames_(manifest.photos.length, manifest.schemaVersion, !!manifest.gif);
   const exactInspection = inspectGalleryFolder_(folder, expected);
   if (!exactInspection.safe || !hasExactlyExpectedImages_(exactInspection, expected) || exactInspection.manifests.length !== 1) {
     return null;
@@ -1394,7 +1411,7 @@ function renderGalleryPage_(gallery, timings, startedAt) {
 
   body += '<main class="gallery-shell" data-pocket-pixels-gallery-status="complete">';
 
-  body += '<header class="gallery-hero">' + madeToKeepBrandLockupHTML_() + '<h1>your photos are ready.</h1><p class="lede">' + MADE_TO_KEEP_BRAND.tagline + '</p></header>';
+  body += '<header class="gallery-hero">' + madeToKeepBrandLockupHTML_() + '<h1>your moments, made to keep.</h1><p class="lede">View, save and share the photographs from your session.</p></header>';
 
   body += '<section class="primary-actions" aria-label="Save photos"><button type="button" id="shareAll">Save All Photos</button><p id="allHint">Save your photos before closing this page.</p><p id="message" role="status" aria-live="polite"></p></section>';
 
@@ -1495,7 +1512,7 @@ function loadGalleryAssets_(filesByName, manifest) {
 
     receipt: loadGalleryAsset_(filesByName, manifest.schemaVersion === 2 ? manifest.colorReceipt : manifest.receipt, 'colorReceipt'),
     thermalReceipt: manifest.schemaVersion === 2 ? loadGalleryAsset_(filesByName, manifest.thermalReceipt, 'thermalReceipt') : null,
-    gif: manifest.schemaVersion === 2 ? loadGalleryAsset_(filesByName, manifest.gif, 'gif') : null
+    gif: manifest.schemaVersion === 2 && manifest.gif ? loadGalleryAsset_(filesByName, manifest.gif, 'gif') : null
 
   };
 
@@ -1638,9 +1655,11 @@ function galleryClientScript_() {
 
     'function findItem(filename){return assetMap.get(filename);}',
 
-    'function showEmbeddedImages(){try{files.forEach(function(item){const image=document.getElementById(\"image-\"+item.filename);const placeholder=document.getElementById(\"placeholder-\"+item.filename);if(image){image.src=dataURL(item);image.hidden=false;}if(placeholder){placeholder.remove();}});wireOpenButtons();wireShareButtons();wireShareAll();wireLightbox();logSafeBrowserTiming();setMessage(\"\");}catch(error){setMessage(\"Some images did not load. Refresh this page and try again.\");}}',
+    'function revealItem(item){const image=document.getElementById(\"image-\"+item.filename);const placeholder=document.getElementById(\"placeholder-\"+item.filename);if(image&&!image.src){image.src=dataURL(item);image.hidden=false;}if(placeholder){placeholder.remove();}}',
 
-    'function downloadItem(item){try{const url=objectURLFor(item);const a=document.createElement(\"a\");a.href=url;a.download=item.filename;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1500);setMessage(\"Download started.\");}catch(error){setMessage(\"Could not start the download. Please try again.\");}}',
+    'function showEmbeddedImages(){try{if(files.length){revealItem(files[0]);}const remaining=files.slice(1);const reveal=function(){remaining.forEach(revealItem);};if(\"requestIdleCallback\" in window){requestIdleCallback(reveal,{timeout:1200});}else{setTimeout(reveal,40);}wireOpenButtons();wireShareButtons();wireShareAll();wireLightbox();logSafeBrowserTiming();setMessage(\"\");}catch(error){setMessage(\"Some images did not load. Refresh this page and try again.\");}}',
+
+    'function downloadItem(item){try{const url=objectURLFor(item);const a=document.createElement(\"a\");a.href=url;a.download=item.filename;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},30000);setMessage(item.role===\"gif\"?\"GIF download started. If Photos does not offer a save option, use Share GIF and choose Save to Files.\":\"Download started.\");}catch(error){setMessage(\"Could not start the download. Please try again.\");}}',
 
     'function roleText(item){if(item.role===\"gif\"){return {name:\"GIF\",alt:\"Animated Made to Keep Studios session GIF\",save:\"Save GIF\"};}if(item.role===\"colorReceipt\"){return {name:\"color receipt\",alt:\"Made to Keep Studios color receipt preview\",save:\"Save Receipt\"};}if(item.role===\"thermalReceipt\"){return {name:\"thermal receipt\",alt:\"Made to Keep Studios thermal receipt preview\",save:\"Save Receipt\"};}return {name:\"photo\",alt:\"Made to Keep Studios photo\",save:\"Save Photo\"};}',
 
@@ -1662,7 +1681,7 @@ function galleryClientScript_() {
 
     'function wireLightbox(){const close=document.getElementById(\"lightboxClose\");const lightbox=document.getElementById(\"lightbox\");const save=document.getElementById(\"lightboxSave\");if(close){close.addEventListener(\"click\",closeLightbox);}if(lightbox){lightbox.addEventListener(\"click\",function(event){if(event.target===lightbox){closeLightbox();}});}if(save){save.addEventListener(\"click\",function(){if(activeLightboxItem){downloadItem(activeLightboxItem);}});}document.addEventListener(\"keydown\",function(event){if(event.key===\"Escape\"){closeLightbox();}});}',
 
-    'function wireShareButtons(){document.querySelectorAll(\"[data-share]\").forEach(function(button){const item=findItem(button.getAttribute(\"data-share\"));if(!item){button.hidden=true;return;}if(!supportsFileShare(item)){button.textContent=item.role===\"gif\"?\"Download GIF\":\"Download\";}button.addEventListener(\"click\",function(){shareItem(item);});});}',
+    'function wireShareButtons(){document.querySelectorAll(\"[data-share]\").forEach(function(button){const item=findItem(button.getAttribute(\"data-share\"));if(!item||!supportsFileShare(item)){button.hidden=true;return;}button.addEventListener(\"click\",function(){shareItem(item);});});}',
 
     'function wireShareAll(){const shareAll=document.getElementById(\"shareAll\");const allHint=document.getElementById(\"allHint\");if(!shareAll){return;}const photos=galleryData.photos.map(function(file){return findItem(file.filename);}).filter(Boolean);if(supportsMultipleFileShare()){shareAll.addEventListener(\"click\",async function(){try{await navigator.share({files:photos.map(fileForItem),title:\"Made to Keep Studios\",text:\"Made to Keep Studios photos\"});setMessage(\"Share sheet opened.\");}catch(error){if(error&&error.name!==\"AbortError\"){setMessage(\"Sharing all photos did not work here. Please save each photo below.\");}}});}else{shareAll.className=\"secondary\";shareAll.textContent=\"Save Photos Individually\";shareAll.addEventListener(\"click\",function(){setMessage(\"Use each Save Photo button below for the most reliable save.\");});if(allHint){allHint.textContent=\"This browser does not support sharing multiple image files from the page.\";}}}',
 
@@ -1700,7 +1719,7 @@ function makeCompleteManifest_(body) {
     photos: body._expectedPhotoFilenames || expectedPhotoFilenames_(body.photos.length),
     colorReceipt: RECEIPT_FILENAME,
     thermalReceipt: THERMAL_RECEIPT_FILENAME,
-    gif: GIF_FILENAME,
+    gif: body.gif ? GIF_FILENAME : undefined,
     status: 'complete'
   };
 
@@ -1926,10 +1945,10 @@ function expectedPhotoFilenames_(photoCount) {
 
 }
 
-function expectedFilenames_(photoCount, schemaVersion) {
+function expectedFilenames_(photoCount, schemaVersion, hasGIF) {
 
   return expectedPhotoFilenames_(photoCount).concat(schemaVersion === 2
-    ? [RECEIPT_FILENAME, THERMAL_RECEIPT_FILENAME, GIF_FILENAME]
+    ? [RECEIPT_FILENAME, THERMAL_RECEIPT_FILENAME].concat(hasGIF === false ? [] : [GIF_FILENAME])
     : [RECEIPT_FILENAME]);
 
 }

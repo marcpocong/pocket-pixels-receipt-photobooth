@@ -163,8 +163,32 @@ struct PaymentsOperatorView: View {
             if let fault = PrintOutcomeOutbox.shared?.integrityFault {
                 Label(fault, systemImage: "exclamationmark.octagon").foregroundStyle(.red)
             }
-            Button("Send Print Reports Now") { Task { await recovery.syncOutbox() } }
-                .disabled(client == nil)
+            Button("Send Print Reports Now") { Task { await recovery.syncOutbox(showFeedback: true) } }
+                .disabled(client == nil || recovery.printReportSyncState == .syncing)
+            switch recovery.printReportSyncState {
+            case .idle:
+                EmptyView()
+            case .syncing:
+                HStack {
+                    ProgressView()
+                    Text("Synchronizing print reports…", comment: "Operator status while print accounting reports are uploading.")
+                }
+            case .nothingToSynchronize:
+                Label("Nothing to synchronize.", systemImage: "checkmark.circle")
+                    .foregroundStyle(.secondary)
+            case .sent(let count):
+                Label("Sent \(count) print report(s).", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            case .networkFailure(let retryCount):
+                Label("Network failure. \(retryCount) report(s) will retry automatically.", systemImage: "wifi.exclamationmark")
+                    .foregroundStyle(.orange)
+            case .serverConflict(let count):
+                Label("Server conflict for \(count) print report(s). Review the records above.", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+            case .retryScheduled(let count):
+                Label("Retry already scheduled for \(count) print report(s).", systemImage: "clock.arrow.circlepath")
+                    .foregroundStyle(.secondary)
+            }
         } header: {
             Text("Print Accounting")
         } footer: {

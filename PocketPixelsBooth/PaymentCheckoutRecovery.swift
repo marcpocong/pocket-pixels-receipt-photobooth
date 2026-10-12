@@ -275,6 +275,16 @@ nonisolated struct CheckoutRecoveryItem: Identifiable, Equatable, Sendable {
     var id: String { checkpoint.id }
 }
 
+enum PrintReportSyncState: Equatable {
+    case idle
+    case syncing
+    case nothingToSynchronize
+    case sent(Int)
+    case networkFailure(retryCount: Int)
+    case serverConflict(Int)
+    case retryScheduled(Int)
+}
+
 /// Reconciles interrupted checkouts and replays print reports. Resuming is never automatic: an
 /// operator arms a single-use, short-lived resume and the guest continues the original checkout.
 @MainActor
@@ -286,6 +296,7 @@ final class PaymentRecoveryCoordinator: ObservableObject {
     @Published private(set) var lastRefreshMessage = ""
     @Published private(set) var armedResume: (item: CheckoutRecoveryItem, expiresAt: Date)?
     @Published private(set) var outboxSummary = (pending: 0, conflicts: 0, uncertain: 0, awaiting: 0)
+    @Published private(set) var printReportSyncState = PrintReportSyncState.idle
 
     private var launched = false
 
@@ -339,10 +350,46 @@ final class PaymentRecoveryCoordinator: ObservableObject {
         if let client { await syncOutbox(client: client) }
     }
 
-    func syncOutbox(client: PaymentsAPIClient? = PaymentsConfiguration.current().map { PaymentsAPIClient(configuration: $0) }) async {
-        guard let client, let outbox = PrintOutcomeOutbox.shared else { refreshOutboxSummary(); return }
-        _ = await outbox.sync(using: client)
+    func syncOutbox(
+        client: PaymentsAPIClient? = PaymentsConfiguration.current().map { PaymentsAPIClient(configuration: $0) },
+        showFeedback: Bool = false
+    ) async {
+        guard let outbox = PrintOutcomeOutbox.shared else {
+            refreshOutboxSummary()
+            if showFeedback { printReportSyncState = .networkFailure(retryCount: 0) }
+            return
+        }
+        guard let client else {
+            refreshOutboxSummary()
+            if showFeedback { printReportSyncState = .networkFailure(retryCount: outbox.summary.pending) }
+            return
+        }
+        let dueCount = outbox.dueReports().count
+        if showFeedback {
+            if outbox.summary.pending == 0 {
+                printReportSyncState = outbox.summary.conflicts > 0 ? .serverConflict(outbox.summary.conflicts) : .nothingToSynchronize
+                return
+            }
+            if dueCount == 0 {
+                printReportSyncState = .retryScheduled(outbox.summary.pending)
+                return
+            }
+            printReportSyncState = .syncing
+        }
+        let result = await outbox.sync(using: client)
         refreshOutboxSummary()
+        guard showFeedback else { return }
+        if result.conflicts > 0 || outbox.summary.conflicts > 0 {
+            printReportSyncState = .serverConflict(max(result.conflicts, outbox.summary.conflicts))
+        } else if result.retries > 0 {
+            printReportSyncState = .networkFailure(retryCount: result.retries)
+        } else if result.sent > 0 {
+            printReportSyncState = .sent(result.sent)
+        } else if outbox.summary.pending > 0 {
+            printReportSyncState = .retryScheduled(outbox.summary.pending)
+        } else {
+            printReportSyncState = .nothingToSynchronize
+        }
     }
 
     func refreshOutboxSummary() {

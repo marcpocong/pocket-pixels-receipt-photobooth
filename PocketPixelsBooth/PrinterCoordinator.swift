@@ -319,6 +319,7 @@ final class PrinterCoordinator: ObservableObject {
                     envelope: envelope,
                     wifiHost: wifiHost,
                     wifiPort: wifiPort,
+                    prePrintCheckpoint: prePrintCheckpoint,
                     onStateChange: onStateChange
                 )
             }
@@ -342,6 +343,7 @@ final class PrinterCoordinator: ObservableObject {
         envelope: PrintJobEnvelope,
         wifiHost: String,
         wifiPort: UInt16?,
+        prePrintCheckpoint: PrePrintCheckpointGate?,
         onStateChange: StateHandler?
     ) async -> Result<PhysicalPrintTransportResult, Error> {
         let mode = preferredMode
@@ -355,12 +357,12 @@ final class PrinterCoordinator: ObservableObject {
             }
 
             if bluetoothService.isConnectedAndReady {
-                activeTransport = .bluetooth
                 return await sendBluetoothReceipt(
                     envelope: envelope,
                     wifiHost: wifiHost,
                     wifiPort: wifiPort,
                     allowWifiFallbackBeforeBytes: mode == .auto,
+                    prePrintCheckpoint: prePrintCheckpoint,
                     onStateChange: onStateChange
                 )
             }
@@ -378,6 +380,7 @@ final class PrinterCoordinator: ObservableObject {
             envelope: envelope,
             wifiHost: wifiHost,
             wifiPort: wifiPort,
+            prePrintCheckpoint: prePrintCheckpoint,
             onStateChange: onStateChange
         )
     }
@@ -387,8 +390,15 @@ final class PrinterCoordinator: ObservableObject {
         wifiHost: String,
         wifiPort: UInt16?,
         allowWifiFallbackBeforeBytes: Bool,
+        prePrintCheckpoint: PrePrintCheckpointGate?,
         onStateChange: StateHandler?
     ) async -> Result<PhysicalPrintTransportResult, Error> {
+        do {
+            try prePrintCheckpoint?.selectTransport(envelope, .bluetooth)
+        } catch {
+            return .failure((error as? PrintCheckpointError) ?? PrintCheckpointError.persistenceFailed(error.localizedDescription))
+        }
+        activeTransport = .bluetooth
         publish(.sendingPhotograph, onStateChange: onStateChange)
 
         let startedAt = Date()
@@ -426,6 +436,7 @@ final class PrinterCoordinator: ObservableObject {
                                 envelope: envelope,
                                 wifiHost: wifiHost,
                                 wifiPort: wifiPort,
+                                prePrintCheckpoint: prePrintCheckpoint,
                                 onStateChange: onStateChange
                             )
                             continuation.resume(returning: fallback)
@@ -447,15 +458,21 @@ final class PrinterCoordinator: ObservableObject {
         envelope: PrintJobEnvelope,
         wifiHost: String,
         wifiPort: UInt16?,
+        prePrintCheckpoint: PrePrintCheckpointGate?,
         onStateChange: StateHandler?
     ) async -> Result<PhysicalPrintTransportResult, Error> {
-        activeTransport = .wifi
-
         guard let wifiPort else {
             let state = PrinterConnectionState.failure(PrinterNetworkError.invalidPort.userMessage)
             publish(state, onStateChange: onStateChange)
             return .failure(PrinterNetworkError.invalidPort)
         }
+
+        do {
+            try prePrintCheckpoint?.selectTransport(envelope, .wifi)
+        } catch {
+            return .failure((error as? PrintCheckpointError) ?? PrintCheckpointError.persistenceFailed(error.localizedDescription))
+        }
+        activeTransport = .wifi
 
         return await withCheckedContinuation { continuation in
             wifiService.printFrozenReceipt(

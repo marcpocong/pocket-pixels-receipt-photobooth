@@ -238,15 +238,24 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             data: thermalRaster.previewPNGData
         )
         let assetsWithoutGIF = preparedPhotos + [preparedReceipt, preparedThermalReceipt]
-        let maximumGIFBytes = try GalleryPreparedUploadBudget.maximumGIFBytes(afterPreparing: assetsWithoutGIF)
-        let preparedGIF = GalleryStoredUploadImage(
-            filename: "session.gif",
-            mimeType: "image/gif",
-            data: try SessionGIFRenderer.render(images: photos, maximumByteCount: maximumGIFBytes)
-        )
+        // A GIF is an enhancement, never a prerequisite for delivering the approved photos and
+        // receipts. Solo intentionally has no animation; encoding or budget failures for other
+        // formats degrade to a complete still gallery instead of losing the whole session.
+        let preparedGIF: GalleryStoredUploadImage?
+        if photos.count > 1,
+           let maximumGIFBytes = try? GalleryPreparedUploadBudget.maximumGIFBytes(afterPreparing: assetsWithoutGIF),
+           let gifData = try? SessionGIFRenderer.render(images: photos, maximumByteCount: maximumGIFBytes) {
+            preparedGIF = GalleryStoredUploadImage(
+                filename: "session.gif",
+                mimeType: "image/gif",
+                data: gifData
+            )
+        } else {
+            preparedGIF = nil
+        }
 
         let imagePreparationDuration = Date().timeIntervalSince(preparationStart)
-        let allAssets = preparedPhotos + [preparedReceipt, preparedThermalReceipt, preparedGIF]
+        let allAssets = preparedPhotos + [preparedReceipt, preparedThermalReceipt] + [preparedGIF].compactMap { $0 }
         let decodedBytes = allAssets.reduce(0) { $0 + $1.data.count }
         let timing = GalleryUploadTimingMetrics(
             imagePreparationDuration: imagePreparationDuration,
@@ -306,11 +315,12 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         _ response: GalleryUploadResponse,
         expectedGalleryToken: String? = nil,
         expectedGalleryURL: URL? = nil,
-        expectedPhotoCount: Int = BoothFormat.strip.photoCount
+        expectedPhotoCount: Int = BoothFormat.strip.photoCount,
+        expectedGIFIncluded: Bool = true
     ) -> Bool {
         guard response.ok,
               Self.isSupportedPhotoCount(expectedPhotoCount),
-              response.fileCount == expectedPhotoCount + (response.schemaVersion == 2 ? 4 : 2),
+              response.fileCount == expectedPhotoCount + (response.schemaVersion == 2 ? (expectedGIFIncluded ? 4 : 3) : 2),
               let galleryToken = response.galleryToken,
               let galleryURL = response.galleryURL,
               Self.isConfirmedCompletionStatus(response.status),
@@ -446,7 +456,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             throw GalleryUploadError.server(Self.safeServerMessage(response: uploadResponse, fallback: "Gallery upload failed."))
         }
 
-        guard Self.validateSuccessfulResponse(uploadResponse, expectedGalleryToken: payload.galleryToken, expectedGalleryURL: payload.galleryURL, expectedPhotoCount: payload.photos.count),
+        guard Self.validateSuccessfulResponse(uploadResponse, expectedGalleryToken: payload.galleryToken, expectedGalleryURL: payload.galleryURL, expectedPhotoCount: payload.photos.count, expectedGIFIncluded: payload.gif != nil),
               let galleryToken = uploadResponse.galleryToken,
               let galleryURL = uploadResponse.galleryURL else {
             throw GalleryUploadError.invalidResponse

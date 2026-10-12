@@ -1,19 +1,6 @@
-name = "pocket-pixels-gallery-proxy"
+name = "gallery"
 main = "src/index.js"
 compatibility_date = "2026-08-31"
 
 [vars]
-APPS_SCRIPT_GALLERY_ORIGIN = "https://script.google.com/macros/s/REPLACE_WITH_CURRENT_DEPLOYMENT_ID/exec"
-
-# Made to Keep Studios customer gallery front door (Phase 2 migration).
-# Deploy with `wrangler deploy --env madetokeep`. This is a separate Worker from the legacy
-# Pocket Pixels front door above, which must stay deployed for already-printed QR codes.
-# Both Workers run the same source and proxy to the same Apps Script deployment, so a gallery
-# token opens the same gallery from either hostname. Attach the final Made to Keep custom domain
-# in the Cloudflare dashboard (or add a `routes` entry here) once the hostname is decided.
-# Environments do not inherit [vars]; keep APPS_SCRIPT_GALLERY_ORIGIN in sync with the legacy one.
-[env.madetokeep]
-name = "made-to-keep-gallery"
-
-[env.madetokeep.vars]
-APPS_SCRIPT_GALLERY_ORIGIN = "https://script.google.com/macros/s/REPLACE_WITH_CURRENT_DEPLOYMENT_ID/exec"
+APPS_SCRIPT_GALLERY_ORIGIN = "https://script.google.com/macros/s/AKfycbxFc4wpaRipbj-xEXt-zW6m5GoaJ1QkJtnw8Ryg4aH5rDeZDXXctXDTCWCWJwK1SwRSdQ/exec"

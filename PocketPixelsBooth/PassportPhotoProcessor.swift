@@ -68,48 +68,25 @@ nonisolated enum PassportPhotoProcessor {
         }
     }
 
-    /// Crop for a card role. Uses CGImage cropping, so it is cheap and does not redraw pixels.
+    /// Crop for a legacy Passport card role (archived sessions). Delegates to the shared
+    /// presentation geometry so capture, review and print use one crop formula.
     nonisolated static func presentationPhoto(from image: UIImage, role: PassportPhotoRole) -> UIImage {
-        let upright = image.imageOrientation == .up && image.cgImage != nil ? image : normalizedSource(from: image)
-        guard let cgImage = upright.cgImage else { return upright }
-        let rect = cropRect(sourceSize: CGSize(width: cgImage.width, height: cgImage.height), role: role)
-        guard rect.width >= 1, rect.height >= 1, let cropped = cgImage.cropping(to: rect) else { return upright }
-        return UIImage(cgImage: cropped, scale: 1, orientation: .up)
+        legacyGeometry(for: role).uprightPhoto(from: image)
     }
 
-    /// Photo Pass prepares its sideways hero as a portrait before the renderer rotates it into
-    /// the unchanged landscape opening. This avoids throwing away most of a portrait capture.
+    /// Photo Pass prepares its sideways hero as an upright portrait before the renderer rotates it
+    /// into the unchanged landscape opening. This is the exact crop the guest approved in review.
     nonisolated static func photoPassHeroPresentationPhoto(from image: UIImage) -> UIImage {
-        let upright = image.imageOrientation == .up && image.cgImage != nil ? image : normalizedSource(from: image)
-        guard let cgImage = upright.cgImage else { return upright }
-        let rect = cropRect(
-            sourceSize: CGSize(width: cgImage.width, height: cgImage.height),
-            aspectRatio: CGSize(width: 3, height: 4),
-            verticalAnchor: PassportPhotoRole.hero.verticalAnchor
-        )
-        guard rect.width >= 1, rect.height >= 1, let cropped = cgImage.cropping(to: rect) else { return upright }
-        return UIImage(cgImage: cropped, scale: 1, orientation: .up)
+        PhotoPresentationGeometry.resolve(format: .passport, photoIndex: PassportPhotoRole.hero.rawValue, passportDesign: .photoPassV2)
+            .uprightPhoto(from: image)
     }
 
     nonisolated static func cropRect(sourceSize: CGSize, role: PassportPhotoRole) -> CGRect {
-        cropRect(sourceSize: sourceSize, aspectRatio: role.aspectRatio, verticalAnchor: role.verticalAnchor)
+        legacyGeometry(for: role).cropRect(sourceSize: sourceSize)
     }
 
-    nonisolated private static func cropRect(sourceSize: CGSize, aspectRatio: CGSize, verticalAnchor: CGFloat) -> CGRect {
-        guard sourceSize.width > 0, sourceSize.height > 0 else { return .zero }
-        let ratio = aspectRatio.width / aspectRatio.height
-        let size: CGSize
-        if sourceSize.width / sourceSize.height > ratio {
-            size = CGSize(width: floor(sourceSize.height * ratio), height: sourceSize.height)
-        } else {
-            size = CGSize(width: sourceSize.width, height: floor(sourceSize.width / ratio))
-        }
-        return CGRect(
-            x: floor((sourceSize.width - size.width) / 2),
-            y: floor((sourceSize.height - size.height) * verticalAnchor),
-            width: size.width,
-            height: size.height
-        )
+    nonisolated private static func legacyGeometry(for role: PassportPhotoRole) -> PhotoPresentationGeometry {
+        PhotoPresentationGeometry.resolve(format: .passport, photoIndex: role.rawValue, passportDesign: .legacyPassport)
     }
 
     /// Small, already-cropped image for on-screen review and previews (never full resolution).

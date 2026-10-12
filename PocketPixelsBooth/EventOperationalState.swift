@@ -78,6 +78,9 @@ final class EventOperationalState: ObservableObject {
     @Published private(set) var queueError: String?
     @Published private(set) var recoveryConfirmation = 0
     @Published var customerSessionActive = false
+    /// A hardware qualification print may have started without a confirmed outcome. The printer's
+    /// physical state is unknown, so customers are blocked exactly like an unresolved customer print.
+    @Published private(set) var qualificationPrintNeedsInspection = false
     private let preflightCamera = CameraService()
     private var preflightGeneration = 0
     private var acknowledgedPrintIdentity: String?
@@ -137,6 +140,7 @@ final class EventOperationalState: ObservableObject {
         recoverableSession = recoveryStore?.load()
         auditRecords = (try? PrintAuditStore().load()) ?? []
         archiveCount = (try? RecentSessionArchiveStore().summaries().count) ?? 0
+        qualificationPrintNeedsInspection = (try? HardwareQualificationStore())?.unresolvedPrintRun != nil
         availableBytes = Self.freeDiskSpaceBytes()
         readinessReport = makeReadinessReport()
     }
@@ -188,6 +192,7 @@ final class EventOperationalState: ObservableObject {
     }
 
     var hasUnresolvedPrint: Bool {
+        if qualificationPrintNeedsInspection { return true }
         guard let snapshot = recoverableSession, snapshot.stage == .printStatusUnknown else { return false }
         return OperatorPrintPolicy.requiresAcknowledgement(stage: snapshot.stage, snapshotIdentity: recoveryIdentity(snapshot), acknowledgedIdentity: acknowledgedPrintIdentity)
     }
@@ -200,6 +205,9 @@ final class EventOperationalState: ObservableObject {
         let printer = PrinterCoordinator.shared
         guard !printer.isWorking, printer.requiresRecovery || hasUnresolvedPrint else { return }
         printer.confirmPrinterRestarted()
+        if qualificationPrintNeedsInspection, let store = try? HardwareQualificationStore(), let run = store.unresolvedPrintRun {
+            try? store.acknowledgeUncertainPrint(runID: run.runID, note: "Confirmed through Printer Recovery.")
+        }
         if let snapshot = recoverableSession, snapshot.stage == .printStatusUnknown {
             acknowledgedPrintIdentity = recoveryIdentity(snapshot)
         }

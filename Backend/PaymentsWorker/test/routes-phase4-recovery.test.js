@@ -113,6 +113,7 @@ test("print outbox replay: DELIVERED and UNCERTAIN accepted once, exact replays 
         [{ copy_index: 1, outcome: "DELIVERED" }, { copy_index: 2, outcome: "UNCERTAIN" }, { copy_index: 3, outcome: "DELIVERED" }]);
     const done = await h.request("POST", `/v1/entitlements/${entitlementId}/complete`, { body: { sessionId: session } });
     assert.equal(done.status, 200);
+    assert.equal((await h.one("SELECT state FROM print_batches WHERE id='b1'")).state, "COMPLETE", "completion closes the print batch lifecycle");
     assert.equal((await h.request("POST", `/v1/entitlements/${entitlementId}/complete`, { body: { sessionId: session } })).status, 200, "completion replay is idempotent");
     const summary = await h.request("GET", `/v1/admin/events/${event.eventId}/summary`, { token: TOKENS.operator });
     assert.deepEqual(summary.json.printUtilization, { purchased: 3, confirmed: 0, delivered: 2, uncertain: 1, failed: 0, notStarted: 0 });

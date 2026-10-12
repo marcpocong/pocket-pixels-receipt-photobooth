@@ -29,20 +29,36 @@ final class PassportFormatTests: XCTestCase {
 
     // MARK: B. Capture flow
 
-    func testPassportRequiresExactlyTwoPhotosAndFollowsDetailsSignaturePreviewFlow() throws {
-        let model = BoothSessionViewModel()
+    func testPassportRequiresExactlyTwoPhotosAndFollowsDetailsSignaturePreviewFlow() async throws {
+        let gate = CaptureConfirmationGate()
+        let model = BoothSessionViewModel(captureConfirmationPause: gate.pause)
         model.selectedBoothFormat = .passport
         model.isCameraUnavailable = true
         model.state = .cameraReady
 
         let landscapeSource = syntheticPhoto(width: 400, height: 300, seed: 1)
         model.addSamplePhoto(landscapeSource)
+        // During the confirmation the photo is shown but the sequence has not advanced.
+        XCTAssertNotNil(model.transientCapturedPhoto)
+        XCTAssertEqual(model.capturedPhotos.count, 1)
+        model.addSamplePhoto(syntheticPhoto(width: 300, height: 400, seed: 9))
+        XCTAssertEqual(model.capturedPhotos.count, 1, "No photo is accepted while a confirmation is showing")
+        gate.release()
+        await model.awaitCaptureConfirmation()
+        XCTAssertNil(model.transientCapturedPhoto)
         XCTAssertEqual(model.state, .cameraReady)
         XCTAssertFalse(model.canContinueFromReview)
+
         model.addSamplePhoto(syntheticPhoto(width: 300, height: 400, seed: 2))
+        XCTAssertEqual(model.state, .cameraReady, "Review waits for the second confirmation to finish")
+        XCTAssertFalse(model.canContinueFromReview)
+        gate.release()
+        await model.awaitCaptureConfirmation()
         XCTAssertEqual(model.state, .review)
         model.addSamplePhoto(syntheticPhoto(width: 300, height: 400, seed: 3))
+        await model.awaitCaptureConfirmation()
         XCTAssertEqual(model.capturedPhotos.count, 2, "A third photo must be rejected")
+        XCTAssertEqual(gate.pauseCount, 2, "A rejected photo never starts a confirmation")
 
         // Passport keeps the full frame; the card crops are applied during composition.
         XCTAssertEqual(model.capturedPhotos[0].size, CGSize(width: 400, height: 300))

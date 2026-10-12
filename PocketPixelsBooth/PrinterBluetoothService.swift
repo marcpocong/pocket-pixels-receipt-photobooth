@@ -1874,110 +1874,130 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
 }
 
 extension PrinterBluetoothService: CBCentralManagerDelegate {
-    func centralManagerDidUpdateState(_ central: CBCentralManager) {
-        bluetoothState = central.state.displayName
+    nonisolated func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        // Delivered on the main queue (the manager uses queue: nil); assumeIsolated
+        // checks that and keeps every Bluetooth state access serialized on the main actor.
+        MainActor.assumeIsolated {
+            bluetoothState = central.state.displayName
 
-        if central.state == .poweredOn {
-            if shouldPrepareWhenPoweredOn {
-                prepareSavedPrinter()
+            if central.state == .poweredOn {
+                if shouldPrepareWhenPoweredOn {
+                    prepareSavedPrinter()
+                }
+                return
+            } else {
+                stopScan()
+                if isJobActive {
+                    failActiveJob(message: "Bluetooth state changed to \(central.state.displayName).")
+                }
+                clearConnection()
+                jobState = .failure("Bluetooth is \(central.state.displayName.lowercased()). Wi-Fi printing is unaffected.")
             }
-            return
-        } else {
-            stopScan()
-            if isJobActive {
-                failActiveJob(message: "Bluetooth state changed to \(central.state.displayName).")
-            }
-            clearConnection()
-            jobState = .failure("Bluetooth is \(central.state.displayName.lowercased()). Wi-Fi printing is unaffected.")
         }
     }
 
-    func centralManager(
+    nonisolated func centralManager(
         _ central: CBCentralManager,
         didDiscover peripheral: CBPeripheral,
         advertisementData: [String: Any],
         rssi RSSI: NSNumber
     ) {
-        let advertisedName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
-        let name = peripheralDisplayName(peripheral, advertisedName: advertisedName)
-        peripheralsByID[peripheral.identifier] = peripheral
+        // Delivered on the main queue (the manager uses queue: nil); assumeIsolated
+        // checks that and keeps every Bluetooth state access serialized on the main actor.
+        MainActor.assumeIsolated {
+            let advertisedName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
+            let name = peripheralDisplayName(peripheral, advertisedName: advertisedName)
+            peripheralsByID[peripheral.identifier] = peripheral
 
-        let candidate = BluetoothPrinterCandidate(
-            id: peripheral.identifier,
-            name: name,
-            rssi: RSSI.intValue,
-            isLikelyPrinter: isLikelyPrinterName(name)
-        )
+            let candidate = BluetoothPrinterCandidate(
+                id: peripheral.identifier,
+                name: name,
+                rssi: RSSI.intValue,
+                isLikelyPrinter: isLikelyPrinterName(name)
+            )
 
-        if let existingIndex = candidates.firstIndex(where: { $0.id == candidate.id }) {
-            candidates[existingIndex] = candidate
-        } else {
-            candidates.append(candidate)
-        }
-
-        candidates.sort {
-            if $0.isLikelyPrinter != $1.isLikelyPrinter {
-                return $0.isLikelyPrinter && !$1.isLikelyPrinter
+            if let existingIndex = candidates.firstIndex(where: { $0.id == candidate.id }) {
+                candidates[existingIndex] = candidate
+            } else {
+                candidates.append(candidate)
             }
 
-            return $0.rssi > $1.rssi
-        }
+            candidates.sort {
+                if $0.isLikelyPrinter != $1.isLikelyPrinter {
+                    return $0.isLikelyPrinter && !$1.isLikelyPrinter
+                }
 
-        if scanShouldConnectFirstCandidate, connectedPeripheral == nil, !isJobActive {
-            connectForProduction(to: peripheral, reason: "targeted 18F0 scan")
+                return $0.rssi > $1.rssi
+            }
+
+            if scanShouldConnectFirstCandidate, connectedPeripheral == nil, !isJobActive {
+                connectForProduction(to: peripheral, reason: "targeted 18F0 scan")
+            }
         }
     }
 
-    func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        guard connectedPeripheral?.identifier == peripheral.identifier else {
-            central.cancelPeripheralConnection(peripheral)
-            return
-        }
+    nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        // Delivered on the main queue (the manager uses queue: nil); assumeIsolated
+        // checks that and keeps every Bluetooth state access serialized on the main actor.
+        MainActor.assumeIsolated {
+            guard connectedPeripheral?.identifier == peripheral.identifier else {
+                central.cancelPeripheralConnection(peripheral)
+                return
+            }
 
-        stopScan()
-        connectedPrinterName = peripheralDisplayName(peripheral)
-        jobState = .connected(connectedPrinterName ?? "Bluetooth printer")
-        appendLog("Connected. Discovering VOZY service 18F0.")
-        peripheral.discoverServices([Self.vozyServiceUUID])
+            stopScan()
+            connectedPrinterName = peripheralDisplayName(peripheral)
+            jobState = .connected(connectedPrinterName ?? "Bluetooth printer")
+            appendLog("Connected. Discovering VOZY service 18F0.")
+            peripheral.discoverServices([Self.vozyServiceUUID])
+        }
     }
 
-    func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
-        guard connectedPeripheral?.identifier == peripheral.identifier else {
-            return
-        }
+    nonisolated func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
+        // Delivered on the main queue (the manager uses queue: nil); assumeIsolated
+        // checks that and keeps every Bluetooth state access serialized on the main actor.
+        MainActor.assumeIsolated {
+            guard connectedPeripheral?.identifier == peripheral.identifier else {
+                return
+            }
 
-        let detail = error?.localizedDescription ?? "No CoreBluetooth error was provided."
-        clearConnection()
-        jobState = .failure("Bluetooth connection failed. \(detail)")
-        appendLog("Connection failed. \(detail)")
+            let detail = error?.localizedDescription ?? "No CoreBluetooth error was provided."
+            clearConnection()
+            jobState = .failure("Bluetooth connection failed. \(detail)")
+            appendLog("Connection failed. \(detail)")
+        }
     }
 
-    func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-        guard connectedPeripheral?.identifier == peripheral.identifier else {
-            return
-        }
+    nonisolated func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
+        // Delivered on the main queue (the manager uses queue: nil); assumeIsolated
+        // checks that and keeps every Bluetooth state access serialized on the main actor.
+        MainActor.assumeIsolated {
+            guard connectedPeripheral?.identifier == peripheral.identifier else {
+                return
+            }
 
-        let detail = error?.localizedDescription ?? "No CoreBluetooth error was provided."
-        clearConnection()
+            let detail = error?.localizedDescription ?? "No CoreBluetooth error was provided."
+            clearConnection()
 
-        if operatorDisconnectInProgress {
-            operatorDisconnectInProgress = false
-            appendLog("Operator disconnect completed.")
-            return
-        }
+            if operatorDisconnectInProgress {
+                operatorDisconnectInProgress = false
+                appendLog("Operator disconnect completed.")
+                return
+            }
 
-        if isJobActive {
-            failActiveJob(message: "Bluetooth printer disconnected during raster job. \(detail)")
-        } else {
-            jobState = .failure("Bluetooth printer disconnected. \(detail)")
-            appendLog("Bluetooth printer disconnected. \(detail)")
-            if reconnectAttemptsRemaining > 0 || idleReconnectBudget > 0 {
-                let delay: TimeInterval = reconnectAttemptsRemaining > 0 ? 1 : 2
-                reconnectAttemptsRemaining = max(0, reconnectAttemptsRemaining - 1)
-                idleReconnectBudget = max(0, idleReconnectBudget - 1)
-                Task { [weak self] in
-                    try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                    self?.prepareSavedPrinter()
+            if isJobActive {
+                failActiveJob(message: "Bluetooth printer disconnected during raster job. \(detail)")
+            } else {
+                jobState = .failure("Bluetooth printer disconnected. \(detail)")
+                appendLog("Bluetooth printer disconnected. \(detail)")
+                if reconnectAttemptsRemaining > 0 || idleReconnectBudget > 0 {
+                    let delay: TimeInterval = reconnectAttemptsRemaining > 0 ? 1 : 2
+                    reconnectAttemptsRemaining = max(0, reconnectAttemptsRemaining - 1)
+                    idleReconnectBudget = max(0, idleReconnectBudget - 1)
+                    Task { [weak self] in
+                        try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                        self?.prepareSavedPrinter()
+                    }
                 }
             }
         }
@@ -1985,137 +2005,153 @@ extension PrinterBluetoothService: CBCentralManagerDelegate {
 }
 
 extension PrinterBluetoothService: CBPeripheralDelegate {
-    func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
-        guard connectedPeripheral?.identifier == peripheral.identifier else {
-            return
-        }
+    nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        // Delivered on the main queue (the manager uses queue: nil); assumeIsolated
+        // checks that and keeps every Bluetooth state access serialized on the main actor.
+        MainActor.assumeIsolated {
+            guard connectedPeripheral?.identifier == peripheral.identifier else {
+                return
+            }
 
-        if let error {
-            jobState = .failure("Bluetooth service discovery failed. \(error.localizedDescription)")
-            appendLog(jobState.message)
-            return
-        }
+            if let error {
+                jobState = .failure("Bluetooth service discovery failed. \(error.localizedDescription)")
+                appendLog(jobState.message)
+                return
+            }
 
-        guard let service = peripheral.services?.first(where: { $0.uuid == Self.vozyServiceUUID }) else {
-            jobState = .failure("Connected peripheral did not expose VOZY service 18F0.")
-            appendLog(jobState.message)
-            return
-        }
+            guard let service = peripheral.services?.first(where: { $0.uuid == Self.vozyServiceUUID }) else {
+                jobState = .failure("Connected peripheral did not expose VOZY service 18F0.")
+                appendLog(jobState.message)
+                return
+            }
 
-        appendLog("Service 18F0 discovered. Discovering characteristic 2AF1.")
-        peripheral.discoverCharacteristics([Self.vozyWriteCharacteristicUUID], for: service)
+            appendLog("Service 18F0 discovered. Discovering characteristic 2AF1.")
+            peripheral.discoverCharacteristics([Self.vozyWriteCharacteristicUUID], for: service)
+        }
     }
 
-    func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
-        guard connectedPeripheral?.identifier == peripheral.identifier else {
-            return
-        }
+    nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        // Delivered on the main queue (the manager uses queue: nil); assumeIsolated
+        // checks that and keeps every Bluetooth state access serialized on the main actor.
+        MainActor.assumeIsolated {
+            guard connectedPeripheral?.identifier == peripheral.identifier else {
+                return
+            }
 
-        if let error {
-            jobState = .failure("Bluetooth characteristic discovery failed. \(error.localizedDescription)")
-            appendLog(jobState.message)
-            return
-        }
+            if let error {
+                jobState = .failure("Bluetooth characteristic discovery failed. \(error.localizedDescription)")
+                appendLog(jobState.message)
+                return
+            }
 
-        guard let characteristic = service.characteristics?.first(where: { $0.uuid == Self.vozyWriteCharacteristicUUID }) else {
-            jobState = .failure("VOZY service 18F0 did not expose characteristic 2AF1.")
-            appendLog(jobState.message)
-            return
-        }
+            guard let characteristic = service.characteristics?.first(where: { $0.uuid == Self.vozyWriteCharacteristicUUID }) else {
+                jobState = .failure("VOZY service 18F0 did not expose characteristic 2AF1.")
+                appendLog(jobState.message)
+                return
+            }
 
-        guard characteristic.properties.contains(.write) || characteristic.properties.contains(.writeWithoutResponse) else {
-            jobState = .failure("Characteristic 2AF1 does not support writable BLE transport.")
-            appendLog(jobState.message)
-            return
-        }
+            guard characteristic.properties.contains(.write) || characteristic.properties.contains(.writeWithoutResponse) else {
+                jobState = .failure("Characteristic 2AF1 does not support writable BLE transport.")
+                appendLog(jobState.message)
+                return
+            }
 
-        writeCharacteristic = characteristic
-        saveKnownPrinter(peripheral)
-        jobState = .connected(connectedPrinterName ?? "VOZY G80")
-        appendLog("Characteristic 2AF1 ready. Properties: \(characteristic.propertyLabels.joined(separator: ", ")).")
+            writeCharacteristic = characteristic
+            saveKnownPrinter(peripheral)
+            jobState = .connected(connectedPrinterName ?? "VOZY G80")
+            appendLog("Characteristic 2AF1 ready. Properties: \(characteristic.propertyLabels.joined(separator: ", ")).")
+        }
     }
 
-    func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
-        guard connectedPeripheral?.identifier == peripheral.identifier else {
-            return
+    nonisolated func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
+        // Delivered on the main queue (the manager uses queue: nil); assumeIsolated
+        // checks that and keeps every Bluetooth state access serialized on the main actor.
+        MainActor.assumeIsolated {
+            guard connectedPeripheral?.identifier == peripheral.identifier else {
+                return
+            }
+
+            guard writeCharacteristic?.uuid == characteristic.uuid else {
+                appendLog("Ignored write acknowledgement for unexpected characteristic \(characteristic.uuid.uuidString).")
+                return
+            }
+
+            if let error {
+                failActiveJob(message: "Write failed at chunk \(pendingChunkIndex + 1). \(error.localizedDescription)")
+                return
+            }
+
+            guard let pendingJob, pendingChunkIndex < pendingJob.chunks.count else {
+                return
+            }
+
+            guard pendingJob.mode == .reliable else {
+                return
+            }
+
+            reliableWriteWatchdogTask?.cancel()
+            reliableWriteWatchdogTask = nil
+            transferredBytes += pendingJob.chunks[pendingChunkIndex].count
+            pendingChunkIndex += 1
+            metrics = BluetoothPrinterMetrics(
+                mode: pendingJob.mode,
+                balancedProfileName: pendingJob.balancedProfile?.displayName,
+                photoCalibrationProfileName: pendingJob.photoCalibrationProfileName,
+                payloadByteCount: pendingJob.totalBytes,
+                rasterByteCount: pendingJob.rasterByteCount,
+                maximumWriteLength: pendingJob.maximumWriteLength,
+                chunkSize: pendingJob.chunkSize,
+                chunkCount: pendingJob.chunkCount,
+                burstChunkCount: pendingJob.balancedProfile?.burstChunkCount,
+                interBurstDelayMilliseconds: pendingJob.balancedProfile?.interBurstDelayMilliseconds,
+                burstCount: burstCount,
+                transferredBytes: transferredBytes,
+                duration: nil,
+                throughputBytesPerSecond: nil,
+                flowControlPauseCount: flowControlPauseCount,
+                longestFlowControlPause: longestFlowControlPause,
+                flowControlPauseEvents: flowControlPauseEvents,
+                intentionalPacingPauseCount: intentionalPacingPauseCount,
+                physicalPrintDuration: metrics?.physicalPrintDuration
+            )
+
+            if pendingChunkIndex == pendingJob.rasterStartChunkIndex {
+                appendLog("Heading acknowledged. Raster transmission begins next.")
+            } else if pendingChunkIndex == pendingJob.finishingStartChunkIndex {
+                appendLog("Raster command acknowledged. Finishing/feed/cut begins next.")
+            }
+
+            sendNextChunk()
         }
-
-        guard writeCharacteristic?.uuid == characteristic.uuid else {
-            appendLog("Ignored write acknowledgement for unexpected characteristic \(characteristic.uuid.uuidString).")
-            return
-        }
-
-        if let error {
-            failActiveJob(message: "Write failed at chunk \(pendingChunkIndex + 1). \(error.localizedDescription)")
-            return
-        }
-
-        guard let pendingJob, pendingChunkIndex < pendingJob.chunks.count else {
-            return
-        }
-
-        guard pendingJob.mode == .reliable else {
-            return
-        }
-
-        reliableWriteWatchdogTask?.cancel()
-        reliableWriteWatchdogTask = nil
-        transferredBytes += pendingJob.chunks[pendingChunkIndex].count
-        pendingChunkIndex += 1
-        metrics = BluetoothPrinterMetrics(
-            mode: pendingJob.mode,
-            balancedProfileName: pendingJob.balancedProfile?.displayName,
-            photoCalibrationProfileName: pendingJob.photoCalibrationProfileName,
-            payloadByteCount: pendingJob.totalBytes,
-            rasterByteCount: pendingJob.rasterByteCount,
-            maximumWriteLength: pendingJob.maximumWriteLength,
-            chunkSize: pendingJob.chunkSize,
-            chunkCount: pendingJob.chunkCount,
-            burstChunkCount: pendingJob.balancedProfile?.burstChunkCount,
-            interBurstDelayMilliseconds: pendingJob.balancedProfile?.interBurstDelayMilliseconds,
-            burstCount: burstCount,
-            transferredBytes: transferredBytes,
-            duration: nil,
-            throughputBytesPerSecond: nil,
-            flowControlPauseCount: flowControlPauseCount,
-            longestFlowControlPause: longestFlowControlPause,
-            flowControlPauseEvents: flowControlPauseEvents,
-            intentionalPacingPauseCount: intentionalPacingPauseCount,
-            physicalPrintDuration: metrics?.physicalPrintDuration
-        )
-
-        if pendingChunkIndex == pendingJob.rasterStartChunkIndex {
-            appendLog("Heading acknowledged. Raster transmission begins next.")
-        } else if pendingChunkIndex == pendingJob.finishingStartChunkIndex {
-            appendLog("Raster command acknowledged. Finishing/feed/cut begins next.")
-        }
-
-        sendNextChunk()
     }
 
-    func peripheralIsReady(toSendWriteWithoutResponse peripheral: CBPeripheral) {
-        guard connectedPeripheral?.identifier == peripheral.identifier else {
-            return
+    nonisolated func peripheralIsReady(toSendWriteWithoutResponse peripheral: CBPeripheral) {
+        // Delivered on the main queue (the manager uses queue: nil); assumeIsolated
+        // checks that and keeps every Bluetooth state access serialized on the main actor.
+        MainActor.assumeIsolated {
+            guard connectedPeripheral?.identifier == peripheral.identifier else {
+                return
+            }
+
+            clearFlowControlPauseIfNeeded()
+
+            guard let pendingJob, pendingJob.mode != .reliable, isJobActive else {
+                return
+            }
+
+            guard let writeCharacteristic else {
+                failJob(expectedJobID: pendingJob.id, message: "Bluetooth write characteristic disappeared while resuming fast mode.")
+                return
+            }
+
+            if pendingChunkIndex >= pendingJob.chunks.count, pendingJob.transportCompletionScheduled {
+                appendJobLog(jobID: pendingJob.id, "ready callback after all chunks queued ignored.")
+                return
+            }
+
+            appendLog("CoreBluetooth is ready for more no-response writes.")
+            sendWithoutResponseChunks(peripheral: peripheral, characteristic: writeCharacteristic, job: pendingJob)
         }
-
-        clearFlowControlPauseIfNeeded()
-
-        guard let pendingJob, pendingJob.mode != .reliable, isJobActive else {
-            return
-        }
-
-        guard let writeCharacteristic else {
-            failJob(expectedJobID: pendingJob.id, message: "Bluetooth write characteristic disappeared while resuming fast mode.")
-            return
-        }
-
-        if pendingChunkIndex >= pendingJob.chunks.count, pendingJob.transportCompletionScheduled {
-            appendJobLog(jobID: pendingJob.id, "ready callback after all chunks queued ignored.")
-            return
-        }
-
-        appendLog("CoreBluetooth is ready for more no-response writes.")
-        sendWithoutResponseChunks(peripheral: peripheral, characteristic: writeCharacteristic, job: pendingJob)
     }
 }
 

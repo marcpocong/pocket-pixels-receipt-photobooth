@@ -203,21 +203,62 @@ final class SessionIsolationAndRecoveryTests: XCTestCase {
         XCTAssertTrue(model.capturedPhotos.isEmpty)
     }
 
-    func testSixPhotoSequenceReachesReviewOnlyAfterSixAndRejectsExtraSamples() {
-        let model = BoothSessionViewModel()
+    func testSixPhotoSequenceReachesReviewOnlyAfterSixAndRejectsExtraSamples() async {
+        let gate = CaptureConfirmationGate()
+        let model = BoothSessionViewModel(captureConfirmationPause: gate.pause)
         model.selectedBoothFormat = .gridSix
         model.isCameraUnavailable = true
+        model.state = .cameraReady
         for index in 0..<6 {
             model.addSamplePhoto(ReliabilityFixtures.syntheticPhoto(session: 610, photo: index + 1, format: .gridSix))
             XCTAssertEqual(model.capturedPhotos.count, index + 1)
+            XCTAssertFalse(model.canContinueToReceipt, "Nothing can continue during a confirmation")
+            gate.release()
+            await model.awaitCaptureConfirmation()
             XCTAssertEqual(model.state, index == 5 ? .review : .cameraReady)
             XCTAssertEqual(model.canContinueToReceipt, index == 5)
         }
         model.addSamplePhoto(ReliabilityFixtures.syntheticPhoto(session: 999, photo: 1, format: .solo))
+        await model.awaitCaptureConfirmation()
         XCTAssertEqual(model.capturedPhotos.count, 6)
+        XCTAssertEqual(model.state, .review)
         model.cancelSession()
         XCTAssertTrue(model.capturedPhotos.isEmpty)
         XCTAssertEqual(model.samplePhotoCount, 0)
+    }
+
+    func testPendingConfirmationFromCancelledSessionCannotAdvanceNextSession() async {
+        let gate = CaptureConfirmationGate()
+        let model = BoothSessionViewModel(captureConfirmationPause: gate.pause)
+        model.selectedBoothFormat = .solo
+        model.isCameraUnavailable = true
+        model.state = .cameraReady
+        model.addSamplePhoto(ReliabilityFixtures.syntheticPhoto(session: 700, photo: 1, format: .solo))
+        XCTAssertEqual(model.capturedPhotos.count, 1)
+        await gate.waitUntilPaused(count: 1)
+
+        // Customer A walks away mid-confirmation.
+        model.cancelSession()
+        XCTAssertEqual(model.state, .welcome)
+        XCTAssertNil(model.transientCapturedPhoto)
+
+        // Customer B is already at the camera when A's stale confirmation finally finishes.
+        model.selectedBoothFormat = .duo
+        model.isCameraUnavailable = true
+        model.state = .cameraReady
+        let sessionBPhoto = ReliabilityFixtures.syntheticPhoto(session: 701, photo: 1, format: .duo)
+        model.addSamplePhoto(sessionBPhoto)
+        await gate.waitUntilPaused(count: 2)
+        gate.release() // releases A's stale confirmation first (FIFO)
+        await Task.yield()
+        XCTAssertEqual(model.capturedPhotos.count, 1)
+        XCTAssertNotNil(model.transientCapturedPhoto, "A's stale confirmation must not dismiss B's photo")
+        gate.release()
+        await model.awaitCaptureConfirmation()
+        XCTAssertEqual(model.state, .cameraReady, "Duo still needs its second photo")
+        XCTAssertEqual(model.capturedPhotos.count, 1)
+        XCTAssertNil(model.transientCapturedPhoto)
+        model.cancelSession()
     }
 
     func testGridSixRecoveryRoundTripsZeroThroughSixPhotos() throws {

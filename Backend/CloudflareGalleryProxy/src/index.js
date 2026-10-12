@@ -5,6 +5,9 @@ const ALLOWED_UPSTREAM_HOSTS = new Set([
 ]);
 const COMPLETED_GALLERY_MARKER = 'data-pocket-pixels-gallery-status="complete"';
 const COMPLETED_GALLERY_TTL_SECONDS = 3600;
+// Internal only: bump when completed gallery HTML changes so old branded documents are not
+// served for the remainder of their edge TTL. Customer QR URLs remain unchanged.
+const COMPLETED_GALLERY_CACHE_VERSION = "made-to-keep-20261009";
 // Upstream pages are recognised by the structural completed-gallery marker, the Made to Keep
 // Studios brand, or the legacy Pocket Pixels brand still served until Apps Script is redeployed.
 // Google sign-in and error pages contain none of these and are never proxied as a gallery.
@@ -130,6 +133,7 @@ export default {
 function canonicalCacheRequest(requestURL, token) {
   const canonical = new URL(requestURL.origin + requestURL.pathname);
   canonical.searchParams.set("g", token);
+  canonical.searchParams.set("gallery-cache", COMPLETED_GALLERY_CACHE_VERSION);
   return new Request(canonical.toString(), { method: "GET" });
 }
 

@@ -1,0 +1,57 @@
+//
+//  BoothSessionEnvironment.swift
+//  PocketPixelsBooth
+//
+//  Where a booth session's side effects go. Customer sessions use `.customer`, which is exactly
+//  the production behavior. Operator hardware qualification drives the same production state
+//  machine with `.hardwareQualification`, which redirects every durable side effect into an
+//  isolated diagnostic namespace so a test can never touch customer archives, galleries,
+//  recovery snapshots, event session counts or the saved event configuration.
+//
+
+import Foundation
+
+struct BoothSessionEnvironment {
+    enum Purpose: Equatable {
+        case customer
+        case hardwareQualification(runID: String)
+    }
+
+    var purpose: Purpose = .customer
+    /// nil uses the production archive. A diagnostic directory that cannot be opened fails the
+    /// archive commit (and therefore blocks printing); it never falls back to production.
+    var archiveDirectory: URL?
+    /// nil uses the production recovery store.
+    var recoveryDirectory: URL?
+    /// Customer galleries are prepared and uploaded. Qualification never uploads.
+    var deliversGallery = true
+    /// Event session counts and other customer metrics.
+    var recordsCustomerSessionMetrics = true
+    var printSource: PrintJobSource = .liveCustomer
+    var makeSessionIdentifier: @MainActor (Date) -> String = { ReceiptComposer.makeSessionIdentifier(date: $0) }
+    /// The event configuration a new session freezes. Qualification supplies its own scenario
+    /// profile instead of editing the operator's saved event settings.
+    var eventProfileSource: @MainActor () -> EventProfile = { EventProfileStore.load() }
+    /// Sticker Studio settings a new session freezes. Qualification never shows the editor.
+    var stickerConfigurationSource: @MainActor () -> StickerStudioSessionConfiguration = { StickerStudioSessionConfiguration.current() }
+    /// Operator sticker library for the guest catalog; nil means built-in stickers only.
+    var stickerCatalogStoreSource: @MainActor () -> StickerCatalogStore? = { try? StickerCatalogStore() }
+    /// Online provider factory, consulted only when the frozen configuration is online-ready.
+    var onlineStickerProviderSource: @MainActor () -> OnlineStickerProvider? = {
+        KeychainOnlineStickerCredentialStore().loadAPIKey().map { GiphyStickerProvider(apiKey: $0) }
+    }
+
+    static var customer: BoothSessionEnvironment { BoothSessionEnvironment() }
+
+    var isQualification: Bool {
+        if case .hardwareQualification = purpose { return true }
+        return false
+    }
+
+    nonisolated static func makeArchiveStore(directory: URL?) throws -> RecentSessionArchiveStore {
+        if let directory {
+            return try RecentSessionArchiveStore(directoryURL: directory)
+        }
+        return try RecentSessionArchiveStore()
+    }
+}

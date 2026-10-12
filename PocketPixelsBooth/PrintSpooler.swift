@@ -21,6 +21,15 @@ struct PhysicalPrintTransportResult: Sendable {
 /// Wraps a pre-print checkpoint so it is never confused with trailing state/completion closures.
 struct PrePrintCheckpointGate {
     let persist: PrintSpooler.PrePrintCheckpoint
+    let selectTransport: (PrintJobEnvelope, PrinterTransportSelection) throws -> Void
+
+    init(
+        _ persist: @escaping PrintSpooler.PrePrintCheckpoint,
+        selectTransport: @escaping (PrintJobEnvelope, PrinterTransportSelection) throws -> Void = { _, _ in }
+    ) {
+        self.persist = persist
+        self.selectTransport = selectTransport
+    }
 }
 
 /// The durable pre-print safety checkpoint could not be written, so no bytes were sent.

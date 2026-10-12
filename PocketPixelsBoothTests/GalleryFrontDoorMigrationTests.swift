@@ -83,10 +83,10 @@ final class GalleryFrontDoorMigrationTests: XCTestCase {
         XCTAssertThrowsError(try store.save(uploadURL: "", customerURL: "https://script.google.com/macros/s/ABC/exec"))
     }
 
-    func testPackagedInfoPlistShipsNoInventedMadeToKeepDomain() {
+    func testPackagedInfoPlistUsesVerifiedMadeToKeepFrontDoor() {
         let bundle = Bundle(for: BoothSessionViewModel.self)
         let preferred = (bundle.object(forInfoDictionaryKey: CustomerGalleryConfiguration.infoPlistKey) as? String) ?? ""
-        XCTAssertTrue(preferred.isEmpty, "Until a real hostname is configured via build setting, the Made to Keep key must be blank")
+        XCTAssertEqual(preferred, "https://gallery.madetokeepstudios.workers.dev/")
         XCTAssertEqual(bundle.object(forInfoDictionaryKey: CustomerGalleryConfiguration.legacyInfoPlistKey) as? String, legacyBase)
         XCTAssertEqual(
             bundle.object(forInfoDictionaryKey: GoogleDriveGalleryConfiguration.infoPlistKey) as? String,

@@ -82,50 +82,36 @@ enum BoothFormat: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// The guest-facing composition for one capture. This is shared by the live aperture,
-/// transient confirmation, and review so each stage uses the same geometric crop.
+/// The guest-facing composition for one capture. Derived from PhotoPresentationGeometry, which
+/// is shared by the live aperture, transient confirmation, review and the printed receipt.
 enum CapturePhotoPresentation: Sendable, Equatable {
     case portrait
     case landscape
 
     nonisolated static func resolve(format: BoothFormat, photoIndex: Int) -> Self {
-        switch format {
-        case .duo, .strip:
-            .landscape
-        case .passport:
-            PassportPhotoRole(photoIndex: photoIndex) == .hero ? .landscape : .portrait
-        case .solo, .grid, .gridSix:
-            .portrait
-        }
+        PhotoPresentationGeometry.resolve(format: format, photoIndex: photoIndex).orientation == .landscape
+            ? .landscape
+            : .portrait
     }
 
     nonisolated var aspectRatio: CGFloat {
         switch self {
         case .portrait:
-            3.0 / 4.0
+            PhotoPresentationGeometry.portrait.aspectRatio
         case .landscape:
-            ReceiptComposer.landscapePresentationAspectRatio
+            PhotoPresentationGeometry.landscape.aspectRatio
         }
     }
 
     /// Creates a color, presentation-only image. The stored source is never replaced by this crop.
+    /// The crop comes from the slot's shared geometry, so it is exactly what the receipt prints.
     nonisolated func confirmationPhoto(
         from image: UIImage,
         format: BoothFormat,
         photoIndex: Int,
         maximumDimension: CGFloat = 1_200
     ) -> UIImage {
-        let cropped: UIImage
-        if format == .passport, let role = PassportPhotoRole(photoIndex: photoIndex) {
-            cropped = PassportPhotoProcessor.presentationPhoto(from: image, role: role)
-        } else {
-            switch self {
-            case .portrait:
-                cropped = BoothPhotoProcessor.normalizedPortraitPhoto(from: image)
-            case .landscape:
-                cropped = ReceiptComposer.makeLandscapePresentationPhoto(from: image)
-            }
-        }
+        let cropped = PhotoPresentationGeometry.resolve(format: format, photoIndex: photoIndex).uprightPhoto(from: image)
 
         let pixelSize = ThermalPhotoProcessor.pixelSize(of: cropped)
         let scale = min(1, maximumDimension / max(1, max(pixelSize.width, pixelSize.height)))

@@ -25,6 +25,10 @@ enum BoothSessionState: Equatable {
     case passportDetails
     case passportSignature
     case passportPreview
+    /// Composing the undecorated receipt that the sticker editor draws on. No side effects.
+    case preparingStickers
+    /// Optional guest Sticker Studio, before the receipt is committed.
+    case stickerStudio
     case composingReceipt
     case receiptPreview
     case connectingToPrinter
@@ -40,7 +44,8 @@ enum BoothSessionState: Equatable {
         case .choosingCopies, .choosingPayment, .awaitingQRPayment, .cashAttestation, .paymentReconciliation,
              .preparingCamera, .cameraReady, .countdown, .capturing, .betweenPhotos, .review, .retaking,
              .passportDetails, .passportSignature, .passportPreview,
-             .composingReceipt, .receiptPreview, .connectingToPrinter, .printing, .recoveryRequired, .error:
+             .preparingStickers, .stickerStudio, .composingReceipt, .receiptPreview,
+             .connectingToPrinter, .printing, .recoveryRequired, .error:
             true
         }
     }
@@ -52,7 +57,8 @@ enum BoothSessionState: Equatable {
         case .choosingCopies, .choosingPayment, .awaitingQRPayment, .cashAttestation, .paymentReconciliation,
              .preparingCamera, .cameraReady, .countdown, .capturing, .betweenPhotos, .review, .retaking,
              .passportDetails, .passportSignature, .passportPreview,
-             .composingReceipt, .receiptPreview, .connectingToPrinter, .printing, .recoveryRequired, .error:
+             .preparingStickers, .stickerStudio, .composingReceipt, .receiptPreview,
+             .connectingToPrinter, .printing, .recoveryRequired, .error:
             true
         }
     }
@@ -93,6 +99,10 @@ enum BoothSessionState: Equatable {
             "Photo Pass Signature"
         case .passportPreview:
             "Photo Pass Preview"
+        case .preparingStickers:
+            "Preparing Stickers"
+        case .stickerStudio:
+            "Sticker Studio"
         case .composingReceipt:
             "Building Receipt"
         case .receiptPreview:

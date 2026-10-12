@@ -20,6 +20,7 @@ nonisolated enum SessionGIFRenderer {
     static let frameDelay = 0.7
     static let maximumLongestSide = 840
     static let maximumByteCount = 2 * 1024 * 1024
+    static let canvasBackgroundColor = UIColor(red: 247 / 255, green: 241 / 255, blue: 233 / 255, alpha: 1)
     private static let minimumLongestSide = 240
 
     static func render(images: [UIImage], maximumByteCount: Int = maximumByteCount) throws -> Data {
@@ -54,7 +55,7 @@ nonisolated enum SessionGIFRenderer {
         format.scale = 1
         format.opaque = true
         let frame = UIGraphicsImageRenderer(size: canvasSize, format: format).image { context in
-            UIColor.white.setFill()
+            canvasBackgroundColor.setFill()
             context.fill(CGRect(origin: .zero, size: canvasSize))
             normalized.draw(in: drawRect)
         }

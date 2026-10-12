@@ -1,4 +1,4 @@
-# Pocket Pixels Google Apps Script Setup
+# Made to Keep Studios Google Apps Script Setup
 
 This backend receives gallery uploads from the iPad, stores them in one dedicated Google Drive folder, and renders private-by-link customer galleries for the Cloudflare Worker front door.
 
@@ -14,7 +14,7 @@ This backend receives gallery uploads from the iPad, stores them in one dedicate
 8. In Apps Script, open Project Settings, then Script Properties.
 9. Add `POCKET_PIXELS_ROOT_FOLDER_ID` with the dedicated Drive folder ID.
 10. Add `POCKET_PIXELS_DEVICE_TOKEN` with the random device upload token.
-11. Add `POCKET_PIXELS_CUSTOMER_GALLERY_BASE_URL` with the Cloudflare Worker customer base URL: `https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/`.
+11. Add `MADE_TO_KEEP_CUSTOMER_GALLERY_BASE_URL` with the Cloudflare Worker customer base URL: `https://gallery.madetokeepstudios.workers.dev/`.
 12. In the editor, select `runPocketPixelsSelfTest` and run it.
 13. Complete Google’s authorization flow for the script. This authorizes the script to create and read files as the selected Google account.
 14. Deploy as a versioned Web App.
@@ -30,12 +30,12 @@ This backend receives gallery uploads from the iPad, stores them in one dedicate
 24. Open the pre-upload gallery link. It may correctly show `Gallery unavailable`.
 25. Upload one test gallery.
 26. Confirm exactly one folder appears inside the dedicated Pocket Pixels root folder.
-27. Confirm that folder is named `gallery-{galleryToken}` and contains exactly `photo-01.jpg`, `photo-02.jpg`, `photo-03.jpg`, `receipt-color.jpg`, and `manifest.json`.
-28. Confirm `manifest.json` contains only `schemaVersion`, `galleryToken`, `sessionID`, `createdAt`, `photos`, `receipt`, and `status`.
+27. Confirm that folder is named `gallery-{galleryToken}` and contains the sequenced photos, `receipt-color.jpg`, `receipt-bw.png`, optional `session.gif`, and `manifest.json`.
+28. Confirm `manifest.json` is schema v2 and lists the exact stored photo/receipt assets. Multi-photo sessions normally include `gif: "session.gif"`; Solo and degraded galleries omit it.
 29. Open the same Worker gallery link in Safari and confirm all gallery images appear.
 30. Tap `Retry Same Upload` in Cloud Test and confirm it returns an existing completed gallery without creating a second folder or changing the customer gallery URL.
 31. To update this Phase 6C backend, use `Deploy -> Manage deployments -> Edit -> New version -> Deploy`. Preserve the existing Web App deployment so the backend `/exec` URL does not change. Do not create a new deployment.
-32. Open `?diagnostic=phase6c` on the deployed `/exec` URL and confirm `backendVersion` is `phase6c-chrome-canonical-fast-gallery-20260831`.
+32. Open `?diagnostic=phase6c` on the deployed `/exec` URL and confirm `backendVersion` is `made-to-keep-gallery-v2-optional-gif-20261009`.
 33. Open a completed Worker gallery URL in iPhone Safari, iPhone Chrome, iPad Safari, iPad Chrome, desktop Safari, desktop Chrome signed out, desktop Chrome Incognito, Brave, and normal desktop Chrome with multiple Google accounts signed in.
 34. Confirm the browser address bar remains on the Worker/custom gallery domain and never navigates to `script.google.com/macros/u/<number>/`.
 

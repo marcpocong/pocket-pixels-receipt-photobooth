@@ -475,153 +475,189 @@ final class PrinterBluetoothDiagnosticService: NSObject, ObservableObject {
 }
 
 extension PrinterBluetoothDiagnosticService: CBCentralManagerDelegate {
-    func centralManagerDidUpdateState(_ central: CBCentralManager) {
-        bluetoothState = central.state.displayName
+    nonisolated func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        // Delivered on the main queue (the manager uses queue: nil); assumeIsolated
+        // checks that and keeps every Bluetooth state access serialized on the main actor.
+        MainActor.assumeIsolated {
+            bluetoothState = central.state.displayName
 
-        if central.state != .poweredOn {
-            stopScan()
-            if writeState.isActive {
-                cancelActiveWrite("Write cancelled because Bluetooth state changed to \(central.state.displayName).")
+            if central.state != .poweredOn {
+                stopScan()
+                if writeState.isActive {
+                    cancelActiveWrite("Write cancelled because Bluetooth state changed to \(central.state.displayName).")
+                }
+                clearConnectionAfterDisconnect(keepMessage: true)
+                connectionMessage = "Bluetooth is \(central.state.displayName.lowercased()). Wi-Fi printing is unaffected."
             }
-            clearConnectionAfterDisconnect(keepMessage: true)
-            connectionMessage = "Bluetooth is \(central.state.displayName.lowercased()). Wi-Fi printing is unaffected."
         }
     }
 
-    func centralManager(
+    nonisolated func centralManager(
         _ central: CBCentralManager,
         didDiscover peripheral: CBPeripheral,
         advertisementData: [String: Any],
         rssi RSSI: NSNumber
     ) {
-        let advertisedName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
-        let displayName = peripheralDisplayName(peripheral, advertisedName: advertisedName)
+        // Delivered on the main queue (the manager uses queue: nil); assumeIsolated
+        // checks that and keeps every Bluetooth state access serialized on the main actor.
+        MainActor.assumeIsolated {
+            let advertisedName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
+            let displayName = peripheralDisplayName(peripheral, advertisedName: advertisedName)
 
-        peripheralsByID[peripheral.identifier] = peripheral
+            peripheralsByID[peripheral.identifier] = peripheral
 
-        let discovered = BluetoothDiscoveredPeripheral(
-            id: peripheral.identifier,
-            displayName: displayName,
-            rssi: RSSI.intValue,
-            isLikelyPrinter: isLikelyPrinterName(displayName)
-        )
+            let discovered = BluetoothDiscoveredPeripheral(
+                id: peripheral.identifier,
+                displayName: displayName,
+                rssi: RSSI.intValue,
+                isLikelyPrinter: isLikelyPrinterName(displayName)
+            )
 
-        if let existingIndex = discoveredPeripherals.firstIndex(where: { $0.id == discovered.id }) {
-            discoveredPeripherals[existingIndex] = discovered
-        } else {
-            discoveredPeripherals.append(discovered)
-        }
-
-        discoveredPeripherals.sort {
-            if $0.isLikelyPrinter != $1.isLikelyPrinter {
-                return $0.isLikelyPrinter && !$1.isLikelyPrinter
+            if let existingIndex = discoveredPeripherals.firstIndex(where: { $0.id == discovered.id }) {
+                discoveredPeripherals[existingIndex] = discovered
+            } else {
+                discoveredPeripherals.append(discovered)
             }
 
-            return $0.rssi > $1.rssi
+            discoveredPeripherals.sort {
+                if $0.isLikelyPrinter != $1.isLikelyPrinter {
+                    return $0.isLikelyPrinter && !$1.isLikelyPrinter
+                }
+
+                return $0.rssi > $1.rssi
+            }
         }
     }
 
-    func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        guard connectedPeripheral?.identifier == peripheral.identifier else {
-            central.cancelPeripheralConnection(peripheral)
-            return
-        }
+    nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        // Delivered on the main queue (the manager uses queue: nil); assumeIsolated
+        // checks that and keeps every Bluetooth state access serialized on the main actor.
+        MainActor.assumeIsolated {
+            guard connectedPeripheral?.identifier == peripheral.identifier else {
+                central.cancelPeripheralConnection(peripheral)
+                return
+            }
 
-        stopScan()
-        connectedPeripheralName = peripheralDisplayName(peripheral)
-        connectionMessage = "Connected. Discovering services..."
-        appendLog("Connected to \(peripheralDisplayName(peripheral)).")
-        peripheral.discoverServices(nil)
+            stopScan()
+            connectedPeripheralName = peripheralDisplayName(peripheral)
+            connectionMessage = "Connected. Discovering services..."
+            appendLog("Connected to \(peripheralDisplayName(peripheral)).")
+            peripheral.discoverServices(nil)
+        }
     }
 
-    func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
-        guard connectedPeripheral?.identifier == peripheral.identifier else {
-            return
-        }
+    nonisolated func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
+        // Delivered on the main queue (the manager uses queue: nil); assumeIsolated
+        // checks that and keeps every Bluetooth state access serialized on the main actor.
+        MainActor.assumeIsolated {
+            guard connectedPeripheral?.identifier == peripheral.identifier else {
+                return
+            }
 
-        resetConnectionState(keepMessage: true)
-        connectionMessage = "Connection failed. \(error?.localizedDescription ?? "No details available.")"
-        appendLog(connectionMessage)
+            resetConnectionState(keepMessage: true)
+            connectionMessage = "Connection failed. \(error?.localizedDescription ?? "No details available.")"
+            appendLog(connectionMessage)
+        }
     }
 
-    func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-        guard connectedPeripheral?.identifier == peripheral.identifier else {
-            return
-        }
+    nonisolated func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
+        // Delivered on the main queue (the manager uses queue: nil); assumeIsolated
+        // checks that and keeps every Bluetooth state access serialized on the main actor.
+        MainActor.assumeIsolated {
+            guard connectedPeripheral?.identifier == peripheral.identifier else {
+                return
+            }
 
-        handleUnexpectedDisconnect(error: error)
-        clearConnectionAfterDisconnect(keepMessage: true)
-        connectionMessage = error == nil
-            ? "Peripheral disconnected without a CoreBluetooth error."
-            : "Disconnected. \(error?.localizedDescription ?? "No details available.")"
+            handleUnexpectedDisconnect(error: error)
+            clearConnectionAfterDisconnect(keepMessage: true)
+            connectionMessage = error == nil
+                ? "Peripheral disconnected without a CoreBluetooth error."
+                : "Disconnected. \(error?.localizedDescription ?? "No details available.")"
+        }
     }
 }
 
 extension PrinterBluetoothDiagnosticService: CBPeripheralDelegate {
-    func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
-        guard connectedPeripheral?.identifier == peripheral.identifier else {
-            return
-        }
+    nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        // Delivered on the main queue (the manager uses queue: nil); assumeIsolated
+        // checks that and keeps every Bluetooth state access serialized on the main actor.
+        MainActor.assumeIsolated {
+            guard connectedPeripheral?.identifier == peripheral.identifier else {
+                return
+            }
 
-        if let error {
-            connectionMessage = "Service discovery failed. \(error.localizedDescription)"
-            return
-        }
+            if let error {
+                connectionMessage = "Service discovery failed. \(error.localizedDescription)"
+                return
+            }
 
-        let services = peripheral.services ?? []
-        discoveredServices = services.map {
-            BluetoothDiagnosticServiceInfo(id: $0.uuid.uuidString, uuid: $0.uuid.uuidString, characteristics: [])
-        }
-        appendLog("Discovered \(services.count) service(s).")
-        connectionMessage = services.isEmpty
-            ? "Connected, but no services were exposed."
-            : "Discovered \(services.count) service(s). Discovering characteristics..."
+            let services = peripheral.services ?? []
+            discoveredServices = services.map {
+                BluetoothDiagnosticServiceInfo(id: $0.uuid.uuidString, uuid: $0.uuid.uuidString, characteristics: [])
+            }
+            appendLog("Discovered \(services.count) service(s).")
+            connectionMessage = services.isEmpty
+                ? "Connected, but no services were exposed."
+                : "Discovered \(services.count) service(s). Discovering characteristics..."
 
-        for service in services {
-            peripheral.discoverCharacteristics(nil, for: service)
+            for service in services {
+                peripheral.discoverCharacteristics(nil, for: service)
+            }
         }
     }
 
-    func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
-        guard connectedPeripheral?.identifier == peripheral.identifier else {
-            return
+    nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        // Delivered on the main queue (the manager uses queue: nil); assumeIsolated
+        // checks that and keeps every Bluetooth state access serialized on the main actor.
+        MainActor.assumeIsolated {
+            guard connectedPeripheral?.identifier == peripheral.identifier else {
+                return
+            }
+
+            if let error {
+                connectionMessage = "Characteristic discovery failed for \(service.uuid.uuidString). \(error.localizedDescription)"
+                appendLog(connectionMessage)
+                return
+            }
+
+            rebuildDiscoveredServices(for: peripheral)
+
+            let writableCount = writableCharacteristics.count
+            appendLog("Service \(service.uuid.uuidString) characteristics discovered. Writable count: \(writableCount).")
+            connectionMessage = writableCount == 0
+                ? "Services discovered. No writable characteristics found yet."
+                : "Services discovered. \(writableCount) writable characteristic(s) available for manual selection."
         }
-
-        if let error {
-            connectionMessage = "Characteristic discovery failed for \(service.uuid.uuidString). \(error.localizedDescription)"
-            appendLog(connectionMessage)
-            return
-        }
-
-        rebuildDiscoveredServices(for: peripheral)
-
-        let writableCount = writableCharacteristics.count
-        appendLog("Service \(service.uuid.uuidString) characteristics discovered. Writable count: \(writableCount).")
-        connectionMessage = writableCount == 0
-            ? "Services discovered. No writable characteristics found yet."
-            : "Services discovered. \(writableCount) writable characteristic(s) available for manual selection."
     }
 
-    func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
-        guard connectedPeripheral?.identifier == peripheral.identifier else {
-            return
-        }
+    nonisolated func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
+        // Delivered on the main queue (the manager uses queue: nil); assumeIsolated
+        // checks that and keeps every Bluetooth state access serialized on the main actor.
+        MainActor.assumeIsolated {
+            guard connectedPeripheral?.identifier == peripheral.identifier else {
+                return
+            }
 
-        if let error {
-            failActiveWrite("Bluetooth write failed for \(characteristic.uuid.uuidString). \(error.localizedDescription)")
-            return
-        }
+            if let error {
+                failActiveWrite("Bluetooth write failed for \(characteristic.uuid.uuidString). \(error.localizedDescription)")
+                return
+            }
 
-        appendLog("didWrite success for \(characteristic.uuid.uuidString).")
-        writeNextChunk()
+            appendLog("didWrite success for \(characteristic.uuid.uuidString).")
+            writeNextChunk()
+        }
     }
 
-    func peripheralIsReady(toSendWriteWithoutResponse peripheral: CBPeripheral) {
-        guard connectedPeripheral?.identifier == peripheral.identifier else {
-            return
-        }
+    nonisolated func peripheralIsReady(toSendWriteWithoutResponse peripheral: CBPeripheral) {
+        // Delivered on the main queue (the manager uses queue: nil); assumeIsolated
+        // checks that and keeps every Bluetooth state access serialized on the main actor.
+        MainActor.assumeIsolated {
+            guard connectedPeripheral?.identifier == peripheral.identifier else {
+                return
+            }
 
-        appendLog("Peripheral reported writeWithoutResponse capacity; BT1.1 text/cut tests use withResponse.")
+            appendLog("Peripheral reported writeWithoutResponse capacity; BT1.1 text/cut tests use withResponse.")
+        }
     }
 }
 

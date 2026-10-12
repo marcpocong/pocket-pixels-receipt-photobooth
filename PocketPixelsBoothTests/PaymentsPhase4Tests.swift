@@ -30,6 +30,22 @@ private func beginCopy(_ outbox: PrintOutcomeOutbox, _ copy: Int, of count: Int 
     try outbox.beginCopy(batchID: batch, sessionID: "PP-1", entitlementID: entitlement, receiptFingerprint: fp, copyIndex: copy, copyCount: count, transport: "bluetooth")
 }
 
+@Test @MainActor func selectedTransportIsDurableBeforeOutcome() throws {
+    let directory = tempDirectory("selected-transport")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let outbox = try PrintOutcomeOutbox(directory: directory)
+    try outbox.beginCopy(
+        batchID: "batch-transport", sessionID: "session", entitlementID: "entitlement",
+        receiptFingerprint: fingerprint, copyIndex: 1, copyCount: 1,
+        transport: PrinterTransportSelection.none.rawValue
+    )
+
+    try outbox.selectTransportBeforeBytes(batchID: "batch-transport", copyIndex: 1, transport: .bluetooth)
+
+    #expect(outbox.entries.first?.transport == PrinterTransportSelection.bluetooth.rawValue)
+    #expect(outbox.entries.first?.localState == .inFlight)
+}
+
 /// URLProtocol stub separate from the Phase 3 one so parallel suites never share handlers.
 final class Phase4StubProtocol: URLProtocol {
     nonisolated(unsafe) static var handler: ((URLRequest) throws -> (Int, Data))?
@@ -242,6 +258,7 @@ struct PrintOutboxTests {
         }
         let result = await outbox.sync(using: client)
         #expect(result.conflicts == 1)
+        #expect(result.retries == 1)
         #expect(outbox.conflicts.first?.lastError == "print_batch_conflict")
         #expect(outbox.dueReports().isEmpty, "the 503 copy waits for its backoff; the conflict is never retried blindly")
         let retry = try #require(outbox.entries.first { $0.copyIndex == 2 })

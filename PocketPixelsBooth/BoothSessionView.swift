@@ -32,6 +32,8 @@ struct BoothSessionView: View {
     @State private var showingEndNoPrintConfirmation = false
     @State private var showingReceiptDebugTools = false
 #endif
+    /// Customer-chosen preview of the exact 1-bit thermal raster. Always starts on the keepsake view.
+    @State private var receiptPreviewMode = ReceiptPreviewMode.keepsake
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("printerIP") private var printerIP = BoothConfiguration.defaultPrinterIP
@@ -122,6 +124,10 @@ struct BoothSessionView: View {
             .onReceive(NotificationCenter.default.publisher(for: EventProfileStore.didChangeNotification)) { _ in
                 viewModel.refreshCustomerExperience()
             }
+            .onReceive(NotificationCenter.default.publisher(for: StickerStudioSettingsStore.didChangeNotification)) { _ in
+                // Settings apply to the next guest; only a safety switch-off of online use acts now.
+                viewModel.handleStickerSettingsChanged()
+            }
 #if DEBUG
             .onChange(of: viewModel.state) { _, newState in
                 if case .receiptPreview = newState {
@@ -176,6 +182,10 @@ struct BoothSessionView: View {
             "passportSignature"
         case .passportPreview:
             "passportPreview"
+        case .preparingStickers:
+            "preparingStickers"
+        case .stickerStudio:
+            "stickerStudio"
         case .composingReceipt:
             "composingReceipt"
         case .receiptPreview, .connectingToPrinter, .printing:
@@ -231,6 +241,21 @@ struct BoothSessionView: View {
             PassportSignatureView(viewModel: viewModel, onCancel: { showingCancelConfirmation = true })
         case .passportPreview:
             PassportPreviewView(viewModel: viewModel, onCancel: { showingCancelConfirmation = true })
+        case .preparingStickers:
+            progressScreen(title: "Getting your stickers ready", message: "Just a moment.")
+        case .stickerStudio:
+            if let studio = viewModel.stickerStudio {
+                StickerStudioView(
+                    session: studio,
+                    onDone: { viewModel.finishStickerStudio() },
+                    onSkip: { viewModel.skipStickerStudio() },
+                    onBack: { viewModel.backFromStickerStudio() },
+                    onCancel: { showingCancelConfirmation = true },
+                    onActivity: { scheduleIdleReset() }
+                )
+            } else {
+                progressScreen(title: "Getting your stickers ready", message: "Just a moment.")
+            }
         case .composingReceipt:
             progressScreen(title: "Preparing your receipt", message: "This will just take a moment.")
         case .receiptPreview, .connectingToPrinter, .printing:
@@ -531,15 +556,9 @@ struct BoothSessionView: View {
 
     private func reviewPhoto(index: Int, format: BoothFormat) -> MadeToKeepPhotoReviewView.Photo {
         let role = format == .passport ? PassportPhotoRole(photoIndex: index) : nil
+        // Same shared geometry the receipt uses, so review matches the printed photo.
         let image: UIImage? = if viewModel.capturedPhotos.indices.contains(index) {
-            if let role {
-                // Same crop the receipt uses, so review matches the printed card.
-                PassportPhotoProcessor.presentationPhoto(from: viewModel.capturedPhotos[index], role: role)
-            } else if format == .duo || format == .strip {
-                ReceiptComposer.makeLandscapePresentationPhoto(from: viewModel.capturedPhotos[index])
-            } else {
-                viewModel.capturedPhotos[index]
-            }
+            PhotoPresentationGeometry.resolve(format: format, photoIndex: index).uprightPhoto(from: viewModel.capturedPhotos[index])
         } else {
             nil
         }
@@ -586,6 +605,10 @@ struct BoothSessionView: View {
                         scale: MadeToKeepTheme.Motion.subtleScale
                     )
 
+                if !isPostPrintFlow {
+                    receiptPreviewModePicker(width: receiptMaxWidth)
+                }
+
                 receiptCustomerActions(width: contentWidth, preferredControlWidth: receiptMaxWidth)
                     .pocketPixelsEntrance(active: receiptMotionActive, reduceMotion: reduceMotion, delay: 0.08, offset: 8)
 
@@ -607,6 +630,7 @@ struct BoothSessionView: View {
         }
         .padding(MadeToKeepTheme.Spacing.screenPadding)
         .onAppear {
+            receiptPreviewMode = .keepsake
             startReceiptMotion()
         }
     }
@@ -632,6 +656,8 @@ struct BoothSessionView: View {
         let headerEstimate: CGFloat = 126
         let actionEstimate: CGFloat = isPrinterWorking ? 54 : 124
         let galleryEstimate = showsGalleryStatus ? statusQRSize + 42 : 0
+        // The keepsake / as-printed toggle only appears before printing.
+        let previewModeEstimate: CGFloat = showsGalleryStatus ? 0 : ReceiptPreviewMode.pickerHeightEstimate
         let debugDisclosureEstimate: CGFloat
 #if DEBUG
         debugDisclosureEstimate = showingReceiptDebugTools ? 292 : 36
@@ -639,7 +665,7 @@ struct BoothSessionView: View {
         debugDisclosureEstimate = 0
 #endif
 
-        return headerEstimate + actionEstimate + galleryEstimate + debugDisclosureEstimate
+        return headerEstimate + actionEstimate + galleryEstimate + previewModeEstimate + debugDisclosureEstimate
     }
 
     private func customerReceiptPreview(maxWidth: CGFloat, maxHeight: CGFloat, showsPrinterSlot: Bool) -> some View {
@@ -649,7 +675,10 @@ struct BoothSessionView: View {
                 if let previewImage = viewModel.receiptImage, showsPrinterSlot {
                     FeedingReceiptView(image: previewImage, maxWidth: maxWidth, maxHeight: maxHeight,
                                        isPrinting: viewModel.state == .printing)
-                } else if let previewImage = viewModel.receiptImage {
+                } else if let previewImage = receiptPreviewMode.image(
+                    keepsake: viewModel.receiptImage,
+                    thermal: viewModel.thermalReceiptPreview
+                ) {
                     let previewLayout = receiptPreviewLayout(for: previewImage, maxWidth: maxWidth, maxHeight: maxHeight)
                     Group {
                         if previewLayout.requiresScrolling {
@@ -681,7 +710,42 @@ struct BoothSessionView: View {
             .shadow(color: MadeToKeepTheme.ColorPalette.amberGlow.opacity(0.12), radius: 18, x: 0, y: 8)
             .shadow(color: MadeToKeepTheme.ColorPalette.charcoal.opacity(0.10), radius: 14, x: 0, y: 7)
         }
-        .accessibilityLabel("Receipt preview")
+        .accessibilityLabel(receiptPreviewMode == .thermal && !showsPrinterSlot ? "Receipt preview as printed" : "Receipt preview")
+    }
+
+    /// A quiet toggle under the pre-print preview. "As printed" shows the actual thermal raster the
+    /// printer receives, so guests know the keepsake prints in black and white.
+    private func receiptPreviewModePicker(width: CGFloat) -> some View {
+        VStack(spacing: 5) {
+            HStack(spacing: 6) {
+                ForEach(ReceiptPreviewMode.allCases, id: \.self) { mode in
+                    let isSelected = receiptPreviewMode == mode
+                    Button {
+                        receiptPreviewMode = mode
+                    } label: {
+                        Text(mode.title)
+                            .font(MadeToKeepTheme.Typography.sans(size: 13, weight: isSelected ? .semibold : .regular))
+                            .foregroundStyle(isSelected ? MadeToKeepTheme.ColorPalette.ivoryLight : MadeToKeepTheme.ColorPalette.burgundy)
+                            .padding(.horizontal, 14)
+                            .frame(minHeight: 32)
+                            .background(isSelected ? MadeToKeepTheme.ColorPalette.burgundy : Color.clear, in: Capsule())
+                            .overlay(Capsule().strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.45), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(mode == .thermal && viewModel.thermalReceiptPreview == nil)
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
+                    .accessibilityIdentifier("receiptPreviewMode.\(mode.rawValue)")
+                }
+            }
+
+            Text(ReceiptPreviewMode.printNote)
+                .font(MadeToKeepTheme.Typography.sans(size: 12, weight: .regular))
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.85)
+        }
+        .frame(maxWidth: width)
     }
 
     private func receiptPreviewImage(_ image: UIImage, size: CGSize) -> some View {
@@ -1829,20 +1893,6 @@ private struct CameraPhotoProgress: View {
             return MadeToKeepTheme.ColorPalette.burgundy.opacity(0.72)
         }
         return MadeToKeepTheme.ColorPalette.ivoryLight
-    }
-}
-
-private enum ReviewPhotoPresentation {
-    case portrait
-    case landscape
-
-    var aspectRatio: CGFloat {
-        switch self {
-        case .portrait:
-            return 3.0 / 4.0
-        case .landscape:
-            return ReceiptComposer.landscapePresentationAspectRatio
-        }
     }
 }
 

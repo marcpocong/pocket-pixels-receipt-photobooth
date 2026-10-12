@@ -25,15 +25,16 @@ final class PhotoPassFormatTests: XCTestCase {
 
     // MARK: B. Flow
 
-    func testPhotoPassFlowKeepsPhotosNameNoteAndSignatureWhenGoingBack() throws {
-        let model = BoothSessionViewModel()
+    func testPhotoPassFlowKeepsPhotosNameNoteAndSignatureWhenGoingBack() async throws {
+        let model = BoothSessionViewModel.immediateConfirmation()
         model.selectedBoothFormat = .passport
         model.isCameraUnavailable = true
         model.state = .cameraReady
         XCTAssertEqual(model.passportDraft.designVersion, .photoPassV2, "New sessions use the Photo Pass design")
 
-        model.addSamplePhoto(photo(seed: 1, landscape: false))
-        model.addSamplePhoto(photo(seed: 2, landscape: true))
+        await model.addSamplePhotoAndConfirm(photo(seed: 1, landscape: false))
+        XCTAssertEqual(model.state, .cameraReady)
+        await model.addSamplePhotoAndConfirm(photo(seed: 2, landscape: true))
         XCTAssertEqual(model.state, .review)
         let captured = model.capturedPhotos
         XCTAssertFalse(model.canContinueToReceipt, "Review never commits a Photo Pass directly")

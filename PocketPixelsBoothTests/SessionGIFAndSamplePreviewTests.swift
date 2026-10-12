@@ -31,7 +31,7 @@ final class SessionGIFAndSamplePreviewTests: XCTestCase {
         }
     }
 
-    func testMixedPortraitLandscapeAndOrientedFramesUseOneWhiteCanvas() throws {
+    func testMixedPortraitLandscapeAndOrientedFramesUseOneNeutralCanvas() throws {
         let portrait = photo(1)
         let landscape = photo(2)
         let rotated = UIImage(cgImage: try XCTUnwrap(landscape.cgImage), scale: 1, orientation: .right)
@@ -40,6 +40,17 @@ final class SessionGIFAndSamplePreviewTests: XCTestCase {
         let frames = try (0..<3).map { try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, $0, nil)) }
         XCTAssertTrue(frames.allSatisfy { $0.width == frames[0].width && $0.height == frames[0].height })
         XCTAssertEqual(frames[0].width, frames[0].height)
+    }
+
+    func testGIFPreservesApprovedFrameOrder() throws {
+        let data = try SessionGIFRenderer.render(images: (0..<4).map(photo))
+        let source = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil))
+
+        for index in 0..<4 {
+            let frame = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, index, nil))
+            let expected = UIColor(hue: CGFloat(index) / 7, saturation: 0.8, brightness: 0.8, alpha: 1)
+            XCTAssertTrue(try XCTUnwrap(centerPixel(of: frame)).isApproximatelyEqual(to: expected))
+        }
     }
 
     func testGIFHonorsCallerByteBudgetAndRejectsAbsurdBudget() throws {
@@ -53,6 +64,28 @@ final class SessionGIFAndSamplePreviewTests: XCTestCase {
 
     func testGIFRejectsMissingFrames() {
         XCTAssertThrowsError(try SessionGIFRenderer.render(images: []))
+    }
+
+    func testSoloGalleryRemainsSchemaV2WithoutMisleadingGIF() throws {
+        let image = photo(0)
+        let payload = try GoogleDriveGalleryUploadService.preparePayload(
+            photos: [image],
+            composedReceipt: image,
+            sessionID: "PP-20261009-120000",
+            createdAt: Date(timeIntervalSince1970: 1_760_011_200),
+            galleryToken: String(repeating: "a", count: 64),
+            customerGalleryBaseURL: try XCTUnwrap(URL(string: "https://gallery.example.com/"))
+        )
+        let request = try GoogleDriveGalleryUploadService.makeRequestBody(
+            payload: payload,
+            deviceToken: String(repeating: "x", count: 32)
+        )
+
+        XCTAssertEqual(payload.schemaVersion, 2)
+        XCTAssertNil(payload.gif)
+        XCTAssertNil(request.gif)
+        XCTAssertNotNil(request.colorReceipt)
+        XCTAssertNotNil(request.thermalReceipt)
     }
 
     func testImportedPhotosRepeatAndCycleForEveryFormat() {
@@ -73,5 +106,40 @@ final class SessionGIFAndSamplePreviewTests: XCTestCase {
             UIColor(hue: CGFloat(index) / 7, saturation: 0.8, brightness: 0.8, alpha: 1).setFill()
             context.fill(CGRect(origin: .zero, size: size))
         }
+    }
+
+    private func centerPixel(of image: CGImage) -> UIColor? {
+        var pixel = [UInt8](repeating: 0, count: 4)
+        let context = CGContext(
+            data: &pixel,
+            width: 1,
+            height: 1,
+            bitsPerComponent: 8,
+            bytesPerRow: 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )
+        guard let context else { return nil }
+        context.interpolationQuality = .none
+        context.draw(image, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        return UIColor(red: CGFloat(pixel[0]) / 255, green: CGFloat(pixel[1]) / 255, blue: CGFloat(pixel[2]) / 255, alpha: 1)
+    }
+}
+
+private extension UIColor {
+    func isApproximatelyEqual(to other: UIColor, tolerance: CGFloat = 0.08) -> Bool {
+        var lhsRed: CGFloat = 0
+        var lhsGreen: CGFloat = 0
+        var lhsBlue: CGFloat = 0
+        var lhsAlpha: CGFloat = 0
+        var rhsRed: CGFloat = 0
+        var rhsGreen: CGFloat = 0
+        var rhsBlue: CGFloat = 0
+        var rhsAlpha: CGFloat = 0
+        guard getRed(&lhsRed, green: &lhsGreen, blue: &lhsBlue, alpha: &lhsAlpha),
+              other.getRed(&rhsRed, green: &rhsGreen, blue: &rhsBlue, alpha: &rhsAlpha) else { return false }
+        let lhs = [lhsRed, lhsGreen, lhsBlue, lhsAlpha]
+        let rhs = [rhsRed, rhsGreen, rhsBlue, rhsAlpha]
+        return zip(lhs, rhs).allSatisfy { abs($0 - $1) <= tolerance }
     }
 }

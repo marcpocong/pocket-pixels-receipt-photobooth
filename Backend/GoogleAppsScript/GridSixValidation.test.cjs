@@ -31,6 +31,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, 'Code.gs'), 'utf8'), contex
 assert.equal(context.validateUploadToken_('').code, 'SERVER_NOT_CONFIGURED');
 scriptProperties.set('POCKET_PIXELS_DEVICE_TOKEN', 'correct-device-token-value');
 context.runPocketPixelsSelfTest();
+context.runPhase6CBackendSelfChecks();
 assert.equal(context.validateUploadToken_('').code, 'MISSING_DEVICE_TOKEN');
 assert.equal(context.validateUploadToken_('wrong-device-token-value').code, 'INVALID_DEVICE_TOKEN');
 assert.equal(context.validateUploadToken_('correct-device-token-value'), null);
@@ -41,6 +42,12 @@ for (const count of [1, 2, 3, 4, 6]) {
   assert.deepEqual(Array.from(payload._expectedPhotoFilenames), Array.from({ length: count }, (_, i) => `photo-${String(i + 1).padStart(2, '0')}.jpg`));
   assert.equal(context.expectedFilenames_(count, 2).length, count + 3);
 }
+const degraded = context.makeSelfTestPayload_(2);
+delete degraded.gif;
+assert.equal(context.validateUploadPayload_(degraded).ok, true);
+assert.equal(degraded._validatedImages.length, 4);
+assert.equal(context.expectedFilenames_(2, 2, false).length, 4);
+assert.equal(context.makeCompleteManifest_(degraded).gif, undefined);
 const legacy = context.makeSelfTestPayload_(2);
 legacy.schemaVersion = 1;
 legacy.receipt = legacy.colorReceipt;
@@ -67,6 +74,8 @@ assert.equal(loaded.gif.mimeType, 'image/gif');
 assert.equal(loaded.gif.role, 'gif');
 const html = context.renderGalleryPage_(fixture, {}, Date.now()).getContent();
 assert.match(html, /Your GIF/);
+assert.match(html, /your moments, made to keep\./);
+assert.match(html, /View, save and share the photographs from your session\./);
 assert.match(html, /id="image-session\.gif"/);
 assert.match(html, /data-open="session\.gif"/);
 assert.match(html, /data-download="session\.gif">Save GIF/);
@@ -82,6 +91,12 @@ const legacyFixture = galleryFixture(2, 1);
 const legacyHTML = context.renderGalleryPage_(legacyFixture, {}, Date.now()).getContent();
 assert.doesNotMatch(legacyHTML, /<p>Your GIF<\/p>/);
 assert.match(legacyHTML, /Color Receipt/);
+
+const soloFixture = galleryFixture(1, 2, false);
+const soloHTML = context.renderGalleryPage_(soloFixture, {}, Date.now()).getContent();
+assert.doesNotMatch(soloHTML, /<p>Your GIF<\/p>/);
+assert.doesNotMatch(soloHTML, /class="gif-section"|data-download="session\.gif"|data-share="session\.gif"/);
+assert.match(soloHTML, /Save Photo/);
 
 // Made to Keep Studios visible rebrand (Phase 1). The legacy completed-gallery marker stays
 // because the Cloudflare Worker uses it for cache decisions.
@@ -181,7 +196,7 @@ overBoundary.gif = encodedImage('session.gif', 'image/gif', 2_400_000);
 assert.equal(context.validateUploadPayload_(overBoundary).code, 'GALLERY_TOO_LARGE');
 console.log('Schema-v2 QR gallery GIF HTML and render-budget checks passed.');
 
-function galleryFixture(photoCount, schemaVersion = 2) {
+function galleryFixture(photoCount, schemaVersion = 2, includeGIF = schemaVersion === 2) {
   const payload = context.makeSelfTestPayload_(photoCount);
   payload.schemaVersion = schemaVersion;
   if (schemaVersion === 1) {
@@ -189,11 +204,13 @@ function galleryFixture(photoCount, schemaVersion = 2) {
     delete payload.colorReceipt;
     delete payload.thermalReceipt;
     delete payload.gif;
+  } else if (!includeGIF) {
+    delete payload.gif;
   }
   assert.equal(context.validateUploadPayload_(payload).ok, true);
   const manifest = context.makeCompleteManifest_(payload);
   const items = payload.photos.concat(schemaVersion === 2
-    ? [payload.colorReceipt, payload.thermalReceipt, payload.gif]
+    ? [payload.colorReceipt, payload.thermalReceipt, payload.gif].filter(Boolean)
     : [payload.receipt]);
   const filesByName = Object.fromEntries(items.map(item => [item.filename, {
     getBlob: () => ({ getBytes: () => Array.from(Buffer.from(item.base64Data, 'base64')) }),

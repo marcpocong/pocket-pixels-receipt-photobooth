@@ -63,6 +63,8 @@ final class BoothSessionViewModel: ObservableObject {
     /// Rendered Passport cards shown on the preview screen; built once per visit, never per edit.
     @Published private(set) var passportPreviewImage: UIImage?
     @Published private(set) var passportPreviewFailed = false
+    /// The current guest's sticker draft; nil unless this session reached Sticker Studio.
+    @Published private(set) var stickerStudio: StickerStudioSession?
 
     let cameraService = CameraService()
 
@@ -70,7 +72,9 @@ final class BoothSessionViewModel: ObservableObject {
     private let printerCoordinator = PrinterCoordinator.shared
     private let uploadService = GoogleDriveGalleryUploadService()
     private let credentialStore = DeviceCredentialStore()
-    private let recoveryStore = try? AppRecoveryStore()
+    private let recoveryStore: AppRecoveryStore?
+    /// Where this session's durable side effects go; `.customer` is production behavior.
+    let environment: BoothSessionEnvironment
     /// Durable archive commit for the current session; resolves to nil on success or an error
     /// description on failure. See SessionArchiveCommitter for the durability contract.
     private var archiveCommitTask: Task<String?, Never>?
@@ -101,6 +105,13 @@ final class BoothSessionViewModel: ObservableObject {
     private var committedGallerySession: CommittedGallerySession?
     private var customerSessionGeneration = 0
     private var customerPrintPhotoProfile = CustomerReceiptPhotoToneStore.load().profile
+    /// Sticker Studio settings frozen when this customer session started.
+    private(set) var sessionStickerConfiguration = StickerStudioSessionConfiguration.disabled
+    /// Where Sticker Studio's Back returns to (Review, or the Photo Pass preview).
+    private var stickerStudioReturnState: BoothSessionState?
+    private var stickerPreparationTask: Task<Void, Never>?
+    /// Counts committed finalizations; a guard against double commits in tests and diagnostics.
+    private(set) var receiptFinalizationCount = 0
     private static let printCopyRange = 1...10
 #if DEBUG
     private var debugSessionSequence = 0
@@ -126,8 +137,14 @@ final class BoothSessionViewModel: ObservableObject {
 
     var canContinueToReceipt: Bool {
         guard canContinueFromReview else { return false }
-        // Passport commits only from its preview, after details and signature.
+        // Passport commits only from its preview (or Sticker Studio reached from it).
         return selectedBoothFormat != .passport || state == .passportPreview
+            || (state == .stickerStudio && stickerStudioReturnState == .passportPreview)
+    }
+
+    /// Whether this guest gets the Sticker Studio step before the receipt is committed.
+    var stickerStepEnabledForSession: Bool {
+        sessionStickerConfiguration.isGuestStepEnabled
     }
 
     var canContinueFromReview: Bool {
@@ -199,7 +216,23 @@ final class BoothSessionViewModel: ObservableObject {
         )
     }
 
-    init() {
+    /// Holds the captured-photo confirmation on screen. Injected so tests can step through the
+    /// confirmation deterministically instead of sleeping; production waits the configured duration.
+    private let captureConfirmationPause: @MainActor () async -> Void
+    /// The in-flight sample-photo confirmation, kept so callers can await its real completion.
+    private var captureConfirmationTask: Task<Void, Never>?
+
+    /// - Parameter captureConfirmationPause: nil waits `capturedPhotoDisplayDuration` (production).
+    init(
+        environment: BoothSessionEnvironment? = nil,
+        captureConfirmationPause: (@MainActor () async -> Void)? = nil
+    ) {
+        let environment = environment ?? .customer
+        self.environment = environment
+        self.recoveryStore = try? AppRecoveryStore(directoryURL: environment.recoveryDirectory)
+        self.captureConfirmationPause = captureConfirmationPause ?? {
+            try? await Task.sleep(for: .seconds(BoothConfiguration.capturedPhotoDisplayDuration))
+        }
         cameraService.onSessionMessage = { [weak self] message in
             self?.statusMessage = message
         }
@@ -221,6 +254,12 @@ final class BoothSessionViewModel: ObservableObject {
 
         operationalState.refresh()
         refreshCustomerExperience()
+        commercialEvent = CommercialEventRunStore.load()
+        guard commercialEvent.acceptsNewSessions,
+              commercialEvent.activePolicy.validationMessage == nil else {
+            state = .error("This event is paused or needs operator setup.")
+            return
+        }
         guard !printerCoordinator.requiresRecovery, !operationalState.hasUnresolvedPrint else {
             state = .recoveryRequired("Printer needs operator attention.")
             return
@@ -269,6 +308,7 @@ final class BoothSessionViewModel: ObservableObject {
         offlinePolicyPayload = offlinePolicy
         customerPrintPhotoProfile = CustomerReceiptPhotoToneStore.load().profile
         beginNewCustomerSession()
+        freezeSessionStickerConfiguration()
         errorMessage = nil
         statusMessage = "Choose your format."
         state = .choosingFormat
@@ -373,7 +413,7 @@ final class BoothSessionViewModel: ObservableObject {
         selectedBoothFormat = format
         sessionCreatedAt = sessionDate
         sessionIdentifier = identifier
-        let savedEventProfile = EventProfileStore.load().normalized()
+        let savedEventProfile = environment.eventProfileSource().normalized()
         customerEventProfile = savedEventProfile
         sessionEventProfile = savedEventProfile.activeReceiptSnapshot
         passportDraft = format == .passport
@@ -695,7 +735,9 @@ final class BoothSessionViewModel: ObservableObject {
                 receiptFingerprint: envelope.payloadFingerprint.lowercased(),
                 copyIndex: envelope.copyIndex,
                 copyCount: envelope.copyCount,
-                transport: printerCoordinator.activeTransport.rawValue
+                // The actual selection is persisted immediately before bytes may be sent. A
+                // previous job's active transport is not evidence for this copy.
+                transport: PrinterTransportSelection.none.rawValue
             )
         } catch {
             // Private/prepaid prints keep their existing behaviour: the journal is local evidence only.
@@ -820,14 +862,15 @@ final class BoothSessionViewModel: ObservableObject {
 
     private func prepareCameraAfterAuthorization() {
         guard checkoutEntitlement?.permitsCapture == true else { state = .error("Payment authorization is required before the camera can start."); return }
+        let sessionGeneration = customerSessionGeneration
+        guard releaseAuthorizationTaskForCamera(generation: sessionGeneration) else { return }
         let format = selectedBoothFormat ?? .solo
         isTransitionActive = true
         isCameraUnavailable = false
         errorMessage = nil
         statusMessage = "Preparing front camera..."
         state = .preparingCamera
-        let sessionGeneration = customerSessionGeneration
-        debugLog("[Session] format selected: \(format.displayName)")
+        debugLog("[Session] authorized format: \(selectedBoothFormat?.displayName ?? "unknown")")
         if galleryToken != nil {
             debugLog("[Gallery] token state initialized")
         }
@@ -861,6 +904,45 @@ final class BoothSessionViewModel: ObservableObject {
         }
     }
 
+    /// Payment authorization owns `activeTask` until capture is permitted. Relinquish that
+    /// ownership at the camera boundary so Start Photos can install the capture task. A stale
+    /// authorization callback cannot release a newer customer session's task.
+    @discardableResult
+    func releaseAuthorizationTaskForCamera(generation: Int) -> Bool {
+        guard isCurrentCustomerSession(generation) else { return false }
+        activeTask = nil
+        return true
+    }
+
+#if DEBUG
+    var hasActiveTaskForTesting: Bool { activeTask != nil }
+
+    func installAuthorizationTaskForTesting() {
+        activeTask = Task { await Task.yield() }
+    }
+
+    func configureAuthorizedCameraReadyForTesting() {
+        let identifier = "TEST-\(UUID().uuidString)"
+        selectedBoothFormat = .solo
+        sessionIdentifier = identifier
+        checkoutEntitlement = CheckoutEntitlement(
+            id: "prepaid-\(identifier)", orderID: nil, eventID: "test", policyRevisionID: "test",
+            sessionID: identifier, selectedFormatRawValue: BoothFormat.solo.rawValue,
+            purchasedCopies: 1, unitPriceCentavos: 0, totalCentavos: 0,
+            authorizationSource: .privatePrepaid, authorizedAt: Date(), receiptFingerprint: nil
+        )
+        isTransitionActive = false
+        isCameraUnavailable = false
+        state = .cameraReady
+    }
+
+    func cancelActiveTaskForTesting() {
+        activeTask?.cancel()
+        activeTask = nil
+        isTransitionActive = false
+    }
+#endif
+
     func beginPhotoSequence() {
         guard checkoutEntitlement?.permitsCapture == true, canBeginPhotos, selectedBoothFormat != nil, committedGallerySession == nil else {
             return
@@ -882,6 +964,13 @@ final class BoothSessionViewModel: ObservableObject {
         guard !printerState.isWorking, !isPrintBatchActive,
               !printerCoordinator.requiresRecovery, !operationalState.hasUnresolvedPrint else {
             statusMessage = "Printer needs operator attention before this session can be cleared."
+            return
+        }
+        if let entitlement = checkoutEntitlement,
+           entitlement.authorizationSource != .privatePrepaid,
+           capturedPhotos.isEmpty {
+            statusMessage = "This paid session is saved. Ask the attendant to resume it; do not pay again."
+            state = .paymentReconciliation
             return
         }
         debugLog("Session \(sessionIdentifier ?? "unknown") cancelled.")
@@ -920,6 +1009,8 @@ final class BoothSessionViewModel: ObservableObject {
         thermalReceiptPreview = nil
         receiptRasterizedImage = nil
         composedReceipt = nil
+        // Every photo is replaced, so no sticker may carry over to the new pictures.
+        discardStickerDraft()
         statusMessage = "Restarting the photo sequence."
         startCameraForSequence()
     }
@@ -941,8 +1032,10 @@ final class BoothSessionViewModel: ObservableObject {
         isTransitionActive = true
 
         let sessionGeneration = customerSessionGeneration
-        activeTask = Task {
-            try? await Task.sleep(for: .seconds(BoothConfiguration.capturedPhotoDisplayDuration))
+        let pause = captureConfirmationPause
+        let task = Task {
+            await pause()
+            // A reset or new session during the confirmation owns the state now; never touch it.
             guard !Task.isCancelled, isCurrentCustomerSession(sessionGeneration) else { return }
             transientCapturedPhoto = nil
             transientCapturedPhotoIndex = nil
@@ -952,7 +1045,16 @@ final class BoothSessionViewModel: ObservableObject {
                 : "Select the next sample photo."
             isTransitionActive = false
             activeTask = nil
+            captureConfirmationTask = nil
         }
+        activeTask = task
+        captureConfirmationTask = task
+    }
+
+    /// Waits until the current sample-photo confirmation has finished (or was invalidated).
+    /// Returns immediately when no confirmation is in flight.
+    func awaitCaptureConfirmation() async {
+        await captureConfirmationTask?.value
     }
 
     /// Review's Continue: Passport moves on to its details step, other formats compose directly.
@@ -1010,11 +1112,34 @@ final class BoothSessionViewModel: ObservableObject {
         renderPassportPreview()
     }
 
+    /// Existing entry point used by Review, the Photo Pass preview and qualification.
     func continueToReceipt() {
-        if selectedBoothFormat == .passport, state != .passportPreview {
+        requestReceiptFinalization()
+    }
+
+    /// The guest is done with photos (and Photo Pass details). Opens Sticker Studio when this
+    /// session froze it ON, otherwise commits the receipt exactly as before. Never recursive:
+    /// Sticker Studio's Done/Skip call `finalizeReceipt` directly.
+    func requestReceiptFinalization() {
+        if selectedBoothFormat == .passport, state != .passportPreview, state != .stickerStudio {
             continueFromReview()
             return
         }
+        guard state != .stickerStudio, state != .preparingStickers else { return }
+        guard canContinueToReceipt else {
+            finalizeReceipt(stickers: [])
+            return
+        }
+        if stickerStepEnabledForSession {
+            openStickerStudio()
+        } else {
+            finalizeReceipt(stickers: [])
+        }
+    }
+
+    /// Freezes the committed session and starts composition, archive and gallery delivery.
+    /// The single irreversible step; it runs at most once per session.
+    private func finalizeReceipt(stickers: [FrozenStickerDecoration]) {
         guard canContinueToReceipt,
               let selectedBoothFormat,
               let sessionIdentifier,
@@ -1035,11 +1160,162 @@ final class BoothSessionViewModel: ObservableObject {
             format: selectedBoothFormat,
             eventProfile: sessionEventProfile,
             passport: selectedBoothFormat == .passport ? passportDraft.committed(at: receiptDate) : nil,
-            printOptions: ReceiptPrintSettingsStore.load()
+            printOptions: ReceiptPrintSettingsStore.load(),
+            stickers: stickers
         )
         passportPreviewTask?.cancel()
+        stickerPreparationTask?.cancel()
+        stickerPreparationTask = nil
         committedGallerySession = committedSession
+        receiptFinalizationCount += 1
+        // The draft is frozen into the committed session; release editor memory and network.
+        stickerStudio?.close()
+        stickerStudio = nil
+        stickerStudioReturnState = nil
         composeReceipt(for: committedSession, enqueueUpload: true)
+    }
+
+    // MARK: Sticker Studio
+
+    /// Freezes Sticker Studio settings for this session (called when the session starts).
+    func freezeSessionStickerConfiguration() {
+        sessionStickerConfiguration = environment.isQualification ? .disabled : environment.stickerConfigurationSource()
+    }
+
+    private func openStickerStudio() {
+        guard canContinueToReceipt,
+              stickerPreparationTask == nil,
+              let selectedBoothFormat,
+              let sessionIdentifier,
+              let receiptDate = sessionCreatedAt else {
+            finalizeReceipt(stickers: [])
+            return
+        }
+        let configuration = sessionStickerConfiguration
+        let sessionGeneration = customerSessionGeneration
+        if stickerStudio == nil || stickerStudio?.generation != sessionGeneration {
+            stickerStudio?.close()
+            let store = configuration.settings.operatorCollectionEnabled ? environment.stickerCatalogStoreSource() : nil
+            let catalog = StickerGuestCatalog.make(settings: configuration.settings, store: store)
+            stickerStudio = StickerStudioSession(
+                configuration: configuration,
+                catalog: catalog,
+                generation: sessionGeneration,
+                catalogStore: store,
+                provider: configuration.onlineReady ? environment.onlineStickerProviderSource() : nil
+            )
+        }
+        guard let studio = stickerStudio, studio.hasContent else {
+            // Enabled but nothing to offer (e.g. every source off): continue without a blank editor.
+            stickerStudio?.close()
+            stickerStudio = nil
+            finalizeReceipt(stickers: [])
+            return
+        }
+
+        stickerStudioReturnState = state
+        passportPreviewTask?.cancel()
+        isTransitionActive = true
+        state = .preparingStickers
+        statusMessage = "Getting your stickers ready..."
+
+        // The editor draws on the real, undecorated receipt so its geometry is the print geometry.
+        let photos = capturedPhotos
+        let galleryURL = self.galleryURL
+        let eventProfile = sessionEventProfile
+        let passport = selectedBoothFormat == .passport ? passportDraft.committed(at: receiptDate) : nil
+        let photoProfile = customerPrintPhotoProfile
+        let printOptions = ReceiptPrintSettingsStore.load()
+        stickerPreparationTask = Task {
+            let worker = Task.detached(priority: .userInitiated) { () throws -> (UIImage, StickerLayoutSnapshot) in
+                let receipt = try ReceiptComposer.compose(
+                    photos: photos,
+                    sessionIdentifier: sessionIdentifier,
+                    date: receiptDate,
+                    galleryURL: galleryURL,
+                    format: selectedBoothFormat,
+                    eventProfile: eventProfile,
+                    passport: passport,
+                    photoQualityProfile: photoProfile,
+                    printOptions: printOptions
+                )
+                guard let layout = receipt.stickerLayout, !layout.regions.isEmpty,
+                      let image = UIImage(data: receipt.imagePNGData) else {
+                    throw ReceiptComposerError.renderFailed
+                }
+                try Task.checkCancellation()
+                return (ReceiptComposer.makePhotoSectionPreviewImage(from: image, previewContentHeight: layout.editorVisibleHeight), layout)
+            }
+            let result = try? await withTaskCancellationHandler {
+                try await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+            guard !Task.isCancelled, isCurrentCustomerSession(sessionGeneration), state == .preparingStickers else {
+                debugLog("[Stickers] ignored stale sticker canvas")
+                return
+            }
+            stickerPreparationTask = nil
+            isTransitionActive = false
+            guard let result, let studio = stickerStudio, studio.generation == sessionGeneration else {
+                debugLog("[Stickers] canvas unavailable; continuing without stickers")
+                state = stickerStudioReturnState ?? .review
+                finalizeReceipt(stickers: [])
+                return
+            }
+            studio.setCanvas(image: result.0, layout: result.1)
+            statusMessage = "Make it yours."
+            state = .stickerStudio
+        }
+    }
+
+    /// Done: commits the guest's stickers into the receipt, exactly once.
+    func finishStickerStudio() {
+        guard state == .stickerStudio, let studio = stickerStudio, studio.generation == customerSessionGeneration else { return }
+        finalizeReceipt(stickers: studio.freeze())
+    }
+
+    /// Skip: commits the original receipt with no stickers, exactly once.
+    func skipStickerStudio() {
+        guard state == .stickerStudio else { return }
+        finalizeReceipt(stickers: [])
+    }
+
+    /// Back: returns to the previous step keeping photos, format, Photo Pass details, signature
+    /// and the sticker draft. No upload, archive or printer action.
+    func backFromStickerStudio() {
+        guard state == .stickerStudio || state == .preparingStickers, committedGallerySession == nil else { return }
+        stickerPreparationTask?.cancel()
+        stickerPreparationTask = nil
+        isTransitionActive = false
+        let destination = stickerStudioReturnState ?? .review
+        stickerStudioReturnState = nil
+        if destination == .passportPreview, selectedBoothFormat == .passport {
+            statusMessage = "Here's your Photo Pass."
+            state = .passportPreview
+            renderPassportPreview()
+        } else {
+            statusMessage = "Review your photos."
+            state = .review
+        }
+    }
+
+    /// Operator settings changed. The frozen session flow never changes, except that switching
+    /// online stickers off stops online requests immediately.
+    func handleStickerSettingsChanged() {
+        guard let studio = stickerStudio, studio.isOnlineAvailable else { return }
+        let latest = StickerStudioSettingsStore.load()
+        if !latest.isEnabled || !latest.onlineDiscoveryEnabled || latest.onlineRightsAcknowledgement == nil {
+            studio.disableOnline()
+        }
+    }
+
+    private func discardStickerDraft() {
+        stickerPreparationTask?.cancel()
+        stickerPreparationTask = nil
+        stickerStudio?.close()
+        stickerStudio = nil
+        stickerStudioReturnState = nil
     }
 
     func rebuildReceipt() {
@@ -1092,7 +1368,8 @@ final class BoothSessionViewModel: ObservableObject {
                         eventProfile: committedSession.eventProfile,
                         passport: committedSession.passport,
                         photoQualityProfile: customerPrintPhotoProfile,
-                        printOptions: committedSession.printOptions
+                        printOptions: committedSession.printOptions,
+                        stickers: committedSession.stickers
                     )
                     guard let receiptImage = UIImage(data: receipt.imagePNGData) else {
                         throw ReceiptComposerError.renderFailed
@@ -1183,7 +1460,9 @@ final class BoothSessionViewModel: ObservableObject {
             eventProfile: committedSession.eventProfile,
             passport: passport.redactedForGallery(),
             photoQualityProfile: photoQualityProfile,
-            printOptions: committedSession.printOptions
+            printOptions: committedSession.printOptions,
+            // Stickers only ever cover photos, so the redacted copy keeps them too.
+            stickers: committedSession.stickers
         )
         guard let image = UIImage(data: redacted.imagePNGData) else {
             throw ReceiptComposerError.renderFailed
@@ -1262,12 +1541,13 @@ final class BoothSessionViewModel: ObservableObject {
 
     func printReceipt(host: String, port: UInt16?) {
         debugLog("[PrintTap] state=\(state) printerState=\(printerState) batchTaskActive=\(printBatchTask != nil) port=\(port.map(String.init) ?? "nil") rasterReady=\(receiptRasterizedImage != nil)")
-        guard printBatchTask == nil else {
-            debugLog("[PrintTap] ignored: a print batch is already running")
+        guard let checkoutEntitlement,
+              checkoutEntitlement.purchasedCopies == selectedPrintCopies else {
+            printerState = .failure("This print quantity is not authorized for the session.")
             return
         }
-        guard let checkoutEntitlement, checkoutEntitlement.purchasedCopies == selectedPrintCopies else {
-            printerState = .failure("This print quantity is not authorized for the session.")
+        guard printBatchTask == nil else {
+            debugLog("[PrintTap] ignored: a print batch is already running")
             return
         }
 
@@ -1434,7 +1714,7 @@ final class BoothSessionViewModel: ObservableObject {
 
     func refreshCustomerExperience() {
         guard state == .welcome || state == .choosingFormat else { return }
-        customerEventProfile = EventProfileStore.load().normalized()
+        customerEventProfile = environment.eventProfileSource().normalized()
     }
 
     @discardableResult
@@ -1688,7 +1968,7 @@ final class BoothSessionViewModel: ObservableObject {
                 debugLog("[Retake] replaced photo index \(index + 1)")
             }
             debugLog("Session \(sessionIdentifier ?? "unknown") captured photo \(index + 1).")
-            try? await Task.sleep(for: .seconds(BoothConfiguration.capturedPhotoDisplayDuration))
+            await captureConfirmationPause()
             guard isCurrentCustomerSession(sessionGeneration) else {
                 debugLog("[Session] ignored stale captured photo display completion")
                 return
@@ -1734,7 +2014,9 @@ final class BoothSessionViewModel: ObservableObject {
         state = .thankYou
         statusMessage = "Scan the QR to view and save your photos."
         recoveryStore?.clear(sessionIdentifier: sessionIdentifier)
-        operationalState.recordSessionCompleted()
+        if environment.recordsCustomerSessionMetrics {
+            operationalState.recordSessionCompleted()
+        }
         debugLog("[Session] session completed")
         debugLog("Session \(sessionIdentifier ?? "unknown") printed successfully.")
     }
@@ -1789,6 +2071,8 @@ final class BoothSessionViewModel: ObservableObject {
         completedPrintCopies = 0
         passportDraft = .empty
         resetPassportPreview()
+        discardStickerDraft()
+        sessionStickerConfiguration = .disabled
         // The detached archive commit is never cancelled (it owns immutable session values); the
         // reference is dropped so a later session can never await another session's archive.
         archiveCommitTask = nil
@@ -1798,6 +2082,8 @@ final class BoothSessionViewModel: ObservableObject {
     private func cancelTasks() {
         activeTask?.cancel()
         activeTask = nil
+        captureConfirmationTask?.cancel()
+        captureConfirmationTask = nil
         printBatchTask?.cancel()
         printBatchTask = nil
         isPrintBatchActive = false
@@ -1805,6 +2091,8 @@ final class BoothSessionViewModel: ObservableObject {
         cameraWatchdogTask = nil
         passportPreviewTask?.cancel()
         passportPreviewTask = nil
+        stickerPreparationTask?.cancel()
+        stickerPreparationTask = nil
     }
 
     private func beginNewCustomerSession() {
@@ -1945,12 +2233,12 @@ final class BoothSessionViewModel: ObservableObject {
                 wifiHost: wifiHost,
                 wifiPort: wifiPort,
                 sessionIdentifier: sessionIdentifier ?? "unknown",
-                source: .liveCustomer,
+                source: environment.printSource,
                 copyIndex: copy,
                 copyCount: requestedCopies,
                 batchID: batchID ?? UUID(),
                 transportPolicy: printerCoordinator.productionReceiptTransportPolicy,
-                prePrintCheckpoint: PrePrintCheckpointGate { [weak self] envelope in
+                prePrintCheckpoint: PrePrintCheckpointGate({ [weak self] envelope in
                     // Runs inside the print spooler immediately before transport. A stale session
                     // or a failed durable write blocks the job before any bytes are sent.
                     guard let self, self.isCurrentCustomerSession(sessionGeneration) else {
@@ -1958,7 +2246,21 @@ final class BoothSessionViewModel: ObservableObject {
                     }
                     try self.persistCriticalRecoverySnapshot(stage: .printStatusUnknown)
                     try self.journalCopyIntent(envelope)
-                }
+                }, selectTransport: { [weak self] envelope, transport in
+                    guard let self, self.isCurrentCustomerSession(sessionGeneration) else {
+                        throw PrintCheckpointError.persistenceFailed("Customer session changed before printing.")
+                    }
+                    do {
+                        try self.printOutbox?.selectTransportBeforeBytes(
+                            batchID: envelope.batchID.uuidString.lowercased(),
+                            copyIndex: envelope.copyIndex,
+                            transport: transport
+                        )
+                    } catch {
+                        guard self.isPaidSession else { return }
+                        throw PrintCheckpointError.persistenceFailed(error.localizedDescription)
+                    }
+                })
             ) { [weak self] printerState in
                 guard let self else { return }
                 guard self.isCurrentCustomerSession(sessionGeneration) else {
@@ -2111,16 +2413,20 @@ final class BoothSessionViewModel: ObservableObject {
             photoThumbnailData: []
         )
         archiveCommitPayload = payload
+        let archiveDirectory = environment.archiveDirectory
         archiveCommitTask = Task.detached(priority: .userInitiated) {
             do {
-                try SessionArchiveCommitter.commitPrintPayload(payload)
+                let store = try BoothSessionEnvironment.makeArchiveStore(directory: archiveDirectory)
+                try SessionArchiveCommitter.commitPrintPayload(payload, store: store)
             } catch {
                 BoothDiagnostics.archive.error("Archive commit failed session=\(committedSession.sessionIdentifier, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
                 return error.localizedDescription
             }
             // Thumbnails are display-only and never delay printing.
             Task.detached(priority: .utility) {
-                SessionArchiveCommitter.attachThumbnails(for: committedSession)
+                // Never fall back to the production archive if a diagnostic store cannot open.
+                guard let store = try? BoothSessionEnvironment.makeArchiveStore(directory: archiveDirectory) else { return }
+                SessionArchiveCommitter.attachThumbnails(for: committedSession, store: store)
             }
             return nil
         }
@@ -2136,11 +2442,13 @@ final class BoothSessionViewModel: ObservableObject {
         }
         guard let failure = await task.value else { return nil }
         BoothDiagnostics.archive.notice("Retrying archive commit before printing: \(failure, privacy: .public)")
+        let archiveDirectory = environment.archiveDirectory
         let retry = Task.detached(priority: .userInitiated) { () -> String? in
             do {
-                try SessionArchiveCommitter.commitPrintPayload(payload)
+                let store = try BoothSessionEnvironment.makeArchiveStore(directory: archiveDirectory)
+                try SessionArchiveCommitter.commitPrintPayload(payload, store: store)
                 Task.detached(priority: .utility) {
-                    SessionArchiveCommitter.attachThumbnails(for: payload.committedSession)
+                    SessionArchiveCommitter.attachThumbnails(for: payload.committedSession, store: store)
                 }
                 return nil
             } catch {
@@ -2169,6 +2477,11 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     private func startGalleryUpload(committedSession: CommittedGallerySession, receiptImage: UIImage) {
+        // Qualification sessions never prepare, queue or upload a gallery.
+        guard environment.deliversGallery else {
+            setUploadPhase(.idle, message: "Diagnostic session: gallery delivery is disabled.", for: committedSession.galleryToken)
+            return
+        }
         guard GalleryUploadSessionIsolationPolicy.canStartPreparation(
             activeTaskTokens: Set(galleryUploadTasks.keys),
             newGalleryToken: committedSession.galleryToken
@@ -2270,6 +2583,9 @@ struct CommittedGallerySession {
     var passport: PassportSessionData? = nil
     /// Frozen physical-print choices. Gallery delivery and the iPad QR remain independent.
     var printOptions: ReceiptPrintOptions = .default
+    /// Guest stickers frozen on Done (empty for Skip or when Sticker Studio is off). Every
+    /// rebuild, copy and the gallery receipt draw these exact pixels.
+    var stickers: [FrozenStickerDecoration] = []
 }
 
 enum GalleryUploadSessionIsolationPolicy {
