@@ -570,7 +570,7 @@ nonisolated private struct APIErrorBody: Decodable, Sendable {
 }
 
 /// Operator's editable copy of a server policy. Prices are edited in pesos and sent as centavos.
-nonisolated struct ServerPolicyDraft: Equatable, Sendable {
+nonisolated struct ServerPolicyDraft: Codable, Equatable, Sendable {
     var commercialMode: CommercialEventMode = .payPerPrint
     var priceText = ""
     var maxCopies = 3
@@ -618,6 +618,13 @@ nonisolated struct ServerPolicyDraft: Equatable, Sendable {
 
     var unitPriceCentavos: Int? {
         commercialMode == .privatePrepaid ? 0 : PesoAmount.centavos(fromPesoText: priceText)
+    }
+
+    func matchesForEditing(_ other: ServerPolicyDraft) -> Bool {
+        var left = self, right = other
+        if !left.offlineCashEnabled { left.offlineValidUntil = .distantPast }
+        if !right.offlineCashEnabled { right.offlineValidUntil = .distantPast }
+        return left == right
     }
 
     func validationMessage(now: Date = Date()) -> String? {

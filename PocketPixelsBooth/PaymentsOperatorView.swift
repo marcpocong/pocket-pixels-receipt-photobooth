@@ -6,8 +6,8 @@ struct PaymentsOperatorView: View {
     @State private var configuration = PaymentsConfiguration.current()
     @State private var events: [OperatorEventSummary] = []
     @State private var diagnostics: OperatorDiagnostics?
-    @State private var eventName = ""
-    @State private var venue = ""
+    @State private var eventName = OperatorWorkspace.shared.snapshot.newEventName
+    @State private var venue = OperatorWorkspace.shared.snapshot.newEventVenue
     @State private var status = ""
     @State private var isLoading = false
     @State private var pairingURL = PaymentsConfiguration.current()?.baseURL.absoluteString ?? ""
@@ -93,9 +93,7 @@ struct PaymentsOperatorView: View {
                     Text(client == nil ? "Pair this iPad to load events." : "No events yet.").foregroundStyle(.secondary)
                 }
                 ForEach(events) { event in
-                    NavigationLink {
-                        ServerEventEditorView(eventID: event.id)
-                    } label: {
+                    NavigationLink(value: OperatorWorkspaceRoute.serverEvent(event.id)) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(event.name).font(.headline)
                             Text(summaryLine(event)).font(.caption).foregroundStyle(.secondary)
@@ -108,6 +106,9 @@ struct PaymentsOperatorView: View {
         }
         .navigationTitle("Commercial Events & Sales")
         .task { await refresh() }
+        .onChange(of: eventName) { _, _ in OperatorWorkspace.shared.saveNewEvent(name: eventName, venue: venue) }
+        .onChange(of: venue) { _, _ in OperatorWorkspace.shared.saveNewEvent(name: eventName, venue: venue) }
+        .onReceive(NotificationCenter.default.publisher(for: OperatorWorkspace.didUnlock)) { _ in Task { await refresh() } }
     }
 
     private func summaryLine(_ event: OperatorEventSummary) -> String {

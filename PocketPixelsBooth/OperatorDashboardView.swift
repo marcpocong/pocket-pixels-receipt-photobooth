@@ -52,16 +52,16 @@ struct OperatorDashboardView: View {
 
                 // Two columns so four links keep readable titles on an 11-inch iPad.
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
-                    OperatorSecondaryLink(title: "Receipt Design & Branding", systemImage: "doc.text.image") {
+                    OperatorSecondaryLink(title: "Receipt Design & Branding", systemImage: "doc.text.image", route: .receiptDesign) {
                         ReceiptDesignAndBrandingView()
                     }
-                    OperatorSecondaryLink(title: stickerStudioEnabled ? "Sticker Studio · ON" : "Sticker Studio · OFF", systemImage: "face.smiling") {
+                    OperatorSecondaryLink(title: stickerStudioEnabled ? "Sticker Studio · ON" : "Sticker Studio · OFF", systemImage: "face.smiling", route: .stickers) {
                         StickerStudioOperatorView()
                     }
-                    OperatorSecondaryLink(title: "Equipment", systemImage: "printer.fill.and.paper.fill") {
+                    OperatorSecondaryLink(title: "Equipment", systemImage: "printer.fill.and.paper.fill", route: .equipment) {
                         OperatorEquipmentView()
                     }
-                    OperatorSecondaryLink(title: "Advanced", systemImage: "gearshape.2") {
+                    OperatorSecondaryLink(title: "Advanced", systemImage: "gearshape.2", route: .advanced) {
                         OperatorAdvancedView()
                     }
                 }
@@ -97,12 +97,18 @@ struct OperatorDashboardView: View {
 private struct OperatorSecondaryLink<Destination: View>: View {
     let title: String
     let systemImage: String
+    var route: OperatorWorkspaceRoute? = nil
     @ViewBuilder let destination: () -> Destination
 
     var body: some View {
-        NavigationLink {
-            destination()
-        } label: {
+        Group {
+            if let route { NavigationLink(value: route) { linkLabel } }
+            else { NavigationLink { destination() } label: { linkLabel } }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var linkLabel: some View {
             HStack {
                 Label(title, systemImage: systemImage)
                     .font(.headline)
@@ -115,8 +121,6 @@ private struct OperatorSecondaryLink<Destination: View>: View {
             .padding(.horizontal, 20)
             .background(.background, in: RoundedRectangle(cornerRadius: 16))
             .overlay { RoundedRectangle(cornerRadius: 16).stroke(.separator.opacity(0.5)) }
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -215,15 +219,15 @@ private struct OperatorPrimaryActions: View {
 
     @ViewBuilder
     private var actions: some View {
-        OperatorActionLink(title: "Event Setup", subtitle: "Branding and activation", systemImage: "calendar") {
+        OperatorActionLink(title: "Event Setup", subtitle: "Branding and activation", systemImage: "calendar", route: .eventSetup) {
             EventSetupView()
         }
 
-        OperatorActionLink(title: "Booth Check", subtitle: "Confirm readiness", systemImage: "checkmark.shield.fill") {
+        OperatorActionLink(title: "Booth Check", subtitle: "Confirm readiness", systemImage: "checkmark.shield.fill", route: .boothCheck) {
             EventPreflightView()
         }
 
-        OperatorActionLink(title: "Manage Event", subtitle: "Sessions and delivery", systemImage: "person.2.crop.square.stack.fill") {
+        OperatorActionLink(title: "Manage Event", subtitle: "Sessions and delivery", systemImage: "person.2.crop.square.stack.fill", route: .manageEvent) {
             OperatorManageEventView()
         }
     }
@@ -233,12 +237,19 @@ private struct OperatorActionLink<Destination: View>: View {
     let title: String
     let subtitle: String
     let systemImage: String
+    var route: OperatorWorkspaceRoute? = nil
     @ViewBuilder let destination: () -> Destination
 
     var body: some View {
-        NavigationLink {
-            destination()
-        } label: {
+        Group {
+            if let route { NavigationLink(value: route) { linkLabel } }
+            else { NavigationLink { destination() } label: { linkLabel } }
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint(subtitle)
+    }
+
+    private var linkLabel: some View {
             VStack(alignment: .leading, spacing: 12) {
                 Image(systemName: systemImage)
                     .font(.title)
@@ -254,9 +265,6 @@ private struct OperatorActionLink<Destination: View>: View {
             .padding(18)
             .background(.background, in: RoundedRectangle(cornerRadius: 18))
             .overlay { RoundedRectangle(cornerRadius: 18).stroke(.separator.opacity(0.5)) }
-        }
-        .buttonStyle(.plain)
-        .accessibilityHint(subtitle)
     }
 }
 
@@ -431,13 +439,13 @@ struct OperatorManageEventView: View {
             Section("Event Activity") {
                 LabeledContent("Sessions this launch", value: "\(operations.sessionsCompletedThisLaunch)")
                 LabeledContent("Waiting galleries", value: "\(operations.pendingUploadCount)")
-                NavigationLink("Commercial Events & Sales") { PaymentsOperatorView() }
-                NavigationLink("Booth Charging Mode") { CommercialEventSetupView() }
+                NavigationLink("Commercial Events & Sales", value: OperatorWorkspaceRoute.payments)
+                NavigationLink("Booth Charging Mode", value: OperatorWorkspaceRoute.charging)
             }
 
             Section("Sessions") {
-                NavigationLink("Recent Sessions & Reprints") { RecentSessionsView() }
-                NavigationLink("Waiting Galleries") { PendingUploadsView() }
+                NavigationLink("Recent Sessions & Reprints", value: OperatorWorkspaceRoute.recentSessions)
+                NavigationLink("Waiting Galleries", value: OperatorWorkspaceRoute.waitingGalleries)
             }
 
             Section("Guests") {
@@ -518,10 +526,10 @@ struct OperatorEquipmentView: View {
                 )
                 LabeledContent("Receipt transfer", value: printer.receiptBluetoothTransferMode.operatorSummary)
                     .font(.subheadline)
-                NavigationLink("Printer Setup") { OperatorPrinterSetupView() }
+                NavigationLink("Printer Setup", value: OperatorWorkspaceRoute.printer)
                     .disabled(printer.isWorking)
                 if printer.requiresRecovery || operations.hasUnresolvedPrint {
-                    NavigationLink("Fix Printer") { OperatorRecoveryView() }
+                    NavigationLink("Fix Printer", value: OperatorWorkspaceRoute.recovery)
                 }
             }
 
@@ -532,7 +540,7 @@ struct OperatorEquipmentView: View {
                     systemImage: "camera.fill",
                     ready: operations.cameraCheckPassed
                 )
-                NavigationLink("Camera Check") { OperatorCameraCheckView() }
+                NavigationLink("Camera Check", value: OperatorWorkspaceRoute.camera)
                     .disabled(operations.customerSessionActive || operations.isPreflightRunning || printer.isWorking)
             }
 
@@ -543,8 +551,8 @@ struct OperatorEquipmentView: View {
                     systemImage: "icloud.fill",
                     ready: DeviceCredentialStore().hasDeviceToken() && operations.networkPathStatus == "Online"
                 )
-                NavigationLink("Gallery Setup") { OperatorGallerySettingsView() }
-                NavigationLink("Waiting Galleries (\(operations.pendingUploadCount))") { PendingUploadsView() }
+                NavigationLink("Gallery Setup", value: OperatorWorkspaceRoute.gallery)
+                NavigationLink("Waiting Galleries (\(operations.pendingUploadCount))", value: OperatorWorkspaceRoute.waitingGalleries)
             }
         }
         .navigationTitle("Equipment")
@@ -585,9 +593,9 @@ struct OperatorAdvancedView: View {
     var body: some View {
         List {
             Section("Operations") {
-                NavigationLink("Recovery") { OperatorRecoveryView() }
-                NavigationLink("Print History") { OperatorPrintAuditView() }
-                NavigationLink("Storage") { OperatorStorageView() }
+                NavigationLink("Recovery", value: OperatorWorkspaceRoute.recovery)
+                NavigationLink("Print History", value: OperatorWorkspaceRoute.printHistory)
+                NavigationLink("Storage", value: OperatorWorkspaceRoute.storage)
             }
 
             Section {
@@ -736,5 +744,31 @@ private extension View {
                 RoundedRectangle(cornerRadius: 20)
                     .stroke((accent ?? Color.secondary).opacity(accent == nil ? 0.18 : 0.5), lineWidth: accent == nil ? 1 : 2)
             }
+    }
+}
+
+// Shared typed destinations allow restoration without replacing the existing dashboard.
+extension OperatorWorkspaceRoute {
+    @MainActor @ViewBuilder var destination: some View {
+        switch self {
+        case .manageEvent: OperatorManageEventView()
+        case .payments: PaymentsOperatorView()
+        case .charging: CommercialEventSetupView()
+        case .eventSetup: EventSetupView()
+        case .boothCheck: EventPreflightView()
+        case .receiptDesign: ReceiptDesignAndBrandingView()
+        case .stickers: StickerStudioOperatorView()
+        case .equipment: OperatorEquipmentView()
+        case .advanced: OperatorAdvancedView()
+        case .printer: OperatorPrinterSetupView()
+        case .recovery: OperatorRecoveryView()
+        case .camera: OperatorCameraCheckView()
+        case .gallery: OperatorGallerySettingsView()
+        case .waitingGalleries: PendingUploadsView()
+        case .recentSessions: RecentSessionsView()
+        case .storage: OperatorStorageView()
+        case .printHistory: OperatorPrintAuditView()
+        case .serverEvent(let id): ServerEventEditorView(eventID: id)
+        }
     }
 }

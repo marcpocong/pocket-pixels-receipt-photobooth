@@ -18,7 +18,7 @@ struct CommercialEventSetupView: View {
         // Load once: the legacy default is time-stamped, so two loads would never compare equal.
         let run = CommercialEventRunStore.load()
         _savedRun = State(initialValue: run)
-        _draft = State(initialValue: run)
+        _draft = State(initialValue: OperatorWorkspace.shared.snapshot.prepaidDraft ?? run)
     }
 
     var body: some View {
@@ -30,6 +30,7 @@ struct CommercialEventSetupView: View {
                     }
                 }
                 .onChange(of: source) { _, newValue in
+                    guard OperatorAccessPermit.shared.isAuthorized else { source = CommercialPolicySource.load(); return }
                     CommercialPolicySource.save(newValue)
                     statusMessage = newValue == .serverManaged
                         ? "New guest sessions will use the server's active event."
@@ -58,6 +59,7 @@ struct CommercialEventSetupView: View {
             }
         }
         .navigationTitle("Booth Charging Mode")
+        .onChange(of: draft) { _, value in OperatorWorkspace.shared.savePrepaidDraft(value == savedRun ? nil : value) }
         .task {
             if source == .serverManaged { await checkServer() }
         }
@@ -121,6 +123,7 @@ struct CommercialEventSetupView: View {
     }
 
     private func saveLocal(lifecycle: CommercialEventLifecycle) {
+        guard OperatorAccessPermit.shared.isAuthorized else { return }
         var run = draft
         // A legacy local paid configuration can never be republished; force prepaid.
         run.activePolicy.commercialMode = .privatePrepaid
@@ -134,6 +137,7 @@ struct CommercialEventSetupView: View {
             try CommercialEventRunStore.publish(run)
             savedRun = run
             draft = run
+            OperatorWorkspace.shared.savePrepaidDraft(nil)
             statusMessage = lifecycle == .active ? "Saved on this iPad. New sessions use these prepaid settings." : "New sessions are paused on this iPad."
         } catch {
             statusMessage = "Not saved: \(error.localizedDescription)"

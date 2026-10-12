@@ -24,6 +24,19 @@ struct ServerEventEditorView: View {
     @State private var conflicts: [OperatorOfflineConflict] = []
     @State private var exportURL: URL?
     @State private var exportComplete = true
+    @State private var baseServerVersion: Int?
+    @State private var confirmDiscard = false
+    @Environment(\.scenePhase) private var scenePhase
+    @ObservedObject private var workspace = OperatorWorkspace.shared
+
+    init(eventID: String) {
+        self.eventID = eventID
+        let restored = OperatorWorkspace.shared.serverDraft(eventID: eventID)
+        _name = State(initialValue: restored?.name ?? "")
+        _venue = State(initialValue: restored?.venue ?? "")
+        _draft = State(initialValue: restored?.policy ?? ServerPolicyDraft())
+        _baseServerVersion = State(initialValue: restored?.baseVersion)
+    }
 
     private var client: PaymentsAPIClient? { PaymentsConfiguration.current().map { PaymentsAPIClient(configuration: $0) } }
 
@@ -34,7 +47,7 @@ struct ServerEventEditorView: View {
 
     private var hasUnsavedChanges: Bool {
         guard let baseline else { return false }
-        return baseline.name != name || baseline.venue != venue || baseline.draft != draft
+        return baseline.name != name || baseline.venue != venue || !baseline.draft.matchesForEditing(draft)
     }
 
     var body: some View {
@@ -52,7 +65,24 @@ struct ServerEventEditorView: View {
         .navigationTitle(detail?.event.name ?? "Server Event")
         .disabled(isBusy)
         .overlay { if isBusy { ProgressView().controlSize(.large) } }
-        .task { await reload(keepEdits: false) }
+        .task { await reload(keepEdits: workspace.serverDraft(eventID: eventID) != nil) }
+        .onChange(of: name) { _, _ in persistDraft() }
+        .onChange(of: venue) { _, _ in persistDraft() }
+        .onChange(of: draft) { _, _ in persistDraft() }
+        .onReceive(NotificationCenter.default.publisher(for: OperatorWorkspace.didUnlock)) { _ in
+            Task { await reload(keepEdits: hasUnsavedChanges || workspace.serverDraft(eventID: eventID) != nil) }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { persistDraft(); pendingAction = nil; confirmDiscard = false }
+        }
+        .confirmationDialog("Discard local edits?", isPresented: $confirmDiscard, titleVisibility: .visible) {
+            Button("Discard Local Edits & Reload", role: .destructive) {
+                guard OperatorAccessPermit.shared.isAuthorized else { return }
+                workspace.removeServerDraft(eventID: eventID)
+                Task { await reload(keepEdits: false) }
+            }
+            Button("Keep Editing", role: .cancel) {}
+        } message: { Text("This replaces only this event's local setup draft with its current server values. Nothing is published.") }
         .confirmationDialog(confirmationTitle, isPresented: Binding(get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } }), titleVisibility: .visible, presenting: pendingAction) { action in
             Button(confirmationButton(action), role: [.end, .archive].contains(action) ? .destructive : nil) {
                 Task { await perform(action) }
@@ -89,8 +119,28 @@ struct ServerEventEditorView: View {
                 Text(message).font(.footnote)
             }
             if hasVersionConflict {
-                Button("Reload from Server (discards edits on this iPad)", role: .destructive) { Task { await reload(keepEdits: false) } }
+                Text("Local edits began at server version \(baseServerVersion ?? 0); the current version is \(detail?.event.version ?? 0). Saving and publishing are blocked until you review.")
+                    .foregroundStyle(.orange)
+                if let latest = detail?.latestRevision {
+                    LabeledContent("Your price / server price", value: "\(draft.priceText) / \(PesoAmount.editingText(centavos: latest.unitPriceCentavos))")
+                    LabeledContent("Your copies / server copies", value: "\(draft.defaultCopies)–\(draft.maxCopies) / \(latest.defaultCopies)–\(latest.maxCopies)")
+                    LabeledContent("Server name", value: detail?.event.name ?? "")
+                    LabeledContent("Server venue", value: detail?.event.venue ?? "")
+                    LabeledContent("Server methods", value: [latest.qrphEnabled ? "QR Ph" : nil, latest.cashEnabled ? "Cash" : nil].compactMap { $0 }.joined(separator: ", "))
+                    LabeledContent("Server formats", value: latest.supportedFormats.joined(separator: ", "))
+                }
+                Button("I've Reviewed — Keep My Edits for the Current Version") {
+                    guard OperatorAccessPermit.shared.isAuthorized else { return }
+                    baseServerVersion = detail?.event.version
+                    hasVersionConflict = false
+                    persistDraft()
+                    message = "Your reviewed edits are still local. Save Draft to Server when ready."
+                }
             }
+            if hasUnsavedChanges || workspace.serverDraft(eventID: eventID) != nil {
+                Button("Discard Local Edits…", role: .destructive) { confirmDiscard = true }
+            }
+            Button("Refresh Server — Keep Local Edits") { Task { await reload(keepEdits: hasUnsavedChanges) } }
         }
     }
 
@@ -160,12 +210,12 @@ struct ServerEventEditorView: View {
     @ViewBuilder private func saveSection(_ detail: OperatorEventDetail) -> some View {
         Section {
             Button("Save Draft to Server") { Task { await saveDraft(detail) } }
-                .disabled(!hasUnsavedChanges || draft.requestBody() == nil || name.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(!hasUnsavedChanges || hasVersionConflict || draft.requestBody() == nil || name.trimmingCharacters(in: .whitespaces).isEmpty)
             if let latest = detail.latestRevision, detail.hasUnpublishedRevision || detail.event.lifecycle == .draft {
                 Button(detail.event.lifecycle == .draft ? "Publish & Activate Revision \(latest.revision)" : "Publish Revision \(latest.revision) to Guests") {
                     pendingAction = detail.event.lifecycle == .draft ? .activate : .publish
                 }
-                .disabled(hasUnsavedChanges)
+                .disabled(hasUnsavedChanges || hasVersionConflict)
                 if hasUnsavedChanges {
                     Text("Save the draft first. Only a saved server revision can be published.").font(.footnote).foregroundStyle(.secondary)
                 }
@@ -301,6 +351,14 @@ struct ServerEventEditorView: View {
                 venue = loaded.event.venue
                 draft = serverDraft
                 hasVersionConflict = false
+                baseServerVersion = loaded.event.version
+                workspace.removeServerDraft(eventID: eventID)
+            } else {
+                hasVersionConflict = baseServerVersion.map { $0 != loaded.event.version } ?? false
+                if baseServerVersion == nil { baseServerVersion = loaded.event.version }
+                message = hasVersionConflict
+                    ? "The server changed while you were away. Your local edits are preserved; review the differences below."
+                    : "Local setup restored. These edits are not saved on the server or published."
             }
             summary = try? await client.eventSummary(id: eventID, pendingLocalCount: await OfflineCashLedger.shared?.pendingRecords().count ?? 0)
             conflicts = (try? await client.offlineConflicts(eventID: eventID)) ?? []
@@ -311,11 +369,12 @@ struct ServerEventEditorView: View {
     }
 
     private func saveDraft(_ current: OperatorEventDetail) async {
+        guard !hasVersionConflict else { return }
         guard let client, let body = draft.requestBody() else { return }
         isBusy = true
         defer { isBusy = false }
         do {
-            let result = try await client.saveDraft(eventID: eventID, expectedVersion: current.event.version, name: name, venue: venue, policy: body)
+            let result = try await client.saveDraft(eventID: eventID, expectedVersion: baseServerVersion ?? current.event.version, name: name, venue: venue, policy: body)
             message = "Saved on the server as revision \(result.draftRevision?.revision ?? 0). It is not live until you publish it."
             await reload(keepEdits: false)
         } catch let error as PaymentsAPIError where error.code == "version_conflict" {
@@ -327,6 +386,7 @@ struct ServerEventEditorView: View {
     }
 
     private func perform(_ action: LifecycleAction) async {
+        if [.activate, .publish].contains(action), hasUnsavedChanges || hasVersionConflict { return }
         guard let client, let current = detail else { return }
         isBusy = true
         defer { isBusy = false }
@@ -349,6 +409,14 @@ struct ServerEventEditorView: View {
         } catch {
             message = "Not changed: \(error.localizedDescription)"
         }
+    }
+
+    private func persistDraft() {
+        guard let baseVersion = baseServerVersion, baseline != nil else { return }
+        if hasUnsavedChanges {
+            workspace.saveServerDraft(OperatorServerSetupDraft(eventID: eventID, serverBinding: workspace.serverBinding,
+                baseVersion: baseVersion, name: name, venue: venue, policy: draft))
+        } else { workspace.removeServerDraft(eventID: eventID) }
     }
 
     private func saveCount() async {

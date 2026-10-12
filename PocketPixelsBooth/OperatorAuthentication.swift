@@ -2,6 +2,7 @@ import SwiftUI
 import LocalAuthentication
 import Combine
 import Security
+import UIKit
 
 /// A short-lived permit, shared with the API credential reader. Locking never changes booth data.
 nonisolated final class OperatorAccessPermit: @unchecked Sendable {
@@ -53,6 +54,7 @@ nonisolated final class OperatorAccessPermit: @unchecked Sendable {
             if accepted {
                 permit.authorize()
                 isUnlocked = true
+                NotificationCenter.default.post(name: OperatorWorkspace.didUnlock, object: nil)
             } else {
                 message = "Operator access was not authorized. Try again with the device owner."
             }
@@ -114,17 +116,30 @@ nonisolated final class OperatorAccessPermit: @unchecked Sendable {
 }
 
 struct OperatorAuthenticationView<Controls: View>: View {
-    @StateObject private var authentication = OperatorAuthentication()
+    @StateObject private var authentication: OperatorAuthentication
+    @State private var hasOpenedWorkspace = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
     private let clock = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
     @ViewBuilder let controls: () -> Controls
 
+    init(authentication: OperatorAuthentication? = nil, @ViewBuilder controls: @escaping () -> Controls) {
+        _authentication = StateObject(wrappedValue: authentication ?? OperatorAuthentication())
+        self.controls = controls
+    }
+
+    private var isConcealed: Bool { !authentication.isUnlocked || scenePhase != .active }
+
     var body: some View {
         ZStack {
-            if authentication.isUnlocked && scenePhase == .active {
+            if hasOpenedWorkspace {
                 controls()
-            } else {
+                    .opacity(isConcealed ? 0 : 1)
+                    .allowsHitTesting(!isConcealed)
+                    .accessibilityHidden(isConcealed)
+                    .disabled(isConcealed)
+            }
+            if isConcealed {
                 VStack(spacing: 24) {
                     Image(systemName: "lock.shield").font(.largeTitle)
                     Text("Operator Access").font(.title.bold())
@@ -139,17 +154,81 @@ struct OperatorAuthenticationView<Controls: View>: View {
                     }
                     .buttonStyle(.bordered)
                     .disabled(authentication.isAuthenticating || scenePhase != .active)
-                    Button("Return to Booth") { dismiss() }
+                    Text("Your setup page and unsaved work are retained.").font(.footnote).foregroundStyle(.secondary)
+                    Button("Keep Setup & Return to Booth") { dismiss() }
                 }
                 .padding(40)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(.background)
+                .zIndex(1)
             }
+        }
+        .background(OperatorWindowPrivacyCover(concealed: scenePhase != .active))
+        .onAppear { if authentication.isUnlocked { hasOpenedWorkspace = true } }
+        .onChange(of: authentication.isUnlocked) { _, unlocked in
+            if unlocked { hasOpenedWorkspace = true }
         }
         .onChange(of: scenePhase) { _, phase in
             // Authentication itself may briefly make the scene inactive. Background always locks.
-            if phase == .background { authentication.lock() }
+            if phase == .background {
+                OperatorWorkspace.shared.checkpoint()
+                authentication.lock()
+            }
             if phase == .active { authentication.expireIfNeeded() }
         }
         .onReceive(clock) { _ in authentication.expireIfNeeded() }
         .onDisappear { authentication.lock() }
+    }
+}
+
+/// Covers the complete operator window (including sheets) before an app-switcher snapshot.
+private struct OperatorWindowPrivacyCover: UIViewRepresentable {
+    let concealed: Bool
+    func makeUIView(context: Context) -> Anchor { Anchor() }
+    func updateUIView(_ view: Anchor, context: Context) { view.setConcealed(concealed) }
+    static func dismantleUIView(_ view: Anchor, coordinator: ()) { view.removeCover() }
+
+    final class Anchor: UIView {
+        private var cover: UIView?
+        private var concealed = false
+        private var observers: [NSObjectProtocol] = []
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            observers.append(NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.setConcealed(true) }
+            })
+            observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    // Dismiss transient confirmations/shares, never the operator cover itself.
+                    guard let self else { return }
+                    var responder: UIResponder? = self
+                    while let current = responder {
+                        if let controller = current as? UIViewController {
+                            if controller !== self.window?.rootViewController { controller.presentedViewController?.dismiss(animated: false) }
+                            break
+                        }
+                        responder = current.next
+                    }
+                }
+            })
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        deinit { observers.forEach(NotificationCenter.default.removeObserver) }
+        override func didMoveToWindow() { super.didMoveToWindow(); setConcealed(concealed) }
+        func setConcealed(_ value: Bool) {
+            concealed = value
+            guard value, let window else { removeCover(); return }
+            if cover == nil {
+                let view = UIView(frame: window.bounds)
+                view.backgroundColor = .systemBackground
+                view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                view.accessibilityLabel = "Operator locked"
+                view.accessibilityViewIsModal = true
+                cover = view
+                window.addSubview(view)
+            }
+            if let cover { window.bringSubviewToFront(cover) }
+        }
+        func removeCover() { cover?.removeFromSuperview(); cover = nil }
     }
 }

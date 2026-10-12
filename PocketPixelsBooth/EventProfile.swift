@@ -282,7 +282,7 @@ struct EventSetupView: View {
         // Load once so an unsaved default profile (which stamps the current date) does not
         // immediately read as having unsaved changes.
         let profile = EventProfileStore.load()
-        _draft = State(initialValue: profile)
+        _draft = State(initialValue: OperatorWorkspace.shared.snapshot.brandingDraft ?? profile)
         _savedProfile = State(initialValue: profile)
     }
 
@@ -449,6 +449,9 @@ struct EventSetupView: View {
         }
         .navigationTitle("Event Setup")
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: draft) { _, value in
+            OperatorWorkspace.shared.saveBrandingDraft(value.normalized() == savedProfile.normalized() ? nil : value)
+        }
         .alert("Turn Event Mode On?", isPresented: $isShowingActivationConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Turn On") {
@@ -504,6 +507,7 @@ struct EventSetupView: View {
     }
 
     private func saveDraft() {
+        guard OperatorAccessPermit.shared.isAuthorized else { return }
         let normalized = draft.normalized()
         guard !normalized.isEnabled || !normalized.showEventTextBlock || !normalized.eventName.isEmpty else {
             statusMessage = "Enter an event name, or turn off event details below the header."
