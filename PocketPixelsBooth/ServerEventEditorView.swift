@@ -98,16 +98,20 @@ struct ServerEventEditorView: View {
     @ViewBuilder private var statusSection: some View {
         Section("Status") {
             if let detail {
+                LabeledContent("Environment", value: PaymentsConfiguration.current()?.environment.uppercased() ?? "NOT CONFIGURED")
                 LabeledContent("Lifecycle", value: detail.event.lifecycle.rawValue)
+                LabeledContent("Customer acceptance", value: detail.event.lifecycle == .active ? "Active" : "Closed to new sessions")
                 LabeledContent("Event ID", value: detail.event.id)
                 LabeledContent("Server version", value: "\(detail.event.version)")
                 if let active = detail.activePolicy {
                     LabeledContent("Live for guests", value: "Revision \(active.revision) · \(priceLabel(active))")
+                    policySummary(active, prefix: "Published")
                 } else {
                     LabeledContent("Live for guests", value: "Nothing published")
                 }
                 if detail.hasUnpublishedRevision, let latest = detail.latestRevision {
                     LabeledContent("Saved server draft", value: "Revision \(latest.revision) · \(priceLabel(latest)) · not published")
+                    policySummary(latest, prefix: "Draft")
                 }
                 LabeledContent("This editor", value: hasUnsavedChanges ? "Unsaved changes on this iPad" : "Matches the server")
                     .foregroundStyle(hasUnsavedChanges ? .orange : .primary)
@@ -145,6 +149,13 @@ struct ServerEventEditorView: View {
     }
 
     // MARK: Editing
+
+    @ViewBuilder private func policySummary(_ policy: OperatorPolicyRevision, prefix: String) -> some View {
+        LabeledContent("\(prefix) copies", value: "Default \(policy.defaultCopies) · maximum \(policy.maxCopies)")
+        LabeledContent("\(prefix) payment methods", value: policy.commercialMode == .privatePrepaid ? "Prepaid" :
+            [policy.qrphEnabled ? "QR Ph" : nil, policy.cashEnabled ? "Cash (self-reported)" : nil].compactMap { $0 }.joined(separator: ", "))
+        LabeledContent("\(prefix) offline cash", value: policy.cashEnabled && policy.offlineValidUntil != nil ? "Allowed until \(policy.offlineValidUntil!.formatted())" : "Disabled")
+    }
 
     @ViewBuilder private var detailsSection: some View {
         Section("Event") {

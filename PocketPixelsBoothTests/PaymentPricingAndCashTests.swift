@@ -10,6 +10,20 @@ struct PaymentPricingTests {
         #expect(policy.totalCentavos(for: copies) == expected)
     }
 
+    @Test(arguments: [(2_500, 3), (3_500, 5)])
+    func commercialPriceAndCopyLimitsComeFromPolicy(price: Int, maximum: Int) {
+        var policy = paidPolicy(maxCopies: maximum)
+        policy.unitPriceCentavos = price
+        policy.cashEnabled = false
+        policy.offlineValidUntil = nil
+        #expect(policy.validationMessage == nil)
+        #expect(!policy.prepaidGuestCopyChoice)
+        for copies in 1...maximum {
+            #expect(policy.totalCentavos(for: copies) == price * copies)
+        }
+        #expect(policy.totalCentavos(for: maximum + 1) == nil)
+    }
+
     @Test func rejectsInvalidCopiesAndInvalidPaidPolicies() {
         let policy = paidPolicy(maxCopies: 3)
         #expect(policy.totalCentavos(for: 0) == nil)
