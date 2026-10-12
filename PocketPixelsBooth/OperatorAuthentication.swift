@@ -18,7 +18,7 @@ nonisolated final class OperatorAccessPermit: @unchecked Sendable {
 @MainActor final class OperatorAuthentication: ObservableObject {
     @Published private(set) var isUnlocked = false
     @Published private(set) var isAuthenticating = false
-    @Published private(set) var message = "Authenticate with the iPad owner's Face ID or device passcode."
+    @Published private(set) var message = ""
     private let permit: OperatorAccessPermit
     private let evaluate: () async throws -> Bool
     private let evaluatePasscode: () async throws -> Bool
@@ -56,11 +56,19 @@ nonisolated final class OperatorAccessPermit: @unchecked Sendable {
                 isUnlocked = true
                 NotificationCenter.default.post(name: OperatorWorkspace.didUnlock, object: nil)
             } else {
-                message = "Operator access was not authorized. Try again with the device owner."
+                message = "Couldn’t unlock. Try again or use the iPad passcode."
             }
         } catch {
             guard generation == request else { return }
-            message = "Operator access is locked. The owner must configure or recover the iPad passcode in Settings, then authenticate again. Booth records are preserved."
+            if let error = error as? LAError, [.userCancel, .systemCancel, .appCancel].contains(error.code) {
+                message = "Unlock cancelled. Try again when you’re ready."
+            } else if (error as NSError).code == Int(errSecUserCanceled) {
+                message = "Unlock cancelled. Try again when you’re ready."
+            } else if let error = error as? LAError, error.code == .passcodeNotSet {
+                message = "Set an iPad passcode in Settings to unlock operator controls."
+            } else {
+                message = "Couldn’t unlock. Try again or use the iPad passcode."
+            }
         }
     }
 
@@ -140,26 +148,14 @@ struct OperatorAuthenticationView<Controls: View>: View {
                     .disabled(isConcealed)
             }
             if isConcealed {
-                VStack(spacing: 24) {
-                    Image(systemName: "lock.shield").font(.largeTitle)
-                    Text("Operator Access").font(.title.bold())
-                    Text(authentication.message).multilineTextAlignment(.center)
-                    Button(authentication.isAuthenticating ? "Authenticating…" : "Unlock Operator Controls") {
-                        Task { await authentication.unlock() }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(authentication.isAuthenticating || scenePhase != .active)
-                    Button("Use iPad Passcode") {
-                        Task { await authentication.unlock(usingPasscode: true) }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(authentication.isAuthenticating || scenePhase != .active)
-                    Text("Your setup page and unsaved work are retained.").font(.footnote).foregroundStyle(.secondary)
-                    Button("Keep Setup & Return to Booth") { dismiss() }
-                }
-                .padding(40)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(.background)
+                OperatorAccessScreen(
+                    authenticating: authentication.isAuthenticating,
+                    disabled: authentication.isAuthenticating || scenePhase != .active,
+                    message: authentication.message,
+                    unlock: { Task { await authentication.unlock() } },
+                    passcode: { Task { await authentication.unlock(usingPasscode: true) } },
+                    back: { dismiss() }
+                )
                 .zIndex(1)
             }
         }
@@ -178,6 +174,88 @@ struct OperatorAuthenticationView<Controls: View>: View {
         }
         .onReceive(clock) { _ in authentication.expireIfNeeded() }
         .onDisappear { authentication.lock() }
+    }
+}
+
+/// Presentation only. Both authentication actions continue to use native owner authentication.
+struct OperatorAccessScreen: View {
+    var authenticating = false
+    var disabled = false
+    var message = ""
+    var unlock: () -> Void
+    var passcode: () -> Void
+    var back: () -> Void
+
+    private let biometric: (title: String, icon: String) = {
+        let context = LAContext()
+        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) else {
+            return ("Unlock Operator", "lock.open")
+        }
+        switch context.biometryType {
+        case .faceID: return ("Unlock with Face ID", "faceid")
+        case .touchID: return ("Unlock with Touch ID", "touchid")
+        default: return ("Unlock Operator", "lock.open")
+        }
+    }()
+
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: 22) {
+                    VStack(spacing: 28) {
+                        VStack(spacing: 16) {
+                            Text("MADE TO KEEP STUDIOS")
+                                .font(.caption.weight(.semibold)).tracking(2).foregroundStyle(.secondary)
+                            Image(systemName: "lock.shield")
+                                .font(.system(size: 30, weight: .medium))
+                                .frame(width: 72, height: 72)
+                                .background(OperatorPalette.canvas, in: RoundedRectangle(cornerRadius: 20))
+                            Text("Operator Access").font(.largeTitle.weight(.semibold))
+                            Text("Unlock to manage your booth.")
+                                .font(.body).foregroundStyle(.secondary)
+                        }
+                        VStack(spacing: 12) {
+                            Button(action: unlock) {
+                                HStack(spacing: 12) {
+                                    if authenticating { ProgressView().tint(Color(uiColor: .systemBackground)) }
+                                    else { Image(systemName: biometric.icon) }
+                                    Text(authenticating ? "Unlocking…" : biometric.title)
+                                }.font(.headline).frame(maxWidth: .infinity, minHeight: 56)
+                            }
+                            .buttonStyle(.borderedProminent).buttonBorderShape(.roundedRectangle(radius: 14))
+                            .disabled(disabled)
+                            Button(action: passcode) {
+                                Label("Use iPad Passcode", systemImage: "key.horizontal")
+                                    .font(.body.weight(.medium)).frame(maxWidth: .infinity, minHeight: 52)
+                            }
+                            .buttonStyle(.bordered).buttonBorderShape(.roundedRectangle(radius: 14))
+                            .disabled(disabled)
+                        }
+                        if !message.isEmpty {
+                            Text(message).font(.callout).foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center).accessibilityAddTraits(.updatesFrequently)
+                        }
+                        Divider()
+                        Label("Your setup and unsaved changes are kept.", systemImage: "checkmark.shield")
+                            .font(.footnote).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(36)
+                    .frame(maxWidth: 480)
+                    .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 28))
+                    .overlay { RoundedRectangle(cornerRadius: 28).stroke(.secondary.opacity(0.12)) }
+
+                    Button(action: back) {
+                        Label("Back to Booth", systemImage: "arrow.left").font(.body.weight(.medium))
+                            .frame(minHeight: 48)
+                    }.buttonStyle(.plain).disabled(authenticating)
+                }
+                .padding(24)
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+            }
+        }
+        .tint(OperatorPalette.ink)
+        .background(OperatorPalette.canvas.ignoresSafeArea())
     }
 }
 
