@@ -8,9 +8,10 @@ Date: 2026-10-13 (Asia/Manila)
 - Starting reference: `06f63f643d60542a7da5ad3bad96bd3fc843497f`
 - Integrated implementation: `6befd7dca2da5070da1f5fca7aa48c8db1ba91dc`
 - Current local HEAD before the infrastructure/report commit: `68fc59fc7f80e21762b3652acb226f7934f70c9d` (PR #2 merge)
-- Current remote `main`: `68fc59fc7f80e21762b3652acb226f7934f70c9d`
+- Infrastructure verification commit: `a0411bc0202a0a7ba29806a29895a833f2d03c2a`
+- Final local/remote ref: `main` at the commit containing this report; the resolved SHA is recorded in the final handoff because a committed file cannot contain its own Git object ID.
 - User work preserved: yes. The pre-existing modified receipt PNGs, untracked event-render PNGs, `BuildArtifacts/StickerStudio/`, and existing stash were not changed, deleted, staged, or reset.
-- Intended uncommitted work: the corrected TEST D1 ID in `Backend/PaymentsWorker/wrangler.toml` and this report. The owner's BuildArtifacts work remains separate and unstaged.
+- Release-commit scope: the corrected TEST D1 ID in `Backend/PaymentsWorker/wrangler.toml` and this report only. The owner's BuildArtifacts work remains separate and unstaged.
 - Git write restriction: resolved. `.git/index.lock` is absent and staging the intended Worker configuration succeeded.
 
 PR #2 contains the locally verified application/backend completion: the hardware-qualification isolation repair, TEST-only protected PayMongo simulator launcher, provider-aligned QR expiry, QR-first paid-event defaults, and Production Gate Worker tests. The intended source/config diff was scanned for common credential and private-key value patterns; none were found. No simulator URL, bearer token, webhook secret, or provider credential is recorded here.
