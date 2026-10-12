@@ -1,13 +1,11 @@
 import SwiftUI
 
-/// Server events, pairing and diagnostics. Each event opens `ServerEventEditorView`, the single
-/// place where paid policy is edited, published and moved through its lifecycle.
+/// Specialized payment maintenance and read-only sales. Everyday setup lives in Session Setup.
 struct PaymentsOperatorView: View {
+    var salesOnly = false
     @State private var configuration = PaymentsConfiguration.current()
     @State private var events: [OperatorEventSummary] = []
     @State private var diagnostics: OperatorDiagnostics?
-    @State private var eventName = OperatorWorkspace.shared.snapshot.newEventName
-    @State private var venue = OperatorWorkspace.shared.snapshot.newEventVenue
     @State private var status = ""
     @State private var isLoading = false
     @State private var pairingURL = PaymentsConfiguration.current()?.baseURL.absoluteString ?? ""
@@ -46,7 +44,7 @@ struct PaymentsOperatorView: View {
 
     var body: some View {
         List {
-            Section("Payments Server") {
+            if !salesOnly { Section("Payments Server") {
                 LabeledContent("Environment", value: configuration?.environment.uppercased() ?? "NOT CONFIGURED")
                 if let pairedDevice {
                     LabeledContent("This iPad", value: "\(pairedDevice.displayName ?? pairedDevice.id) · \(pairedDevice.scopes.joined(separator: ", "))")
@@ -63,14 +61,16 @@ struct PaymentsOperatorView: View {
                 }
                 Button(isLoading ? "Refreshing…" : "Refresh") { Task { await refresh() } }
                     .disabled(isLoading || client == nil)
-            }
+            } }
 
+            if !salesOnly {
             recoverySection
             printAccountingSection
             pairingSection
             offlineLedgerSection
+            }
 
-            if configuration != nil {
+            if !salesOnly, configuration != nil {
                 Section("Operator API Access") {
                     SecureField("Separate operator credential", text: $operatorToken)
                         .textContentType(.oneTimeCode)
@@ -81,19 +81,16 @@ struct PaymentsOperatorView: View {
                 }
             }
 
-            Section("Create Draft Event") {
-                TextField("Event name", text: $eventName)
-                TextField("Venue", text: $venue)
-                Button("Create Draft on Server") { Task { await createEvent() } }
-                    .disabled(eventName.trimmingCharacters(in: .whitespaces).isEmpty || client == nil)
-            }
-
+            if !salesOnly { Section("Session Settings") {
+                NavigationLink("Open Session Setup", value: OperatorWorkspaceRoute.sessionSetup)
+                Text("Everyday event settings and starting or pausing sessions are managed in Session Setup.")
+            } }
             Section("Server Events") {
                 if events.isEmpty {
                     Text(client == nil ? "Pair this iPad to load events." : "No events yet.").foregroundStyle(.secondary)
                 }
                 ForEach(events) { event in
-                    NavigationLink(value: OperatorWorkspaceRoute.serverEvent(event.id)) {
+                    NavigationLink(value: OperatorWorkspaceRoute.eventReport(event.id)) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(event.name).font(.headline)
                             Text(summaryLine(event)).font(.caption).foregroundStyle(.secondary)
@@ -101,19 +98,21 @@ struct PaymentsOperatorView: View {
                         .frame(minHeight: 44, alignment: .leading)
                     }
                     .accessibilityLabel("\(event.name), \(event.lifecycle)")
+                    if !salesOnly {
+                        NavigationLink("Close or Archive \(event.name)", value: OperatorWorkspaceRoute.eventMaintenance(event.id))
+                            .font(.callout)
+                    }
                 }
             }
         }
-        .navigationTitle("Commercial Events & Sales")
+        .navigationTitle(salesOnly ? "Event Sales & Reports" : "Payment Maintenance")
         .task { await refresh() }
-        .onChange(of: eventName) { _, _ in OperatorWorkspace.shared.saveNewEvent(name: eventName, venue: venue) }
-        .onChange(of: venue) { _, _ in OperatorWorkspace.shared.saveNewEvent(name: eventName, venue: venue) }
         .onReceive(NotificationCenter.default.publisher(for: OperatorWorkspace.didUnlock)) { _ in Task { await refresh() } }
     }
 
     private func summaryLine(_ event: OperatorEventSummary) -> String {
-        var parts = [event.lifecycle]
-        if let revision = event.activeRevision { parts.append("revision \(revision)") } else { parts.append("not published") }
+        var parts = [CommercialEventLifecycle(rawValue: event.lifecycle)?.displayName ?? event.lifecycle]
+        if event.activeRevision == nil { parts.append("Not yet applied") }
         if let price = event.activeUnitPriceCentavos, price > 0 { parts.append("\(PHPPriceFormatter.string(centavos: price))/copy") }
         return parts.joined(separator: " · ")
     }
@@ -374,15 +373,4 @@ struct PaymentsOperatorView: View {
         status = "This iPad is no longer paired. Server-managed sessions are unavailable."
     }
 
-    private func createEvent() async {
-        guard let client else { return }
-        do {
-            _ = try await client.createEvent(name: eventName, venue: venue)
-            eventName = ""
-            venue = ""
-            await refresh()
-        } catch {
-            status = "Event not created: \(error.localizedDescription)"
-        }
-    }
 }

@@ -6,8 +6,6 @@ struct OperatorDashboardView: View {
     @StateObject private var printer = PrinterCoordinator.shared
     @StateObject private var bluetooth = PrinterBluetoothService.shared
     @StateObject private var spooler = PrintSpooler.shared
-    @State private var eventProfile = EventProfileStore.load()
-    @State private var stickerStudioEnabled = StickerStudioSettingsStore.load().isEnabled
 
     var body: some View {
         let status = OperatorStatusSummary(
@@ -20,50 +18,26 @@ struct OperatorDashboardView: View {
 
         ScrollView {
             VStack(spacing: 20) {
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: 20) {
-                        OperatorEventCard(
-                            eventName: eventProfile.isEventModeActive ? eventProfile.eventName : "",
-                            isActive: eventProfile.isEventModeActive
-                        )
-                        OperatorReadinessCard(status: status)
-                    }
-                    VStack(spacing: 20) {
-                        OperatorEventCard(
-                            eventName: eventProfile.isEventModeActive ? eventProfile.eventName : "",
-                            isActive: eventProfile.isEventModeActive
-                        )
-                        OperatorReadinessCard(status: status)
-                    }
-                }
-
-                OperatorPrimaryActions()
-
-                if !status.attentionItems.isEmpty {
-                    OperatorAttentionCard(items: status.attentionItems)
-                }
-
-                OperatorSystemStatusCard(status: status)
-
-                OperatorEventSummaryCard(
-                    sessions: operations.sessionsCompletedThisLaunch,
-                    waitingGalleries: operations.pendingUploadCount
-                )
-
-                // Two columns so four links keep readable titles on an 11-inch iPad.
+                OperatorBoothStatusCard()
+                NavigationLink(value: OperatorWorkspaceRoute.sessionSetup) {
+                    HStack(spacing: 20) {
+                        Image(systemName: "slider.horizontal.3").font(.largeTitle)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Session Setup").font(.title2.weight(.semibold))
+                            Text("Choose how guests use the booth, review, and start.").font(.callout)
+                        }
+                        Spacer()
+                        Image(systemName: "arrow.right").font(.title3)
+                    }.padding(28).frame(maxWidth: .infinity, minHeight: 112)
+                        .background(OperatorPalette.ink, in: RoundedRectangle(cornerRadius: 22))
+                        .foregroundStyle(Color(uiColor: .systemBackground))
+                }.buttonStyle(.plain)
+                if !status.attentionItems.isEmpty { OperatorAttentionCard(items: status.attentionItems) }
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
-                    OperatorSecondaryLink(title: "Receipt Design & Branding", systemImage: "doc.text.image", route: .receiptDesign) {
-                        ReceiptDesignAndBrandingView()
-                    }
-                    OperatorSecondaryLink(title: stickerStudioEnabled ? "Sticker Studio · ON" : "Sticker Studio · OFF", systemImage: "face.smiling", route: .stickers) {
-                        StickerStudioOperatorView()
-                    }
-                    OperatorSecondaryLink(title: "Equipment", systemImage: "printer.fill.and.paper.fill", route: .equipment) {
-                        OperatorEquipmentView()
-                    }
-                    OperatorSecondaryLink(title: "Advanced", systemImage: "gearshape.2", route: .advanced) {
-                        OperatorAdvancedView()
-                    }
+                    OperatorSecondaryLink(title: "Branding & Design", systemImage: "paintpalette", route: .branding) { OperatorBrandingView() }
+                    OperatorSecondaryLink(title: "Sales & History", systemImage: "chart.bar", route: .sales) { OperatorManageEventView() }
+                    OperatorSecondaryLink(title: "Equipment", systemImage: "printer", route: .equipment) { OperatorEquipmentView() }
+                    OperatorSecondaryLink(title: "Advanced", systemImage: "gearshape.2", route: .advanced) { OperatorAdvancedView() }
                 }
             }
             .frame(maxWidth: 960)
@@ -76,15 +50,10 @@ struct OperatorDashboardView: View {
         .toolbar(.hidden, for: .navigationBar)
         .task { operations.start() }
         .onAppear {
-            eventProfile = EventProfileStore.load()
             operations.refresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: EventProfileStore.didChangeNotification)) { _ in
-            eventProfile = EventProfileStore.load()
             operations.refresh()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: StickerStudioSettingsStore.didChangeNotification)) { _ in
-            stickerStudioEnabled = StickerStudioSettingsStore.load().isEnabled
         }
         .onChange(of: printer.state) { _, _ in operations.refresh() }
         .onChange(of: bluetooth.isConnectedAndReady) { _, _ in operations.refresh() }
@@ -121,223 +90,6 @@ private struct OperatorSecondaryLink<Destination: View>: View {
             .padding(.horizontal, 20)
             .background(.background, in: RoundedRectangle(cornerRadius: 16))
             .overlay { RoundedRectangle(cornerRadius: 16).stroke(.separator.opacity(0.5)) }
-    }
-}
-
-private struct OperatorEventCard: View {
-    let eventName: String
-    let isActive: Bool
-
-    var body: some View {
-        HStack(spacing: 18) {
-            Image(systemName: "ticket.fill")
-                .font(.title)
-                .foregroundStyle(.tint)
-                .frame(width: 54, height: 54)
-                .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text(isActive ? "CURRENT EVENT" : "EVENT MODE")
-                    .font(.caption.bold())
-                    .foregroundStyle(.secondary)
-                Text(eventName.isEmpty ? "No active event" : eventName)
-                    .font(.title2.bold())
-                    .foregroundStyle(eventName.isEmpty ? .secondary : .primary)
-                    .lineLimit(2)
-                HStack(spacing: 8) {
-                    Text("Event Mode")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Text(isActive ? "ON" : "OFF")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(isActive ? .green : .secondary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background((isActive ? Color.green : Color.secondary).opacity(0.12), in: Capsule())
-                }
-            }
-
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .operatorCard()
-        .accessibilityElement(children: .combine)
-    }
-}
-
-private struct OperatorReadinessCard: View {
-    let status: OperatorStatusSummary
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            Image(systemName: symbol)
-                .font(.largeTitle)
-                .foregroundStyle(color)
-            VStack(alignment: .leading, spacing: 8) {
-                Text(status.headline)
-                    .font(.title.bold())
-                    .foregroundStyle(color)
-                    .minimumScaleFactor(0.8)
-                Text(status.summary)
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .operatorCard(accent: color)
-        .accessibilityElement(children: .combine)
-    }
-
-    private var symbol: String {
-        switch status.readiness {
-        case .ready: "checkmark.seal.fill"
-        case .attention: "exclamationmark.triangle.fill"
-        case .notReady: "xmark.octagon.fill"
-        }
-    }
-
-    private var color: Color {
-        switch status.readiness {
-        case .ready: .green
-        case .attention: .orange
-        case .notReady: .red
-        }
-    }
-}
-
-/// Booth Check stays reachable at all times; its own Run button is disabled while a customer
-/// session or print is active, so the operator can still read the latest results.
-private struct OperatorPrimaryActions: View {
-    var body: some View {
-        ViewThatFits {
-            HStack(spacing: 14) { actions }
-            VStack(spacing: 12) { actions }
-        }
-    }
-
-    @ViewBuilder
-    private var actions: some View {
-        OperatorActionLink(title: "Event Setup", subtitle: "Branding and activation", systemImage: "calendar", route: .eventSetup) {
-            EventSetupView()
-        }
-
-        OperatorActionLink(title: "Booth Check", subtitle: "Confirm readiness", systemImage: "checkmark.shield.fill", route: .boothCheck) {
-            EventPreflightView()
-        }
-
-        OperatorActionLink(title: "Manage Event", subtitle: "Sessions and delivery", systemImage: "person.2.crop.square.stack.fill", route: .manageEvent) {
-            OperatorManageEventView()
-        }
-    }
-}
-
-private struct OperatorActionLink<Destination: View>: View {
-    let title: String
-    let subtitle: String
-    let systemImage: String
-    var route: OperatorWorkspaceRoute? = nil
-    @ViewBuilder let destination: () -> Destination
-
-    var body: some View {
-        Group {
-            if let route { NavigationLink(value: route) { linkLabel } }
-            else { NavigationLink { destination() } label: { linkLabel } }
-        }
-        .buttonStyle(.plain)
-        .accessibilityHint(subtitle)
-    }
-
-    private var linkLabel: some View {
-            VStack(alignment: .leading, spacing: 12) {
-                Image(systemName: systemImage)
-                    .font(.title)
-                    .foregroundStyle(.tint)
-                    .frame(height: 34)
-                Text(title)
-                    .font(.title3.bold())
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading)
-            .padding(18)
-            .background(.background, in: RoundedRectangle(cornerRadius: 18))
-            .overlay { RoundedRectangle(cornerRadius: 18).stroke(.separator.opacity(0.5)) }
-    }
-}
-
-private struct OperatorSystemStatusCard: View {
-    let status: OperatorStatusSummary
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(status.allSystemsReady ? "All systems ready" : "Equipment Status")
-                .font(.headline)
-
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) { items }
-                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
-                    GridRow {
-                        OperatorStatusItem(title: "Camera", systemImage: "camera.fill", state: status.camera)
-                        OperatorStatusItem(title: "Printer", systemImage: "printer.fill", state: status.printer)
-                    }
-                    GridRow {
-                        OperatorStatusItem(title: "Gallery", systemImage: "photo.stack.fill", state: status.gallery)
-                        OperatorStatusItem(title: "Internet", systemImage: "wifi", state: status.internet)
-                    }
-                }
-            }
-        }
-        .operatorCard()
-    }
-
-    @ViewBuilder
-    private var items: some View {
-        OperatorStatusItem(title: "Camera", systemImage: "camera.fill", state: status.camera)
-        OperatorStatusItem(title: "Printer", systemImage: "printer.fill", state: status.printer)
-        OperatorStatusItem(title: "Gallery", systemImage: "photo.stack.fill", state: status.gallery)
-        OperatorStatusItem(title: "Internet", systemImage: "wifi", state: status.internet)
-    }
-}
-
-private struct OperatorStatusItem: View {
-    let title: String
-    let systemImage: String
-    let state: OperatorStatusSummary.ComponentState
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: systemImage)
-                .font(.title3)
-                .foregroundStyle(color)
-                .frame(width: 32)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.subheadline.bold())
-                Label(state.label, systemImage: badge)
-                    .font(.caption)
-                    .foregroundStyle(state.isReady ? Color.secondary : color)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-    }
-
-    private var badge: String {
-        switch state {
-        case .ready: "checkmark.circle.fill"
-        case .attention: "exclamationmark.circle.fill"
-        case .offline: "minus.circle.fill"
-        }
-    }
-
-    private var color: Color {
-        switch state {
-        case .ready: .green
-        case .attention: .orange
-        case .offline: .secondary
-        }
     }
 }
 
@@ -405,31 +157,6 @@ struct OperatorPrinterSetupView: View {
     }
 }
 
-private struct OperatorEventSummaryCard: View {
-    let sessions: Int
-    let waitingGalleries: Int
-
-    var body: some View {
-        HStack(spacing: 32) {
-            summary(title: "Sessions this launch", value: sessions)
-            Divider().frame(height: 42)
-            summary(title: "Waiting galleries", value: waitingGalleries)
-            Spacer()
-        }
-        .operatorCard()
-    }
-
-    private func summary(title: String, value: Int) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(value, format: .number)
-                .font(.title2.bold())
-            Text(title)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-    }
-}
-
 struct OperatorManageEventView: View {
     @StateObject private var operations = EventOperationalState.shared
     @State private var showSummary = false
@@ -439,8 +166,7 @@ struct OperatorManageEventView: View {
             Section("Event Activity") {
                 LabeledContent("Sessions this launch", value: "\(operations.sessionsCompletedThisLaunch)")
                 LabeledContent("Waiting galleries", value: "\(operations.pendingUploadCount)")
-                NavigationLink("Commercial Events & Sales", value: OperatorWorkspaceRoute.payments)
-                NavigationLink("Booth Charging Mode", value: OperatorWorkspaceRoute.charging)
+                NavigationLink("Event Sales & Reports") { PaymentsOperatorView(salesOnly: true) }
             }
 
             Section("Sessions") {
@@ -465,7 +191,7 @@ struct OperatorManageEventView: View {
                 }
             }
         }
-        .navigationTitle("Manage Event")
+        .navigationTitle("Sales & History")
         .task { operations.refresh() }
         .sheet(isPresented: $showSummary) {
             OperatorEventSummarySheet(isPresented: $showSummary)
@@ -592,6 +318,11 @@ struct OperatorAdvancedView: View {
 
     var body: some View {
         List {
+            Section("Payments & Recovery") {
+                NavigationLink("Payment Maintenance & Recovery", value: OperatorWorkspaceRoute.payments)
+                NavigationLink("Fix Printer", value: OperatorWorkspaceRoute.recovery)
+            }
+
             Section("Operations") {
                 NavigationLink("Recovery", value: OperatorWorkspaceRoute.recovery)
                 NavigationLink("Print History", value: OperatorWorkspaceRoute.printHistory)
@@ -751,9 +482,10 @@ private extension View {
 extension OperatorWorkspaceRoute {
     @MainActor @ViewBuilder var destination: some View {
         switch self {
-        case .manageEvent: OperatorManageEventView()
+        case .manageEvent, .sales: OperatorManageEventView()
+        case .sessionSetup, .charging: SessionSetupView()
+        case .branding: OperatorBrandingView()
         case .payments: PaymentsOperatorView()
-        case .charging: CommercialEventSetupView()
         case .eventSetup: EventSetupView()
         case .boothCheck: EventPreflightView()
         case .receiptDesign: ReceiptDesignAndBrandingView()
@@ -768,7 +500,9 @@ extension OperatorWorkspaceRoute {
         case .recentSessions: RecentSessionsView()
         case .storage: OperatorStorageView()
         case .printHistory: OperatorPrintAuditView()
-        case .serverEvent(let id): ServerEventEditorView(eventID: id)
+        case .serverEvent(let id): SessionSetupView(eventID: id)
+        case .eventReport(let id): ServerEventEditorView(eventID: id, reportsOnly: true)
+        case .eventMaintenance(let id): ServerEventEditorView(eventID: id, reportsOnly: true, maintenance: true)
         }
     }
 }

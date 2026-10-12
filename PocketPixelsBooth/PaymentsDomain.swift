@@ -81,7 +81,7 @@ nonisolated struct PaymentPolicySnapshot: Codable, Equatable, Sendable {
     }
 
     func supports(_ format: BoothFormat) -> Bool {
-        supportedFormatRawValues.contains(format.rawValue)
+        format.paymentRawValue(in: supportedFormatRawValues) != nil
     }
 
     func permitsOfflineCash(at date: Date) -> Bool {
@@ -350,7 +350,8 @@ nonisolated enum CommercialPolicySource: String, Codable, CaseIterable, Sendable
     private static let key = "pocketPixels.commercialPolicySource"
 
     static func load(defaults: UserDefaults = .standard) -> CommercialPolicySource {
-        defaults.string(forKey: key).flatMap(CommercialPolicySource.init(rawValue:)) ?? .localPrepaid
+        if defaults === UserDefaults.standard, let committed = SessionAcceptanceStore.committedMode { return committed }
+        return defaults.string(forKey: key).flatMap(CommercialPolicySource.init(rawValue:)) ?? .localPrepaid
     }
 
     static func save(_ value: CommercialPolicySource, defaults: UserDefaults = .standard) {

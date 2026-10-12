@@ -439,6 +439,25 @@ struct PaymentsAPIClientTests {
         #expect(PaymentsConfiguration.validatedURL("https://user:pw@host.example") == nil)
     }
 
+    @Test func photoPassCheckoutUsesTheExactPublishedServerFormatSpelling() async throws {
+        let api = client()
+        let policy = ServerEventPolicy(id: "ev", name: "Regular Sessions", venue: "", lifecycle: .active,
+            policyRevisionId: "r1", revision: 1, commercialMode: .payPerPrint, unitPriceCentavos: 2500,
+            maxCopies: 3, defaultCopies: 1, cashEnabled: false, qrphEnabled: true, prepaidGuestCopyChoice: false,
+            supportedFormats: ["photoPass"], offlineValidUntil: nil)
+        PaymentsStubProtocol.handler = { _ in
+            (201, Data(#"{"order":{"id":"o1","eventId":"ev","policyRevisionId":"r1","format":"photoPass","copies":2,"unitPriceCentavos":2500,"totalCentavos":5000,"currency":"PHP","state":"AWAITING_PAYMENT","paymentMethod":null,"checkoutSessionId":"PP-1","expiresAt":null}}"#.utf8))
+        }
+        #expect(policy.eventRun.activePolicy.supports(.passport))
+        let order = try await api.createOrder(event: policy, format: .passport, copies: 2, checkoutSessionID: "PP-1", supersedesOrderID: nil, idempotencyKey: "order-PP-1-0")
+        #expect(order.totalCentavos == 5000)
+        let request = try #require(PaymentsStubProtocol.captured.first)
+        let body = try JSONSerialization.jsonObject(with: try #require(request.httpBody)) as? [String: Any]
+        #expect(body?["format"] as? String == "photoPass")
+        #expect(body?["expectedPolicyRevisionId"] as? String == "r1")
+        #expect(body?["copies"] as? Int == 2)
+    }
+
     @Test func serverErrorCodesAreStructured() async throws {
         let api = client()
         PaymentsStubProtocol.handler = { _ in (409, Data(#"{"error":"payment_method_locked","message":"This order already started QR Ph.","lockedMethod":"QRPH"}"#.utf8)) }

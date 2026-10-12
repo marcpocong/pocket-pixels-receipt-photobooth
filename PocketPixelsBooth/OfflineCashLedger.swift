@@ -204,7 +204,7 @@ actor OfflineCashLedger {
         guard !payload.records.contains(where: { $0.sessionID == sessionID }) else {
             throw LedgerError.duplicateSession
         }
-        guard (1...policy.maxCopies).contains(copies), policy.supportedFormats.contains(format.rawValue),
+        guard (1...policy.maxCopies).contains(copies), let authorizedFormat = format.paymentRawValue(in: policy.supportedFormats),
               policy.unitPriceCentavos > 0, policy.unitPriceCentavos <= Int.max / copies else {
             throw LedgerError.invalidAmount
         }
@@ -219,7 +219,7 @@ actor OfflineCashLedger {
             policyRevisionID: policy.policyRevisionId,
             snapshotID: policy.snapshotId,
             sessionID: sessionID,
-            format: format.rawValue,
+            format: authorizedFormat,
             copies: copies,
             unitPriceCentavos: policy.unitPriceCentavos,
             totalCentavos: total,

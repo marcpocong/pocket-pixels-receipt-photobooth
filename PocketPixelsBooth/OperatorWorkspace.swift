@@ -5,13 +5,14 @@ nonisolated enum OperatorWorkspaceRoute: Codable, Hashable, Sendable {
     case manageEvent, payments, charging, eventSetup, boothCheck, receiptDesign, stickers
     case equipment, advanced, printer, recovery, camera, gallery, waitingGalleries, recentSessions, storage, printHistory
     case serverEvent(String)
+    case sessionSetup, branding, sales, eventReport(String), eventMaintenance(String)
 
     var title: String {
         switch self {
-        case .manageEvent: "Manage Event"
-        case .payments: "Commercial Events & Sales"
-        case .charging: "Booth Charging Mode"
-        case .eventSetup: "Event Setup"
+        case .manageEvent, .sales: "Sales & History"
+        case .payments: "Payment Maintenance"
+        case .charging, .sessionSetup: "Session Setup"
+        case .eventSetup, .branding: "Branding & Design"
         case .boothCheck: "Booth Check"
         case .receiptDesign: "Receipt Design & Branding"
         case .stickers: "Sticker Studio"
@@ -26,6 +27,8 @@ nonisolated enum OperatorWorkspaceRoute: Codable, Hashable, Sendable {
         case .storage: "Storage"
         case .printHistory: "Print History"
         case .serverEvent: "Server Event"
+        case .eventReport: "Event Sales"
+        case .eventMaintenance: "Event Maintenance"
         }
     }
 }
@@ -45,6 +48,7 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
 @MainActor final class OperatorWorkspace: ObservableObject {
     static let shared = OperatorWorkspace()
     static let didUnlock = Notification.Name("pocketPixels.operator.didUnlock")
+    static let didStartSessions = Notification.Name("pocketPixels.operator.didStartSessions")
     nonisolated struct Snapshot: Codable {
         var schemaVersion = 1
         var resumeSetup = false
@@ -54,6 +58,7 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
         var prepaidDraft: CommercialEventRun?
         var newEventName = ""
         var newEventVenue = ""
+        var sessionSetup: OperatorSessionSetupDraft?
     }
 
     @Published var path: [OperatorWorkspaceRoute] { didSet { snapshot.path = path; persist() } }
@@ -84,7 +89,7 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
     var hasPendingSetup: Bool { snapshot.resumeSetup }
     var hasUnsavedDrafts: Bool {
         !snapshot.serverDrafts.isEmpty || snapshot.brandingDraft != nil || snapshot.prepaidDraft != nil
-            || !snapshot.newEventName.isEmpty || !snapshot.newEventVenue.isEmpty
+            || !snapshot.newEventName.isEmpty || !snapshot.newEventVenue.isEmpty || snapshot.sessionSetup != nil
     }
     var currentSection: String { path.last?.title ?? "Operator" }
     var serverBinding: String {
@@ -115,6 +120,7 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
     }
     func saveBrandingDraft(_ draft: EventProfile?) { snapshot.brandingDraft = draft; persist() }
     func savePrepaidDraft(_ draft: CommercialEventRun?) { snapshot.prepaidDraft = draft; persist() }
+    func saveSessionSetup(_ draft: OperatorSessionSetupDraft?) { snapshot.sessionSetup = draft; persist() }
     func saveNewEvent(name: String, venue: String) {
         snapshot.newEventName = name; snapshot.newEventVenue = venue; persist()
     }

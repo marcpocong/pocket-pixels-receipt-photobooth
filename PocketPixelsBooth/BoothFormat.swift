@@ -16,6 +16,13 @@ enum BoothFormat: String, Codable, CaseIterable, Identifiable, Sendable {
 
     nonisolated var id: String { rawValue }
 
+    /// Older server event drafts use `photoPass`; the native renderer has always used `passport`.
+    /// Preserve the exact published spelling when requesting an authorized format.
+    nonisolated func paymentRawValue(in enabled: [String]) -> String? {
+        if enabled.contains(rawValue) { return rawValue }
+        return self == .passport && enabled.contains("photoPass") ? "photoPass" : nil
+    }
+
     nonisolated var displayName: String {
         switch self {
         case .solo:

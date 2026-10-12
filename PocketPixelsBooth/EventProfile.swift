@@ -291,7 +291,7 @@ struct EventSetupView: View {
             Section {
                 VStack(alignment: .leading, spacing: 4) {
                     Label(
-                        savedProfile.isEventModeActive ? "EVENT MODE ON" : "EVENT MODE OFF",
+                        savedProfile.isEventModeActive ? "CUSTOM BRANDING APPLIED" : "STUDIO BRANDING",
                         systemImage: savedProfile.isEventModeActive ? "checkmark.circle.fill" : "circle"
                     )
                     .font(.title3.bold())
@@ -313,11 +313,11 @@ struct EventSetupView: View {
                 .accessibilityHint(
                     savedProfile.isEventModeActive
                         ? "Shows guest screens, the receipt and Photo Pass without printing."
-                        : "Previews saved event settings without turning Event Mode on."
+                        : "Previews saved event settings without applying custom branding."
                 )
 
                 if !savedProfile.isEventModeActive {
-                    Text("Previewing saved settings does not turn Event Mode on.")
+                    Text("Previewing saved settings does not apply custom branding.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -385,7 +385,7 @@ struct EventSetupView: View {
 
             Section {
                 if !savedProfile.isEventModeActive {
-                    Text("Event Mode is off. You can edit and save these settings without turning it on.")
+                    Text("Studio branding is in use. Saving this design does not start guest sessions.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -404,7 +404,7 @@ struct EventSetupView: View {
                     Button {
                         isShowingActivationConfirmation = true
                     } label: {
-                        Text("Turn Event Mode On…")
+                        Text("Apply Custom Branding…")
                             .font(.headline)
                             .frame(maxWidth: .infinity, minHeight: 44)
                     }
@@ -417,7 +417,7 @@ struct EventSetupView: View {
                         draft.customerScreenEnabled = false
                         saveDraft()
                     } label: {
-                        Text("Turn Off Event Mode")
+                        Text("Use Studio Branding")
                             .frame(maxWidth: .infinity, minHeight: 44)
                     }
                     .buttonStyle(.bordered)
@@ -429,7 +429,7 @@ struct EventSetupView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                DisclosureGroup("Advanced Activation") {
+                DisclosureGroup("Separate Receipt & Screen Branding") {
                     Toggle("Event branding on printed receipts", isOn: $draft.isEnabled)
                         .accessibilityHint("When on, new receipts use the event header and details, including on the Photo Pass.")
                     Toggle("Event branding on guest screens", isOn: $draft.customerScreenEnabled)
@@ -439,7 +439,7 @@ struct EventSetupView: View {
                         .foregroundStyle(.secondary)
                 }
             } header: {
-                Text("Activation")
+                Text("Apply Design")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(statusMessage)
@@ -447,14 +447,14 @@ struct EventSetupView: View {
                 }
             }
         }
-        .navigationTitle("Event Setup")
+        .navigationTitle("Custom Event Design")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: draft) { _, value in
             OperatorWorkspace.shared.saveBrandingDraft(value.normalized() == savedProfile.normalized() ? nil : value)
         }
-        .alert("Turn Event Mode On?", isPresented: $isShowingActivationConfirmation) {
+        .alert("Apply Custom Branding?", isPresented: $isShowingActivationConfirmation) {
             Button("Cancel", role: .cancel) {}
-            Button("Turn On") {
+            Button("Apply Branding") {
                 draft.isEnabled = true
                 draft.customerScreenEnabled = true
                 saveDraft()
@@ -551,7 +551,7 @@ private struct EventPreviewView: View {
         List {
             if EventSetupPreview.showsActivatedPreview(for: draft) {
                 Section {
-                    Label("Event Mode is off. This shows how the booth will look after Save & Activate.", systemImage: "info.circle")
+                    Label("Studio branding is in use. This previews the saved custom design.", systemImage: "info.circle")
                         .font(.subheadline)
                 }
             }

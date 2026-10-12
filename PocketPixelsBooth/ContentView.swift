@@ -113,6 +113,10 @@ private struct PocketPixelsAdminView: View {
             Button("Continue Editing", role: .cancel) {}
         } message: { Text("Keeping drafts saves them only on this iPad. Nothing is published or activated.") }
         .onChange(of: scenePhase) { _, phase in if phase != .active { confirmExit = false } }
+        .onReceive(NotificationCenter.default.publisher(for: OperatorWorkspace.didStartSessions)) { _ in
+            workspace.finish(keepingDrafts: workspace.hasUnsavedDrafts)
+            dismiss()
+        }
     }
 }
 

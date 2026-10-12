@@ -255,11 +255,6 @@ final class BoothSessionViewModel: ObservableObject {
         operationalState.refresh()
         refreshCustomerExperience()
         commercialEvent = CommercialEventRunStore.load()
-        guard commercialEvent.acceptsNewSessions,
-              commercialEvent.activePolicy.validationMessage == nil else {
-            state = .error("This event is paused or needs operator setup.")
-            return
-        }
         guard !printerCoordinator.requiresRecovery, !operationalState.hasUnresolvedPrint else {
             state = .recoveryRequired("Printer needs operator attention.")
             return
@@ -271,11 +266,15 @@ final class BoothSessionViewModel: ObservableObject {
             return
         }
 
+        guard !SessionAcceptanceStore.shared.state.blocked else {
+            state = .error("New sessions are paused. Please see the attendant.")
+            return
+        }
+
         guard CommercialPolicySource.load() == .serverManaged else {
             // Private / Prepaid booths never need the Payments Worker and never charge guests.
             let local = CommercialEventRunStore.load()
-            guard local.activePolicy.commercialMode == .privatePrepaid,
-                  local.acceptsNewSessions, local.activePolicy.validationMessage == nil else {
+            guard SessionAdmission.localConfigurationIsReady(source: .localPrepaid, local: local) else {
                 state = .error("This event is paused or needs operator setup.")
                 return
             }
@@ -342,6 +341,9 @@ final class BoothSessionViewModel: ObservableObject {
                     let paused = response.inactiveEvent.map { "\($0.name) is \($0.lifecycle.lowercased())." } ?? "No event is active."
                     return .failure(PolicyResolutionFailure(message: "\(paused) Please see the attendant."))
                 }
+                guard SessionAcceptanceStore.shared.permits(eventID: event.id, binding: OperatorWorkspace.shared.serverBinding) else {
+                    return .failure(PolicyResolutionFailure(message: "This event needs operator review. Please see the attendant."))
+                }
                 let run = event.eventRun
                 guard run.activePolicy.validationMessage == nil else {
                     return .failure(PolicyResolutionFailure(message: "This event needs operator setup."))
@@ -365,8 +367,10 @@ final class BoothSessionViewModel: ObservableObject {
         guard let record = OfflineGrantStore.load(), let grant = record.grant, record.environment == environment else {
             throw OfflinePolicyError.malformed
         }
-        return try OfflinePolicyVerifier.bundled(environment: environment)
+        let policy = try OfflinePolicyVerifier.bundled(environment: environment)
             .verify(grant, deviceID: record.deviceID, accountID: record.accountID, now: now, trustedClockFloor: record.trustedClockFloor)
+        guard SessionAcceptanceStore.shared.permits(eventID: policy.eventId, binding: OperatorWorkspace.shared.serverBinding) else { throw OfflinePolicyError.malformed }
+        return policy
     }
 
     private func syncOfflineCashInBackground(client: PaymentsAPIClient) {

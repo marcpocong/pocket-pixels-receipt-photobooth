@@ -270,7 +270,7 @@ actor PaymentsAPIClient {
     ) async throws -> PaymentOrder {
         let body = CreateOrderBody(
             eventId: event.id,
-            format: format.rawValue,
+            format: format.paymentRawValue(in: event.supportedFormats) ?? format.rawValue,
             copies: copies,
             checkoutSessionId: checkoutSessionID,
             expectedPolicyRevisionId: event.policyRevisionId,
@@ -620,6 +620,16 @@ nonisolated struct ServerPolicyDraft: Codable, Equatable, Sendable {
         commercialMode == .privatePrepaid ? 0 : PesoAmount.centavos(fromPesoText: priceText)
     }
 
+    func supports(_ format: BoothFormat) -> Bool { format.paymentRawValue(in: Array(supportedFormats)) != nil }
+    mutating func setFormat(_ format: BoothFormat, enabled: Bool) {
+        if enabled {
+            if !supports(format) { supportedFormats.insert(format.rawValue) }
+        } else {
+            supportedFormats.remove(format.rawValue)
+            if format == .passport { supportedFormats.remove("photoPass") }
+        }
+    }
+
     func matchesForEditing(_ other: ServerPolicyDraft) -> Bool {
         var left = self, right = other
         if !left.offlineCashEnabled { left.offlineValidUntil = .distantPast }
@@ -657,7 +667,7 @@ nonisolated struct ServerPolicyDraft: Codable, Equatable, Sendable {
             cashEnabled: paid && cashEnabled,
             qrphEnabled: paid && qrPhEnabled,
             prepaidGuestCopyChoice: !paid && prepaidGuestCopyChoice,
-            supportedFormats: BoothFormat.allCases.map(\.rawValue).filter(supportedFormats.contains),
+            supportedFormats: BoothFormat.allCases.flatMap { $0 == .passport ? ["passport", "photoPass"] : [$0.rawValue] }.filter(supportedFormats.contains),
             features: [:],
             offlineValidUntil: paid && cashEnabled && offlineCashEnabled ? offlineValidUntil : nil
         )

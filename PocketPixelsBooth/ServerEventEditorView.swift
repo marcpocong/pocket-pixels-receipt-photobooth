@@ -5,6 +5,9 @@ import SwiftUI
 /// here reports success until the server has confirmed it.
 struct ServerEventEditorView: View {
     let eventID: String
+    let reportsOnly: Bool
+    let maintenance: Bool
+    @State private var maintenanceNeedsRefresh = false
 
     @State private var detail: OperatorEventDetail?
     @State private var name = ""
@@ -29,8 +32,10 @@ struct ServerEventEditorView: View {
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var workspace = OperatorWorkspace.shared
 
-    init(eventID: String) {
+    init(eventID: String, reportsOnly: Bool = false, maintenance: Bool = false) {
         self.eventID = eventID
+        self.reportsOnly = reportsOnly
+        self.maintenance = maintenance
         let restored = OperatorWorkspace.shared.serverDraft(eventID: eventID)
         _name = State(initialValue: restored?.name ?? "")
         _venue = State(initialValue: restored?.venue ?? "")
@@ -52,14 +57,27 @@ struct ServerEventEditorView: View {
 
     var body: some View {
         Form {
-            statusSection
-            if let detail, ![.ended, .archived].contains(detail.event.lifecycle) {
+            if maintenance, let detail {
+                Section("Close or Archive Event") {
+                    LabeledContent("Event status", value: detail.event.lifecycle.displayName)
+                    Text("Session Setup manages price, copies, payment methods and starting or pausing sessions. Closing an event retains payment history and purchased entitlements.")
+                    if [.active, .paused].contains(detail.event.lifecycle) {
+                        Button("End Event", role: .destructive) { pendingAction = .end }.disabled(maintenanceNeedsRefresh)
+                    } else if [.draft, .ended].contains(detail.event.lifecycle) {
+                        Button("Archive Event", role: .destructive) { pendingAction = .archive }.disabled(maintenanceNeedsRefresh)
+                    }
+                    if !message.isEmpty { Text(message) }
+                    Button("Refresh Current Status") { Task { await reload(keepEdits: true) } }
+                }
+            }
+            if !reportsOnly { statusSection }
+            if !reportsOnly, let detail, ![.ended, .archived].contains(detail.event.lifecycle) {
                 detailsSection
                 pricingSection
                 formatsSection
                 saveSection(detail)
             }
-            if let detail { lifecycleSection(detail) }
+            if !reportsOnly, let detail { lifecycleSection(detail) }
             salesSections
         }
         .navigationTitle(detail?.event.name ?? "Server Event")
@@ -78,7 +96,7 @@ struct ServerEventEditorView: View {
         .confirmationDialog("Discard local edits?", isPresented: $confirmDiscard, titleVisibility: .visible) {
             Button("Discard Local Edits & Reload", role: .destructive) {
                 guard OperatorAccessPermit.shared.isAuthorized else { return }
-                workspace.removeServerDraft(eventID: eventID)
+                if !reportsOnly { workspace.removeServerDraft(eventID: eventID) }
                 Task { await reload(keepEdits: false) }
             }
             Button("Keep Editing", role: .cancel) {}
@@ -209,10 +227,8 @@ struct ServerEventEditorView: View {
         Section("Formats") {
             ForEach(BoothFormat.allCases, id: \.self) { format in
                 Toggle(format.displayName, isOn: Binding(
-                    get: { draft.supportedFormats.contains(format.rawValue) },
-                    set: { enabled in
-                        if enabled { draft.supportedFormats.insert(format.rawValue) } else { draft.supportedFormats.remove(format.rawValue) }
-                    }
+                    get: { draft.supports(format) },
+                    set: { draft.setFormat(format, enabled: $0) }
                 ))
             }
         }
@@ -354,6 +370,7 @@ struct ServerEventEditorView: View {
         do {
             let loaded = try await client.eventDetail(id: eventID)
             detail = loaded
+            maintenanceNeedsRefresh = false
             let source = loaded.latestRevision ?? loaded.activePolicy
             let serverDraft = source.map(ServerPolicyDraft.init(revision:)) ?? ServerPolicyDraft()
             baseline = (loaded.event.name, loaded.event.venue, serverDraft)
@@ -363,7 +380,7 @@ struct ServerEventEditorView: View {
                 draft = serverDraft
                 hasVersionConflict = false
                 baseServerVersion = loaded.event.version
-                workspace.removeServerDraft(eventID: eventID)
+                if !reportsOnly { workspace.removeServerDraft(eventID: eventID) }
             } else {
                 hasVersionConflict = baseServerVersion.map { $0 != loaded.event.version } ?? false
                 if baseServerVersion == nil { baseServerVersion = loaded.event.version }
@@ -418,11 +435,13 @@ struct ServerEventEditorView: View {
             hasVersionConflict = true
             message = "Not changed: the event was updated elsewhere. Reload and review before trying again."
         } catch {
-            message = "Not changed: \(error.localizedDescription)"
+            maintenanceNeedsRefresh = true
+            message = "Action not confirmed: \(error.localizedDescription). Refresh current status before trying again."
         }
     }
 
     private func persistDraft() {
+        guard !reportsOnly else { return }
         guard let baseVersion = baseServerVersion, baseline != nil else { return }
         if hasUnsavedChanges {
             workspace.saveServerDraft(OperatorServerSetupDraft(eventID: eventID, serverBinding: workspace.serverBinding,
