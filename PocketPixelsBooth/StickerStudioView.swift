@@ -37,7 +37,7 @@ struct StickerStudioView: View {
                             .frame(width: 440)
                     }
                 } else {
-                    canvasColumn(available: CGSize(width: proxy.size.width - MadeToKeepTheme.Spacing.screenPadding * 2, height: proxy.size.height * 0.5))
+                    canvasColumn(available: CGSize(width: proxy.size.width - MadeToKeepTheme.Spacing.screenPadding * 2, height: proxy.size.height * 0.36))
                     controlColumn
                 }
             }
@@ -68,7 +68,6 @@ struct StickerStudioView: View {
         }
         .onChange(of: session.searchQuery) { _, _ in
             onActivity()
-            if session.selectedCategory == .online { session.refreshOnline() }
         }
     }
 
@@ -154,7 +153,6 @@ struct StickerStudioView: View {
                         session.selectedCategory = category
                         session.searchQuery = ""
                         searchFocused = false
-                        if category == .online, session.online.results.isEmpty { session.refreshOnline(debounce: false) }
                         onActivity()
                     } label: {
                         Text(category.displayName)
@@ -203,13 +201,10 @@ struct StickerStudioView: View {
     @ViewBuilder
     private var palette: some View {
         ScrollView {
-            if session.selectedCategory == .online {
-                onlinePalette
-            } else {
-                localPalette
-            }
+            localPalette
         }
         .scrollDismissesKeyboard(.interactively)
+        .onScrollPhaseChange { _, phase in if phase == .interacting { onActivity() } }
         .background(RoundedRectangle(cornerRadius: 12).fill(MadeToKeepTheme.ColorPalette.ivoryLight.opacity(0.6)))
     }
 
@@ -231,7 +226,7 @@ struct StickerStudioView: View {
                         searchFocused = false
                         onActivity()
                     } label: {
-                        StickerThumbnail(image: session.thumbnails[asset.id], failed: session.failedThumbnails.contains(asset.id), badge: asset.isAnimated ? "GIF" : nil)
+                        StickerThumbnail(image: session.thumbnails[asset.id], failed: session.failedThumbnails.contains(asset.id), badge: nil)
                     }
                     .buttonStyle(.plain)
                     .disabled(session.isAtLimit || session.failedThumbnails.contains(asset.id))
@@ -240,65 +235,7 @@ struct StickerStudioView: View {
                 }
             }
             .padding(10)
-            if assets.contains(where: \.isAnimated) {
-                Text("Animated stickers print as a still frame.")
-                    .font(MadeToKeepTheme.Typography.sans(size: 13))
-                    .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
-            }
-        }
-    }
 
-    private var onlinePalette: some View {
-        VStack(spacing: 10) {
-            Picker("Online type", selection: Binding(get: { session.online.kind }, set: { session.setOnlineKind($0); onActivity() })) {
-                ForEach(OnlineStickerKind.allCases, id: \.self) { kind in
-                    Text(kind.displayName).tag(kind)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding([.horizontal, .top], 10)
-
-            if session.online.isLoading && session.online.results.isEmpty {
-                ProgressView().padding(30)
-            } else if let message = session.online.message {
-                Text(message)
-                    .font(MadeToKeepTheme.Typography.sans(size: 16))
-                    .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
-                    .multilineTextAlignment(.center)
-                    .padding(20)
-            }
-
-            LazyVGrid(columns: gridColumns, spacing: 10) {
-                ForEach(session.online.results) { result in
-                    let key = "online.\(result.id)"
-                    Button {
-                        session.addOnline(result)
-                        searchFocused = false
-                        onActivity()
-                    } label: {
-                        StickerThumbnail(image: session.thumbnails[key], failed: session.failedThumbnails.contains(key), badge: result.kind == .gifs ? "GIF" : nil)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(session.isAtLimit || session.failedThumbnails.contains(key))
-                    .onAppear { session.requestOnlineThumbnail(for: result) }
-                    .accessibilityLabel("Add \(result.title)")
-                }
-            }
-            .padding(.horizontal, 10)
-
-            if session.online.nextOffset != nil, !session.online.results.isEmpty {
-                Button("Show More") { session.refreshOnline(debounce: false, appending: true) }
-                    .buttonStyle(MadeToKeepSecondaryButtonStyle())
-                    .disabled(session.online.isLoading)
-            }
-            VStack(spacing: 2) {
-                if let attribution = session.attributionText {
-                    Text(attribution).font(.system(size: 13, weight: .bold))
-                }
-                Text("A still frame will print.").font(.system(size: 12))
-            }
-            .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
-            .padding(.bottom, 10)
         }
     }
 
@@ -307,10 +244,6 @@ struct StickerStudioView: View {
             toolbarButton("Undo", systemImage: "arrow.uturn.backward", enabled: session.canUndo) { session.undo() }
             toolbarButton("Redo", systemImage: "arrow.uturn.forward", enabled: session.canRedo) { session.redo() }
             toolbarButton("Delete", systemImage: "trash", enabled: session.selectedPlacementID != nil) { session.deleteSelected() }
-            if let selected = session.selectedPlacement, session.frameCount(for: selected.id) > 1 {
-                toolbarButton("Frame", systemImage: "film", enabled: true) { session.chooseNextFrame(for: selected.id) }
-                    .accessibilityHint("Chooses which still frame prints")
-            }
             toolbarButton("Reset", systemImage: "arrow.counterclockwise", enabled: !session.placements.isEmpty) { showingResetConfirmation = true }
         }
         .overlay(alignment: .topTrailing) {
@@ -346,7 +279,7 @@ struct StickerStudioView: View {
             Button {
                 finish(skip: false)
             } label: {
-                Text(session.placements.isEmpty ? "Done — No Stickers" : "Done")
+                Text("Done")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(MadeToKeepPrimaryButtonStyle())

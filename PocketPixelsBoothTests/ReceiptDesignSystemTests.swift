@@ -192,7 +192,9 @@ final class ReceiptDesignSystemTests: XCTestCase {
     }
 
     private func writeArtifact(_ image: UIImage, name: String) {
-        try? FileManager.default.createDirectory(at: Self.artifactDirectory, withIntermediateDirectories: true)
-        try? image.pngData()?.write(to: Self.artifactDirectory.appendingPathComponent(name))
+        let output = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("build/StickerStudio/ReceiptRedesign", isDirectory: true)
+        try? FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        try? image.pngData()?.write(to: output.appendingPathComponent(name))
     }
 }

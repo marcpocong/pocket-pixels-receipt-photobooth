@@ -38,7 +38,7 @@ struct BoothSessionEnvironment {
     var stickerCatalogStoreSource: @MainActor () -> StickerCatalogStore? = { try? StickerCatalogStore() }
     /// Online provider factory, consulted only when the frozen configuration is online-ready.
     var onlineStickerProviderSource: @MainActor () -> OnlineStickerProvider? = {
-        KeychainOnlineStickerCredentialStore().loadAPIKey().map { GiphyStickerProvider(apiKey: $0) }
+        nil // Legacy injection point; the static studio never consults it.
     }
 
     static var customer: BoothSessionEnvironment { BoothSessionEnvironment() }

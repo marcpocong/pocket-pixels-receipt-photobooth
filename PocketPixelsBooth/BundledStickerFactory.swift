@@ -45,23 +45,28 @@ nonisolated enum BundledStickerFactory {
     }
 
     /// Rendered artwork, cached. Identical on every call, so placements reprint identically.
-    static func image(for id: String) -> CGImage? {
-        if let cached = cache.object(forKey: id as NSString) { return cached.image }
+    static func image(for id: String, maximumPixelDimension: Int = 1_280) -> CGImage? {
+        let edge = min(max(32, maximumPixelDimension), StickerImageLimits.maximumDecodedPixelDimension)
+        let key = "\(id).\(edge)" as NSString
+        if let cached = cache.object(forKey: key) { return cached.image }
         guard let definition = definition(for: id) else { return nil }
         let height = canvasSize
         let width = (canvasSize * definition.aspectRatio).rounded()
         let size = CGSize(width: width, height: height)
+        let scale = min(1, CGFloat(edge) / max(size.width, size.height))
+        let outputSize = CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = false
-        let rendered = UIGraphicsImageRenderer(size: size, format: format).image { context in
+        let rendered = UIGraphicsImageRenderer(size: outputSize, format: format).image { context in
             let cg = context.cgContext
+            cg.scaleBy(x: scale, y: scale)
             cg.setLineJoin(.round)
             cg.setLineCap(.round)
             definition.draw(cg, size)
         }
         guard let cgImage = rendered.cgImage else { return nil }
-        cache.setObject(CachedImage(image: cgImage), forKey: id as NSString)
+        cache.setObject(CachedImage(image: cgImage), forKey: key, cost: cgImage.bytesPerRow * cgImage.height)
         return cgImage
     }
 
@@ -72,7 +77,8 @@ nonisolated enum BundledStickerFactory {
 
     nonisolated(unsafe) private static let cache: NSCache<NSString, CachedImage> = {
         let cache = NSCache<NSString, CachedImage>()
-        cache.countLimit = 64
+        cache.countLimit = 256
+        cache.totalCostLimit = 48 * 1024 * 1024
         return cache
     }()
 
@@ -344,7 +350,7 @@ nonisolated enum BundledStickerFactory {
         Definition(id: "builtin.hi", name: "Hi!", category: .reactions, tags: ["hi", "hello", "wave", "speech"], aspectRatio: 1.4) { cg, size in
             speechBubble(cg, size: size, text: "HI!")
         }
-    ]
+    ] + CuratedStickerArtwork.definitions
 
     // MARK: Drawing helpers
 

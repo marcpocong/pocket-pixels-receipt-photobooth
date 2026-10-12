@@ -11,6 +11,7 @@
 import CoreGraphics
 import Foundation
 import UIKit
+import UniformTypeIdentifiers
 
 nonisolated struct CustomStickerRecord: Codable, Equatable, Identifiable, Sendable {
     let id: UUID
@@ -27,6 +28,10 @@ nonisolated struct CustomStickerRecord: Codable, Equatable, Identifiable, Sendab
     let frameCount: Int
     let importedAt: Date
     var printWarning: String?
+
+    var isStaticGuestEligible: Bool {
+        frameCount == 1 && [UTType.png.identifier, UTType.jpeg.identifier].contains(typeIdentifier)
+    }
 
     var assetID: String { "custom.\(id.uuidString.lowercased())" }
     var aspectRatio: CGFloat { pixelHeight > 0 ? CGFloat(pixelWidth) / CGFloat(pixelHeight) : 1 }
@@ -155,6 +160,9 @@ nonisolated struct StickerCatalogStore: Sendable {
         let preview: CGImage
         do {
             info = try StickerImageDecoder.inspect(data)
+            guard [UTType.png.identifier, UTType.jpeg.identifier].contains(info.typeIdentifier), !info.isAnimated else {
+                throw StickerImageError.unsupportedType
+            }
             preview = try StickerImageDecoder.decodeFrame(data, frameIndex: info.frameCount > 1 ? info.frameCount / 2 : 0, maximumPixelDimension: StickerImageLimits.thumbnailPixelDimension)
         } catch let error as StickerImageError {
             throw StickerCatalogError.image(error)
@@ -269,7 +277,7 @@ nonisolated struct StickerCatalogStore: Sendable {
 // MARK: - Guest catalog
 
 /// The stickers one guest session may browse, built from frozen settings. Built-in artwork and
-/// the operator collection are available offline; online results are layered on separately.
+/// the static operator collection are available offline; legacy animations stay on disk.
 nonisolated struct StickerGuestCatalog: Sendable {
     let assets: [StickerAsset]
     let customRecords: [String: CustomStickerRecord]
@@ -284,7 +292,7 @@ nonisolated struct StickerGuestCatalog: Sendable {
             assets += BundledStickerFactory.assets
         }
         if settings.operatorCollectionEnabled, let store {
-            for record in store.records() where record.isEnabled {
+            for record in store.records() where record.isEnabled && record.isStaticGuestEligible {
                 custom[record.assetID] = record
                 var asset = record.asset
                 // Event-tagged stickers show in Event; their own category keeps them findable too.
@@ -317,7 +325,7 @@ nonisolated struct StickerGuestCatalog: Sendable {
     func image(for asset: StickerAsset, frameIndex: Int, maximumPixelDimension: Int, store: StickerCatalogStore?) -> CGImage? {
         switch asset.provenance.source {
         case .builtIn:
-            return BundledStickerFactory.image(for: asset.id)
+            return BundledStickerFactory.image(for: asset.id, maximumPixelDimension: maximumPixelDimension)
         case .operatorImport:
             guard let record = customRecords[asset.id], let store else { return nil }
             return store.image(for: record, frameIndex: frameIndex, maximumPixelDimension: maximumPixelDimension)

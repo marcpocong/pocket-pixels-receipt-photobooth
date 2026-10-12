@@ -2,7 +2,7 @@
 //  OperatorStickerLibraryView.swift
 //  PocketPixelsBooth
 //
-//  Manage Stickers: import approved PNG / JPEG / GIF files from Files, name and categorise
+//  Manage Stickers: import approved static PNG / JPEG files from Files, name and categorise
 //  them, tag them for the current event, enable / disable, reorder and delete. Images are
 //  copied into Application Support; nothing needs a backend.
 //
@@ -24,7 +24,7 @@ struct OperatorStickerLibraryView: View {
     var body: some View {
         List {
             Section {
-                LabeledContent("Stickers", value: "\(records.count) (\(records.filter(\.isEnabled).count) enabled)")
+                LabeledContent("Stickers", value: "\(records.count) (\(records.filter { $0.isEnabled && $0.isStaticGuestEligible }.count) available to guests)")
                 LabeledContent("Storage used", value: ByteCountFormatter.string(fromByteCount: Int64(records.reduce(0) { $0 + $1.byteCount }), countStyle: .file))
                 let warnings = records.filter { $0.printWarning != nil }.count
                 if warnings > 0 {
@@ -37,13 +37,13 @@ struct OperatorStickerLibraryView: View {
                 Button {
                     showingImporter = true
                 } label: {
-                    Label("Import PNG, JPEG or GIF…", systemImage: "square.and.arrow.down")
+                    Label("Import PNG or JPEG…", systemImage: "square.and.arrow.down")
                 }
                 if let message {
                     Text(message).font(.caption).foregroundStyle(.secondary)
                 }
             } footer: {
-                Text("Up to \(StickerImageLimits.maximumImportBytes / 1_048_576) MB per file. Only import images you own or are licensed to print on paid keepsakes. JPEG backgrounds stay as they are (they are not made transparent); PNG transparency is kept. GIFs print as one still frame.")
+                Text("Up to \(StickerImageLimits.maximumImportBytes / 1_048_576) MB per file. Only import images you own or are licensed to print on paid keepsakes. JPEG backgrounds stay as they are (they are not made transparent); PNG transparency is kept. Legacy GIF files are kept in your library but hidden from guests.")
             }
 
             Section("Library") {
@@ -61,7 +61,7 @@ struct OperatorStickerLibraryView: View {
         .navigationTitle("Manage Stickers")
         .toolbar { EditButton() }
         .onAppear(perform: reload)
-        .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.png, .jpeg, .gif], allowsMultipleSelection: true) { result in
+        .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.png, .jpeg], allowsMultipleSelection: true) { result in
             importFiles(result)
         }
         .confirmationDialog(
@@ -97,6 +97,9 @@ struct OperatorStickerLibraryView: View {
             .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 8) {
+                if !record.isStaticGuestEligible {
+                    Text("Legacy media — preserved, hidden from guests").font(.caption).foregroundStyle(.secondary)
+                }
                 TextField("Name", text: Binding(
                     get: { record.name },
                     set: { name in update(record.id) { $0.name = name } }
@@ -118,7 +121,7 @@ struct OperatorStickerLibraryView: View {
                     .accessibilityHint("Shows this sticker in the Event collection.")
                 }
                 HStack(spacing: 10) {
-                    Text("\(record.pixelWidth)×\(record.pixelHeight) · \(ByteCountFormatter.string(fromByteCount: Int64(record.byteCount), countStyle: .file))\(record.frameCount > 1 ? " · animated, prints a still" : "")")
+                    Text("\(record.pixelWidth)×\(record.pixelHeight) · \(ByteCountFormatter.string(fromByteCount: Int64(record.byteCount), countStyle: .file))\(record.frameCount > 1 ? " · legacy animation — hidden from guests" : "")")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     if let warning = record.printWarning {
@@ -135,6 +138,7 @@ struct OperatorStickerLibraryView: View {
                     set: { value in update(record.id) { $0.isEnabled = value } }
                 ))
                 .labelsHidden()
+                .disabled(!record.isStaticGuestEligible)
                 .accessibilityLabel("\(record.name) enabled")
                 Button(role: .destructive) {
                     pendingDeletion = record
@@ -201,7 +205,7 @@ struct OperatorStickerLibraryView: View {
     }
 
     private func loadThumbnail(_ record: CustomStickerRecord) async {
-        guard thumbnails[record.id] == nil else { return }
+        guard record.isStaticGuestEligible, thumbnails[record.id] == nil else { return }
         let image = await Task.detached(priority: .utility) { () -> UIImage? in
             guard let store = try? StickerCatalogStore() else { return nil }
             return store.image(for: record, frameIndex: record.frameCount > 1 ? record.frameCount / 2 : 0, maximumPixelDimension: 160)

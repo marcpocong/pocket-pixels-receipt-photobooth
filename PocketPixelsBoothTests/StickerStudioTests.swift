@@ -250,7 +250,7 @@ final class StickerStudioSettingsTests: XCTestCase {
         settings.onlineRightsAcknowledgement = OnlineStickerRightsAcknowledgement(acknowledgedAt: Date())
         XCTAssertFalse(StickerStudioSessionConfiguration.current(settings: settings, credentials: noKey).onlineReady, "Rights without a key stay off")
         XCTAssertEqual(settings.onlineAvailability(hasCredential: false), .missingCredentials)
-        XCTAssertTrue(StickerStudioSessionConfiguration.current(settings: settings, credentials: withKey).onlineReady)
+        XCTAssertFalse(StickerStudioSessionConfiguration.current(settings: settings, credentials: withKey).onlineReady, "Legacy credentials cannot enable online discovery in the static studio")
 
         settings.isEnabled = false
         XCTAssertEqual(StickerStudioSessionConfiguration.current(settings: settings, credentials: withKey), .disabled, "Master OFF disables everything")
@@ -648,7 +648,8 @@ final class StickerRenderingTests: XCTestCase {
         XCTAssertNoThrow(try ThermalImageRasterizer.validateRasterCommand(raster.rasterCommand, imageWidth: raster.width, imageHeight: raster.height, bytesPerRow: raster.widthBytes, rasterDataCount: raster.rasterData.count))
 
         // Reference output for black & white thermal sticker placement.
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("StickerStudioReference", isDirectory: true)
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("build/StickerStudio/StickerReferences", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try raster.previewPNGData.write(to: directory.appendingPathComponent("strip_stickers_thermal_1bit.png"))
         try first.imagePNGData.write(to: directory.appendingPathComponent("strip_stickers_keepsake.png"))
@@ -767,51 +768,16 @@ final class StickerStudioSessionTests: XCTestCase {
         XCTAssertNil(session.placement(at: CGPoint(x: 2, y: 2), displayScale: scale), "Empty paper deselects")
     }
 
-    func testOldOnlineDownloadCannotLandAfterTheSessionCloses() async throws {
-        let provider = FakeOnlineStickerProvider(downloadDelay: .milliseconds(300))
+    func testLegacyOnlineConfigurationCannotTriggerGuestNetworkRequests() async throws {
+        let provider = FakeOnlineStickerProvider()
         let session = try makeSession(online: provider)
-        XCTAssertTrue(session.categories.contains(.online))
-        session.addOnline(FakeOnlineStickerProvider.result(id: "late"))
-        try await Task.sleep(for: .milliseconds(30))
-        session.close()
-        try await Task.sleep(for: .milliseconds(500))
-        XCTAssertTrue(session.placements.isEmpty, "A stale download never mutates a closed draft")
-        XCTAssertEqual(session.activeOnlineTaskCount, 0)
-    }
-
-    func testDisablingOnlineCancelsRequestsAndRemovesOnlineStickers() async throws {
-        let provider = FakeOnlineStickerProvider(downloadDelay: .zero)
-        let session = try makeSession(online: provider)
-        session.addOnline(FakeOnlineStickerProvider.result(id: "ok"))
-        await waitFor { session.placements.count == 1 }
-        XCTAssertEqual(session.placements.first?.provenance.source, .online)
-        XCTAssertEqual(session.placements.first?.provenance.provider, "FAKE")
-
-        let slow = FakeOnlineStickerProvider(downloadDelay: .seconds(5))
-        let slowSession = try makeSession(online: slow)
-        slowSession.addOnline(FakeOnlineStickerProvider.result(id: "slow"))
-        try await Task.sleep(for: .milliseconds(30))
-        slowSession.disableOnline()
-        await waitFor { slow.cancellations == 1 }
-        XCTAssertEqual(slow.cancellations, 1, "In-flight online requests are cancelled immediately")
-        XCTAssertFalse(slowSession.categories.contains(.online), "The Trending tab disappears")
-
-        session.disableOnline()
-        XCTAssertTrue(session.placements.isEmpty, "Unfinalized online stickers are removed when online use is switched off")
-    }
-
-    func testOnlineFailureLeavesLocalStickersUsable() async throws {
-        let failing = FailingOnlineStickerProvider()
-        let session = try makeSession(online: failing)
-        session.selectedCategory = .online
-        session.refreshOnline(debounce: false)
-        await waitFor { session.online.message != nil }
-        XCTAssertNotNil(session.online.message)
-        session.selectedCategory = .classic
-        XCTAssertFalse(session.visibleAssets.isEmpty, "Offline library keeps working")
+        XCTAssertFalse(session.categories.contains(.online))
+        XCTAssertTrue(provider.calls.isEmpty)
         session.add(try XCTUnwrap(session.catalog.asset(id: "builtin.star")))
         await waitFor { session.placements.count == 1 }
         XCTAssertEqual(session.placements.count, 1)
+        session.close()
+        XCTAssertTrue(provider.calls.isEmpty)
     }
 
     func testRepeatedSyntheticEditSessionsDoNotLeakState() async throws {
@@ -899,23 +865,7 @@ final class OnlineStickerProviderTests: XCTestCase {
         XCTAssertThrowsError(try GiphyStickerProvider.parse(Data("<html>".utf8)))
     }
 
-    func testDownloadLimiterCapsConcurrency() async {
-        let limiter = AsyncLimiter(limit: StickerImageLimits.maximumConcurrentDownloads)
-        let tracker = ConcurrencyTracker()
-        await withTaskGroup(of: Void.self) { group in
-            for _ in 0..<12 {
-                group.addTask {
-                    await limiter.run {
-                        await tracker.enter()
-                        try? await Task.sleep(for: .milliseconds(20))
-                        await tracker.leave()
-                    }
-                }
-            }
-        }
-        let peak = await tracker.peak
-        XCTAssertLessThanOrEqual(peak, StickerImageLimits.maximumConcurrentDownloads)
-    }
+
 }
 
 actor ConcurrencyTracker {
@@ -1061,6 +1011,30 @@ final class StickerStudioFlowTests: XCTestCase {
             XCTAssertNotNil(model.receiptRasterizedImage)
             model.cancelSession()
         }
+    }
+
+    func testDoneWaitsForPendingArtworkAndPreservesStaticDraftOnBack() async throws {
+        let model = makeModel(enabled: true)
+        try await reachReview(model, format: .gridSix)
+        model.continueFromReview()
+        try await waitForState(model) { $0 == .stickerStudio }
+        let studio = try XCTUnwrap(model.stickerStudio)
+        studio.add(try XCTUnwrap(studio.catalog.asset(id: "builtin.twin-lens")))
+        model.finishStickerStudio()
+        XCTAssertEqual(model.receiptFinalizationCount, 0, "An unfinished decode cannot be frozen")
+        let deadline = Date().addingTimeInterval(5)
+        while studio.pendingInsertions > 0, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        let placement = try XCTUnwrap(studio.placements.first)
+        model.backFromStickerStudio()
+        model.continueFromReview()
+        try await waitForState(model) { $0 == .stickerStudio }
+        XCTAssertEqual(model.stickerStudio?.placements.first, placement)
+        model.finishStickerStudio()
+        model.finishStickerStudio()
+        XCTAssertEqual(model.receiptFinalizationCount, 1)
+        try await waitForState(model) { $0 == .receiptPreview }
+        model.cancelSession()
+        XCTAssertNil(model.stickerStudio)
     }
 
     func testSkipCommitsTheOriginalReceipt() async throws {

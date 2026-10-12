@@ -73,7 +73,7 @@ nonisolated enum StickerImageLimits {
     static let maximumDecodedPixelDimension = 2_048
     /// Print artwork never needs more: the largest sticker covers one 504-dot photo.
     static let printPixelDimension = 768
-    static let thumbnailPixelDimension = 320
+    static let thumbnailPixelDimension = 192
     static let maximumFrameCount = 400
     static let maximumConcurrentDownloads = 3
 
@@ -92,7 +92,7 @@ nonisolated enum StickerImageError: Error, LocalizedError, Equatable {
         switch self {
         case .empty: "The file is empty."
         case .tooLarge: "The file is larger than \(StickerImageLimits.maximumImportBytes / 1_048_576) MB."
-        case .unsupportedType: "Only PNG, JPEG and GIF images can be used as stickers."
+        case .unsupportedType: "Use a static PNG or JPEG image. Animated and GIF imports are not supported."
         case .dimensionsTooLarge: "The image dimensions are too large."
         case .decodeFailed: "The image could not be read."
         case .frameOutOfRange: "That frame does not exist in this image."

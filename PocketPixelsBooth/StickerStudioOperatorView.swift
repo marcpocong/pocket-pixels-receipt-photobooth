@@ -1,250 +1,73 @@
-//
-//  StickerStudioOperatorView.swift
-//  PocketPixelsBooth
-//
-//  Operator controls for Sticker Studio: the master switch, sources, guest limits, visible
-//  categories, the gated online catalog and a side-effect-free guest preview. Every change is
-//  saved immediately and applies to the next guest session.
-//
-
 import SwiftUI
 import UIKit
 
+/// Local, persistent studio preferences. The bundled collection needs no setup or connection.
 struct StickerStudioOperatorView: View {
-    @ObservedObject private var operations = EventOperationalState.shared
     @State private var settings = StickerStudioSettingsStore.load()
-    @State private var customRecords: [CustomStickerRecord] = []
-    @State private var apiKeyDraft = ""
-    @State private var hasAPIKey = false
-    @State private var apiKeyDescription = ""
-    @State private var keyMessage: String?
-    @State private var showingRightsConfirmation = false
-    @State private var showingRemoveKeyConfirmation = false
-
-    private let credentials: OnlineStickerCredentialStoring = KeychainOnlineStickerCredentialStore()
+    @State private var importedCount = 0
 
     var body: some View {
         Form {
-            statusSection
-            masterSection
-            if settings.isEnabled {
-                sourcesSection
-                guestSection
-                categoriesSection
+            Section {
+                Toggle("Enable Sticker Studio", isOn: binding(\.isEnabled))
+                Toggle("Enable Built-in Collection", isOn: binding(\.builtInStickersEnabled))
+                LabeledContent("Preloaded artwork", value: "\(BundledStickerFactory.definitions.count) original static stickers")
+                Toggle("Enable Operator Collection", isOn: binding(\.operatorCollectionEnabled))
+                NavigationLink {
+                    OperatorStickerLibraryView()
+                } label: {
+                    LabeledContent("Manage Imported Stickers", value: "\(importedCount)")
+                }
+                Stepper(value: binding(\.guestStickerLimit), in: StickerStudioSettings.guestStickerLimitRange) {
+                    LabeledContent("Maximum Stickers per Guest", value: "\(settings.guestStickerLimit)")
+                }
+            } header: {
+                Text("Sticker Studio")
+            } footer: {
+                Text("All preloaded artwork works offline. Changes apply to the next guest; their current draft stays intact.")
             }
-            onlineSection
-            previewSection
+            Section {
+                NavigationLink {
+                    StickerStudioPreviewView(settings: settings)
+                } label: {
+                    Label("Preview Sticker Studio", systemImage: "eye")
+                }
+                .disabled(!settings.hasAnyLocalSource())
+            } footer: {
+                Text("Sample photos only. Nothing is printed, charged, uploaded or archived.")
+            }
+            Section {
+                NavigationLink("Advanced Settings") {
+                    Form {
+                        Section("Print legibility") {
+                            Stepper(value: binding(\.minimumPrintedStickerDots), in: StickerStudioSettings.minimumPrintedDotsRange, step: 8) {
+                                LabeledContent("Smallest printed size", value: String(format: "%.0f mm", Double(settings.minimumPrintedStickerDots) / 8))
+                            }
+                        }
+                        Section("Visible categories") {
+                            ForEach(StickerCategory.assignableToImports) { category in
+                                Toggle(category.operatorDisplayName, isOn: Binding(
+                                    get: { !settings.hiddenCategories.contains(category) },
+                                    set: { visible in
+                                        if visible { settings.hiddenCategories.remove(category) }
+                                        else { settings.hiddenCategories.insert(category) }
+                                        save()
+                                    }
+                                ))
+                            }
+                        }
+                    }
+                    .navigationTitle("Advanced Sticker Settings")
+                }
+            }
         }
         .navigationTitle("Sticker Studio")
         .onAppear(perform: reload)
         .onReceive(NotificationCenter.default.publisher(for: StickerCatalogStore.didChangeNotification)) { _ in reload() }
-        .confirmationDialog("Confirm commercial print rights", isPresented: $showingRightsConfirmation, titleVisibility: .visible) {
-            Button("I Confirm — Our Licence Covers This") {
-                settings.onlineRightsAcknowledgement = OnlineStickerRightsAcknowledgement(acknowledgedAt: Date())
-                save()
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text(OnlineStickerRightsAcknowledgement.statement)
-        }
-        .confirmationDialog("Remove the saved API key?", isPresented: $showingRemoveKeyConfirmation, titleVisibility: .visible) {
-            Button("Remove Key", role: .destructive) {
-                credentials.deleteAPIKey()
-                settings.onlineDiscoveryEnabled = false
-                save()
-                refreshKeyState()
-            }
-            Button("Keep Key", role: .cancel) { }
-        }
-    }
-
-    // MARK: Sections
-
-    private var statusSection: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 8) {
-                Label(settings.isEnabled ? "STICKER STUDIO ON" : "STICKER STUDIO OFF",
-                      systemImage: settings.isEnabled ? "checkmark.circle.fill" : "circle")
-                    .font(.title3.bold())
-                    .foregroundStyle(settings.isEnabled ? .green : .secondary)
-                Text(settings.isEnabled
-                     ? "Guests can decorate their receipt before it prints."
-                     : "Guests go straight from their photos to the receipt, exactly as before.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                if operations.customerSessionActive {
-                    Label("Changes apply to the next guest session", systemImage: "clock.arrow.circlepath")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.orange)
-                }
-            }
-            .padding(.vertical, 4)
-            .accessibilityElement(children: .combine)
-
-            statusRow("Built-in library", value: settings.builtInStickersEnabled ? "\(BundledStickerFactory.definitions.count) stickers available offline" : "Off", ok: settings.builtInStickersEnabled)
-            statusRow("Approved collection", value: customSummary, ok: settings.operatorCollectionEnabled && enabledCustomCount > 0)
-            statusRow("Online catalog", value: onlineAvailability.isReady ? "Ready" : (settings.onlineDiscoveryEnabled ? "Unavailable" : "Off"), ok: onlineAvailability.isReady)
-        } header: {
-            Text("Status")
-        }
-    }
-
-    private var masterSection: some View {
-        Section {
-            Toggle(isOn: binding(\.isEnabled)) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Enable Sticker Studio").font(.headline)
-                    Text("Adds an optional sticker step before the receipt is composed and printed. Guests can always skip it.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .frame(minHeight: 52)
-            .accessibilityHint("Turns the guest sticker step on or off for the next guest session.")
-        } footer: {
-            Text("Off by default. Test with Preview below before turning it on for guests.")
-        }
-    }
-
-    private var sourcesSection: some View {
-        Section {
-            Toggle("Enable Built-in Stickers", isOn: binding(\.builtInStickersEnabled))
-            Toggle("Enable Operator Collection", isOn: binding(\.operatorCollectionEnabled))
-            NavigationLink {
-                OperatorStickerLibraryView()
-            } label: {
-                HStack {
-                    Label("Manage Stickers", systemImage: "square.grid.2x2")
-                    Spacer()
-                    Text("\(customRecords.count)").foregroundStyle(.secondary)
-                }
-            }
-            if !settings.hasAnyLocalSource() && !onlineAvailability.isReady {
-                Label("No sticker source is on, so guests will skip this step.", systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
-            }
-        } header: {
-            Text("Sticker sources")
-        } footer: {
-            Text("Built-in stickers are original Made to Keep artwork and work offline. Only import images you own or are licensed to print on paid keepsakes.")
-        }
-    }
-
-    private var guestSection: some View {
-        Section("Guest editing") {
-            Stepper(value: binding(\.guestStickerLimit), in: StickerStudioSettings.guestStickerLimitRange) {
-                LabeledContent("Stickers per receipt", value: "\(settings.guestStickerLimit)")
-            }
-            Stepper(value: binding(\.minimumPrintedStickerDots), in: StickerStudioSettings.minimumPrintedDotsRange, step: 8) {
-                LabeledContent("Smallest printed size", value: String(format: "%.0f mm", Double(settings.minimumPrintedStickerDots) / 8))
-            }
-        }
-    }
-
-    private var categoriesSection: some View {
-        Section {
-            ForEach(StickerCategory.assignableToImports) { category in
-                Toggle(category.operatorDisplayName, isOn: Binding(
-                    get: { !settings.hiddenCategories.contains(category) },
-                    set: { visible in
-                        if visible { settings.hiddenCategories.remove(category) } else { settings.hiddenCategories.insert(category) }
-                        save()
-                    }
-                ))
-            }
-        } header: {
-            Text("Visible categories")
-        } footer: {
-            Text("Categories with no stickers are hidden from guests automatically. Trending appears only when the online catalog is ready.")
-        }
-    }
-
-    private var onlineSection: some View {
-        Section {
-            Label(onlineAvailability.operatorDescription, systemImage: onlineAvailability.isReady ? "checkmark.seal" : "wifi.slash")
-                .foregroundStyle(onlineAvailability.isReady ? .green : .secondary)
-
-            if hasAPIKey {
-                LabeledContent("GIPHY API key", value: apiKeyDescription)
-                Button("Remove API Key", role: .destructive) { showingRemoveKeyConfirmation = true }
-            } else {
-                SecureField("GIPHY API key", text: $apiKeyDraft)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                Button("Save API Key") { saveKey() }
-                    .disabled(apiKeyDraft.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            if let keyMessage {
-                Text(keyMessage).font(.caption).foregroundStyle(.secondary)
-            }
-
-            if let acknowledgement = settings.onlineRightsAcknowledgement {
-                LabeledContent("Print rights confirmed", value: acknowledgement.acknowledgedAt.formatted(date: .abbreviated, time: .shortened))
-                Button("Withdraw Confirmation", role: .destructive) {
-                    settings.onlineRightsAcknowledgement = nil
-                    settings.onlineDiscoveryEnabled = false
-                    save()
-                }
-            } else {
-                Button("Confirm Commercial Print Rights…") { showingRightsConfirmation = true }
-            }
-
-            Toggle("Enable Online GIF/Meme Discovery", isOn: binding(\.onlineDiscoveryEnabled))
-                .disabled(!hasAPIKey || settings.onlineRightsAcknowledgement == nil)
-        } header: {
-            Text("Online GIFs & memes (GIPHY)")
-        } footer: {
-            Text("Off by default. Requires your own GIPHY API key and written confirmation that your agreement permits printing third-party GIFs on paid physical receipts — the standard GIPHY API terms do not grant this. Guests see results with rating G only, with “Powered by GIPHY” attribution, and a still frame prints. Turning this off stops online requests immediately. Review: developers.giphy.com/docs/api and the GIPHY API Terms of Service.")
-        }
-    }
-
-    private var previewSection: some View {
-        Section {
-            NavigationLink {
-                StickerStudioPreviewView(settings: settings)
-            } label: {
-                Label("Preview Guest Sticker Studio", systemImage: "eye")
-            }
-            .disabled(!settings.hasAnyLocalSource() && !onlineAvailability.isReady)
-        } footer: {
-            Text("Uses sample photos. Nothing is printed, uploaded, archived or added to session history.")
-        }
-    }
-
-    // MARK: Helpers
-
-    private func statusRow(_ title: String, value: String, ok: Bool) -> some View {
-        LabeledContent {
-            Text(value).foregroundStyle(ok ? .primary : .secondary)
-        } label: {
-            Label(title, systemImage: ok ? "checkmark.circle" : "minus.circle")
-                .foregroundStyle(ok ? .green : .secondary)
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    private var enabledCustomCount: Int { customRecords.filter(\.isEnabled).count }
-
-    private var customSummary: String {
-        guard settings.operatorCollectionEnabled else { return "Off" }
-        let warnings = customRecords.filter { $0.printWarning != nil }.count
-        var text = "\(enabledCustomCount) of \(customRecords.count) enabled"
-        if warnings > 0 { text += " · \(warnings) may print poorly" }
-        return text
-    }
-
-    private var onlineAvailability: OnlineStickerAvailability {
-        settings.onlineAvailability(hasCredential: hasAPIKey)
     }
 
     private func binding<Value>(_ keyPath: WritableKeyPath<StickerStudioSettings, Value>) -> Binding<Value> {
-        Binding(
-            get: { settings[keyPath: keyPath] },
-            set: { value in
-                settings[keyPath: keyPath] = value
-                save()
-            }
-        )
+        Binding(get: { settings[keyPath: keyPath] }, set: { settings[keyPath: keyPath] = $0; save() })
     }
 
     private func save() {
@@ -254,25 +77,7 @@ struct StickerStudioOperatorView: View {
 
     private func reload() {
         settings = StickerStudioSettingsStore.load()
-        customRecords = (try? StickerCatalogStore())?.records() ?? []
-        refreshKeyState()
-    }
-
-    private func refreshKeyState() {
-        hasAPIKey = credentials.hasAPIKey()
-        apiKeyDescription = credentials.redactedDescription()
-    }
-
-    private func saveKey() {
-        do {
-            try credentials.saveAPIKey(apiKeyDraft)
-            apiKeyDraft = ""
-            // Saving a key never turns online discovery on by itself.
-            keyMessage = "Key saved to this iPad's keychain. Online discovery stays off until you enable it."
-        } catch {
-            keyMessage = error.localizedDescription
-        }
-        refreshKeyState()
+        importedCount = (try? StickerCatalogStore())?.records().count ?? 0
     }
 }
 
@@ -343,7 +148,9 @@ struct StickerStudioPreviewView: View {
     }
 
     private func prepare() {
-        let configuration = StickerStudioSessionConfiguration.current(settings: settings)
+        var previewSettings = settings
+        previewSettings.isEnabled = true
+        let configuration = StickerStudioSessionConfiguration.current(settings: previewSettings)
         let format = self.format
         let photos = Self.samplePhotos(count: format.photoCount)
         Task {
@@ -363,7 +170,7 @@ struct StickerStudioPreviewView: View {
                 catalog: StickerGuestCatalog.make(settings: configuration.settings, store: store),
                 generation: 0,
                 catalogStore: store,
-                provider: configuration.onlineReady ? KeychainOnlineStickerCredentialStore().loadAPIKey().map { GiphyStickerProvider(apiKey: $0) } : nil
+                provider: nil
             )
             studio.setCanvas(image: prepared.0, layout: prepared.1)
             session = studio

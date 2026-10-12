@@ -17,6 +17,7 @@ nonisolated enum StickerCategory: String, Codable, CaseIterable, Sendable, Ident
     case hearts
     case doodles
     case reactions
+    case birthday, celebration, retro, travel, everyday, madeToKeep
     case event
     case online
 
@@ -29,6 +30,12 @@ nonisolated enum StickerCategory: String, Codable, CaseIterable, Sendable, Ident
         case .hearts: "Hearts"
         case .doodles: "Doodles"
         case .reactions: "Reactions"
+        case .birthday: "Birthday"
+        case .celebration: "Celebrate"
+        case .retro: "Retro"
+        case .travel: "Adventure"
+        case .everyday: "Everyday"
+        case .madeToKeep: "Made to Keep"
         case .event: "Event"
         case .online: "Trending"
         }
@@ -44,7 +51,7 @@ nonisolated enum StickerCategory: String, Codable, CaseIterable, Sendable, Ident
     }
 
     /// Categories an operator can assign to an imported sticker.
-    static let assignableToImports: [StickerCategory] = [.classic, .cute, .hearts, .doodles, .reactions, .event]
+    static let assignableToImports: [StickerCategory] = allCases.filter { $0 != .online }
 }
 
 /// The operator's explicit confirmation that their content licence covers printing third-party
@@ -174,7 +181,7 @@ nonisolated struct StickerStudioSessionConfiguration: Equatable, Sendable {
     static let disabled = StickerStudioSessionConfiguration(settings: .default, onlineReady: false)
 
     var isGuestStepEnabled: Bool {
-        settings.isEnabled && (settings.hasAnyLocalSource() || onlineReady)
+        settings.isEnabled && settings.hasAnyLocalSource()
     }
 
     @MainActor
@@ -184,10 +191,9 @@ nonisolated struct StickerStudioSessionConfiguration: Equatable, Sendable {
     ) -> StickerStudioSessionConfiguration {
         let normalized = settings.normalized()
         guard normalized.isEnabled else { return .disabled }
-        // The keychain is only consulted when online use was requested and acknowledged.
-        let wantsOnline = normalized.onlineDiscoveryEnabled && normalized.onlineRightsAcknowledgement != nil
-        let ready = wantsOnline && normalized.onlineAvailability(hasCredential: credentials.hasAPIKey()).isReady
-        return StickerStudioSessionConfiguration(settings: normalized, onlineReady: ready)
+        // Legacy online preferences and credentials remain stored, but the static studio
+        // never reads a credential, constructs a provider, or enables an online guest source.
+        return StickerStudioSessionConfiguration(settings: normalized, onlineReady: false)
     }
 }
 

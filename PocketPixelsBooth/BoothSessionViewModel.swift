@@ -1206,7 +1206,7 @@ final class BoothSessionViewModel: ObservableObject {
                 catalog: catalog,
                 generation: sessionGeneration,
                 catalogStore: store,
-                provider: configuration.onlineReady ? environment.onlineStickerProviderSource() : nil
+                provider: nil
             )
         }
         guard let studio = stickerStudio, studio.hasContent else {
@@ -1275,7 +1275,7 @@ final class BoothSessionViewModel: ObservableObject {
 
     /// Done: commits the guest's stickers into the receipt, exactly once.
     func finishStickerStudio() {
-        guard state == .stickerStudio, let studio = stickerStudio, studio.generation == customerSessionGeneration else { return }
+        guard state == .stickerStudio, let studio = stickerStudio, studio.generation == customerSessionGeneration, studio.pendingInsertions == 0 else { return }
         finalizeReceipt(stickers: studio.freeze())
     }
 
@@ -1304,14 +1304,9 @@ final class BoothSessionViewModel: ObservableObject {
         }
     }
 
-    /// Operator settings changed. The frozen session flow never changes, except that switching
-    /// online stickers off stops online requests immediately.
+    /// Retained notification hook. Offline source settings are frozen until the next guest.
     func handleStickerSettingsChanged() {
-        guard let studio = stickerStudio, studio.isOnlineAvailable else { return }
-        let latest = StickerStudioSettingsStore.load()
-        if !latest.isEnabled || !latest.onlineDiscoveryEnabled || latest.onlineRightsAcknowledgement == nil {
-            studio.disableOnline()
-        }
+        // Source choices are frozen for the current guest. There are no online requests to stop.
     }
 
     private func discardStickerDraft() {
