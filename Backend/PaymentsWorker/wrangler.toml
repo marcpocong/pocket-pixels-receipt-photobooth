@@ -47,7 +47,7 @@ crons = ["*/5 * * * *"]
 [[env.test.d1_databases]]
 binding = "DB"
 database_name = "pocket-pixels-payments-test"
-database_id = "REPLACE_WITH_TEST_D1_DATABASE_ID"
+database_id = "d7b7bfe1-b981-4289-b69b-bd120703887d"
 migrations_dir = "migrations"
 
 [env.live]

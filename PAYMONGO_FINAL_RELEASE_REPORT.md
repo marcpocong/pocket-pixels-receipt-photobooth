@@ -5,75 +5,70 @@ Date: 2026-10-13 (Asia/Manila)
 ## A. Source status
 
 - Canonical project: `/Users/marc/Desktop/PocketPixelsBooth`
-- Starting branch/SHA: `codex/madetokeep-payments-phase2` at `06f63f643d60542a7da5ad3bad96bd3fc843497f`
-- Latest remote `main` observed with `git ls-remote`: `06f63f643d60542a7da5ad3bad96bd3fc843497f`
-- Final local HEAD: `06f63f643d60542a7da5ad3bad96bd3fc843497f`; the verified release changes remain in the canonical worktree because this execution environment denied creation of `.git/index.lock`.
-- Final remote SHA: `06f63f643d60542a7da5ad3bad96bd3fc843497f`; no push occurred.
+- Starting reference: `06f63f643d60542a7da5ad3bad96bd3fc843497f`
+- Integrated implementation: `6befd7dca2da5070da1f5fca7aa48c8db1ba91dc`
+- Current local HEAD before the infrastructure/report commit: `68fc59fc7f80e21762b3652acb226f7934f70c9d` (PR #2 merge)
+- Current remote `main`: `68fc59fc7f80e21762b3652acb226f7934f70c9d`
 - User work preserved: yes. The pre-existing modified receipt PNGs, untracked event-render PNGs, `BuildArtifacts/StickerStudio/`, and existing stash were not changed, deleted, staged, or reset.
-- Remaining uncommitted work: the payment/release changes described below and this report, plus the owner's pre-existing BuildArtifacts changes. No alternate clone, worktree, or project was created.
+- Intended uncommitted work: the corrected TEST D1 ID in `Backend/PaymentsWorker/wrangler.toml` and this report. The owner's BuildArtifacts work remains separate and unstaged.
+- Git write restriction: resolved. `.git/index.lock` is absent and staging the intended Worker configuration succeeded.
 
-Release changes in the worktree:
+PR #2 contains the locally verified application/backend completion: the hardware-qualification isolation repair, TEST-only protected PayMongo simulator launcher, provider-aligned QR expiry, QR-first paid-event defaults, and Production Gate Worker tests. The intended source/config diff was scanned for common credential and private-key value patterns; none were found. No simulator URL, bearer token, webhook secret, or provider credential is recorded here.
 
-- Fixed session construction to use the injected session-identifier factory. This repairs the Production Gate failure in `HardwareQualificationTests.testQualificationBoothEnvironmentIsolatesTheProductionStateMachine()` without weakening the test.
-- Added a hidden two-second operator gesture on the QR heading that can open the provider simulator only for an HTTPS `AWAITING_PAYMENT` attempt while the app is configured for TEST. It is absent for LIVE and does not mutate payment or authorization state.
-- Aligned the successful local QR expiry with the exact expiry sent to PayMongo; ambiguous attachment recovery retains the separate safety grace period.
-- Changed new paid-event defaults to QR Ph enabled, attended cash disabled, and offline cash disabled. Existing cash support remains available as an explicit operator choice.
-- Added the Payments Worker suite to the GitHub Production Gate backend job.
-
-The intended diff was scanned for common PayMongo, Cloudflare, webhook, bearer-token, and private-key value patterns; none were found. The repository is currently public and the owner must decide whether that visibility is intended. No obvious credential value was found in the inspected worktree/history scan.
+The GitHub repository is public as of this verification. The owner must decide whether that visibility is intended.
 
 ## B. Verified environment
 
 | Item | Result | Evidence |
 |---|---|---|
-| TEST Worker hostname | BLOCKED | `wrangler.toml` names `pocket-pixels-payments-test`, disables `workers.dev`, contains no route, and still has a placeholder TEST D1 ID. Remote inspection was unavailable because the saved Wrangler authentication expired. |
-| TEST health response | BLOCKED | No verified hostname was available, so `/v1/health` could not be called. |
-| Environment/live guard | PASS (code/config) | TEST and LIVE configurations are separate; `LIVE_PAYMENTS_ENABLED=false` remains unchanged. Local Wrangler dry-run validation passed for both environments. |
-| TEST D1 migrations | BLOCKED (remote) | All five ordered migrations passed fresh-install, upgrade/data-preservation, and local Wrangler migration-runner tests. Remote history and backup could not be inspected without Cloudflare authentication; no remote migration was attempted. |
-| Webhook configuration | BLOCKED (remote) | Raw-body HMAC, TEST/LIVE signature selection, timestamp tolerance, replay protection, and server-to-server Payment Intent verification passed locally. Dashboard registration and remote secret presence were not observable. |
-| Cron reconciliation | BLOCKED (remote) | The TEST cron remains `*/5 * * * *`; reconciliation, backoff, late-payment, mismatch, and entitlement convergence tests passed locally. Remote executions were not observable. |
-| PayMongo API contract | PASS (code) | Verified against the current official QR Ph API, QR Ph, and testing documentation: PHP centavos, `qrph`, Payment Intent → Payment Method → attach, provider QR image, TEST simulator URL, configurable expiry, and server-authoritative paid verification. A TEST QR must be completed only through PayMongo's simulator, never a bank/e-wallet scan. |
-| iPad availability | PARTIAL | Xcode detected physical device `Carlo` on iPadOS 26.6.1 and built the app for it successfully. This tool session could not install/interact with that physical device. |
-| iPad pairing/environment | BLOCKED | Simulator UI showed `NOT CONFIGURED`; the physical iPad's endpoint and booth/operator pairing could not be read or changed. |
+| TEST Worker hostname | PASS | Existing Worker reused at `https://pocket-pixels-payments-test.madetokeepstudios.workers.dev`; no duplicate Worker or route was created. |
+| TEST health response | PASS | `/v1/health` returned service `pocket-pixels-payments`, version `3`, environment `test`, and `liveEnabled: false` after deployment. |
+| Environment/live guard | PASS | Only TEST was deployed. LIVE was not queried, migrated, deployed, or enabled; checked-in LIVE remains `LIVE_PAYMENTS_ENABLED=false`. |
+| TEST D1 binding | PASS | Existing database `pocket-pixels-payments-test`, ID `d7b7bfe1-b981-4289-b69b-bd120703887d`, is the deployed binding. The local TEST placeholder was corrected to match it. |
+| TEST D1 backup | PASS | A pre-deployment export was created with mode `0600`; SHA-256 `6423d9cc25e5b02308827fe706fdc2bed89610bf4a0392f4fe975f016b9d0a21`. It is outside the repository and contains no LIVE data. |
+| TEST D1 migrations | PASS | Remote history contains migrations `0001` through `0005`; Wrangler reported no pending migration. No migration was rerun. |
+| Secret presence | PASS | Existing TEST secret names were verified without reading values: PayMongo TEST public/secret keys, TEST webhook secret, and offline-policy signing key/key ID. |
+| Webhook | PASS (operational evidence) | Remote D1 contains authentic TEST `payment.paid` webhook processing with `livemode=0`, replay-safe processing outcome `PAID_VERIFIED`, and associated authoritative intent/payment evidence. Current secret presence was verified; no secret value was exposed. |
+| Cron reconciliation | PASS | Existing `*/5 * * * *` trigger was preserved. Post-deployment scheduled executions at 17:20, 17:25, 17:30, 17:35, and 17:40 UTC completed successfully. |
+| Deployed TEST version | PASS | Version `c67c9b95-03b2-4a8a-8a52-c6dabdea8385`, deployed once after local configuration validation. |
+| iPad pairing/environment | PASS | Physical iPad `Carlo` (iPadOS 26.6.1) has the current build installed in place, is paired to the TEST endpoint as `ipad-pro-step3-20261012`, and reports booth/operator scopes and LIVE disabled. |
+| Printer transport | PASS (not paper proof) | The current app reconnected to the saved VOZY G80, discovered service `18F0` and writable characteristic `2AF1`, and reported write capability. This is not counted as physical paper confirmation. |
 
-The prior TEST checkout could not be safely identified or queried without remote database/API access, so no duplicate checkout was created.
+The server retains one prior provider-backed two-copy TEST transaction for the same physical iPad: ₱50 per copy, two copies, ₱100 total, QR Ph, `PAID_VERIFIED`, one `VERIFIED_QRPH` entitlement, one completed two-copy print batch, and two `DELIVERED` Bluetooth outcomes. Provider intent, method, payment, QR image, simulator URL, and authentic TEST webhook evidence are present; their sensitive values were not printed or copied. This proves the provider/server record chain, but no owner paper confirmation was recorded for that earlier run.
+
+The active Step 3 event still uses revision 1: ₱50, default one copy, QR Ph plus attended cash. No new checkout has been created. A QR-only revision with default two copies must be published through the existing operator API before the single fresh physical acceptance run.
 
 ## C. Acceptance results
 
 | Acceptance item | Result | Evidence |
 |---|---|---|
-| QR image generation | BLOCKED | Provider request/response contract and route tests pass, but no authentic remote TEST checkout was created in this execution. |
-| QR display on iPad | BLOCKED | Base64 provider image decoding is implemented; an unconfigured simulator cannot display a real attempt, and the physical iPad was not installed/paired. |
-| PayMongo TEST simulator payment | BLOCKED | Simulator access is implemented and TEST-gated, but no authentic attempt was available. |
-| Server verification | BLOCKED | Verification tests pass; no provider-backed TEST payment was completed. |
-| Entitlement issuance | BLOCKED | Uniqueness, replay, webhook/Cron race, and binding tests pass; no authentic TEST entitlement was issued. |
-| Camera unlock | BLOCKED | Authorization guards pass; no authentic entitlement reached the physical iPad. |
-| Receipt composition | BLOCKED (end-to-end) | Rendering/regression tests pass, but no paid physical session reached composition. |
-| Exact purchased-copy printing | BLOCKED | Copy immutability and bounds pass; the VOZY G80 was not physically available to this execution. |
-| Print outcome reporting | BLOCKED (end-to-end) | Durable DELIVERED/FAILED/UNCERTAIN route and outbox tests pass; no physical batch was reported. |
-| Payment completion | BLOCKED | Completion gating passes; no authentic paid print batch completed. |
-| Failed payment safety | PASS | Failed, expired, unknown, ambiguous, supersede-grace, and no-cash-fallback tests pass; none unlock capture. |
-| Interrupted session recovery | PASS | Original-session lookup/claim, paid recovery, idempotency, and fresh-session isolation tests pass without another charge. |
-| Interrupted print safety | PASS | In-flight recovery becomes `UNCERTAIN`, is durable, requires acknowledgement, and is never automatically resent. |
-| Prepaid regression | PASS | Local prepaid requires no Payments Worker and the full iOS suite passed its prepaid/checkout guards. |
-| Final iOS build | PASS | Xcode build-for-testing succeeded after the final app change; a physical-device build for `Carlo` also succeeded. |
-| Final relevant test suite | PASS | Payments Worker: 196/196. iOS final regression: 395/395. The previously failing hardware-isolation test passes. |
-| Physical printer confirmation | BLOCKED | No supervised VOZY G80 paper output occurred. Byte transmission is not being treated as physical proof. |
-
-Simulator UI inspection additionally confirmed that the welcome screen and operator Commercial Events & Sales screen render without an obvious layout regression. No payment data was created. A process exit during that inspection coincided with Xcode replacing the app launch with the test runner and had no exception trace; it is not classified as a product crash.
+| QR image generation | PASS | The existing physical-iPad TEST order contains the real provider QR image and provider IDs; no mock record was used. |
+| QR display on iPad | BLOCKED | A fresh current-build display observation awaits the supervised iPad run. |
+| PayMongo TEST simulator payment | PASS (provider record) | The prior ₱100 transaction has TEST provider payment evidence, `livemode=0`, and an authentic `payment.paid` webhook. A fresh supervised simulator run remains required for final physical acceptance. |
+| Server verification | PASS | The prior payment reached `PAID_VERIFIED` only after authoritative provider verification. |
+| Entitlement issuance | PASS | Exactly one `VERIFIED_QRPH` entitlement was issued for the prior order and purchased quantity remained two. |
+| Camera unlock | PASS (record chain) | The entitlement was claimed/consumed by its original physical-iPad session and the same order progressed to its print batch. Fresh UI observation remains part of the supervised run. |
+| Receipt composition | PASS (software/record chain) | The paid session progressed to a completed print batch; rendering regression tests pass. Physical output still requires owner inspection. |
+| Exact purchased-copy printing | BLOCKED | Server records show copy indices 1 and 2 delivered, but physical paper was not owner-confirmed. |
+| Print outcome reporting | PASS | The prior batch records exactly two `DELIVERED` Bluetooth outcomes against two authorized copies. |
+| Payment completion | PASS | The prior order is `COMPLETE`, its entitlement is `CONSUMED`, and only one entitlement exists. |
+| Failed payment safety | PASS | Failed, expired, unknown, ambiguous, supersede-grace, and no-cash-fallback tests pass; remote expired TEST attempts did not issue entitlements. |
+| Interrupted session recovery | PASS | Original-session lookup/claim, paid recovery, idempotency, and fresh-photo isolation tests pass without another charge. |
+| Interrupted print safety | PASS | In-flight recovery becomes durable `UNCERTAIN`, requires acknowledgement, and is never automatically resent. |
+| Prepaid regression | PASS | Private/prepaid remains local and independent of the Payments Worker; the final iOS regression passed its prepaid/checkout guards. |
+| Final iOS build | PASS | The current project built and was installed/launched in place on physical iPad `Carlo`. |
+| Final relevant test suite | PASS | Payments Worker: 196/196. iOS: 395/395. The formerly failing hardware-isolation test passes. Targeted Worker config checks and TEST/LIVE Wrangler dry-runs also passed. |
+| Physical printer confirmation | BLOCKED | Owner confirmation of exactly two correct VOZY G80 paper receipts is still required. Transport success alone is not treated as proof. |
 
 ## D. Remaining blockers
 
-1. Cloudflare authentication: from `Backend/PaymentsWorker`, run `npx wrangler login` and complete the browser authorization. Do not paste a token into chat or source. Then inspect the existing Worker, D1 binding/history, routes, secrets names, deployments, and logs before making any remote change.
-2. Existing TEST infrastructure: after authentication, identify and reuse the existing TEST D1/Worker/hostname, back up D1 before any pending forward-only migration, verify secret presence without displaying values, deploy the already locally validated Worker once, and verify `/v1/health`, webhook delivery, and Cron reconciliation. Do not create duplicates and do not touch LIVE.
-3. PayMongo dashboard: if the existing TEST webhook or secrets are missing, the owner must enter them through the provider/Cloudflare secure interfaces. Never place them in this repository or chat.
-4. Physical iPad: unlock/connect `Carlo`, install the current build without deleting app data, configure the verified TEST endpoint, and confirm booth/operator pairing.
-5. Physical printer: connect the existing VOZY G80 with 80 mm paper, then perform one supervised ₱100 TEST-simulator session for two copies and record purchased, attempted, transport, server-outcome, and physical-paper counts.
-6. Git write access: this environment denied `.git/index.lock`. Commit only the intended source files and this report, leaving BuildArtifacts changes unstaged; fast-forward local `main` and push without force only after rechecking `origin/main`.
-7. LIVE owner gates: merchant QR Ph eligibility, settlement/payout readiness, registration/invoicing/regulatory requirements, production secrets/D1/webhook/hostname, device provisioning, backups/incident procedures, final physical sign-off, and the separate 100-session qualification remain required. Keep `LIVE_PAYMENTS_ENABLED=false` until explicit authorization.
+1. On the paired iPad, publish a new revision of `DISPOSABLE TEST — Step 3 iPad Pro 2026-10-12` with ₱50 per copy, default two copies, QR Ph enabled, cash disabled, and offline cash disabled. This must use **Manage Event → Commercial Events & Sales**, not direct D1 editing.
+2. With the VOZY G80 connected and loaded, perform one supervised fresh checkout: two copies → ₱100 → QR Ph → protected TEST simulator success → entitlement/camera → photos/receipt → exactly two prints. Never scan the TEST QR with a real bank or e-wallet.
+3. The owner must confirm the physical paper count and output. The server record will then be reconciled against purchased copies, attempted copies, transport outcomes, completion, and clean welcome reset.
+4. LIVE owner gates remain separate: merchant QR Ph eligibility, settlement/payout readiness, registration/invoicing/regulatory requirements, production secrets/D1/webhook/hostname, device provisioning, backups/incident procedures, final physical sign-off, and the 100-session qualification. Keep `LIVE_PAYMENTS_ENABLED=false` until explicit authorization.
 
 ## E. Production release decision
 
-**TEST INTEGRATION BLOCKED — Cloudflare TEST access, an authentic PayMongo simulator transaction, physical iPad pairing, and VOZY G80 paper confirmation remain unavailable.**
+**TEST INTEGRATION BLOCKED — the existing provider-backed TEST record chain is verified, but the required fresh supervised current-build payment-to-physical-paper confirmation is not yet complete.**
 
-The local implementation and regression evidence are release-candidate clean, but they are not a substitute for the required provider-backed payment-to-print session. LIVE is not authorized and was not modified.
+LIVE is not authorized and was not modified.
