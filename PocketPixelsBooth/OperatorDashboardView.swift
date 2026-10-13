@@ -33,6 +33,7 @@ struct OperatorDashboardView: View {
                         .foregroundStyle(Color(uiColor: .systemBackground))
                 }.buttonStyle(.plain)
                 if !status.attentionItems.isEmpty { OperatorAttentionCard(items: status.attentionItems) }
+                OperatorSecondaryLink(title: "Print Display Samples", systemImage: "printer.dotmatrix", route: .samplePrints) { SamplePrintStudioView() }
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
                     OperatorSecondaryLink(title: "Branding & Design", systemImage: "paintpalette", route: .branding) { OperatorBrandingView() }
                     OperatorSecondaryLink(title: "Sales & History", systemImage: "chart.bar", route: .sales) { OperatorManageEventView() }
@@ -490,6 +491,7 @@ extension OperatorWorkspaceRoute {
         case .boothCheck: EventPreflightView()
         case .receiptDesign: ReceiptDesignAndBrandingView()
         case .stickers: StickerStudioOperatorView()
+        case .samplePrints: SamplePrintStudioView()
         case .equipment: OperatorEquipmentView()
         case .advanced: OperatorAdvancedView()
         case .printer: OperatorPrinterSetupView()

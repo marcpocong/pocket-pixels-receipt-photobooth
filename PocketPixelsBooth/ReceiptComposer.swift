@@ -274,6 +274,9 @@ enum ReceiptComposer {
     ///   - galleryURL: the session's gallery. Always pass it when it exists: whether the QR is
     ///     printed is decided only by `printOptions`.
     ///   - printOptions: the session's frozen physical-print options.
+    ///   - printsSessionIdentifier: false only for operator display samples. The identifier line
+    ///     keeps its space, so the sample is exactly as long as a guest receipt, but prints nothing:
+    ///     no transactional or invented session ID ever appears on a display sample.
     nonisolated static func compose(
         photos: [UIImage],
         sessionIdentifier: String,
@@ -284,7 +287,8 @@ enum ReceiptComposer {
         passport: PassportSessionData? = nil,
         photoQualityProfile: PocketPixelsThermalPhotoProfile = .customerPrintDefault,
         printOptions: ReceiptPrintOptions = .default,
-        stickers: [FrozenStickerDecoration] = []
+        stickers: [FrozenStickerDecoration] = [],
+        printsSessionIdentifier: Bool = true
     ) throws -> ComposedReceipt {
         try Task.checkCancellation()
         guard photos.count == format.photoCount else {
@@ -296,7 +300,7 @@ enum ReceiptComposer {
         let textSnapshot = makeTextSnapshot(
             format: format,
             date: date,
-            sessionIdentifier: sessionIdentifier,
+            sessionIdentifier: printsSessionIdentifier ? sessionIdentifier : "",
             eventProfile: eventSnapshot,
             headerSourceSize: headerArtwork?.size
         )

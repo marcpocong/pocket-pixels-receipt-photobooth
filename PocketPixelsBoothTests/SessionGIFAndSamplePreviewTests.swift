@@ -88,17 +88,8 @@ final class SessionGIFAndSamplePreviewTests: XCTestCase {
         XCTAssertNotNil(request.thermalReceipt)
     }
 
-    func testImportedPhotosRepeatAndCycleForEveryFormat() {
-        let first = photo(0)
-        let second = photo(1)
-        XCTAssertEqual(EventReceiptComposerPreview.samplePhotos(importedPhotos: [first], count: 1).count, 1)
-        XCTAssertEqual(EventReceiptComposerPreview.samplePhotos(importedPhotos: [first], count: 2).count, 2)
-        XCTAssertEqual(EventReceiptComposerPreview.samplePhotos(importedPhotos: [first], count: 6).count, 6)
-        let grid = EventReceiptComposerPreview.samplePhotos(importedPhotos: [first, second], count: 4)
-        XCTAssertTrue(grid[0] === first && grid[1] === second && grid[2] === first && grid[3] === second)
-        XCTAssertEqual(EventReceiptComposerPreview.samplePhotos(importedPhotos: (0..<6).map(photo), count: 6).count, 6)
-        XCTAssertEqual(EventReceiptComposerPreview.samplePhotos(importedPhotos: [first], count: BoothFormat.passport.photoCount).count, 2)
-    }
+    // Display samples no longer repeat imported photos implicitly; slot behavior is covered by
+    // SamplePrintStudioTests.
 
     private func photo(_ index: Int) -> UIImage {
         let size = index.isMultiple(of: 2) ? CGSize(width: 1200, height: 800) : CGSize(width: 800, height: 1200)

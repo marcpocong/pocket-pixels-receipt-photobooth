@@ -2,7 +2,7 @@ import Foundation
 import Combine
 
 nonisolated enum OperatorWorkspaceRoute: Codable, Hashable, Sendable {
-    case manageEvent, payments, charging, eventSetup, boothCheck, receiptDesign, stickers
+    case manageEvent, payments, charging, eventSetup, boothCheck, receiptDesign, stickers, samplePrints
     case equipment, advanced, printer, recovery, camera, gallery, waitingGalleries, recentSessions, storage, printHistory
     case serverEvent(String)
     case sessionSetup, branding, sales, eventReport(String), eventMaintenance(String)
@@ -16,6 +16,7 @@ nonisolated enum OperatorWorkspaceRoute: Codable, Hashable, Sendable {
         case .boothCheck: "Booth Check"
         case .receiptDesign: "Receipt Design & Branding"
         case .stickers: "Sticker Studio"
+        case .samplePrints: "Print Display Samples"
         case .equipment: "Equipment"
         case .advanced: "Advanced"
         case .printer: "Printer Setup"
