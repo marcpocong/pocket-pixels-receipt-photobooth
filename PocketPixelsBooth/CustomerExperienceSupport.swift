@@ -155,6 +155,8 @@ nonisolated enum CustomerExperiencePreviewPolicy {
 enum ReceiptPreviewMode: String, CaseIterable, Sendable {
     case keepsake
     case thermal
+    /// The guest's photos played in order, like the gallery GIF. Multi-photo formats only.
+    case motion
 
     static let printNote = "Prints in black and white on thermal paper."
     /// Reserved vertical space for the toggle and note on the receipt screen.
@@ -164,7 +166,13 @@ enum ReceiptPreviewMode: String, CaseIterable, Sendable {
         switch self {
         case .keepsake: "Keepsake"
         case .thermal: "As printed"
+        case .motion: "In Motion"
         }
+    }
+
+    /// Modes offered for a session. Solo has nothing to animate.
+    static func available(motion: Bool) -> [ReceiptPreviewMode] {
+        motion ? allCases : allCases.filter { $0 != .motion }
     }
 
     /// The thermal view falls back to the keepsake while the raster preview is still rendering.
@@ -172,6 +180,7 @@ enum ReceiptPreviewMode: String, CaseIterable, Sendable {
         switch self {
         case .keepsake: keepsake
         case .thermal: thermal ?? keepsake
+        case .motion: keepsake
         }
     }
 }

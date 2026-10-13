@@ -635,6 +635,15 @@ struct BoothSessionView: View {
         }
     }
 
+    private var motionPreviewAvailable: Bool {
+        SessionMotionPreview.isAvailable(format: viewModel.selectedBoothFormat, photoCount: viewModel.capturedPhotos.count)
+    }
+
+    /// Changes with the session and with any retake, so a stale sequence is never shown.
+    private var motionPreviewIdentity: String {
+        ([viewModel.sessionIdentifier ?? "session"] + viewModel.capturedPhotos.map { String(ObjectIdentifier($0).hashValue) }).joined(separator: "|")
+    }
+
     private var receiptCustomerHeader: some View {
         VStack(spacing: 8) {
             MadeToKeepLockup(scale: .compact)
@@ -675,6 +684,10 @@ struct BoothSessionView: View {
                 if let previewImage = viewModel.receiptImage, showsPrinterSlot {
                     FeedingReceiptView(image: previewImage, maxWidth: maxWidth, maxHeight: maxHeight,
                                        isPrinting: viewModel.state == .printing)
+                } else if receiptPreviewMode == .motion, motionPreviewAvailable {
+                    SessionMotionPreviewView(identity: motionPreviewIdentity, photos: viewModel.capturedPhotos)
+                        .frame(width: min(maxWidth, maxHeight), height: min(maxWidth, maxHeight))
+                        .accessibilityIdentifier("receiptPreview.motion")
                 } else if let previewImage = receiptPreviewMode.image(
                     keepsake: viewModel.receiptImage,
                     thermal: viewModel.thermalReceiptPreview
@@ -718,7 +731,7 @@ struct BoothSessionView: View {
     private func receiptPreviewModePicker(width: CGFloat) -> some View {
         VStack(spacing: 5) {
             HStack(spacing: 6) {
-                ForEach(ReceiptPreviewMode.allCases, id: \.self) { mode in
+                ForEach(ReceiptPreviewMode.available(motion: motionPreviewAvailable), id: \.self) { mode in
                     let isSelected = receiptPreviewMode == mode
                     Button {
                         receiptPreviewMode = mode
@@ -1151,16 +1164,25 @@ struct BoothSessionView: View {
                     .padding(.top, 34)
                     .pocketPixelsEntrance(active: thankYouMotionActive, reduceMotion: reduceMotion, delay: 0.08, offset: 0, scale: 0.97)
 
-                VStack(spacing: 10) {
-                    Text("scan to view and save your photos.")
-                        .font(MadeToKeepTheme.Typography.italicSerif(size: 28))
-                        .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
-                        .multilineTextAlignment(.center)
+                HStack(spacing: 18) {
+                    // A compact secondary tile: the QR above stays the focus of this screen.
+                    if motionPreviewAvailable {
+                        SessionMotionPreviewView(identity: motionPreviewIdentity, photos: viewModel.capturedPhotos)
+                            .frame(width: 92, height: 92)
+                            .accessibilityIdentifier("thankYou.motion")
+                    }
+                    VStack(spacing: 10) {
+                        Text("scan to view and save your photos.")
+                            .font(MadeToKeepTheme.Typography.italicSerif(size: 28))
+                            .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
+                            .multilineTextAlignment(motionPreviewAvailable ? .leading : .center)
 
-                    Text("The same QR is on your receipt.")
-                        .font(MadeToKeepTheme.Typography.sans(size: 17, weight: .regular))
-                        .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
-                        .multilineTextAlignment(.center)
+                        Text("The same QR is on your receipt.")
+                            .font(MadeToKeepTheme.Typography.sans(size: 17, weight: .regular))
+                            .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
+                            .multilineTextAlignment(motionPreviewAvailable ? .leading : .center)
+                    }
+                    .frame(maxWidth: motionPreviewAvailable ? .infinity : nil, alignment: .leading)
                 }
                 .padding(.top, 22)
                 .pocketPixelsEntrance(active: thankYouMotionActive, reduceMotion: reduceMotion, delay: 0.16, offset: 8)
