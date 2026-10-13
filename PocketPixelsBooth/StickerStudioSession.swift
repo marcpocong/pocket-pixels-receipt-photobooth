@@ -76,6 +76,9 @@ final class StickerStudioSession {
         catalog.categories
     }
 
+    func assetCount(in category: StickerCategory) -> Int { catalog.assets(in: category).count }
+    func catalogSearch(_ query: String) -> [StickerAsset] { catalog.search(query) }
+
     var visibleAssets: [StickerAsset] {
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         if !query.isEmpty { return catalog.search(query) }

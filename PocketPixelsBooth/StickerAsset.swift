@@ -51,7 +51,10 @@ nonisolated struct StickerAsset: Identifiable, Equatable, Sendable {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !needle.isEmpty else { return true }
         let haystack = ([name, category.displayName] + tags).joined(separator: " ").lowercased()
-        return needle.split(separator: " ").allSatisfy { haystack.contains($0) }
+        // "cats", "balloons" and "hearts" also find "cat", "balloon" and "heart".
+        return needle.split(separator: " ").allSatisfy { word in
+            haystack.contains(word) || (word.count > 3 && word.hasSuffix("s") && haystack.contains(word.dropLast()))
+        }
     }
 
     /// The still frame that prints for an animated sticker unless the guest picks another.

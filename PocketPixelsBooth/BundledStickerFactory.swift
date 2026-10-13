@@ -350,7 +350,7 @@ nonisolated enum BundledStickerFactory {
         Definition(id: "builtin.hi", name: "Hi!", category: .reactions, tags: ["hi", "hello", "wave", "speech"], aspectRatio: 1.4) { cg, size in
             speechBubble(cg, size: size, text: "HI!")
         }
-    ] + CuratedStickerArtwork.definitions
+    ] + CuratedStickerArtwork.definitions + ExpandedStickerArtwork.definitions
 
     // MARK: Drawing helpers
 

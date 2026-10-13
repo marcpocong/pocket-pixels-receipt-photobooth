@@ -163,7 +163,7 @@ nonisolated enum CuratedStickerArtwork {
     }
 
     // Canonical coordinates, heavy outlines, white internal fills and transparent surroundings.
-    private static func line(_ cg: CGContext, _ points: [(CGFloat, CGFloat)], width: CGFloat = 18) {
+    static func line(_ cg: CGContext, _ points: [(CGFloat, CGFloat)], width: CGFloat = 18) {
         guard let first = points.first else { return }
         let path = CGMutablePath()
         path.move(to: CGPoint(x: first.0, y: first.1))
@@ -171,7 +171,7 @@ nonisolated enum CuratedStickerArtwork {
         BundledStickerFactory.strokeInk(cg, path, width: width)
     }
 
-    private static func shape(_ cg: CGContext, _ points: [(CGFloat, CGFloat)], black: Bool = false) {
+    static func shape(_ cg: CGContext, _ points: [(CGFloat, CGFloat)], black: Bool = false) {
         guard let first = points.first else { return }
         let path = CGMutablePath()
         path.move(to: CGPoint(x: first.0, y: first.1))
@@ -180,36 +180,36 @@ nonisolated enum CuratedStickerArtwork {
         BundledStickerFactory.inkShape(cg, path, fill: black ? .black : .white)
     }
 
-    private static func oval(_ cg: CGContext, _ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat, black: Bool = false) {
+    static func oval(_ cg: CGContext, _ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat, black: Bool = false) {
         BundledStickerFactory.inkShape(cg, CGPath(ellipseIn: CGRect(x: x, y: y, width: w, height: h), transform: nil), fill: black ? .black : .white)
     }
 
-    private static func box(_ cg: CGContext, _ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat, radius: CGFloat = 16) {
+    static func box(_ cg: CGContext, _ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat, radius: CGFloat = 16) {
         BundledStickerFactory.inkShape(cg, UIBezierPath(roundedRect: CGRect(x: x, y: y, width: w, height: h), cornerRadius: radius).cgPath)
     }
 
-    private static func curve(_ cg: CGContext, _ from: CGPoint, _ c1: CGPoint, _ c2: CGPoint, _ to: CGPoint, width: CGFloat = 18) {
+    static func curve(_ cg: CGContext, _ from: CGPoint, _ c1: CGPoint, _ c2: CGPoint, _ to: CGPoint, width: CGFloat = 18) {
         let path = CGMutablePath()
         path.move(to: from)
         path.addCurve(to: to, control1: c1, control2: c2)
         BundledStickerFactory.strokeInk(cg, path, width: width)
     }
 
-    private static func heart(_ cg: CGContext, _ rect: CGRect, black: Bool = false) {
+    static func heart(_ cg: CGContext, _ rect: CGRect, black: Bool = false) {
         BundledStickerFactory.inkShape(cg, BundledStickerFactory.heartPath(in: rect), fill: black ? .black : .white)
     }
 
-    private static func star(_ cg: CGContext, _ x: CGFloat, _ y: CGFloat, _ size: CGFloat, black: Bool = false) {
+    static func star(_ cg: CGContext, _ x: CGFloat, _ y: CGFloat, _ size: CGFloat, black: Bool = false) {
         BundledStickerFactory.inkShape(cg, BundledStickerFactory.starPath(in: CGRect(x: x, y: y, width: size, height: size), points: 5, innerRatio: 0.46), fill: black ? .black : .white)
     }
 
-    private static func face(_ cg: CGContext, _ y: CGFloat = 245) {
+    static func face(_ cg: CGContext, _ y: CGFloat = 245) {
         oval(cg, 180, y, 22, 28, black: true)
         oval(cg, 310, y, 22, 28, black: true)
         curve(cg, CGPoint(x: 212, y: y + 65), CGPoint(x: 242, y: y + 104), CGPoint(x: 279, y: y + 104), CGPoint(x: 305, y: y + 65), width: 14)
     }
 
-    private static func label(_ cg: CGContext, _ words: String, _ rect: CGRect) {
+    static func label(_ cg: CGContext, _ words: String, _ rect: CGRect) {
         BundledStickerFactory.drawLabel(cg, words, in: rect)
     }
 

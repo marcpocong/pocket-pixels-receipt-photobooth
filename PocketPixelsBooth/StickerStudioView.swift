@@ -22,6 +22,7 @@ struct StickerStudioView: View {
     @State private var showingResetConfirmation = false
     @State private var showingSkipConfirmation = false
     @FocusState private var searchFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     static let gestureHint = "Drag to move • Pinch to resize • Twist to rotate"
 
@@ -145,29 +146,37 @@ struct StickerStudioView: View {
     }
 
     private var categoryTabs: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(session.categories) { category in
-                    let selected = session.selectedCategory == category && session.searchQuery.isEmpty
-                    Button {
-                        session.selectedCategory = category
-                        session.searchQuery = ""
-                        searchFocused = false
-                        onActivity()
-                    } label: {
-                        Text(category.displayName)
-                            .font(MadeToKeepTheme.Typography.sans(size: 16, weight: selected ? .semibold : .regular))
-                            .foregroundStyle(selected ? MadeToKeepTheme.ColorPalette.ivoryLight : MadeToKeepTheme.ColorPalette.burgundy)
-                            .padding(.horizontal, 18)
-                            .frame(minHeight: 48)
-                            .background(Capsule().fill(selected ? MadeToKeepTheme.ColorPalette.burgundy : MadeToKeepTheme.ColorPalette.ivoryLight))
-                            .overlay(Capsule().strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.4), lineWidth: 1))
+        ScrollViewReader { reader in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(session.categories) { category in
+                        let selected = session.selectedCategory == category && session.searchQuery.isEmpty
+                        Button {
+                            session.selectedCategory = category
+                            session.searchQuery = ""
+                            searchFocused = false
+                            onActivity()
+                        } label: {
+                            Text(category.displayName)
+                                .font(MadeToKeepTheme.Typography.sans(size: 16, weight: selected ? .semibold : .regular))
+                                .foregroundStyle(selected ? MadeToKeepTheme.ColorPalette.ivoryLight : MadeToKeepTheme.ColorPalette.burgundy)
+                                .padding(.horizontal, 18)
+                                .frame(minHeight: 48)
+                                .background(Capsule().fill(selected ? MadeToKeepTheme.ColorPalette.burgundy : MadeToKeepTheme.ColorPalette.ivoryLight))
+                                .overlay(Capsule().strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.4), lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                        .id(category)
+                        .accessibilityLabel("\(category.displayName), \(session.assetCount(in: category)) stickers")
+                        .accessibilityAddTraits(selected ? .isSelected : [])
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(selected ? .isSelected : [])
                 }
+                .padding(.vertical, 2)
             }
-            .padding(.vertical, 2)
+            .onChange(of: session.selectedCategory) { _, category in
+                guard let category else { return }
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) { reader.scrollTo(category, anchor: .center) }
+            }
         }
     }
 
@@ -200,24 +209,40 @@ struct StickerStudioView: View {
 
     @ViewBuilder
     private var palette: some View {
-        ScrollView {
-            localPalette
+        ScrollViewReader { reader in
+            ScrollView {
+                localPalette
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .onScrollPhaseChange { _, phase in if phase == .interacting { onActivity() } }
+            // A new category or search always starts at its first sticker.
+            .onChange(of: session.selectedCategory) { _, _ in reader.scrollTo(Self.paletteTop, anchor: .top) }
+            .onChange(of: session.searchQuery) { _, _ in reader.scrollTo(Self.paletteTop, anchor: .top) }
         }
-        .scrollDismissesKeyboard(.interactively)
-        .onScrollPhaseChange { _, phase in if phase == .interacting { onActivity() } }
         .background(RoundedRectangle(cornerRadius: 12).fill(MadeToKeepTheme.ColorPalette.ivoryLight.opacity(0.6)))
+        .sensoryFeedback(.success, trigger: session.placements.count) { old, new in new > old }
     }
 
+    private static let paletteTop = "sticker-palette-top"
     private let gridColumns = [GridItem(.adaptive(minimum: 92, maximum: 120), spacing: 10)]
+    private static let searchSuggestions = ["heart", "cute", "birthday", "love", "party", "travel", "retro", "funny"]
+
+    private var isSearching: Bool { !session.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     private var localPalette: some View {
         let assets = session.visibleAssets
-        return VStack(spacing: 10) {
-            if assets.isEmpty {
-                Text(session.searchQuery.isEmpty ? "No stickers here yet." : "No stickers match “\(session.searchQuery)”.")
-                    .font(MadeToKeepTheme.Typography.sans(size: 16))
+        return VStack(alignment: .leading, spacing: 10) {
+            Color.clear.frame(height: 0).id(Self.paletteTop)
+            if isSearching && !assets.isEmpty {
+                Text(assets.count == 1 ? "1 sticker" : "\(assets.count) stickers")
+                    .font(MadeToKeepTheme.Typography.sans(size: 14, weight: .medium))
                     .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
-                    .padding(30)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
+            if assets.isEmpty {
+                emptyPalette
             }
             LazyVGrid(columns: gridColumns, spacing: 10) {
                 ForEach(assets) { asset in
@@ -227,16 +252,53 @@ struct StickerStudioView: View {
                         onActivity()
                     } label: {
                         StickerThumbnail(image: session.thumbnails[asset.id], failed: session.failedThumbnails.contains(asset.id), badge: nil)
+                            .opacity(session.isAtLimit ? 0.45 : 1)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(StickerThumbnailButtonStyle(reduceMotion: reduceMotion))
                     .disabled(session.isAtLimit || session.failedThumbnails.contains(asset.id))
                     .onAppear { session.requestThumbnail(for: asset) }
                     .accessibilityLabel("Add \(asset.name) sticker")
                 }
             }
             .padding(10)
-
         }
+    }
+
+    @ViewBuilder
+    private var emptyPalette: some View {
+        VStack(spacing: 14) {
+            Text(isSearching ? "No stickers match “\(session.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines))”." : "No stickers here yet.")
+                .font(MadeToKeepTheme.Typography.sans(size: 16))
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
+                .multilineTextAlignment(.center)
+            if isSearching {
+                Text("Try one of these:")
+                    .font(MadeToKeepTheme.Typography.sans(size: 14))
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], spacing: 8) {
+                    ForEach(Self.searchSuggestions.filter { !session.catalogSearch($0).isEmpty }, id: \.self) { suggestion in
+                        Button(suggestion) {
+                            session.searchQuery = suggestion
+                            onActivity()
+                        }
+                        .font(MadeToKeepTheme.Typography.sans(size: 15, weight: .medium))
+                        .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(Capsule().fill(MadeToKeepTheme.ColorPalette.ivoryLight))
+                        .overlay(Capsule().strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.35)))
+                        .buttonStyle(.plain)
+                    }
+                }
+                Button("Clear Search") {
+                    session.searchQuery = ""
+                    searchFocused = false
+                    onActivity()
+                }
+                .buttonStyle(MadeToKeepSecondaryButtonStyle())
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(24)
     }
 
     private var editToolbar: some View {
@@ -304,6 +366,21 @@ struct StickerStudioView: View {
         searchFocused = false
         session.select(nil)
         skip ? onSkip() : onDone()
+    }
+}
+
+/// Immediate press feedback so a tap on a small thumbnail clearly registers.
+private struct StickerThumbnailButtonStyle: ButtonStyle {
+    let reduceMotion: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.92 : 1)
+            .overlay {
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(MadeToKeepTheme.ColorPalette.burgundy, lineWidth: configuration.isPressed ? 2.5 : 0)
+            }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 

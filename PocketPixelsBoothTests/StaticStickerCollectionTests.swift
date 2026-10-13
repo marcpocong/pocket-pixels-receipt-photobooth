@@ -13,10 +13,11 @@ import XCTest
         return settings
     }
 
-    func testAll150StickersAreDistinctStaticTransparentAndBounded() throws {
+    func testAll200StickersAreDistinctStaticTransparentAndBounded() throws {
         let assets = BundledStickerFactory.assets
-        XCTAssertEqual(assets.count, 150)
-        XCTAssertEqual(Set(assets.map(\.id)).count, 150)
+        XCTAssertEqual(assets.count, 200)
+        XCTAssertEqual(Set(assets.map(\.id)).count, 200)
+        XCTAssertEqual(Set(assets.map { $0.name.lowercased() }).count, 200, "Every sticker has its own name")
         var fingerprints = Set<String>()
         for asset in assets {
             XCTAssertFalse(asset.isAnimated)
@@ -39,18 +40,57 @@ import XCTest
             XCTAssertLessThan(Double(ink) / Double(area), 0.65, "\(asset.name) must not become a black blob")
             XCTAssertGreaterThan(Double(transparent) / Double(area), 0.05, "\(asset.name) needs transparent surroundings")
         }
-        XCTAssertEqual(fingerprints.count, 150, "Distinct names must correspond to distinct artwork")
+        XCTAssertEqual(fingerprints.count, 200, "Distinct names must correspond to distinct artwork")
+    }
+
+    /// Saved placements, sessions and audits refer to sticker IDs, so the original 150 must never
+    /// be renamed or removed; the expansion only adds.
+    func testOriginal150StickerIDsArePreservedAndExpansionAddsFifty() {
+        let original = [
+            "star", "sparkles", "smiley", "crown", "bolt", "sunglasses", "bow", "flower",
+            "cloud", "cherries", "heart", "heart-outline", "hearts-trio", "heart-arrow", "arrow", "squiggle",
+            "confetti", "burst", "banner-yay", "lol", "omg", "wow", "side-eye", "mood",
+            "pov", "besties", "iykyk", "hi", "rosette", "ribbon-tails", "photo-frame", "film-border",
+            "admit-one", "wax-seal", "scallop-stamp", "sunburst", "love-letter", "heart-lock", "linked-hearts", "heart-wings",
+            "love-potion", "rose", "kiss", "heart-key", "holding-hands", "love-postage", "cat", "puppy",
+            "bear", "bunny", "frog", "duck", "fish", "butterfly", "strawberry", "mushroom",
+            "bee", "snail", "whale", "sleepy-moon", "scribble", "swirl-arrow", "pointing-hand", "stitched-patch",
+            "paperclips", "peace-hand", "xoxo", "slay", "oops", "love-this", "so-cute", "best-day",
+            "cheers", "oh-snap", "iconic", "brb", "all-smiles", "good-vibes", "cake", "cupcake",
+            "candle", "balloons", "party-hat", "gift", "happy-birthday", "make-a-wish", "cake-slice", "party-flags",
+            "birthday-tiara", "party-blower", "clinking-glasses", "celebration-bottle", "disco-ball", "party-popper", "graduation-cap", "diploma",
+            "trophy", "medal", "congrats", "hooray", "twin-lens", "instant-camera", "film-roll", "cassette",
+            "vinyl", "compact-disc", "floppy", "television", "telephone", "pixel-cursor", "game-console", "radio",
+            "airplane", "suitcase", "sun", "crescent", "mountains", "waves", "palm", "globe",
+            "compass", "location", "hiking-boot", "binoculars", "tent", "postcard", "coffee", "open-book",
+            "headphones", "music-notes", "pizza", "croissant", "donut", "ice-cream", "tote", "teacup",
+            "pencil", "bicycle", "umbrella", "houseplant", "made-to-keep", "keep-this-moment", "forever", "little-memory",
+            "memory-stamp", "keepsake-ticket", "photo-album", "memory-jar", "memory-box", "pressed-flower"
+        ].map { "builtin.\($0)" }
+        XCTAssertEqual(original.count, 150)
+        let ids = BundledStickerFactory.assets.map(\.id)
+        XCTAssertEqual(Array(ids.prefix(150)), original)
+        XCTAssertEqual(ExpandedStickerArtwork.definitions.count, 50)
+        XCTAssertTrue(Set(ExpandedStickerArtwork.definitions.map(\.id)).isDisjoint(with: original))
+        for definition in ExpandedStickerArtwork.definitions {
+            XCTAssertGreaterThanOrEqual(definition.tags.count, 4, "\(definition.name) needs searchable tags")
+        }
     }
 
     func testCategoryBrowsingAndSearchStayEntirelyLocal() throws {
         let catalog = StickerGuestCatalog.make(settings: settings(), store: nil)
-        XCTAssertEqual(catalog.assets.count, 150)
+        XCTAssertEqual(catalog.assets.count, 200)
         XCTAssertEqual(catalog.categories.count, 11)
         XCTAssertFalse(catalog.categories.contains(.online))
         for category in catalog.categories { XCTAssertFalse(catalog.assets(in: category).isEmpty) }
-        for query in ["cat", "birthday", "coffee", "memory", "camera", "heart", "travel", "slay"] {
+        for query in ["cat", "birthday", "coffee", "memory", "camera", "heart", "travel", "slay", "penguin", "fireworks", "lighthouse", "boombox", "locket", "haha"] {
             XCTAssertFalse(catalog.search(query).isEmpty, "Offline search should find \(query)")
         }
+        XCTAssertTrue(catalog.search("qwertyuiop").isEmpty, "Unmatched searches show the empty state")
+        let balloons = Set(catalog.search("balloons").map(\.id))
+        XCTAssertTrue(balloons.isSuperset(of: ["builtin.balloons", "builtin.heart-balloon", "builtin.hot-air-balloon"]), "Plural searches find singular tags")
+        XCTAssertEqual(Set(catalog.search("cats").map(\.id)), Set(catalog.search("cat").map(\.id)))
+        XCTAssertEqual(catalog.search("wedding cake").map(\.id), ["builtin.wedding-cake"])
         var filtered = settings()
         filtered.hiddenCategories = [.retro, .birthday]
         let hidden = StickerGuestCatalog.make(settings: filtered, store: nil)
