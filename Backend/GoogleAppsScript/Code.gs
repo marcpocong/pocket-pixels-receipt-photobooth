@@ -37,7 +37,7 @@ const MAX_GALLERY_DECODED_BYTES = 6 * 1024 * 1024;
 
 const MAX_GALLERY_BASE64_CHARS = 9 * 1024 * 1024;
 
-const BACKEND_VERSION = 'made-to-keep-gallery-v2-optional-gif-20261009';
+const BACKEND_VERSION = 'made-to-keep-gallery-v2-editorial-20261014';
 
 // Customer-visible Made to Keep Studios identity. Script Property names, the completed-gallery
 // marker and self-test entry points keep their legacy Pocket Pixels identifiers for compatibility.
@@ -1334,36 +1334,98 @@ function findCompleteGalleryByNameFallback_(root, token, timings) {
   return { folder: folder, manifest: manifest, filesByName: exactInspection.filesByName };
 }
 
-function madeToKeepBrandLockupHTML_() {
+function madeToKeepBrandLockupHTML_(size) {
 
-  // Pure HTML/CSS typographic lockup; no bitmap logo is embedded in the gallery.
-  return '<div class="brand-lockup" role="img" aria-label="' + MADE_TO_KEEP_BRAND.fullName + '"><span class="brand-descriptor">' + MADE_TO_KEEP_BRAND.descriptor + '</span><span class="brand-rule" aria-hidden="true"></span><span class="brand-wordmark">' + MADE_TO_KEEP_BRAND.wordmark + '</span><span class="brand-secondary">' + MADE_TO_KEEP_BRAND.secondary + '</span></div>';
+  // Pure HTML/CSS typographic lockup; no bitmap logo or web font is downloaded.
+  return '<div class="brand-lockup' + (size ? ' brand-lockup-' + size : '') + '" role="img" aria-label="' + MADE_TO_KEEP_BRAND.fullName + '"><span class="brand-descriptor">' + MADE_TO_KEEP_BRAND.descriptor + '</span><span class="brand-rule" aria-hidden="true"></span><span class="brand-wordmark">' + MADE_TO_KEEP_BRAND.wordmark + '</span><span class="brand-secondary">' + MADE_TO_KEEP_BRAND.secondary + '</span></div>';
+
+}
+
+function galleryNoticePage_(options) {
+
+  // One branded layout for every non-gallery state. `options.state` is a fixed internal value.
+  return pageShell_(
+
+    '<main class="center-page" data-gallery-state="' + options.state + '"><section class="notice">' + madeToKeepBrandLockupHTML_('compact') +
+    '<h1>' + options.title + '</h1>' +
+    (options.loader ? '<div class="loader" aria-hidden="true"></div>' : '') +
+    '<p id="noticeText">' + options.message + '</p>' +
+    (options.button ? '<button type="button" class="btn" id="noticeAction" onclick="window.location.reload()">' + options.button + '</button>' : '') +
+    (options.footnote ? '<p class="notice-footnote" id="noticeFootnote">' + options.footnote + '</p>' : '') +
+    '</section></main>',
+
+    options.script || ''
+
+  );
 
 }
 
 function renderInvalidGalleryPage_() {
 
-  return makeHTML_(pageShell_(
+  // A malformed token can never become a gallery, so this page never polls or promises photos.
+  return makeHTML_(galleryNoticePage_({
 
-    '<main class="center-page"><section class="notice">' + madeToKeepBrandLockupHTML_() + '<h1>we could not load your photos just yet.</h1><p>This gallery link cannot be opened. Please try scanning the QR again.</p><button type="button" onclick="window.location.reload()">Try Again</button></section></main>',
+    state: 'invalid',
+    title: 'this link doesn’t look quite right.',
+    message: 'This gallery link cannot be opened. Please scan the QR code on your receipt again, or ask the booth team for help.'
 
-    ''
-
-  ));
+  }));
 
 }
 
 function renderPendingGalleryPage_() {
 
-  const script = 'var started=Date.now();var timer=setInterval(function(){if(Date.now()-started>120000){clearInterval(timer);return;}window.location.reload();},8000);';
+  // Gentle, bounded checking: 6, 10, 15, 20, 30 and 45 seconds apart (about two minutes), counted
+  // across reloads in sessionStorage so the limit survives each refresh. Then it stops and waits
+  // for the guest. Nothing about the stored gallery changes when this page reloads.
+  const script = [
+    '(function(){var delays=[6,10,15,20,30,45];var key="mtk-pending-checks";var count=0;',
+    'try{count=parseInt(sessionStorage.getItem(key)||"0",10)||0;}catch(e){}',
+    'var text=document.getElementById("noticeText");var foot=document.getElementById("noticeFootnote");var action=document.getElementById("noticeAction");',
+    'if(action){action.onclick=function(){try{sessionStorage.setItem(key,"0");}catch(e){}window.location.reload();};}',
+    'if(count>=delays.length){if(text){text.textContent="This is taking a little longer than usual. Your photos are safe with us — please check again in a few minutes.";}if(foot){foot.textContent="Automatic checking has paused.";}var loader=document.querySelector(".loader");if(loader){loader.remove();}return;}',
+    'setTimeout(function(){try{sessionStorage.setItem(key,String(count+1));}catch(e){}window.location.reload();},delays[count]*1000);})();'
+  ].join('');
 
-  return makeHTML_(pageShell_(
+  return makeHTML_(galleryNoticePage_({
 
-    '<main class="center-page"><section class="notice">' + madeToKeepBrandLockupHTML_() + '<h1>your photos are still being prepared.</h1><div class="loader" aria-hidden="true"></div><p>Please check again in a moment.</p><button type="button" onclick="window.location.reload()">Check Again</button></section></main>',
+    state: 'pending',
+    title: 'your photos are still being prepared.',
+    message: 'Your gallery is on its way from the booth. This page checks again automatically.',
+    loader: true,
+    button: 'Check Again',
+    footnote: 'You can keep this page open or come back to the same link later.',
+    script: script
 
-    script
+  }));
 
-  ));
+}
+
+function renderGalleryTooLargePage_() {
+
+  return makeHTML_(galleryNoticePage_({
+
+    state: 'unavailable',
+    title: 'gallery temporarily unavailable.',
+    message: 'Your photos are saved, but this gallery cannot be shown right now. Please try again later or ask the booth team for help.',
+    button: 'Try Again'
+
+  }));
+
+}
+
+function galleryPhotoCardHTML_(item, index, total) {
+
+  const name = escapeHTML(item.filename);
+  const loading = index === 0 ? 'eager' : 'lazy';
+
+  return '<figure class="shot"><button type="button" class="shot-frame image-button" data-open="' + name + '" aria-label="View photo ' + (index + 1) + ' of ' + total + ' larger">' +
+    '<div class="image-placeholder" id="placeholder-' + name + '"><span>developing…</span></div>' +
+    '<img hidden decoding="async" loading="' + loading + '" id="image-' + name + '" alt="Made to Keep Studios photo ' + (index + 1) + '"></button>' +
+    '<figcaption class="shot-actions"><span class="shot-label">Photo ' + (index + 1) + '</span><span class="shot-buttons">' +
+    '<button type="button" class="btn-small" data-download="' + name + '">Save Photo</button>' +
+    '<button type="button" class="btn-small ghost" data-share="' + name + '">Share</button>' +
+    '</span></figcaption></figure>';
 
 }
 
@@ -1407,38 +1469,81 @@ function renderGalleryPage_(gallery, timings, startedAt) {
 
   }).replace(/</g, '\\u003c');
 
+  const photoCount = assets.photos.length;
+  const gifName = assets.gif ? escapeHTML(assets.gif.filename) : '';
+
   let body = '';
 
   body += '<main class="gallery-shell" data-pocket-pixels-gallery-status="complete">';
 
-  body += '<header class="gallery-hero">' + madeToKeepBrandLockupHTML_() + '<h1>your moments, made to keep.</h1><p class="lede">View, save and share the photographs from your session.</p></header>';
+  // A. Header, beside the GIF highlight on wide screens.
+  body += '<section class="intro' + (assets.gif ? ' has-motion' : '') + '">';
 
-  body += '<section class="primary-actions" aria-label="Save photos"><button type="button" id="shareAll">Save All Photos</button><p id="allHint">Save your photos before closing this page.</p><p id="message" role="status" aria-live="polite"></p></section>';
+  body += '<header class="gallery-hero">' + madeToKeepBrandLockupHTML_('compact') +
+    '<h1>your moments, made to keep.</h1>' +
+    '<p class="lede">Relive, save, and share your photobooth memories.</p>' +
+    (createdAt ? '<p class="session-date"><span>Captured</span> ' + escapeHTML(createdAt) + '</p>' : '') +
+    '</header>';
 
-  body += '<section class="section-heading"><p>Photo Gallery</p></section>';
+  // B. Session GIF, only when it exists: no empty frame or broken image is ever shown.
+  if (assets.gif) {
 
-  body += '<section class="photo-grid photo-count-' + assets.photos.length + '" aria-label="Made to Keep Studios photo gallery">';
-
-  for (let i = 0; i < assets.photos.length; i++) {
-
-    const filename = assets.photos[i].filename;
-    const loading = i === 0 ? 'eager' : 'lazy';
-
-    body += '<article class="photo-item"><button type="button" class="image-button" data-open="' + filename + '" aria-label="View photo ' + (i + 1) + ' larger"><div class="image-placeholder" id="placeholder-' + filename + '">getting photo ready...</div><img hidden decoding="async" loading="' + loading + '" id="image-' + filename + '" alt="Made to Keep Studios photo ' + (i + 1) + '"></button><div class="photo-actions"><span>Photo ' + (i + 1) + '</span><div><button type="button" data-download="' + filename + '">Save Photo</button><button type="button" class="secondary" data-share="' + filename + '">Share</button></div></div></article>';
+    body += '<section class="gif-section motion" aria-labelledby="motionTitle"><div class="section-heading"><h2 id="motionTitle">Your GIF</h2><p>in motion</p></div>' +
+      '<figure class="motion-card"><button type="button" class="motion-frame image-button" data-open="' + gifName + '" aria-label="Open animated GIF larger">' +
+      '<img hidden decoding="async" loading="eager" id="image-' + gifName + '" alt="Animated Made to Keep Studios session GIF">' +
+      '<img hidden decoding="async" id="motionPoster" alt="First frame of your session GIF">' +
+      '</button><button type="button" class="motion-toggle" id="motionToggle" aria-pressed="false" hidden>Play</button></figure>' +
+      '<div class="motion-actions"><button type="button" class="btn" data-download="' + gifName + '">Save GIF</button><button type="button" class="btn ghost" data-share="' + gifName + '">Share GIF</button></div>' +
+      '</section>';
 
   }
 
   body += '</section>';
 
-  if (assets.gif) body += '<section class="gif-section"><div class="section-heading"><p>Your GIF</p></div><article class="gif-item"><button type="button" class="image-button" data-open="' + assets.gif.filename + '" aria-label="Open animated GIF larger"><img decoding="async" loading="eager" id="image-' + assets.gif.filename + '" alt="Animated Made to Keep Studios session GIF"></button><div class="photo-actions"><span>Your GIF</span><div><button type="button" data-download="' + assets.gif.filename + '">Save GIF</button><button type="button" class="secondary" data-share="' + assets.gif.filename + '">Share GIF</button></div></div></article></section>';
+  // C. Photographs, laid out by photo count; every photo opens, saves and shares on its own.
+  body += '<section class="photos" aria-labelledby="photosTitle"><div class="section-heading section-heading-actions"><div><h2 id="photosTitle">Photo Gallery</h2><p>' + photoCount + (photoCount === 1 ? ' photo' : ' photos') + '</p></div>' +
+    '<div class="save-all"><button type="button" class="btn primary" id="shareAll">Save All Photos</button><p id="allHint"></p></div></div>';
 
-  body += '<section class="receipt-section"><div class="section-heading"><p>Receipt Copy</p></div><div class="receipt-grid"><article class="receipt-item"><button type="button" class="image-button" data-open="' + assets.receipt.filename + '" aria-label="View color receipt larger"><div class="image-placeholder receipt-placeholder" id="placeholder-' + assets.receipt.filename + '">getting receipt ready...</div><img hidden decoding="async" loading="lazy" id="image-' + assets.receipt.filename + '" alt="Made to Keep Studios color receipt"></button><div class="photo-actions"><span>Color Receipt</span><div><button type="button" data-download="' + assets.receipt.filename + '">Save Receipt</button><button type="button" class="secondary" data-share="' + assets.receipt.filename + '">Share</button></div></div></article>' + (assets.thermalReceipt ? '<article class="receipt-item"><button type="button" class="image-button" data-open="' + assets.thermalReceipt.filename + '" aria-label="View thermal receipt larger"><div class="image-placeholder receipt-placeholder" id="placeholder-' + assets.thermalReceipt.filename + '">getting receipt ready...</div><img hidden decoding="async" loading="lazy" id="image-' + assets.thermalReceipt.filename + '" alt="Made to Keep Studios thermal receipt"></button><div class="photo-actions"><span>Thermal Receipt</span><div><button type="button" data-download="' + assets.thermalReceipt.filename + '">Save Receipt</button><button type="button" class="secondary" data-share="' + assets.thermalReceipt.filename + '">Share</button></div></div></article>' : '') + '</div></section>';
+  body += '<div class="photo-grid photo-count-' + photoCount + '" aria-label="Made to Keep Studios photo gallery">';
 
-  body += '<section class="session-note"><p>' + escapeHTML(createdAt) + '</p><p>' + escapeHTML(reference) + '</p></section>';
+  for (let i = 0; i < photoCount; i++) {
 
-  body += '<footer><span class="footer-descriptor">' + MADE_TO_KEEP_BRAND.descriptor + '</span><span class="brand-rule" aria-hidden="true"></span><strong class="footer-wordmark">' + MADE_TO_KEEP_BRAND.wordmark + '</strong><span class="footer-secondary">' + MADE_TO_KEEP_BRAND.secondary + '</span><em class="footer-tagline">' + MADE_TO_KEEP_BRAND.tagline + '</em></footer>';
+    body += galleryPhotoCardHTML_(assets.photos[i], i, photoCount);
 
-  body += '<div class="lightbox" id="lightbox" hidden><button type="button" class="lightbox-close" id="lightboxClose">Close</button><img id="lightboxImage" alt=""><button type="button" class="lightbox-save" id="lightboxSave">Save Photo</button></div>';
+  }
+
+  body += '</div></section>';
+
+  // D. Receipt: the color keepsake first, the printed black-and-white version as a quiet extra.
+  const receiptName = escapeHTML(assets.receipt.filename);
+
+  body += '<section class="receipt-section" aria-labelledby="receiptTitle"><div class="section-heading"><h2 id="receiptTitle">Receipt Copy</h2><p>your keepsake</p></div><div class="receipt-layout">' +
+    '<figure class="receipt-item"><button type="button" class="receipt-frame image-button" data-open="' + receiptName + '" aria-label="View color receipt larger"><div class="image-placeholder receipt-placeholder" id="placeholder-' + receiptName + '"><span>developing…</span></div><img hidden decoding="async" loading="lazy" id="image-' + receiptName + '" alt="Made to Keep Studios color receipt"></button>' +
+    '<figcaption class="shot-actions"><span class="shot-label">Color Receipt</span><span class="shot-buttons"><button type="button" class="btn-small" data-download="' + receiptName + '">Save Receipt</button><button type="button" class="btn-small ghost" data-share="' + receiptName + '">Share</button></span></figcaption></figure>';
+
+  if (assets.thermalReceipt) {
+
+    const thermalName = escapeHTML(assets.thermalReceipt.filename);
+
+    body += '<details class="printed-version"><summary>Printed version <span>black &amp; white, as it came out of the booth</span></summary>' +
+      '<figure class="receipt-item receipt-item-printed"><button type="button" class="receipt-frame image-button" data-open="' + thermalName + '" aria-label="View printed receipt larger"><div class="image-placeholder receipt-placeholder" id="placeholder-' + thermalName + '"><span>developing…</span></div><img hidden decoding="async" loading="lazy" id="image-' + thermalName + '" alt="Made to Keep Studios thermal receipt"></button>' +
+      '<figcaption class="shot-actions"><span class="shot-label">Thermal Receipt</span><span class="shot-buttons"><button type="button" class="btn-small" data-download="' + thermalName + '">Save Receipt</button><button type="button" class="btn-small ghost" data-share="' + thermalName + '">Share</button></span></figcaption></figure></details>';
+
+  }
+
+  body += '</div></section>';
+
+  // E. Quiet footer with a privacy reminder and the support reference.
+  body += '<footer>' + '<span class="footer-descriptor">' + MADE_TO_KEEP_BRAND.descriptor + '</span><span class="brand-rule" aria-hidden="true"></span><strong class="footer-wordmark">' + MADE_TO_KEEP_BRAND.wordmark + '</strong><span class="footer-secondary">' + MADE_TO_KEEP_BRAND.secondary + '</span><em class="footer-tagline">' + MADE_TO_KEEP_BRAND.tagline + '</em>' +
+    '<p class="privacy-note">This gallery is private to the link on your receipt. Save your favourites to keep them close.</p>' +
+    (reference ? '<p class="reference">Ref ' + escapeHTML(reference) + '</p>' : '') + '</footer>';
+
+  body += '<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Full-size view" hidden>' +
+    '<div class="lightbox-bar"><span id="lightboxCount" aria-live="polite"></span><button type="button" class="lightbox-close" id="lightboxClose">Close</button></div>' +
+    '<div class="lightbox-stage"><button type="button" class="lightbox-nav" id="lightboxPrev" aria-label="Previous photo">‹</button><img id="lightboxImage" alt=""><button type="button" class="lightbox-nav" id="lightboxNext" aria-label="Next photo">›</button></div>' +
+    '<div class="lightbox-bar lightbox-actions"><button type="button" class="lightbox-save" id="lightboxSave">Save Photo</button><button type="button" class="lightbox-share" id="lightboxShare">Share</button></div></div>';
+
+  body += '<p id="message" class="toast" role="status" aria-live="polite"></p>';
 
   body += '</main>';
 
@@ -1460,18 +1565,6 @@ function renderGalleryPage_(gallery, timings, startedAt) {
 
 }
 
-function renderGalleryTooLargePage_() {
-
-  return makeHTML_(pageShell_(
-
-    '<main class="center-page"><section class="notice">' + madeToKeepBrandLockupHTML_() + '<h1>Gallery temporarily unavailable.</h1><p>Please ask the booth operator to refresh this gallery.</p></section></main>',
-
-    ''
-
-  ));
-
-}
-
 function makeHTML_(html) {
 
   return HtmlService.createHtmlOutput(html)
@@ -1488,7 +1581,7 @@ function pageShell_(body, script) {
 
     '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">' +
 
-    '<meta name="robots" content="noindex,nofollow"><base target="_top">' +
+    '<meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#F7F1E9"><base target="_top">' +
 
     '<title>' + MADE_TO_KEEP_BRAND.galleryTitle + '</title><style>' + galleryCSS_() + '</style></head><body>' +
 
@@ -1610,87 +1703,198 @@ function formatManilaDate_(createdAt) {
 
   }
 
-  return Utilities.formatDate(date, 'Asia/Manila', 'MMM d, yyyy h:mm a');
+  return Utilities.formatDate(date, 'Asia/Manila', 'MMMM d, yyyy · h:mm a');
 
 }
 
 function galleryCSS_() {
-  // Made to Keep Studios: warm ivory printed paper, deep oxblood typography, thin outlined capsules.
-  // The paper grain is a tiny inline SVG noise layer, so no texture image is downloaded.
-  return [
-    ':root{color-scheme:light;--ink:#2b2422;--muted:#6b5f57;--taupe:#a39990;--paper:#f7f1e9;--paper-warm:#eee6dc;--surface:#fbf7f1;--line:#d9ccbf;--accent:#70060b;--accent-soft:#efe3da;--accent-dark:#5a0409;--focus:#70060b;--serif-italic:\"Bodoni 72\",\"Bodoni Moda\",Didot,\"Playfair Display\",Georgia,\"Times New Roman\",serif;--serif:\"Bodoni 72\",\"Bodoni Moda\",Didot,Georgia,\"Times New Roman\",serif;--sans:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,Arial,sans-serif;}',
-    '*{box-sizing:border-box;}html{background:var(--paper);}body{margin:0;font-family:var(--sans);background-color:var(--paper);background-image:url(\"data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22220%22 height=%22220%22%3E%3Cfilter id=%22n%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%22.85%22 numOctaves=%222%22 stitchTiles=%22stitch%22/%3E%3CfeColorMatrix values=%220 0 0 0 .43 0 0 0 0 .35 0 0 0 0 .28 0 0 0 .07 0%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22/%3E%3C/svg%3E\"),radial-gradient(120% 80% at 50% 0%,#fbf7f1 0%,rgba(251,247,241,0) 60%),linear-gradient(180deg,#f7f1e9 0%,#f3ece2 100%);background-attachment:fixed;color:var(--ink);line-height:1.45;text-rendering:optimizeLegibility;}',
-    'button,a{font:inherit;}button{min-height:46px;border-radius:999px;border:1.5px solid var(--accent);padding:11px 22px;background:rgba(251,247,241,.7);color:var(--accent);text-decoration:none;font-family:var(--serif);font-weight:400;font-size:15px;letter-spacing:.2em;text-transform:uppercase;display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:opacity .12s ease;}button:active{opacity:.72;}',
-    'button.secondary{background:transparent;color:var(--accent);border-color:rgba(112,6,11,.35);}button[hidden]{display:none;}button:focus-visible,a:focus-visible{outline:2px solid var(--focus);outline-offset:3px;}',
-    '.gallery-shell{width:min(100%,880px);margin:0 auto;padding:calc(30px + env(safe-area-inset-top)) max(18px,env(safe-area-inset-left)) calc(40px + env(safe-area-inset-bottom));}',
-    '.gallery-hero{padding:8px 0 26px;text-align:center;}.brand-lockup{display:inline-grid;justify-items:center;gap:6px;margin:0 0 22px;color:var(--accent);}.brand-descriptor,.footer-descriptor{font-family:var(--sans);text-transform:uppercase;letter-spacing:.24em;font-size:11px;font-weight:500;color:var(--accent);}.brand-rule{display:block;width:34px;height:1.5px;background:var(--accent);margin:2px 0 4px;}.brand-wordmark,.footer-wordmark{font-family:var(--serif-italic);font-style:italic;font-weight:400;font-size:clamp(44px,13vw,66px);line-height:.92;letter-spacing:-.04em;color:var(--accent);}.brand-secondary,.footer-secondary{font-family:var(--sans);font-weight:300;font-size:clamp(16px,4.6vw,21px);letter-spacing:.42em;margin-right:-.42em;color:var(--accent);line-height:1;}',
-    'h1{font-family:var(--serif-italic);font-style:italic;font-size:clamp(34px,9.5vw,58px);font-weight:400;line-height:1.02;margin:6px 0 12px;letter-spacing:-.01em;color:var(--accent);}h2{font-size:20px;margin:0 0 10px;letter-spacing:0;}.brand{text-transform:uppercase;letter-spacing:.22em;color:var(--accent);font-size:12px;font-weight:500;margin:0 0 8px;}.lede{max-width:620px;margin:0 auto;font-family:var(--serif-italic);font-style:italic;font-size:clamp(18px,4.8vw,23px);color:var(--accent);}p{color:var(--muted);margin:0;}',
-    '.primary-actions{display:grid;justify-items:center;gap:9px;padding:2px 0 34px;text-align:center;}#shareAll{width:min(100%,360px);min-height:58px;font-size:16px;}#message{min-height:22px;color:var(--accent);font-weight:500;}#allHint{font-size:14px;letter-spacing:.04em;}',
-    '.section-heading{display:flex;align-items:center;gap:14px;margin:0 0 16px;}.section-heading:before,.section-heading:after{content:\"\";height:1px;background:rgba(112,6,11,.25);flex:1;}.section-heading p{text-transform:uppercase;letter-spacing:.24em;font-size:12px;font-weight:500;color:var(--accent);}',
-    '.photo-grid{display:grid;grid-template-columns:1fr;gap:24px;}.photo-item,.receipt-item{display:grid;gap:10px;}.image-button{display:block;width:100%;min-height:0;padding:7px;border:1px solid var(--line);border-radius:2px;background:var(--surface);color:inherit;letter-spacing:0;text-transform:none;box-shadow:0 10px 24px rgba(110,90,72,.12);overflow:hidden;text-align:inherit;}img{display:block;width:100%;height:auto;background:var(--paper-warm);border-radius:0;}.image-placeholder{min-height:245px;display:grid;place-items:center;background:var(--paper-warm);color:var(--muted);font-family:var(--serif-italic);font-style:italic;font-size:17px;border:0;border-radius:0;}.photo-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 2px;}.photo-actions span{font-size:12px;font-weight:500;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);}.photo-actions div{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;}.photo-actions button{min-height:40px;padding:8px 14px;font-size:12px;}',
-    '.gif-section,.receipt-section{margin-top:38px;padding-top:6px;}.gif-item{max-width:680px;margin:0 auto;width:100%;display:grid;gap:10px}.gif-item img{width:100%;max-height:680px;object-fit:contain;}.receipt-grid{display:grid;grid-template-columns:1fr;gap:24px}.receipt-item{max-width:430px;margin:0 auto;width:100%}.receipt-placeholder{min-height:360px;}.receipt-item img{max-height:560px;object-fit:contain;background:#fff;}',
-    '.session-note{margin:36px auto 0;display:grid;gap:3px;text-align:center;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--taupe);}.session-note p{color:var(--taupe);}.session-note p:last-child{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.04em;text-transform:none;}footer{margin-top:34px;padding-top:28px;border-top:1px solid rgba(112,6,11,.2);display:grid;justify-items:center;gap:6px;text-align:center;color:var(--accent);}.footer-wordmark{font-size:clamp(36px,10vw,48px);}.footer-tagline{margin-top:8px;font-family:var(--serif-italic);font-style:italic;font-size:17px;color:var(--accent);}',
-    '.center-page{min-height:100vh;display:grid;place-items:center;padding:calc(28px + env(safe-area-inset-top)) 20px calc(42px + env(safe-area-inset-bottom));}.notice{width:min(100%,480px);text-align:center;background:rgba(251,247,241,.82);border:1px solid rgba(112,6,11,.22);border-radius:2px;padding:36px 24px;box-shadow:0 14px 32px rgba(110,90,72,.1);}.notice .brand-lockup{margin-bottom:18px;}.notice h1{font-size:clamp(30px,8vw,42px);margin:8px 0 12px;}.notice button{margin-top:22px;}.loader{width:32px;height:32px;border-radius:50%;border:1.5px solid var(--line);border-top-color:var(--accent);margin:20px auto;animation:spin 1s linear infinite;}@keyframes spin{to{transform:rotate(360deg);}}',
-    '.lightbox{position:fixed;inset:0;z-index:10;display:grid;grid-template-rows:auto 1fr auto;gap:14px;padding:calc(16px + env(safe-area-inset-top)) 16px calc(18px + env(safe-area-inset-bottom));background:rgba(43,36,34,.94);}.lightbox[hidden]{display:none;}.lightbox img{width:100%;height:100%;max-height:calc(100vh - 150px);object-fit:contain;background:transparent;border-radius:0;}.lightbox-close,.lightbox-save{justify-self:center;min-width:160px;}.lightbox-close,.lightbox-save{background:var(--surface);color:var(--accent);border-color:var(--surface);}',
-    '@media(prefers-reduced-motion:reduce){.loader{animation:none;}button{transition:none;}}',
-    '@media(min-width:560px){.photo-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.photo-count-1{grid-template-columns:1fr;}.photo-count-1 .photo-item{max-width:680px;margin:0 auto;}}',
-    '@media(min-width:900px){.gallery-shell{padding-left:24px;padding-right:24px;}.gallery-hero{padding-top:18px;}.photo-grid{gap:28px;}.photo-count-3,.photo-count-4{grid-template-columns:repeat(2,minmax(0,1fr));}}'
-  ].join('');
+  // Made to Keep Studios: warm ivory paper, deep oxblood type, editorial serif headings and clean
+  // sans-serif support text, matching the iPad guest screens. System fonts only, so the gallery
+  // makes no third-party requests and the photographs stay the focus.
+  return `
+:root{color-scheme:light;--paper:#f7f1e9;--paper-deep:#efe6da;--surface:#fbf7f1;--ink:#2b2422;--muted:#6b5f57;--taupe:#958a80;--line:#ddd0c3;--accent:#70060b;--accent-hover:#5a0409;--on-accent:#fbf7f1;--shadow:0 1px 2px rgba(80,60,45,.06),0 10px 28px rgba(110,90,72,.12);--serif:"Bodoni 72","Bodoni Moda",Didot,"Playfair Display",Georgia,"Times New Roman",serif;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--gutter:max(16px,env(safe-area-inset-left),env(safe-area-inset-right));}
+*{box-sizing:border-box;}
+html{background:var(--paper);-webkit-text-size-adjust:100%;}
+body{margin:0;min-height:100vh;font-family:var(--sans);font-size:16px;line-height:1.5;color:var(--ink);background:radial-gradient(130% 70% at 50% 0%,#fcf9f4 0%,rgba(252,249,244,0) 62%),linear-gradient(180deg,#f7f1e9 0%,#f2eadf 100%);background-attachment:fixed;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;overflow-x:hidden;}
+img{display:block;max-width:100%;}
+p{margin:0;color:var(--muted);}
+h1,h2{margin:0;font-weight:400;}
+button{font:inherit;color:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+button[hidden],img[hidden]{display:none!important;}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px;}
+
+.btn,.btn-small,.lightbox-bar button{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:999px;border:1.5px solid var(--accent);background:transparent;color:var(--accent);font-family:var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.14em;white-space:nowrap;transition:background-color .15s ease,color .15s ease,transform .1s ease;}
+.btn{min-height:48px;padding:0 24px;font-size:13px;}
+.btn.primary{background:var(--accent);color:var(--on-accent);}
+.btn.ghost,.btn-small.ghost{border-color:rgba(112,6,11,.35);}
+.btn-small{min-height:40px;padding:0 14px;font-size:11px;letter-spacing:.12em;}
+.btn:active,.btn-small:active{transform:scale(.97);}
+@media (hover:hover){.btn:hover,.btn-small:hover{background:rgba(112,6,11,.07);}.btn.primary:hover{background:var(--accent-hover);}}
+
+.gallery-shell{width:min(100%,1120px);margin:0 auto;padding:calc(28px + env(safe-area-inset-top)) var(--gutter) calc(40px + env(safe-area-inset-bottom));}
+
+.brand-lockup{display:inline-grid;justify-items:center;gap:5px;color:var(--accent);}
+.brand-descriptor,.footer-descriptor{font-size:10px;font-weight:600;letter-spacing:.26em;text-transform:uppercase;color:var(--accent);}
+.brand-rule{display:block;width:30px;height:1.5px;background:var(--accent);margin:2px 0 3px;}
+.brand-wordmark,.footer-wordmark{font-family:var(--serif);font-style:italic;font-weight:400;font-size:clamp(34px,9vw,46px);line-height:.92;letter-spacing:-.035em;color:var(--accent);}
+.brand-secondary,.footer-secondary{font-weight:300;font-size:clamp(13px,3.6vw,16px);letter-spacing:.42em;margin-right:-.42em;line-height:1;color:var(--accent);}
+
+.intro{display:grid;gap:28px;justify-items:center;padding:4px 0 36px;}
+.gallery-hero{display:grid;justify-items:center;gap:10px;text-align:center;max-width:620px;}
+.gallery-hero .brand-lockup{margin-bottom:14px;}
+.gallery-hero h1{font-family:var(--serif);font-style:italic;font-size:clamp(32px,8.4vw,54px);line-height:1.02;letter-spacing:-.015em;color:var(--accent);text-wrap:balance;}
+.lede{font-size:clamp(16px,4.2vw,18px);color:var(--muted);max-width:30em;}
+.session-date{margin-top:4px;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--taupe);}
+.session-date span{color:var(--accent);opacity:.7;margin-right:4px;}
+
+.section-heading{display:flex;align-items:baseline;justify-content:center;gap:12px;margin:0 0 18px;text-align:center;}
+.section-heading h2{font-family:var(--serif);font-style:italic;font-size:clamp(26px,6.4vw,34px);line-height:1.1;color:var(--accent);}
+.section-heading p{font-size:11px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:var(--taupe);}
+.section-heading-actions{flex-direction:column;align-items:center;gap:14px;}
+.section-heading-actions>div:first-child{display:flex;align-items:baseline;gap:12px;}
+.save-all{display:grid;justify-items:center;gap:6px;width:100%;}
+.save-all .btn{width:min(100%,340px);}
+.section-heading .save-all #allHint{font-size:13px;font-weight:400;letter-spacing:0;text-transform:none;color:var(--muted);text-align:center;max-width:34em;}
+
+.motion{width:100%;max-width:440px;}
+.motion-card{position:relative;margin:0;}
+.motion-frame,.shot-frame,.receipt-frame{display:block;width:100%;padding:8px;border:1px solid var(--line);border-radius:3px;background:var(--surface);box-shadow:var(--shadow);overflow:hidden;}
+.motion-frame{aspect-ratio:1/1;background:#f7f1e9;}
+.motion-frame img{width:100%;height:100%;object-fit:contain;}
+.motion-toggle{position:absolute;left:18px;bottom:18px;min-height:44px;padding:0 18px;border:0;border-radius:999px;background:rgba(43,36,34,.82);color:var(--on-accent);font-size:13px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;}
+.motion-actions{display:flex;justify-content:center;flex-wrap:wrap;gap:10px;margin-top:14px;}
+.motion-actions .btn{flex:1 1 140px;max-width:200px;}
+
+.photos{padding-top:6px;}
+.photo-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:22px;align-items:start;}
+.photo-count-4,.photo-count-6{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;}
+.shot{margin:0;display:grid;gap:10px;}
+.shot-frame img,.receipt-frame img{width:100%;height:auto;background:var(--paper-deep);}
+.image-placeholder{display:grid;place-items:center;aspect-ratio:3/4;background:linear-gradient(110deg,var(--paper-deep) 30%,#f6efe6 50%,var(--paper-deep) 70%);background-size:220% 100%;animation:shimmer 1.6s ease-in-out infinite;color:var(--taupe);font-family:var(--serif);font-style:italic;font-size:16px;}
+.receipt-placeholder{aspect-ratio:1/2.4;}
+@keyframes shimmer{from{background-position:120% 0;}to{background-position:-120% 0;}}
+.shot-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:0 2px;}
+.shot-label{font-size:11px;font-weight:600;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);}
+.shot-buttons{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;}
+.photo-count-4 .shot-label,.photo-count-6 .shot-label{display:none;}
+.photo-count-4 .shot-buttons,.photo-count-6 .shot-buttons{width:100%;}
+.photo-count-4 .btn-small,.photo-count-6 .btn-small{flex:1 1 0;padding:0 8px;letter-spacing:.08em;}
+
+.gif-section{scroll-margin-top:20px;}
+.receipt-section{margin-top:48px;padding-top:6px;}
+.receipt-layout{display:grid;gap:22px;justify-items:center;}
+.receipt-item{margin:0;display:grid;gap:10px;width:min(100%,360px);}
+.receipt-frame{background:#fff;}
+.receipt-frame img{background:#fff;max-height:none;}
+.printed-version{width:min(100%,360px);border-top:1px solid var(--line);padding-top:14px;}
+.printed-version summary{cursor:pointer;list-style:none;display:flex;flex-direction:column;align-items:center;gap:2px;min-height:44px;justify-content:center;text-align:center;font-size:13px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);}
+.printed-version summary::-webkit-details-marker{display:none;}
+.printed-version summary span{font-size:13px;font-weight:400;letter-spacing:0;text-transform:none;color:var(--muted);}
+.printed-version[open] summary{margin-bottom:14px;}
+
+footer{margin-top:56px;padding-top:28px;border-top:1px solid rgba(112,6,11,.18);display:grid;justify-items:center;gap:5px;text-align:center;}
+.footer-wordmark{font-size:clamp(28px,7vw,34px);}
+.footer-tagline{margin-top:8px;font-family:var(--serif);font-style:italic;font-size:17px;color:var(--accent);}
+.privacy-note{margin-top:12px;max-width:34em;font-size:13px;color:var(--muted);}
+.reference{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;letter-spacing:.06em;color:var(--taupe);}
+
+.toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));z-index:20;width:max-content;max-width:min(92vw,520px);padding:12px 18px;border-radius:14px;background:rgba(43,36,34,.94);color:var(--on-accent);font-size:14px;line-height:1.4;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,.2);opacity:0;transform:translate(-50%,12px);pointer-events:none;transition:opacity .2s ease,transform .2s ease;}
+.toast.visible{opacity:1;transform:translate(-50%,0);}
+
+.lightbox{position:fixed;inset:0;z-index:30;display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:10px;padding:calc(12px + env(safe-area-inset-top)) var(--gutter) calc(14px + env(safe-area-inset-bottom));background:rgba(28,23,21,.96);color:var(--on-accent);}
+.lightbox[hidden]{display:none;}
+.lightbox-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:48px;}
+.lightbox-bar span{font-size:12px;letter-spacing:.2em;text-transform:uppercase;opacity:.75;}
+.lightbox-bar button{min-height:46px;padding:0 20px;font-size:12px;border-color:rgba(251,247,241,.5);color:var(--on-accent);}
+.lightbox-actions{justify-content:center;}
+.lightbox-actions .lightbox-save{background:var(--on-accent);color:var(--accent);border-color:var(--on-accent);}
+.lightbox-stage{position:relative;display:grid;place-items:center;min-height:0;}
+.lightbox-stage img{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;}
+.lightbox-nav{position:absolute;top:50%;transform:translateY(-50%);width:48px;height:64px;border:0;border-radius:999px;background:rgba(251,247,241,.14);color:var(--on-accent);font-size:34px;line-height:1;}
+#lightboxPrev{left:0;}#lightboxNext{right:0;}
+
+.center-page{min-height:100vh;display:grid;place-items:center;padding:calc(28px + env(safe-area-inset-top)) var(--gutter) calc(40px + env(safe-area-inset-bottom));}
+.notice{width:min(100%,460px);display:grid;justify-items:center;gap:12px;text-align:center;padding:38px 26px;background:rgba(251,247,241,.86);border:1px solid rgba(112,6,11,.2);border-radius:3px;box-shadow:var(--shadow);}
+.notice .brand-lockup{margin-bottom:10px;}
+.notice h1{font-family:var(--serif);font-style:italic;font-size:clamp(28px,7.4vw,38px);line-height:1.05;color:var(--accent);text-wrap:balance;}
+.notice .btn{margin-top:10px;}
+.notice-footnote{font-size:13px;color:var(--taupe);}
+.loader{width:30px;height:30px;border-radius:50%;border:1.5px solid var(--line);border-top-color:var(--accent);margin:6px auto;animation:spin 1s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+@media (min-width:600px){
+  .photo-count-2,.photo-count-4{grid-template-columns:repeat(2,minmax(0,1fr));gap:22px;}
+  .photo-count-3,.photo-count-6{grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;}
+  .photo-count-1{max-width:560px;margin:0 auto;}
+  .photo-count-4 .shot-label{display:inline;}
+  .photo-count-4 .shot-buttons{width:auto;}
+  .photo-count-4 .btn-small{flex:0 0 auto;padding:0 14px;letter-spacing:.12em;}
+  .section-heading-actions{flex-direction:row;justify-content:space-between;align-items:flex-end;text-align:left;}
+  .save-all{width:auto;justify-items:end;}
+  .save-all .btn{width:auto;}
+  .section-heading .save-all #allHint{text-align:right;}
+  .receipt-layout{grid-template-columns:minmax(0,360px) minmax(0,300px);justify-content:center;align-items:start;gap:36px;}
+  .printed-version{border-top:0;padding-top:0;}
+  .printed-version summary{align-items:flex-start;text-align:left;}
 }
+@media (min-width:900px){
+  .gallery-shell{padding-top:calc(44px + env(safe-area-inset-top));}
+  .intro.has-motion{grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);align-items:center;justify-items:stretch;gap:56px;padding-bottom:56px;}
+  .intro.has-motion .gallery-hero{justify-items:start;text-align:left;}
+  .intro.has-motion .motion{justify-self:center;}
+  .photo-grid{gap:26px;}
+  .lightbox-nav{width:56px;height:72px;}
+  #lightboxPrev{left:12px;}#lightboxNext{right:12px;}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*:before,*:after{animation:none!important;transition:none!important;}
+}
+`;
+}
+
 function galleryClientScript_() {
-
-  return [
-
-    'const startedAt=performance.now();const files=[...galleryData.photos,galleryData.gif,galleryData.receipt,galleryData.thermalReceipt].filter(Boolean);const assetMap=new Map(files.map(function(item){return [item.filename,item];}));const realFileCache=new Map();let activeLightboxURL=\"\";let activeLightboxItem=null;',
-
-    'const message=document.getElementById(\"message\");',
-
-    'function setMessage(text){if(message){message.textContent=text||\"\";}}',
-
-    'function dataURL(item){return \"data:\"+item.mimeType+\";base64,\"+item.base64Data;}',
-
-    'function fileForItem(item){if(realFileCache.has(item.filename)){return realFileCache.get(item.filename);}const binary=atob(item.base64Data);const bytes=new Uint8Array(binary.length);for(let i=0;i<binary.length;i++){bytes[i]=binary.charCodeAt(i);}const file=new File([bytes],item.filename,{type:item.mimeType});realFileCache.set(item.filename,file);return file;}',
-
-    'function objectURLFor(item){return URL.createObjectURL(fileForItem(item));}',
-
-    'function findItem(filename){return assetMap.get(filename);}',
-
-    'function revealItem(item){const image=document.getElementById(\"image-\"+item.filename);const placeholder=document.getElementById(\"placeholder-\"+item.filename);if(image&&!image.src){image.src=dataURL(item);image.hidden=false;}if(placeholder){placeholder.remove();}}',
-
-    'function showEmbeddedImages(){try{if(files.length){revealItem(files[0]);}const remaining=files.slice(1);const reveal=function(){remaining.forEach(revealItem);};if(\"requestIdleCallback\" in window){requestIdleCallback(reveal,{timeout:1200});}else{setTimeout(reveal,40);}wireOpenButtons();wireShareButtons();wireShareAll();wireLightbox();logSafeBrowserTiming();setMessage(\"\");}catch(error){setMessage(\"Some images did not load. Refresh this page and try again.\");}}',
-
-    'function downloadItem(item){try{const url=objectURLFor(item);const a=document.createElement(\"a\");a.href=url;a.download=item.filename;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},30000);setMessage(item.role===\"gif\"?\"GIF download started. If Photos does not offer a save option, use Share GIF and choose Save to Files.\":\"Download started.\");}catch(error){setMessage(\"Could not start the download. Please try again.\");}}',
-
-    'function roleText(item){if(item.role===\"gif\"){return {name:\"GIF\",alt:\"Animated Made to Keep Studios session GIF\",save:\"Save GIF\"};}if(item.role===\"colorReceipt\"){return {name:\"color receipt\",alt:\"Made to Keep Studios color receipt preview\",save:\"Save Receipt\"};}if(item.role===\"thermalReceipt\"){return {name:\"thermal receipt\",alt:\"Made to Keep Studios thermal receipt preview\",save:\"Save Receipt\"};}return {name:\"photo\",alt:\"Made to Keep Studios photo\",save:\"Save Photo\"};}',
-
-    'function openFullSize(item){try{const lightbox=document.getElementById(\"lightbox\");const image=document.getElementById(\"lightboxImage\");const save=document.getElementById(\"lightboxSave\");const text=roleText(item);if(!lightbox||!image||!save){const url=objectURLFor(item);window.open(url,\"_blank\",\"noopener\");setTimeout(function(){URL.revokeObjectURL(url);},30000);return;}if(activeLightboxURL){URL.revokeObjectURL(activeLightboxURL);}activeLightboxItem=item;activeLightboxURL=URL.createObjectURL(fileForItem(item));image.src=activeLightboxURL;image.alt=text.alt;save.textContent=text.save;lightbox.hidden=false;document.body.style.overflow=\"hidden\";document.getElementById(\"lightboxClose\").focus();setMessage(text.name+\" opened.\");}catch(error){setMessage(\"Could not open the full-size image. Please try Save instead.\");}}',
-
-    'function closeLightbox(){const lightbox=document.getElementById(\"lightbox\");const image=document.getElementById(\"lightboxImage\");if(lightbox){lightbox.hidden=true;}if(image){image.removeAttribute(\"src\");}document.body.style.overflow=\"\";if(activeLightboxURL){URL.revokeObjectURL(activeLightboxURL);activeLightboxURL=\"\";}activeLightboxItem=null;}',
-
-    'async function shareItem(item){try{const file=fileForItem(item);if(!supportsFileShare(item)){downloadItem(item);return;}await navigator.share({files:[file],title:\"Made to Keep Studios\",text:\"Made to Keep Studios \"+roleText(item).name});setMessage(\"Share sheet opened.\");}catch(error){if(error&&error.name===\"AbortError\"){return;}downloadItem(item);setMessage(\"Sharing is unavailable here. Download started instead.\");}}',
-
-    'function supportsFileShare(item){if(!navigator.share||!navigator.canShare||!item){return false;}try{return navigator.canShare({files:[new File([new Uint8Array([1])],item.filename,{type:item.mimeType})]});}catch(error){return false;}}',
-
-    'function supportsSingleFileShare(){return supportsFileShare({filename:\"photo-01.jpg\",mimeType:\"image/jpeg\"});}',
-
-    'function supportsMultipleFileShare(){if(!navigator.share||!navigator.canShare){return false;}try{return navigator.canShare({files:[new File([new Uint8Array([1])],\"photo-01.jpg\",{type:\"image/jpeg\"}),new File([new Uint8Array([2])],\"photo-02.jpg\",{type:\"image/jpeg\"})]});}catch(error){return false;}}',
-
-    'document.querySelectorAll(\"[data-download]\").forEach(function(button){button.addEventListener(\"click\",function(){const item=findItem(button.getAttribute(\"data-download\"));if(item){downloadItem(item);}});});',
-
-    'function wireOpenButtons(){document.querySelectorAll(\"[data-open]\").forEach(function(button){button.addEventListener(\"click\",function(){const item=findItem(button.getAttribute(\"data-open\"));if(item){openFullSize(item);}});});}',
-
-    'function wireLightbox(){const close=document.getElementById(\"lightboxClose\");const lightbox=document.getElementById(\"lightbox\");const save=document.getElementById(\"lightboxSave\");if(close){close.addEventListener(\"click\",closeLightbox);}if(lightbox){lightbox.addEventListener(\"click\",function(event){if(event.target===lightbox){closeLightbox();}});}if(save){save.addEventListener(\"click\",function(){if(activeLightboxItem){downloadItem(activeLightboxItem);}});}document.addEventListener(\"keydown\",function(event){if(event.key===\"Escape\"){closeLightbox();}});}',
-
-    'function wireShareButtons(){document.querySelectorAll(\"[data-share]\").forEach(function(button){const item=findItem(button.getAttribute(\"data-share\"));if(!item||!supportsFileShare(item)){button.hidden=true;return;}button.addEventListener(\"click\",function(){shareItem(item);});});}',
-
-    'function wireShareAll(){const shareAll=document.getElementById(\"shareAll\");const allHint=document.getElementById(\"allHint\");if(!shareAll){return;}const photos=galleryData.photos.map(function(file){return findItem(file.filename);}).filter(Boolean);if(supportsMultipleFileShare()){shareAll.addEventListener(\"click\",async function(){try{await navigator.share({files:photos.map(fileForItem),title:\"Made to Keep Studios\",text:\"Made to Keep Studios photos\"});setMessage(\"Share sheet opened.\");}catch(error){if(error&&error.name!==\"AbortError\"){setMessage(\"Sharing all photos did not work here. Please save each photo below.\");}}});}else{shareAll.className=\"secondary\";shareAll.textContent=\"Save Photos Individually\";shareAll.addEventListener(\"click\",function(){setMessage(\"Use each Save Photo button below for the most reliable save.\");});if(allHint){allHint.textContent=\"This browser does not support sharing multiple image files from the page.\";}}}',
-
-    'function logSafeBrowserTiming(){setTimeout(function(){const supportsShare=!!navigator.share;const supportsSingle=supportsSingleFileShare();const supportsMultiple=supportsMultipleFileShare();console.log(\"Made to Keep gallery timing: imageInitializationMs=\"+Math.round(performance.now()-startedAt)+\" webShare=\"+supportsShare+\" singleFileShare=\"+supportsSingle+\" multiFileShare=\"+supportsMultiple+\" realFileConversionsAtInit=0\");},0);}',
-
-    'showEmbeddedImages();'
-
-  ].join('');
-
+  // Everything is embedded in the page: no Drive links (so never a Google sign-in), no per-image
+  // script calls and no third-party requests. Files keep their original names and MIME types, so
+  // a saved or shared GIF stays animated. Unsupported browser features are hidden, never faked.
+  return `
+const startedAt=performance.now();
+const files=[...galleryData.photos,galleryData.gif,galleryData.receipt,galleryData.thermalReceipt].filter(Boolean);
+const assetMap=new Map(files.map(function(item){return [item.filename,item];}));
+const realFileCache=new Map();
+const photoItems=galleryData.photos.slice();
+const ua=navigator.userAgent||"";
+const isIOS=/iPad|iPhone|iPod/.test(ua)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+const isAndroid=/Android/i.test(ua);
+const prefersReducedMotion=!!(window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+const message=document.getElementById("message");
+let toastTimer=null;let activeLightboxURL="";let lightboxItems=[];let lightboxIndex=0;let lastFocus=null;let touchStartX=null;
+function setMessage(text){if(!message){return;}clearTimeout(toastTimer);message.textContent=text||"";message.classList.toggle("visible",!!text);if(text){toastTimer=setTimeout(function(){message.classList.remove("visible");},7000);}}
+function dataURL(item){return "data:"+item.mimeType+";base64,"+item.base64Data;}
+function fileForItem(item){if(realFileCache.has(item.filename)){return realFileCache.get(item.filename);}const binary=atob(item.base64Data);const bytes=new Uint8Array(binary.length);for(let i=0;i<binary.length;i++){bytes[i]=binary.charCodeAt(i);}const file=new File([bytes],item.filename,{type:item.mimeType});realFileCache.set(item.filename,file);return file;}
+function objectURLFor(item){return URL.createObjectURL(fileForItem(item));}
+function findItem(filename){return assetMap.get(filename);}
+function roleText(item){if(item.role==="gif"){return {name:"GIF",alt:"Animated Made to Keep Studios session GIF",save:"Save GIF"};}if(item.role==="colorReceipt"){return {name:"color receipt",alt:"Made to Keep Studios color receipt",save:"Save Receipt"};}if(item.role==="thermalReceipt"){return {name:"printed receipt",alt:"Made to Keep Studios thermal receipt",save:"Save Receipt"};}return {name:"photo",alt:"Made to Keep Studios photo",save:"Save Photo"};}
+function revealItem(item){const image=document.getElementById("image-"+item.filename);const placeholder=document.getElementById("placeholder-"+item.filename);if(image&&!image.getAttribute("src")){image.src=dataURL(item);image.hidden=false;}if(placeholder){placeholder.remove();}}
+function supportsFileShare(item){if(!navigator.share||!navigator.canShare||!item){return false;}try{return navigator.canShare({files:[new File([new Uint8Array([1])],item.filename,{type:item.mimeType})]});}catch(error){return false;}}
+function supportsMultipleFileShare(){if(!navigator.share||!navigator.canShare){return false;}try{return navigator.canShare({files:[new File([new Uint8Array([1])],"photo-01.jpg",{type:"image/jpeg"}),new File([new Uint8Array([2])],"photo-02.jpg",{type:"image/jpeg"})]});}catch(error){return false;}}
+function downloadItem(item,quiet){try{const url=objectURLFor(item);const a=document.createElement("a");a.href=url;a.download=item.filename;a.rel="noopener";document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},30000);if(!quiet){setMessage(isIOS?"Downloading to Files › Downloads. To add it to Photos, use Share and choose Save Image.":"Download started: "+item.filename);}return true;}catch(error){setMessage("We couldn’t start that download. Please try again.");return false;}}
+async function shareFiles(items,intentMessage){try{await navigator.share({files:items.map(fileForItem),title:"Made to Keep Studios"});if(intentMessage){setMessage("");}}catch(error){if(error&&error.name==="AbortError"){setMessage("");return;}if(items.length===1){downloadItem(items[0]);}else{setMessage("Sharing didn’t work here. Please save each photo below.");}}}
+function shareItem(item){if(!supportsFileShare(item)){downloadItem(item);return;}shareFiles([item]);}
+function saveItem(item){if(isIOS&&supportsFileShare(item)){setMessage(item.role==="gif"?"Choose Save Image to keep the animated GIF in Photos.":"Choose Save Image to add it to Photos.");shareFiles([item],true);return;}downloadItem(item);}
+function showLightboxItem(){const item=lightboxItems[lightboxIndex];if(!item){return;}const image=document.getElementById("lightboxImage");const save=document.getElementById("lightboxSave");const share=document.getElementById("lightboxShare");const count=document.getElementById("lightboxCount");const text=roleText(item);if(activeLightboxURL){URL.revokeObjectURL(activeLightboxURL);}activeLightboxURL=URL.createObjectURL(fileForItem(item));image.src=activeLightboxURL;image.alt=text.alt+(item.role==="photo"?" "+(lightboxIndex+1):"");save.textContent=text.save;share.hidden=!supportsFileShare(item);count.textContent=lightboxItems.length>1?(lightboxIndex+1)+" / "+lightboxItems.length:text.name;document.getElementById("lightboxPrev").hidden=lightboxItems.length<2;document.getElementById("lightboxNext").hidden=lightboxItems.length<2;}
+function openFullSize(item){try{const lightbox=document.getElementById("lightbox");if(!lightbox){const url=objectURLFor(item);window.open(url,"_blank","noopener");setTimeout(function(){URL.revokeObjectURL(url);},30000);return;}lastFocus=document.activeElement;lightboxItems=item.role==="photo"?photoItems:[item];lightboxIndex=Math.max(0,lightboxItems.indexOf(item));showLightboxItem();lightbox.hidden=false;document.body.style.overflow="hidden";document.getElementById("lightboxClose").focus();}catch(error){setMessage("We couldn’t open the full-size image. Please use Save instead.");}}
+function stepLightbox(offset){if(lightboxItems.length<2){return;}lightboxIndex=(lightboxIndex+offset+lightboxItems.length)%lightboxItems.length;showLightboxItem();}
+function closeLightbox(){const lightbox=document.getElementById("lightbox");const image=document.getElementById("lightboxImage");if(!lightbox||lightbox.hidden){return;}lightbox.hidden=true;if(image){image.removeAttribute("src");}document.body.style.overflow="";if(activeLightboxURL){URL.revokeObjectURL(activeLightboxURL);activeLightboxURL="";}lightboxItems=[];if(lastFocus&&lastFocus.focus){lastFocus.focus();}}
+function wireLightbox(){const lightbox=document.getElementById("lightbox");if(!lightbox){return;}document.getElementById("lightboxClose").addEventListener("click",closeLightbox);document.getElementById("lightboxPrev").addEventListener("click",function(){stepLightbox(-1);});document.getElementById("lightboxNext").addEventListener("click",function(){stepLightbox(1);});document.getElementById("lightboxSave").addEventListener("click",function(){const item=lightboxItems[lightboxIndex];if(item){saveItem(item);}});document.getElementById("lightboxShare").addEventListener("click",function(){const item=lightboxItems[lightboxIndex];if(item){shareItem(item);}});lightbox.addEventListener("click",function(event){if(event.target===lightbox||event.target.classList.contains("lightbox-stage")){closeLightbox();}});lightbox.addEventListener("touchstart",function(event){touchStartX=event.touches[0].clientX;},{passive:true});lightbox.addEventListener("touchend",function(event){if(touchStartX===null){return;}const dx=event.changedTouches[0].clientX-touchStartX;touchStartX=null;if(Math.abs(dx)>50){stepLightbox(dx<0?1:-1);}},{passive:true});document.addEventListener("keydown",function(event){if(lightbox.hidden){return;}if(event.key==="Escape"){closeLightbox();}else if(event.key==="ArrowLeft"){stepLightbox(-1);}else if(event.key==="ArrowRight"){stepLightbox(1);}});}
+function wireOpenButtons(){document.querySelectorAll("[data-open]").forEach(function(button){button.addEventListener("click",function(){const item=findItem(button.getAttribute("data-open"));if(item){openFullSize(item);}});});}
+function wireSaveButtons(){document.querySelectorAll("[data-download]").forEach(function(button){button.addEventListener("click",function(){const item=findItem(button.getAttribute("data-download"));if(item){saveItem(item);}});});}
+function wireShareButtons(){document.querySelectorAll("[data-share]").forEach(function(button){const item=findItem(button.getAttribute("data-share"));if(!item||!supportsFileShare(item)){button.hidden=true;return;}button.addEventListener("click",function(){shareItem(item);});});}
+function wireShareAll(){const shareAll=document.getElementById("shareAll");const allHint=document.getElementById("allHint");if(!shareAll){return;}const photos=photoItems.map(function(file){return findItem(file.filename);}).filter(Boolean);const count=photos.length;if(count<2){shareAll.hidden=true;return;}if((isIOS||isAndroid)&&supportsMultipleFileShare()){if(allHint){allHint.textContent=isIOS?"Opens the share sheet. Choose Save "+count+" Images to add them to Photos.":"Opens the share sheet to save or send all "+count+" photos.";}shareAll.addEventListener("click",function(){shareFiles(photos,true);});return;}if(!isIOS){if(allHint){allHint.textContent="Downloads all "+count+" photos to this device.";}shareAll.addEventListener("click",function(){setMessage("Downloading "+count+" photos. Your browser may ask to allow multiple downloads.");photos.forEach(function(item,index){setTimeout(function(){downloadItem(item,true);},index*450);});});return;}shareAll.hidden=true;if(allHint){allHint.textContent="Use Save under each photo to add it to Photos.";}}
+function setupMotion(){const gif=galleryData.gif;if(!gif){return;}const image=document.getElementById("image-"+gif.filename);const poster=document.getElementById("motionPoster");const toggle=document.getElementById("motionToggle");if(!image){return;}if(!prefersReducedMotion){image.src=dataURL(gif);image.hidden=false;if(poster){poster.remove();}if(toggle){toggle.remove();}return;}const first=photoItems[0];if(poster&&first){poster.src=dataURL(first);poster.hidden=false;}if(!toggle){return;}toggle.hidden=false;toggle.addEventListener("click",function(){const playing=toggle.getAttribute("aria-pressed")!=="true";toggle.setAttribute("aria-pressed",playing?"true":"false");toggle.textContent=playing?"Pause":"Play";if(playing){image.src=dataURL(gif);image.hidden=false;if(poster){poster.hidden=true;}}else{image.removeAttribute("src");image.hidden=true;if(poster){poster.hidden=false;}}});}
+function showEmbeddedImages(){try{setupMotion();const ordered=photoItems.concat([galleryData.receipt,galleryData.thermalReceipt].filter(Boolean));if(ordered.length){revealItem(ordered[0]);}const remaining=ordered.slice(1);const reveal=function(){remaining.forEach(revealItem);};if("requestIdleCallback" in window){requestIdleCallback(reveal,{timeout:1200});}else{setTimeout(reveal,40);}wireOpenButtons();wireSaveButtons();wireShareButtons();wireShareAll();wireLightbox();logSafeBrowserTiming();}catch(error){setMessage("Some images didn’t load. Refresh this page to try again.");}}
+function logSafeBrowserTiming(){setTimeout(function(){console.log("Made to Keep gallery timing: imageInitializationMs="+Math.round(performance.now()-startedAt)+" webShare="+!!navigator.share+" singleFileShare="+supportsFileShare(photoItems[0])+" multiFileShare="+supportsMultipleFileShare()+" realFileConversionsAtInit=0");},0);}
+showEmbeddedImages();
+`;
 }
 
 function makeCompleteManifest_(body) {

@@ -75,7 +75,11 @@ assert.equal(loaded.gif.role, 'gif');
 const html = context.renderGalleryPage_(fixture, {}, Date.now()).getContent();
 assert.match(html, /Your GIF/);
 assert.match(html, /your moments, made to keep\./);
-assert.match(html, /View, save and share the photographs from your session\./);
+assert.match(html, /Relive, save, and share your photobooth memories\./);
+assert.match(html, /id="motionTitle">Your GIF</);
+assert.match(html, /id="motionToggle"[^>]*hidden>Play</, 'Reduced-motion still preview has an explicit Play control');
+assert.match(html, /prefers-reduced-motion: reduce/);
+assert.match(html, /Printed version/);
 assert.match(html, /id="image-session\.gif"/);
 assert.match(html, /data-open="session\.gif"/);
 assert.match(html, /data-download="session\.gif">Save GIF/);
@@ -89,13 +93,12 @@ assert.equal(context.makeCompleteManifest_(context.makeSelfTestPayload_(2)).gif,
 
 const legacyFixture = galleryFixture(2, 1);
 const legacyHTML = context.renderGalleryPage_(legacyFixture, {}, Date.now()).getContent();
-assert.doesNotMatch(legacyHTML, /<p>Your GIF<\/p>/);
+assert.doesNotMatch(legacyHTML, /id="motionTitle"|class="gif-section|id="motionToggle"/);
 assert.match(legacyHTML, /Color Receipt/);
 
 const soloFixture = galleryFixture(1, 2, false);
 const soloHTML = context.renderGalleryPage_(soloFixture, {}, Date.now()).getContent();
-assert.doesNotMatch(soloHTML, /<p>Your GIF<\/p>/);
-assert.doesNotMatch(soloHTML, /class="gif-section"|data-download="session\.gif"|data-share="session\.gif"/);
+assert.doesNotMatch(soloHTML, /id="motionTitle"|class="gif-section|id="motionToggle"|data-download="session\.gif"|data-share="session\.gif"/);
 assert.match(soloHTML, /Save Photo/);
 
 // Made to Keep Studios visible rebrand (Phase 1). The legacy completed-gallery marker stays
@@ -127,6 +130,35 @@ assert.match(html, /alt="Animated Made to Keep Studios session GIF"/);
 assert.match(html, /Thermal Receipt/);
 assert.match(pendingHTML, /your photos are still being prepared\./);
 assert.match(invalidHTML, /This gallery link cannot be opened\./);
+for (const page of [html, legacyHTML, soloHTML, pendingHTML, invalidHTML, tooLargeHTML]) {
+  // Self-contained: no third-party fonts, scripts, images or Google Drive links.
+  assert.doesNotMatch(page, /(src|href)=["']?https?:/i, 'Gallery pages load nothing from other origins');
+  assert.doesNotMatch(page, /drive\.google\.com|googleusercontent|fonts\.googleapis/i);
+  assert.match(page, /<meta name="referrer" content="no-referrer">/);
+}
+// Pending checks back off and stop (the counter survives reloads); invalid links never poll.
+assert.match(pendingHTML, /var delays=\[6,10,15,20,30,45\]/);
+assert.match(pendingHTML, /sessionStorage/);
+assert.match(pendingHTML, /data-gallery-state="pending"/);
+assert.doesNotMatch(invalidHTML, /setTimeout|location\.reload/);
+assert.match(invalidHTML, /data-gallery-state="invalid"/);
+assert.match(tooLargeHTML, /data-gallery-state="unavailable"/);
+// Manifest values are escaped before they reach the page.
+const hostile = galleryFixture(2);
+hostile.manifest.sessionID = 'PP-<img src=x onerror=alert(1)>';
+const hostileHTML = context.renderGalleryPage_(hostile, {}, Date.now()).getContent();
+assert.doesNotMatch(hostileHTML, /<img src=x onerror/);
+assert.doesNotMatch(hostileHTML.split('<script>')[1], /<\/?img src=x/);
+// Every photo count renders every photo individually with its own actions.
+for (const count of [1, 2, 3, 4, 6]) {
+  const countHTML = context.renderGalleryPage_(galleryFixture(count), {}, Date.now()).getContent();
+  assert.match(countHTML, new RegExp('photo-grid photo-count-' + count + '"'));
+  for (let i = 1; i <= count; i++) {
+    const name = 'photo-0' + i + '\\.jpg';
+    assert.match(countHTML, new RegExp('data-open="' + name + '"'));
+    assert.match(countHTML, new RegExp('data-download="' + name + '">Save Photo'));
+  }
+}
 console.log('Made to Keep Studios gallery branding checks passed (v1, v2, pending, invalid, too large).');
 
 // Made to Keep gallery front-door migration (Phase 2). New upload responses use the preferred

@@ -163,7 +163,7 @@ test("completed cache uses an internal release version without changing the upst
       const response = await worker.fetch(new Request(customerURL), env);
       assert.equal(response.status, 200);
       assert.equal(calls[0].url, `https://script.google.com/macros/s/DEPLOYMENT_ID/exec?proxy=raw&g=${token}`);
-      assert.ok([...entries.keys()].some((key) => key.includes("gallery-cache=made-to-keep-20261009")));
+      assert.ok([...entries.keys()].some((key) => key.includes("gallery-cache=made-to-keep-editorial-20261014")));
       assert.ok(!customerURL.includes("gallery-cache"));
     });
   });
