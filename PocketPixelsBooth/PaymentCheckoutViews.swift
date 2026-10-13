@@ -149,45 +149,18 @@ struct QRPhPaymentView: View {
     @State private var isShowingTestSimulatorConfirmation = false
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                Text("Scan to Pay")
-                    .font(.largeTitle.bold())
-                    .accessibilityAddTraits(.isHeader)
-                    .onLongPressGesture(minimumDuration: 2) {
-                        guard testSimulatorURL != nil else { return }
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        isShowingTestSimulatorConfirmation = true
-                    }
-                if let total = viewModel.commercialEvent.activePolicy.totalCentavos(for: viewModel.selectedCheckoutCopies) {
-                    Text("Scan to pay \(PHPPriceFormatter.string(centavos: total)) using a QR Ph-supported app. Your session will begin when payment is confirmed.")
-                        .font(.title3)
-                        .multilineTextAlignment(.center)
-                }
-                if let image = qrImage {
-                    Image(uiImage: image)
-                        .interpolation(.none)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: 420)
-                        .accessibilityLabel("QR Ph payment code")
-                } else {
-                    ProgressView("Preparing QR Ph code")
-                }
-                Text("Keep this screen open. A screenshot or app callback cannot unlock the camera.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                if let expiry = viewModel.paymentAttempt?.expiresAt {
-                    Text(expiry, style: .timer)
-                        .font(.headline.monospacedDigit())
-                        .accessibilityLabel("QR code time remaining")
-                        .accessibilityAddTraits(.updatesFrequently)
-                }
+        QRPhPaymentContent(
+            totalCentavos: viewModel.commercialEvent.activePolicy.totalCentavos(for: viewModel.selectedCheckoutCopies),
+            copies: viewModel.selectedCheckoutCopies,
+            image: qrImage,
+            hasImagePayload: viewModel.paymentAttempt?.qrImageDataURL != nil,
+            expiresAt: viewModel.paymentAttempt?.expiresAt,
+            onTitleLongPress: {
+                guard testSimulatorURL != nil else { return }
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                isShowingTestSimulatorConfirmation = true
             }
-            .frame(maxWidth: 660)
-            .padding(40)
-        }
+        )
         .confirmationDialog(
             "Open PayMongo TEST simulator?",
             isPresented: $isShowingTestSimulatorConfirmation,
@@ -216,6 +189,132 @@ struct QRPhPaymentView: View {
             return nil
         }
         return UIImage(data: data)
+    }
+}
+
+/// Presentation only: payment creation, polling and entitlement stay with the session model.
+/// Value inputs also let UI tests render fixtures without starting a checkout or camera.
+struct QRPhPaymentContent: View {
+    let totalCentavos: Int?
+    let copies: Int
+    let image: UIImage?
+    let hasImagePayload: Bool
+    let expiresAt: Date?
+    var onTitleLongPress: () -> Void = { }
+
+    @ScaledMetric(relativeTo: .largeTitle) private var headingSize = 56.0
+    @ScaledMetric(relativeTo: .title) private var amountSize = 40.0
+    @ScaledMetric(relativeTo: .caption) private var labelSize = 12.0
+
+    private let ink = MadeToKeepTheme.ColorPalette.burgundy
+    private let mutedInk = MadeToKeepTheme.ColorPalette.mutedInk
+
+    var body: some View {
+        GeometryReader { proxy in
+            // Geometry is the safe-area viewport. The inner column is bounded, while the
+            // outer frame fills both axes; overflowing content grows and scrolls naturally.
+            let compact = proxy.size.height < 900
+            let inset: CGFloat = 24
+            let qrSide = max(1, min(compact ? 300 : 360, proxy.size.width - inset * 2 - 40))
+            ScrollView {
+                VStack(spacing: compact ? 10 : 26) {
+                    VStack(spacing: compact ? 10 : 24) {
+                        MadeToKeepLockup(scale: .compact)
+                        MadeToKeepEditorialHeader(eyebrow: "PAYMENT", title: "Scan to Pay", titleSize: headingSize * (compact ? 0.79 : 1))
+                            .onLongPressGesture(minimumDuration: 2, perform: onTitleLongPress)
+                    }
+
+                    VStack(spacing: 6) {
+                        if let totalCentavos {
+                            Text(PHPPriceFormatter.string(centavos: totalCentavos))
+                                .font(MadeToKeepTheme.Typography.serif(size: amountSize * (compact ? 0.85 : 1)))
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityLabel("Total to pay")
+                                .accessibilityValue(PHPPriceFormatter.string(centavos: totalCentavos))
+                        }
+                        MadeToKeepLabel(text: "\(copies) \(copies == 1 ? "KEEPSAKE COPY" : "KEEPSAKE COPIES")", size: labelSize)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    qrCenterpiece(side: qrSide)
+
+                    VStack(spacing: compact ? 8 : 12) {
+                        Text("Scan using your preferred QR Ph-supported payment app.")
+                            .font(MadeToKeepTheme.Typography.body())
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .tint(ink)
+                                .accessibilityHidden(true)
+                            Text("Waiting for payment confirmation")
+                                .font(MadeToKeepTheme.Typography.body(.callout))
+                        }
+                        Text("Keep this screen open. Your camera opens after automatic payment verification. Screenshots or payment-app callbacks cannot start your session.")
+                            .font(MadeToKeepTheme.Typography.body(.footnote))
+                            .foregroundStyle(mutedInk)
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+
+                    if let expiresAt {
+                        VStack(spacing: 6) {
+                            MadeToKeepLabel(text: "TIME REMAINING", size: labelSize, color: mutedInk)
+                            Text(expiresAt, style: .timer)
+                                .font(MadeToKeepTheme.Typography.body(.callout).monospacedDigit())
+                                .accessibilityLabel("QR code time remaining")
+                                .accessibilityAddTraits(.updatesFrequently)
+                        }
+                    }
+                }
+                .foregroundStyle(ink)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 560)
+                .padding(.horizontal, inset)
+                .padding(.vertical, compact ? 16 : inset)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: proxy.size.height, alignment: .center)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+    }
+
+    private func qrCenterpiece(side: CGFloat) -> some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .interpolation(.none)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: side, height: side)
+                    .accessibilityLabel("QR Ph payment code")
+            } else {
+                VStack(spacing: 12) {
+                    if hasImagePayload {
+                        Image(systemName: "exclamationmark.circle")
+                            .font(.title2)
+                            .accessibilityHidden(true)
+                        Text("QR code unavailable")
+                        Text("Please ask the attendant for help. Keep this screen open while we check your payment. Do not pay again.")
+                            .font(MadeToKeepTheme.Typography.body(.footnote))
+                    } else {
+                        ProgressView()
+                            .tint(ink)
+                            .accessibilityHidden(true)
+                        Text("Preparing your QR Ph code")
+                    }
+                }
+                .font(MadeToKeepTheme.Typography.body(.callout))
+                .foregroundStyle(mutedInk)
+                .padding(16)
+            }
+        }
+        // Reserve the same square for loading and ready. Fit preserves the complete provider
+        // image (including non-square payloads); the white margin never overlays QR pixels.
+        .frame(width: side)
+        .frame(minHeight: side)
+        .padding(20)
+        .background(Color.white)
+        .overlay {
+            Rectangle().strokeBorder(MadeToKeepTheme.ColorPalette.hairline, lineWidth: 0.5)
+        }
     }
 }
 
