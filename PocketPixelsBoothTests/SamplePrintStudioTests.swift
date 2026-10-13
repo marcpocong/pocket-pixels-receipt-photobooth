@@ -107,6 +107,10 @@ final class SamplePrintStudioTests: XCTestCase {
             let guestImage = try XCTUnwrap(UIImage(data: guest.imagePNGData)?.cgImage)
             XCTAssertEqual(darkPixels(in: sampleImage, rect: identifierBand), 0, "\(format.rawValue): sample prints a session identifier")
             XCTAssertGreaterThan(darkPixels(in: guestImage, rect: identifierBand), 0, "\(format.rawValue): guest identifier band was not measured")
+            let attachment = XCTAttachment(data: sample.raster.previewPNGData, uniformTypeIdentifier: UTType.png.identifier)
+            attachment.name = "display-sample-\(format.rawValue)-thermal"
+            attachment.lifetime = .keepAlways
+            add(attachment)
         }
     }
 
