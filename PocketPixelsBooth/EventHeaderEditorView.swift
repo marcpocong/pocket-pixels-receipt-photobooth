@@ -86,16 +86,13 @@ struct EventHeaderEditorView: View {
             VStack(alignment: .leading, spacing: 6) {
                 TextField("Event Editorial Caption", text: editorialCaption, axis: .vertical)
                     .lineLimit(2)
-                Text("Optional, up to two short lines. Leave blank to use the selected format’s default caption.")
+                Text("Optional, up to two short lines printed below the receipt footer. Leave blank for no caption.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            Toggle(
-                profile.receiptHeader.mode == .customEventHeader ? "Show event details below artwork" : "Show event details below header",
-                isOn: $profile.showEventTextBlock
-            )
-            .accessibilityHint("Shows the event name, host, date, location and message below the receipt header.")
+            Toggle(eventDetailsToggleTitle, isOn: $profile.showEventTextBlock)
+                .accessibilityHint("Shows the event name, host, date, location and message on the receipt.")
 
             Text("Saved changes apply to the next customer. A session already in progress keeps its frozen artwork and receipt settings.")
                 .font(.caption)
@@ -140,6 +137,13 @@ struct EventHeaderEditorView: View {
             get: { profile.receiptHeader.showsStudioCredit ?? false },
             set: { profile.receiptHeader.showsStudioCredit = $0 }
         )
+    }
+
+    /// Profiles saved before branding modes keep event details under the header; Studio-First and
+    /// Event-First print them in the supplementary area below the footer.
+    private var eventDetailsToggleTitle: String {
+        guard profile.receiptHeader.brandingMode == nil else { return "Show event details below the footer" }
+        return profile.receiptHeader.mode == .customEventHeader ? "Show event details below artwork" : "Show event details below header"
     }
 
     private var editorialCaption: Binding<String> {

@@ -165,8 +165,9 @@ final class PhotoPassFormatTests: XCTestCase {
         let template = layout.template
         XCTAssertNil(plan.passportLayout, "Photo Pass never uses the legacy layout")
         XCTAssertEqual(plan.width, 576)
-        XCTAssertEqual(template.upperCardRect.minY, 14)
-        XCTAssertEqual(template, PhotoPassTemplateLayout.make(top: 14), "Geometry does not depend on content")
+        let mastheadBottom = try XCTUnwrap(plan.mastheadFrames.map(\.maxY).max(), "Photo Pass sits under the Made to Keep masthead")
+        XCTAssertGreaterThan(template.upperCardRect.minY, mastheadBottom, "The cards start below the masthead")
+        XCTAssertEqual(template, PhotoPassTemplateLayout.make(top: Int(template.upperCardRect.minY)), "Geometry does not depend on content")
         XCTAssertEqual(template.heroPhotoRect.size, CGSize(width: 432, height: 324))
         XCTAssertEqual(template.portraitPhotoRect.size, CGSize(width: 240, height: 320))
         XCTAssertEqual(template.upperCardRect.height, 460)

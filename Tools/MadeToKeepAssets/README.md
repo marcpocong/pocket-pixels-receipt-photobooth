@@ -17,3 +17,19 @@ Outputs:
 | `MadeToKeepAppIcon.png` | Copy into `AppIcon.appiconset/AppIcon.png`. |
 
 The script is a developer tool only; it is not part of any app target.
+
+## Receipt monogram
+
+`GenerateReceiptMonogram.swift` converts the official MTK monogram
+(`Source/MadeToKeepMonogram-official.png`) into the receipt footer asset
+`PocketPixelsBooth/Assets.xcassets/MadeToKeepMonogram.imageset/MadeToKeepMonogram.png`: pure black ink with
+coverage in alpha, cropped to the ink bounds, lettering and proportions unchanged.
+
+```sh
+swiftc -O Tools/MadeToKeepAssets/GenerateReceiptMonogram.swift -o /tmp/mtk-monogram
+/tmp/mtk-monogram Tools/MadeToKeepAssets/Source/MadeToKeepMonogram-official.png \
+    PocketPixelsBooth/Assets.xcassets/MadeToKeepMonogram.imageset/MadeToKeepMonogram.png
+```
+
+At print time `ReceiptMonogramArtwork` rasterizes it at the exact footer size in printer dots, so the script's
+hairlines stay continuous on 1-bit thermal paper.

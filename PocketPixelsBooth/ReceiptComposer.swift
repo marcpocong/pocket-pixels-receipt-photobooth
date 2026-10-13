@@ -2,10 +2,11 @@
 //  ReceiptComposer.swift
 //  PocketPixelsBooth
 //
-//  Composes the Made to Keep editorial receipt: masthead (or event artwork), photographs,
-//  a tracked caption between hairlines, a two-column date footer, an optional compact event
-//  area and an optional, visually separate gallery QR section. Passport / Photo Pass keep their
-//  own cards and share everything from the footer down.
+//  Composes the Made to Keep Studios receipt: masthead (or event artwork), photographs, the
+//  three-part footer (decorative barcode | MTK monogram | session date and time), an optional
+//  supplementary area (event caption, artwork signature, event details, studio credit) and an
+//  optional, visually separate gallery QR section. Photo Pass sits under the same masthead;
+//  Passport / Photo Pass keep their own cards and share everything from the footer down.
 //
 
 import Foundation
@@ -42,6 +43,7 @@ nonisolated enum ReceiptTextStyle: String, Sendable, Equatable {
     case wordmark
     case studios
     case caption
+    /// Session date and time in the footer's right column.
     case footer
     case sessionIdentifier
     case qrLabel
@@ -75,8 +77,8 @@ private struct ReceiptTextSnapshot: Sendable {
     let headerSourceSize: CGSize?
     let branding: ReceiptBrandingResolution
     let captionLines: [String]
-    let footerLeading: [String]
-    let footerTrailing: [String]
+    /// Frozen session date and time, e.g. `OCT 13 2026` / `2:50 AM` (Asia/Manila).
+    let footerDateLines: [String]
     let sessionIdentifier: String
     let qrLabel: String
 }
@@ -93,12 +95,27 @@ private struct ReceiptHeaderLayout: Sendable {
     let bottom: Int
 }
 
+/// The reference footer: decorative barcode | MTK monogram | session date and time, divided by
+/// two vertical rules and centred on the paper.
+nonisolated struct ReceiptFooterLayout: Sendable {
+    let barcodeFrame: CGRect
+    let barcodeBars: [CGRect]
+    let separatorFrames: [CGRect]
+    let monogramFrame: CGRect
+    let dateTexts: [ReceiptTextFrame]
+    let top: Int
+    let bottom: Int
+
+    /// Every printed footer element, left to right.
+    var elementFrames: [CGRect] {
+        [barcodeFrame, separatorFrames[0], monogramFrame, separatorFrames[1]] + dateTexts.map(\.rect)
+    }
+}
+
 /// Everything from the end of the photographs (or cards) to the bottom of the paper.
 private struct ReceiptEditorialLayout: Sendable {
-    let captionRules: [CGRect]
+    let footer: ReceiptFooterLayout
     let captionTexts: [ReceiptTextFrame]
-    let footerTexts: [ReceiptTextFrame]
-    let footerBottom: Int
     let signatureFrame: CGRect?
     let eventTextFrames: [EventTextBlockFrame]
     let creditTexts: [ReceiptTextFrame]
@@ -133,6 +150,9 @@ struct ReceiptLayoutPlan: Sendable {
     let mastheadFrames: [CGRect]
     let captionLines: [String]
     let captionFrames: [CGRect]
+    /// The three-part footer exactly as printed.
+    let footer: ReceiptFooterLayout
+    /// Every footer element: barcode, both rules, monogram and the date/time lines.
     let footerFrames: [CGRect]
     let studioCreditFrames: [CGRect]
     let sessionIdentifierFrame: CGRect
@@ -177,7 +197,6 @@ enum ReceiptComposer {
     nonisolated static let mastheadEstablishedText = MadeToKeepBrand.descriptor
     /// Brand tagline. The editorial footer no longer prints it; kept as the brand constant.
     nonisolated static let footerBrandLine = MadeToKeepBrand.tagline
-    nonisolated static let footerStudioLines = ["PHOTOBOOTH", "EST. 2024"]
     nonisolated static let printedQRLabel = "SCAN TO SAVE YOUR PHOTOS"
     /// Fill-plus-stroke (percent of point size) that keeps high-contrast serif hairlines solid
     /// after 1-bit thermal rasterization.
@@ -190,32 +209,38 @@ enum ReceiptComposer {
     nonisolated static let landscapePresentationAspectRatio = landscapePresentationCropAspectRatio.width / landscapePresentationCropAspectRatio.height
     nonisolated static let stripPresentationCropAspectRatio = landscapePresentationCropAspectRatio
 
-    /// Print geometry in printer dots (8 dots/mm). Tuned against the reference receipts.
+    /// Print geometry in printer dots (8 dots/mm), measured from the Made to Keep reference
+    /// receipt and shared by every format.
     private enum Metrics {
         nonisolated static let receiptTopPadding = 14
-        nonisolated static let mastheadTopInset = 32
-        nonisolated static let wordmarkSize: CGFloat = 60
-        nonisolated static let studiosSize: CGFloat = 15
-        nonisolated static let studiosTracking: CGFloat = 9
+        nonisolated static let mastheadTopInset = 56
+        nonisolated static let wordmarkSize: CGFloat = 55
+        nonisolated static let studiosSize: CGFloat = 14
+        nonisolated static let studiosTracking: CGFloat = 8.5
         nonisolated static let wordmarkStudiosGap = -4
-        nonisolated static let mastheadPhotoGap = 34
+        nonisolated static let mastheadPhotoGap = 44
         nonisolated static let topArtworkPhotoGap = 16
         /// Photographs sit inside generous white side margins like the reference.
         nonisolated static let photoMargin = 36
         nonisolated static let photoGutter = 12
-        nonisolated static let photoCaptionGap = 38
-        nonisolated static let ruleWidth = 404
-        nonisolated static let ruleThickness = 2
-        nonisolated static let ruleTextGap = 28
-        nonisolated static let captionSizes: [CGFloat] = [19, 18, 17, 16, 15]
-        nonisolated static let captionTracking: CGFloat = 6.2
-        nonisolated static let captionLineGap = 9
-        nonisolated static let captionFooterGap = 32
-        nonisolated static let passportFooterGap = 30
-        nonisolated static let footerInset = 48
-        nonisolated static let footerSize: CGFloat = 14.5
-        nonisolated static let footerTracking: CGFloat = 2.8
-        nonisolated static let footerLineGap = 7
+        // Three-part footer. Columns are measured from the paper centre so the monogram is
+        // always centred; the outer columns align with the photo margins.
+        nonisolated static let photoFooterGap = 56
+        nonisolated static let footerSideInset = photoMargin
+        nonisolated static let footerRowHeight = 52
+        nonisolated static let footerMonogramHeight = 72
+        nonisolated static let footerSeparatorOffset = 88
+        nonisolated static let footerSeparatorWidth = 2
+        nonisolated static let footerDateSize: CGFloat = 16
+        nonisolated static let footerDateTracking: CGFloat = 1
+        nonisolated static let footerDateLineGap = 8
+        /// Minimum clear space between a footer column and a rule.
+        nonisolated static let footerColumnClearance = 16
+        // Optional event caption in the supplementary area: small, tracked, no hairlines.
+        nonisolated static let captionMaximumWidth: CGFloat = 404
+        nonisolated static let captionSizes: [CGFloat] = [15, 14, 13]
+        nonisolated static let captionTracking: CGFloat = 4.6
+        nonisolated static let captionLineGap = 7
         nonisolated static let secondaryGap = 40
         nonisolated static let secondaryInnerGap = 18
         nonisolated static let eventTextInset = 60
@@ -226,6 +251,7 @@ enum ReceiptComposer {
         nonisolated static let creditStudiosGap = 0
         nonisolated static let qrSectionGap = 40
         nonisolated static let qrSeparatorDash: CGFloat = 6
+        nonisolated static let qrSeparatorThickness = 2
         nonisolated static let qrSeparatorGap = 26
         nonisolated static let qrLabelGap = 12
         nonisolated static let qrLabelSize: CGFloat = 14
@@ -322,6 +348,8 @@ enum ReceiptComposer {
             cgContext.fill(CGRect(origin: .zero, size: size))
 
             if let photoPassLayout = plan.photoPassLayout, let photoPassContent = plan.photoPassContent {
+                // Photo Pass sits under the same masthead (or Event-First artwork) as every format.
+                drawHeader(textSnapshot: textSnapshot, layout: plan.headerLayout, customArtwork: headerArtwork)
                 PhotoPassRenderer.draw(
                     content: photoPassContent,
                     layout: photoPassLayout,
@@ -415,18 +443,18 @@ enum ReceiptComposer {
         )
     }
 
-    /// Every printed element a sticker must never cover: branding, header artwork, caption,
-    /// footer date, event text and signature, studio credit, QR with its quiet zone and label,
-    /// the session identifier and the Passport / Photo Pass cards (name, note, signature).
+    /// Every printed element a sticker must never cover: branding, header artwork, the footer
+    /// (barcode, rules, monogram, date and time), caption, event text and signature, studio credit,
+    /// QR with its quiet zone and label, the session identifier and the Passport / Photo Pass
+    /// cards (name, note, signature).
     nonisolated static func stickerProtectedRects(for plan: ReceiptLayoutPlan) -> [CGRect] {
         let header = plan.headerLayout
         let editorial = plan.editorialLayout
         var rects: [CGRect] = header.mastheadTexts.map(\.rect)
         rects += [header.customImageFrame].compactMap { $0 }
         rects += header.eventTextFrames.map(\.rect)
-        rects += editorial.captionRules
+        rects += editorial.footer.elementFrames
         rects += editorial.captionTexts.map(\.rect)
-        rects += editorial.footerTexts.map(\.rect)
         rects += [editorial.signatureFrame, editorial.qrSeparator, editorial.qrLabel?.rect].compactMap { $0 }
         rects += editorial.eventTextFrames.map(\.rect)
         rects += editorial.creditTexts.map(\.rect)
@@ -510,13 +538,17 @@ enum ReceiptComposer {
     ) throws -> ReceiptLayoutPlan {
         let width = BoothConfiguration.receiptWidth
         let branding = textSnapshot.branding
+        let isLegacyPassport = passportContent?.legacyContent != nil
+        // Profiles saved before branding modes never printed their header artwork on Photo Pass;
+        // it keeps the Made to Keep masthead. Event-First artwork leads Photo Pass like any format.
+        let showsTopArtwork = branding.showsTopArtwork && !(format == .passport && branding.placement == .legacyHeader)
         let headerLayout: ReceiptHeaderLayout
-        if format == .passport {
+        if isLegacyPassport {
             headerLayout = makeSuppressedHeaderLayout(textSnapshot: textSnapshot, startY: Metrics.receiptTopPadding)
-        } else if branding.placement == .legacyHeader {
+        } else if branding.placement == .legacyHeader && format != .passport {
             headerLayout = makeLegacyHeaderLayout(textSnapshot: textSnapshot, startY: Metrics.receiptTopPadding, width: width)
         } else {
-            headerLayout = makeEditorialHeaderLayout(textSnapshot: textSnapshot, startY: Metrics.receiptTopPadding, width: width)
+            headerLayout = makeEditorialHeaderLayout(textSnapshot: textSnapshot, showsTopArtwork: showsTopArtwork, startY: Metrics.receiptTopPadding, width: width)
         }
 
         let top = headerLayout.bottom
@@ -588,10 +620,10 @@ enum ReceiptComposer {
         )
 
         let headerMode: ReceiptHeaderMode
-        if format == .passport || branding.placement == .legacyHeader {
+        if isLegacyPassport || (branding.placement == .legacyHeader && format != .passport) {
             headerMode = textSnapshot.headerConfiguration.mode
         } else {
-            headerMode = branding.showsTopArtwork ? .customEventHeader : .pocketPixelsDefault
+            headerMode = showsTopArtwork ? .customEventHeader : .pocketPixelsDefault
         }
 
         return ReceiptLayoutPlan(
@@ -615,7 +647,8 @@ enum ReceiptComposer {
             mastheadFrames: headerLayout.mastheadTexts.map(\.rect),
             captionLines: editorial.captionTexts.map(\.text),
             captionFrames: editorial.captionTexts.map(\.rect),
-            footerFrames: editorial.footerTexts.map(\.rect),
+            footer: editorial.footer,
+            footerFrames: editorial.footer.elementFrames,
             studioCreditFrames: editorial.creditTexts.map(\.rect),
             sessionIdentifierFrame: editorial.sessionText.rect,
             showsEventTextBlock: textSnapshot.eventContent != nil,
@@ -625,14 +658,14 @@ enum ReceiptComposer {
             photoPassLayout: photoPassLayout,
             photoPassContent: photoPassLayout == nil ? nil : passportContent?.photoPassContent,
             contentBottom: contentBottom,
-            footerBottom: editorial.footerBottom
+            footerBottom: editorial.footer.bottom
         )
     }
 
     // MARK: Header
 
-    /// Passport carries its own title inside the upper card, so no masthead or event text block
-    /// is stacked above it.
+    /// The legacy Passport carries its own title and artwork inside the upper card, so no
+    /// masthead or event text block is stacked above it.
     nonisolated private static func makeSuppressedHeaderLayout(textSnapshot: ReceiptTextSnapshot, startY: Int) -> ReceiptHeaderLayout {
         ReceiptHeaderLayout(
             mode: textSnapshot.headerConfiguration.mode,
@@ -645,10 +678,10 @@ enum ReceiptComposer {
         )
     }
 
-    /// Studio-First and Event-First: either the Made to Keep masthead or the event artwork, never
-    /// both. Event details print in the secondary area below the footer.
-    nonisolated private static func makeEditorialHeaderLayout(textSnapshot: ReceiptTextSnapshot, startY: Int, width: Int) -> ReceiptHeaderLayout {
-        if textSnapshot.branding.showsTopArtwork, let sourceSize = textSnapshot.headerSourceSize {
+    /// Studio-First, Event-First and Photo Pass: either the Made to Keep masthead or the event
+    /// artwork, never both. Event details print in the supplementary area below the footer.
+    nonisolated private static func makeEditorialHeaderLayout(textSnapshot: ReceiptTextSnapshot, showsTopArtwork: Bool, startY: Int, width: Int) -> ReceiptHeaderLayout {
+        if showsTopArtwork, let sourceSize = textSnapshot.headerSourceSize {
             let config = textSnapshot.headerConfiguration
             let frame = EventHeaderImageProcessor.frameRect(
                 sourceSize: sourceSize,
@@ -798,55 +831,12 @@ enum ReceiptComposer {
         width: Int
     ) -> ReceiptEditorialLayout {
         let center = CGFloat(width) / 2
-        let ruleX = CGFloat((width - Metrics.ruleWidth) / 2)
-        var y = contentBottom
-        var captionRules: [CGRect] = []
-        var captionTexts: [ReceiptTextFrame] = []
 
-        // A. Caption between two hairlines (Photo Pass keeps a single rule above its footer).
-        if textSnapshot.captionLines.isEmpty {
-            y += Metrics.passportFooterGap
-            captionRules.append(CGRect(x: ruleX, y: CGFloat(y), width: CGFloat(Metrics.ruleWidth), height: CGFloat(Metrics.ruleThickness)))
-            y += Metrics.ruleThickness + Metrics.passportFooterGap
-        } else {
-            y += Metrics.photoCaptionGap
-            captionRules.append(CGRect(x: ruleX, y: CGFloat(y), width: CGFloat(Metrics.ruleWidth), height: CGFloat(Metrics.ruleThickness)))
-            y += Metrics.ruleThickness + Metrics.ruleTextGap
-            let size = fittedCaptionSize(textSnapshot.captionLines, maximumWidth: CGFloat(Metrics.ruleWidth))
-            for (index, line) in textSnapshot.captionLines.enumerated() {
-                if index > 0 { y += Metrics.captionLineGap }
-                let frame = makeTextFrame(line, style: .caption, size: size, tracking: Metrics.captionTracking, anchor: .center(center), y: y)
-                captionTexts.append(frame)
-                y = Int(ceil(frame.rect.maxY))
-            }
-            y += Metrics.ruleTextGap
-            captionRules.append(CGRect(x: ruleX, y: CGFloat(y), width: CGFloat(Metrics.ruleWidth), height: CGFloat(Metrics.ruleThickness)))
-            y += Metrics.ruleThickness + Metrics.captionFooterGap
-        }
+        // A. The reference footer, clear of the photographs.
+        let footer = makeFooterLayout(top: contentBottom + Metrics.photoFooterGap, dateLines: textSnapshot.footerDateLines, width: width)
+        var y = footer.bottom
 
-        // B. Two-column footer: studio identity left, actual session date and time right.
-        var footerTexts: [ReceiptTextFrame] = []
-        let leftX = CGFloat(Metrics.footerInset)
-        let rightX = CGFloat(width - Metrics.footerInset)
-        let rows = max(textSnapshot.footerLeading.count, textSnapshot.footerTrailing.count)
-        for row in 0..<rows {
-            if row > 0 { y += Metrics.footerLineGap }
-            var rowBottom = y
-            if row < textSnapshot.footerLeading.count {
-                let frame = makeTextFrame(textSnapshot.footerLeading[row], style: .footer, size: Metrics.footerSize, tracking: Metrics.footerTracking, anchor: .leading(leftX), y: y)
-                footerTexts.append(frame)
-                rowBottom = max(rowBottom, Int(ceil(frame.rect.maxY)))
-            }
-            if row < textSnapshot.footerTrailing.count {
-                let frame = makeTextFrame(textSnapshot.footerTrailing[row], style: .footer, size: Metrics.footerSize, tracking: Metrics.footerTracking, anchor: .trailing(rightX), y: y)
-                footerTexts.append(frame)
-                rowBottom = max(rowBottom, Int(ceil(frame.rect.maxY)))
-            }
-            y = rowBottom
-        }
-        let footerBottom = y
-
-        // C. Compact secondary area: event signature, event details, studio credit.
+        // B. Supplementary area: event caption, event signature, event details, studio credit.
         let branding = textSnapshot.branding
         var hasSecondaryContent = false
         func advanceSecondary() {
@@ -854,13 +844,21 @@ enum ReceiptComposer {
             hasSecondaryContent = true
         }
 
+        var captionTexts: [ReceiptTextFrame] = []
+        if !textSnapshot.captionLines.isEmpty {
+            advanceSecondary()
+            let size = fittedCaptionSize(textSnapshot.captionLines, maximumWidth: Metrics.captionMaximumWidth)
+            for (index, line) in textSnapshot.captionLines.enumerated() {
+                if index > 0 { y += Metrics.captionLineGap }
+                let frame = makeTextFrame(line, style: .caption, size: size, tracking: Metrics.captionTracking, anchor: .center(center), y: y)
+                captionTexts.append(frame)
+                y = Int(ceil(frame.rect.maxY))
+            }
+        }
+
         var signatureFrame: CGRect?
-        // Photo Pass has no top masthead, so Event-First artwork closes the pass instead. The
-        // legacy Passport already prints the artwork inside its card.
-        let showsSignature = format == .passport
-            ? !isLegacyPassport && (branding.showsArtworkSignature || branding.showsTopArtwork)
-            : branding.showsArtworkSignature
-        if showsSignature, let sourceSize = textSnapshot.headerSourceSize {
+        // The legacy Passport already prints the artwork inside its card.
+        if !isLegacyPassport, branding.showsArtworkSignature, let sourceSize = textSnapshot.headerSourceSize {
             advanceSecondary()
             let frame = EventHeaderImageProcessor.signatureFrameRect(
                 sourceSize: sourceSize,
@@ -873,6 +871,7 @@ enum ReceiptComposer {
         }
 
         var eventTextFrames: [EventTextBlockFrame] = []
+        // Photo Pass prints the event inside its own fields.
         if format != .passport, branding.showsEventDetailsBelowFooter, let content = textSnapshot.eventContent {
             advanceSecondary()
             let block = EventTextBlockLayout.make(
@@ -887,10 +886,9 @@ enum ReceiptComposer {
         }
 
         var creditTexts: [ReceiptTextFrame] = []
-        // Photo Pass in Studio-First signs off with the studio wordmark because it has no masthead.
-        let showsCredit = branding.showsStudioCredit
-            || (format == .passport && branding.placement == .studioFirst)
-        if showsCredit {
+        // Only the operator's Event-First credit option: the footer monogram already signs every
+        // receipt, including Photo Pass and the legacy Passport.
+        if branding.showsStudioCredit {
             advanceSecondary()
             let credit = makeMastheadTexts(
                 top: y,
@@ -906,15 +904,15 @@ enum ReceiptComposer {
             y = credit.bottom
         }
 
-        // D. Optional gallery QR, separated from the keepsake by a dashed tear line.
+        // C. Optional gallery QR, separated from the keepsake by a dashed tear line.
         var qrSeparator: CGRect?
         var qrRect: CGRect?
         var qrLabel: ReceiptTextFrame?
         if includesPrintedQR {
             y += Metrics.qrSectionGap
-            let separator = CGRect(x: CGFloat(Metrics.photoMargin), y: CGFloat(y), width: CGFloat(width - Metrics.photoMargin * 2), height: CGFloat(Metrics.ruleThickness))
+            let separator = CGRect(x: CGFloat(Metrics.photoMargin), y: CGFloat(y), width: CGFloat(width - Metrics.photoMargin * 2), height: CGFloat(Metrics.qrSeparatorThickness))
             qrSeparator = separator
-            y += Metrics.ruleThickness + Metrics.qrSeparatorGap
+            y += Metrics.qrSeparatorThickness + Metrics.qrSeparatorGap
             let rect = CGRect(x: (width - receiptQRCodeSize) / 2, y: y, width: receiptQRCodeSize, height: receiptQRCodeSize)
             qrRect = rect
             y += receiptQRCodeSize + Metrics.qrLabelGap
@@ -923,16 +921,14 @@ enum ReceiptComposer {
             y = Int(ceil(label.rect.maxY))
         }
 
-        // E. Unobtrusive session identifier for reprints and support, then feed clearance.
+        // D. Unobtrusive session identifier for reprints and support, then feed clearance.
         y += Metrics.sessionGap
         let sessionText = makeTextFrame(textSnapshot.sessionIdentifier, style: .sessionIdentifier, size: Metrics.sessionSize, tracking: Metrics.sessionTracking, anchor: .center(center), y: y)
         y = Int(ceil(sessionText.rect.maxY)) + Metrics.bottomPadding
 
         return ReceiptEditorialLayout(
-            captionRules: captionRules,
+            footer: footer,
             captionTexts: captionTexts,
-            footerTexts: footerTexts,
-            footerBottom: footerBottom,
             signatureFrame: signatureFrame,
             eventTextFrames: eventTextFrames,
             creditTexts: creditTexts,
@@ -944,14 +940,59 @@ enum ReceiptComposer {
         )
     }
 
-    /// Largest caption size at which every line fits between the hairlines.
+    /// Barcode | monogram | date and time. The monogram is the tallest element; the barcode,
+    /// rules and the two date lines share one row centred on it.
+    nonisolated private static func makeFooterLayout(top: Int, dateLines: [String], width: Int) -> ReceiptFooterLayout {
+        let center = width / 2
+        let rowTop = top + (Metrics.footerMonogramHeight - Metrics.footerRowHeight) / 2
+        let rowHeight = Metrics.footerRowHeight
+
+        let barcodeX = Metrics.footerSideInset
+        let barcodeFrame = CGRect(x: barcodeX, y: rowTop, width: ReceiptDecorativeBarcode.totalWidth, height: rowHeight)
+        let barcodeBars = ReceiptDecorativeBarcode.bars(originX: barcodeX, y: rowTop, height: rowHeight)
+
+        let separatorFrames = [-1, 1].map { side in
+            CGRect(
+                x: center + side * Metrics.footerSeparatorOffset - Metrics.footerSeparatorWidth / 2,
+                y: rowTop,
+                width: Metrics.footerSeparatorWidth,
+                height: rowHeight
+            )
+        }
+
+        let monogramWidth = Int((CGFloat(Metrics.footerMonogramHeight) * ReceiptMonogramArtwork.aspectRatio).rounded())
+        let monogramFrame = CGRect(x: center - monogramWidth / 2, y: top, width: monogramWidth, height: Metrics.footerMonogramHeight)
+
+        // Date over time, right-aligned with the photographs, vertically centred in the row.
+        let font = font(for: .footer, size: Metrics.footerDateSize)
+        let lineHeight = Int(ceil(font.lineHeight))
+        let blockHeight = dateLines.count * lineHeight + max(0, dateLines.count - 1) * Metrics.footerDateLineGap
+        var lineY = rowTop + (rowHeight - blockHeight) / 2
+        let rightX = CGFloat(width - Metrics.footerSideInset)
+        let dateTexts = dateLines.map { line -> ReceiptTextFrame in
+            defer { lineY += lineHeight + Metrics.footerDateLineGap }
+            return makeTextFrame(line, style: .footer, size: Metrics.footerDateSize, tracking: Metrics.footerDateTracking, anchor: .trailing(rightX), y: lineY)
+        }
+
+        return ReceiptFooterLayout(
+            barcodeFrame: barcodeFrame,
+            barcodeBars: barcodeBars,
+            separatorFrames: separatorFrames,
+            monogramFrame: monogramFrame,
+            dateTexts: dateTexts,
+            top: top,
+            bottom: top + Metrics.footerMonogramHeight
+        )
+    }
+
+    /// Largest caption size at which every line fits the supplementary measure.
     nonisolated private static func fittedCaptionSize(_ lines: [String], maximumWidth: CGFloat) -> CGFloat {
         for size in Metrics.captionSizes {
             let font = font(for: .caption, size: size)
             let fits = lines.allSatisfy { visibleWidth($0, font: font, tracking: Metrics.captionTracking) <= maximumWidth }
             if fits { return size }
         }
-        return Metrics.captionSizes.last ?? 15
+        return Metrics.captionSizes.last ?? 13
     }
 
     // MARK: Text snapshot
@@ -995,8 +1036,7 @@ enum ReceiptComposer {
             headerSourceSize: headerSourceSize,
             branding: branding,
             captionLines: captionLines,
-            footerLeading: footerStudioLines,
-            footerTrailing: [
+            footerDateLines: [
                 footerDateFormatter.string(from: date).uppercased(),
                 footerTimeFormatter.string(from: date).uppercased()
             ],
@@ -1087,22 +1127,14 @@ enum ReceiptComposer {
         try validateEditorialLayout(plan.editorialLayout, contentBottom: photoBottom, height: plan.height, canvas: canvas)
     }
 
-    /// Every editorial block sits inside the paper and strictly below the previous one, the two
-    /// footer columns never touch, and the QR section only exists when it is printed.
+    /// Every editorial block sits inside the paper and strictly below the previous one, the
+    /// footer columns stay apart and inside the printable width, and the QR section only exists
+    /// when it is printed.
     nonisolated private static func validateEditorialLayout(_ layout: ReceiptEditorialLayout, contentBottom: Int, height: Int, canvas: CGRect) throws {
+        try validateFooterLayout(layout.footer, contentBottom: contentBottom, canvas: canvas)
         var blocks: [(String, CGRect)] = []
-        blocks.append(contentsOf: layout.captionRules.prefix(1).map { ("caption.rule", $0) })
+        blocks.append(("footer", CGRect(x: 0, y: layout.footer.top, width: Int(canvas.width), height: layout.footer.bottom - layout.footer.top)))
         blocks.append(contentsOf: layout.captionTexts.map { ("caption.line", $0.rect) })
-        blocks.append(contentsOf: layout.captionRules.dropFirst().map { ("caption.rule", $0) })
-        let footerRows = Dictionary(grouping: layout.footerTexts, by: { Int($0.rect.minY) }).sorted { $0.key < $1.key }
-        for (_, row) in footerRows {
-            let union = row.map(\.rect).reduce(row[0].rect) { $0.union($1) }
-            blocks.append(("footer.row", union))
-            let sorted = row.sorted { $0.rect.minX < $1.rect.minX }
-            for (left, right) in zip(sorted, sorted.dropFirst()) where left.rect.maxX >= right.rect.minX {
-                throw ReceiptComposerError.invalidLayout("footer columns overlap")
-            }
-        }
         if let signatureFrame = layout.signatureFrame {
             guard signatureFrame.height <= EventHeaderImageProcessor.signatureMaximumHeight,
                   signatureFrame.width <= EventHeaderImageProcessor.signatureMaximumWidth else {
@@ -1126,7 +1158,7 @@ enum ReceiptComposer {
             }
             previousBottom = rect.maxY
         }
-        for text in layout.captionTexts + layout.footerTexts + layout.creditTexts + [layout.qrLabel, layout.sessionText].compactMap({ $0 }) {
+        for text in layout.captionTexts + layout.footer.dateTexts + layout.creditTexts + [layout.qrLabel, layout.sessionText].compactMap({ $0 }) {
             let visibleRight = text.rect.maxX - text.tracking
             guard text.rect.minX >= CGFloat(BoothConfiguration.receiptHorizontalMargin),
                   visibleRight <= CGFloat(BoothConfiguration.receiptWidth - BoothConfiguration.receiptHorizontalMargin) else {
@@ -1139,6 +1171,34 @@ enum ReceiptComposer {
               Int(ceil(previousBottom)) + Metrics.bottomPadding <= height,
               layout.bottom == height else {
             throw ReceiptComposerError.invalidLayout("editorial section dimensions do not match the plan")
+        }
+    }
+
+    /// Barcode, rule, monogram, rule and date read left to right with clear space between each,
+    /// the monogram is centred on the paper, and everything stays inside the footer band.
+    nonisolated private static func validateFooterLayout(_ footer: ReceiptFooterLayout, contentBottom: Int, canvas: CGRect) throws {
+        guard footer.top > contentBottom, footer.separatorFrames.count == 2, !footer.dateTexts.isEmpty else {
+            throw ReceiptComposerError.invalidLayout("footer is missing elements or overlaps the photographs")
+        }
+        let band = CGRect(x: CGFloat(BoothConfiguration.receiptHorizontalMargin), y: CGFloat(footer.top),
+                          width: canvas.width - CGFloat(BoothConfiguration.receiptHorizontalMargin * 2), height: CGFloat(footer.bottom - footer.top))
+        for (index, frame) in footer.elementFrames.enumerated() {
+            try validateFrame(frame, name: "footer.\(index)", inside: canvas)
+            guard band.contains(frame) else {
+                throw ReceiptComposerError.invalidLayout("footer element \(index) leaves the footer band or printable width")
+            }
+        }
+        guard footer.barcodeBars.allSatisfy({ footer.barcodeFrame.contains($0) }) else {
+            throw ReceiptComposerError.invalidLayout("decorative barcode leaves its column")
+        }
+        let dateMinX = footer.dateTexts.map(\.rect.minX).min() ?? canvas.maxX
+        let clearance = CGFloat(Metrics.footerColumnClearance)
+        guard footer.barcodeFrame.maxX + clearance <= footer.separatorFrames[0].minX,
+              footer.separatorFrames[0].maxX + clearance <= footer.monogramFrame.minX,
+              footer.monogramFrame.maxX + clearance <= footer.separatorFrames[1].minX,
+              footer.separatorFrames[1].maxX + clearance <= dateMinX,
+              abs(footer.monogramFrame.midX - canvas.midX) <= 1 else {
+            throw ReceiptComposerError.invalidLayout("footer columns are crowded or off-centre")
         }
     }
 
@@ -1434,10 +1494,8 @@ enum ReceiptComposer {
         qrImage: UIImage?,
         context: CGContext
     ) {
-        UIColor.black.setFill()
-        layout.captionRules.forEach { context.fill($0) }
+        drawFooter(layout.footer, context: context)
         layout.captionTexts.forEach(drawText)
-        layout.footerTexts.forEach(drawText)
 
         if let frame = layout.signatureFrame, let artwork {
             let rendered = EventHeaderImageProcessor.renderedSignature(source: artwork, configuration: textSnapshot.headerConfiguration)
@@ -1456,6 +1514,31 @@ enum ReceiptComposer {
             drawText(qrLabel)
         }
         drawText(layout.sessionText)
+    }
+
+    nonisolated private static func drawFooter(_ footer: ReceiptFooterLayout, context: CGContext) {
+        UIColor.black.setFill()
+        footer.barcodeBars.forEach { context.fill($0) }
+        footer.separatorFrames.forEach { context.fill($0) }
+        if let monogram = ReceiptMonogramArtwork.image(pixelSize: footer.monogramFrame.size) {
+            // Already rasterized at exact dot size: draw 1:1 without resampling. UIKit contexts
+            // are flipped, so draw through UIImage to keep the artwork upright.
+            context.interpolationQuality = .none
+            UIImage(cgImage: monogram).draw(in: footer.monogramFrame)
+        } else {
+            drawMonogramFallback(in: footer.monogramFrame)
+        }
+        footer.dateTexts.forEach(drawText)
+    }
+
+    /// Typographic MTK used only if the monogram asset is missing from the bundle, so the footer
+    /// never prints an unexplained gap.
+    nonisolated private static func drawMonogramFallback(in rect: CGRect) {
+        let font = MadeToKeepTheme.Typography.italicSerifUIFont(size: rect.height * 0.42)
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.black]
+        let text = NSString(string: "MTK")
+        let size = text.size(withAttributes: attributes)
+        text.draw(at: CGPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2), withAttributes: attributes)
     }
 
     nonisolated private static func drawDashedRule(_ rect: CGRect, context: CGContext) {
@@ -1514,9 +1597,12 @@ enum ReceiptComposer {
         switch style {
         case .wordmark, .creditWordmark:
             MadeToKeepTheme.Typography.italicSerifUIFont(size: size)
-        case .studios, .caption, .footer, .creditStudios:
+        case .studios, .caption, .creditStudios:
             // Medium rather than light so tracked capitals stay crisp on thermal paper.
             .systemFont(ofSize: size, weight: .medium)
+        case .footer:
+            // Typewriter-style date and time like the reference footer.
+            .monospacedSystemFont(ofSize: size, weight: .medium)
         case .qrLabel:
             .systemFont(ofSize: size, weight: .semibold)
         case .sessionIdentifier:

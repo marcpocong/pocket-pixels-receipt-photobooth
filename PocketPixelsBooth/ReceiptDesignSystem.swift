@@ -29,7 +29,7 @@ nonisolated enum ReceiptBrandingMode: String, Codable, CaseIterable, Identifiabl
     var summary: String {
         switch self {
         case .studioFirst: "Made to Keep stays at the top. Event artwork prints as a small signature near the bottom."
-        case .eventFirst: "Event artwork replaces the Made to Keep masthead at the top of the receipt."
+        case .eventFirst: "Event artwork replaces the Made to Keep masthead at the top of the receipt. The Made to Keep monogram stays in the footer."
         }
     }
 }
@@ -140,32 +140,19 @@ nonisolated struct ReceiptBrandingResolution: Sendable, Equatable {
     }
 }
 
-/// The short, tracked uppercase caption between the receipt's two hairlines.
+/// The short, tracked uppercase event caption printed in the supplementary area below the
+/// receipt footer. Standard receipts print no caption, like the reference design.
 nonisolated enum ReceiptEditorialCaption {
     static let maximumLines = 2
     static let maximumLineLength = 24
     /// Characters accepted while typing (two full lines plus the separator).
     static let inputLimit = maximumLines * maximumLineLength + 1
 
-    /// Relationship-neutral defaults; every format uses two lines so related formats share a
-    /// caption height.
-    static func defaultLines(for format: BoothFormat) -> [String] {
-        switch format {
-        case .solo: ["A LITTLE MOMENT", "FOR THE RECORD"]
-        case .duo: ["GOOD MOMENTS", "BETTER TOGETHER"]
-        case .grid: ["EVERY ANGLE", "WORTH KEEPING"]
-        case .strip: ["FRAME BY FRAME", "MOMENT BY MOMENT"]
-        case .gridSix: ["SIX LITTLE MOMENTS", "ALL WORTH KEEPING"]
-        case .passport: []
-        }
-    }
-
-    /// Lines to print: the event caption when set, otherwise the format default. Photo Pass
-    /// carries its own message, so it never prints an editorial caption.
+    /// Lines to print: only an operator-entered event caption. Photo Pass carries its own
+    /// message, so it never prints an editorial caption.
     static func resolvedLines(for format: BoothFormat, eventCaption: String?) -> [String] {
         guard format != .passport else { return [] }
-        let custom = lines(from: eventCaption ?? "")
-        return (custom.isEmpty ? defaultLines(for: format) : custom).map { $0.uppercased() }
+        return lines(from: eventCaption ?? "").map { $0.uppercased() }
     }
 
     /// Splits operator text into at most two print-safe lines. A deliberate newline is kept; a

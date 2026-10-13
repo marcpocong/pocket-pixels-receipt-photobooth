@@ -46,18 +46,30 @@ final class HardwareQualificationTests: XCTestCase {
     }
 
     /// Answers prompts like a careful operator until the run ends.
+    ///
+    /// A stalled run fails after `stallTimeout` without any new session or event. Total runtime
+    /// is not bounded by a fixed deadline: the 100-session run composes and rasterizes 100 real
+    /// receipts, which takes about a minute on a developer Mac but 3–5 minutes on a shared CI
+    /// simulator, and a wall-clock cap made the suite fail on slow runners rather than on hangs.
     private func drive(
         _ engine: HardwareQualificationEngine,
+        stallTimeout: TimeInterval = 90,
         respond: @escaping (HardwareQualificationEngine.OperatorPrompt) -> HardwareQualificationEngine.OperatorResponse? = HardwareQualificationTests.carefulOperator
     ) async {
-        let deadline = Date().addingTimeInterval(240)
-        while engine.isRunning, Date() < deadline {
+        var lastProgress = (sessions: -1, events: -1)
+        var lastProgressAt = Date()
+        while engine.isRunning, Date().timeIntervalSince(lastProgressAt) < stallTimeout {
             if let prompt = engine.prompt, let response = respond(prompt) {
                 engine.respond(response)
             }
+            let progress = (sessions: engine.record?.sessions.count ?? 0, events: engine.record?.events.count ?? 0)
+            if progress != lastProgress {
+                lastProgress = progress
+                lastProgressAt = Date()
+            }
             try? await Task.sleep(for: .milliseconds(5))
         }
-        XCTAssertFalse(engine.isRunning, "Run did not finish in time")
+        XCTAssertFalse(engine.isRunning, "Run stalled: no new session or event for \(Int(stallTimeout)) s (\(lastProgress.sessions) sessions, \(lastProgress.events) events)")
     }
 
     nonisolated static func carefulOperator(_ prompt: HardwareQualificationEngine.OperatorPrompt) -> HardwareQualificationEngine.OperatorResponse? {

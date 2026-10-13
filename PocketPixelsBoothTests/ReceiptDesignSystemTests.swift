@@ -37,6 +37,11 @@ final class ReceiptDesignSystemTests: XCTestCase {
         var credit = eventProfile(mode: .eventFirst, artwork: artwork)
         credit.receiptHeader.showsStudioCredit = true
         try render(format: .duo, profile: credit, qr: true, name: "duo_event_first_credit")
+        try render(format: .solo, profile: eventProfile(mode: .studioFirst, artwork: nil, caption: "Anna & Mark\nForever starts today"), qr: false, name: "solo_event_caption")
+        try render(format: .passport, profile: nil, qr: true, name: "passport_legacy_qr_on", passport: .debugFixture)
+        for format in BoothFormat.allCases {
+            try render(format: format, profile: nil, qr: true, name: "\(format.rawValue)_stickers", withStickers: true)
+        }
     }
 
     func testPrintedQRSettingDefaultsOnAndPersistsIndependently() throws {
@@ -91,6 +96,69 @@ final class ReceiptDesignSystemTests: XCTestCase {
         XCTAssertEqual(plan.branding.warnings, [.eventFirstArtworkHidden])
     }
 
+    // MARK: Reference footer
+
+    func testEveryFormatPrintsTheThreePartFooterWithTheSessionTimeAndNoDefaultCaption() throws {
+        // 2026-10-12 18:50 UTC is 2:50 AM on Oct 13 in Manila: the footer uses the session's
+        // Asia/Manila time, never the render device's zone or the render time.
+        let sessionDate = Date(timeIntervalSince1970: 1_791_831_000)
+        for format in BoothFormat.allCases {
+            for qr in [false, true] {
+                let plan = try ReceiptComposer.makeLayoutPlan(
+                    format: format,
+                    includesGalleryQRCode: qr,
+                    passport: format == .passport ? .photoPassDebugFixture : nil,
+                    date: sessionDate
+                )
+                let footer = plan.footer
+                XCTAssertEqual(footer.dateTexts.map(\.text), ["OCT 13 2026", "2:50 AM"], "\(format)")
+                XCTAssertTrue(plan.captionLines.isEmpty, "\(format) prints no default caption")
+                XCTAssertGreaterThan(CGFloat(footer.top), CGFloat(plan.contentBottom), "\(format) footer follows the photographs")
+                XCTAssertEqual(footer.monogramFrame.midX, CGFloat(plan.width) / 2, accuracy: 1, "\(format) monogram is centred")
+                XCTAssertLessThan(footer.barcodeFrame.maxX, footer.separatorFrames[0].minX)
+                XCTAssertLessThan(footer.separatorFrames[1].maxX, footer.dateTexts.map(\.rect.minX).min() ?? 0)
+                XCTAssertFalse(plan.mastheadFrames.isEmpty, "\(format) leads with the Made to Keep masthead")
+                if let qrRect = plan.qrRect {
+                    XCTAssertGreaterThan(qrRect.minY, CGFloat(footer.bottom), "\(format) functional QR sits below the decorative footer")
+                } else {
+                    XCTAssertFalse(qr, "\(format) prints the QR whenever it is enabled")
+                }
+            }
+        }
+    }
+
+    func testFooterArtworkIsBundledDeterministicAndPureBlackOnWhite() throws {
+        let plan = try ReceiptComposer.makeLayoutPlan(format: .solo, includesGalleryQRCode: false, date: Self.date)
+        let monogram = try XCTUnwrap(ReceiptMonogramArtwork.image(pixelSize: plan.footer.monogramFrame.size), "The official monogram ships in the app bundle")
+        XCTAssertEqual(monogram.width, Int(plan.footer.monogramFrame.width))
+        XCTAssertEqual(ReceiptDecorativeBarcode.bars(originX: 0, y: 0, height: 10), ReceiptDecorativeBarcode.bars(originX: 0, y: 0, height: 10))
+        XCTAssertEqual(ReceiptDecorativeBarcode.barWidths.count, ReceiptDecorativeBarcode.gapWidths.count + 1)
+
+        let receipt = try compose(format: .solo, profile: nil, qr: false)
+        let image = try XCTUnwrap(UIImage(data: receipt.imagePNGData)?.cgImage)
+        let footerArtwork = [plan.footer.barcodeFrame, plan.footer.monogramFrame] + plan.footer.separatorFrames
+        var inked = 0
+        for rect in footerArtwork {
+            for value in try grayValues(of: image, in: rect) {
+                XCTAssertTrue(value < 8 || value > 247, "Footer artwork never prints grey that the dither would speckle")
+                if value < 8 { inked += 1 }
+            }
+        }
+        XCTAssertGreaterThan(inked, 1_000, "The barcode, rules and monogram actually print")
+    }
+
+    func testEventCaptionPrintsOnlyWhenConfiguredBelowTheFooter() throws {
+        let plan = try ReceiptComposer.makeLayoutPlan(
+            format: .grid,
+            includesGalleryQRCode: true,
+            eventProfile: eventProfile(mode: .studioFirst, artwork: nil, caption: "Anna & Mark\nForever starts today"),
+            date: Self.date
+        )
+        XCTAssertEqual(plan.captionLines, ["ANNA & MARK", "FOREVER STARTS TODAY"])
+        XCTAssertTrue(plan.captionFrames.allSatisfy { $0.minY >= CGFloat(plan.footer.bottom) })
+        XCTAssertTrue(plan.captionFrames.allSatisfy { $0.maxY <= (plan.qrRect?.minY ?? .infinity) })
+    }
+
     func testEditorialCaptionNormalizesToTwoPrintSafeLines() {
         let caption = ReceiptEditorialCaption.normalized("  Another year with many wonderful memories to keep  ")
         let lines = caption.components(separatedBy: "\n")
@@ -101,8 +169,23 @@ final class ReceiptDesignSystemTests: XCTestCase {
 
     // MARK: Helpers
 
-    private func render(format: BoothFormat, profile: EventProfile?, qr: Bool, name: String) throws {
-        let receipt = try compose(format: format, profile: profile, qr: qr)
+    private func render(format: BoothFormat, profile: EventProfile?, qr: Bool, name: String, passport: PassportSessionData? = nil, withStickers: Bool = false) throws {
+        var receipt = try compose(format: format, profile: profile, qr: qr, passport: passport)
+        if withStickers {
+            // One bundled sticker per photo, deliberately pushed toward the edges.
+            let regions = try XCTUnwrap(receipt.stickerLayout).regions.filter { if case .photo = $0.target { true } else { false } }
+            let art = try StickerPrintPreparation.prepare(XCTUnwrap(BundledStickerFactory.image(for: "builtin.heart")))
+            let stickers = regions.enumerated().map { index, region in
+                FrozenStickerDecoration(
+                    placement: StickerPlacement(id: UUID(), assetID: "builtin.heart", assetName: "Heart", provenance: .builtIn, frameIndex: 0,
+                                                target: region.target, centerX: index.isMultiple(of: 2) ? 0.92 : 0.1, centerY: 0.92,
+                                                scale: 0.45, rotation: 0.3, zOrder: index, aspectRatio: 1),
+                    printImage: art
+                )
+            }
+            receipt = try compose(format: format, profile: profile, qr: qr, passport: passport, stickers: stickers)
+            XCTAssertEqual(receipt.drawnStickerPlacementIDs.count, stickers.count, "\(format) draws every sticker")
+        }
         let image = try XCTUnwrap(UIImage(data: receipt.imagePNGData))
         let raster = try ThermalImageRasterizer.rasterize(image, purpose: .completeReceipt)
         let thermal = try XCTUnwrap(UIImage(data: raster.previewPNGData))
@@ -111,7 +194,7 @@ final class ReceiptDesignSystemTests: XCTestCase {
         print("RECEIPT_ARTIFACT \(name) \(receipt.width)x\(receipt.height) \(String(format: "%.1f", receipt.estimatedLengthMillimeters))mm")
     }
 
-    private func compose(format: BoothFormat, profile: EventProfile?, qr: Bool, passport: PassportSessionData? = nil) throws -> ComposedReceipt {
+    private func compose(format: BoothFormat, profile: EventProfile?, qr: Bool, passport: PassportSessionData? = nil, stickers: [FrozenStickerDecoration] = []) throws -> ComposedReceipt {
         try ReceiptComposer.compose(
             photos: samplePhotos(for: format),
             sessionIdentifier: ReceiptComposer.makeSessionIdentifier(date: Self.date),
@@ -120,7 +203,8 @@ final class ReceiptDesignSystemTests: XCTestCase {
             format: format,
             eventProfile: profile,
             passport: format == .passport ? (passport ?? .photoPassDebugFixture) : nil,
-            printOptions: ReceiptPrintOptions(includesPrintedGalleryQR: qr)
+            printOptions: ReceiptPrintOptions(includesPrintedGalleryQR: qr),
+            stickers: stickers
         )
     }
 
@@ -189,6 +273,15 @@ final class ReceiptDesignSystemTests: XCTestCase {
             }
         }
         return (0..<format.photoCount).map { ReliabilityFixtures.syntheticPhoto(session: 900, photo: $0 + 1, format: format) }
+    }
+
+    private func grayValues(of image: CGImage, in rect: CGRect) throws -> [UInt8] {
+        let cropped = try XCTUnwrap(image.cropping(to: rect))
+        var pixels = [UInt8](repeating: 0, count: cropped.width * cropped.height)
+        let context = try XCTUnwrap(CGContext(data: &pixels, width: cropped.width, height: cropped.height, bitsPerComponent: 8,
+                                              bytesPerRow: cropped.width, space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue))
+        context.draw(cropped, in: CGRect(x: 0, y: 0, width: cropped.width, height: cropped.height))
+        return pixels
     }
 
     private func writeArtifact(_ image: UIImage, name: String) {
