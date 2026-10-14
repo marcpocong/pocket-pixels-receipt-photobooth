@@ -132,6 +132,41 @@ import UIKit
         XCTAssertTrue(f.workspace.hasPendingSetup, "A real price change still survives exit")
     }
 
+    func testTargetedPaymentReviewIsReadOnlyAndCapturesOriginalBaselineOnEdit() async {
+        let f = MatrixFixture(); defer { f.cleanup() }
+        await f.model.choosePayment(.cashOnly)
+        await f.model.connectPaidCheckout()
+        f.model.policy.priceText = "1.00"
+        await start(f.model)
+        let id = f.model.selectedID!
+        let target = SavedDraftID.payment(binding: f.workspace.serverBinding, eventID: id)
+        let selection = OperatorSessionSetupDraft(mode: .localPrepaid, eventID: nil, serverBinding: f.workspace.serverBinding, eventModeEnabled: false)
+        f.workspace.saveSessionSetup(selection)
+        f.api.calls = []
+        let review = SessionSetupCoordinator(draftTarget: target, workspace: f.workspace, acceptance: f.acceptance, library: f.library,
+            api: { f.api }, authorized: { true }, blockingReason: { nil }, loadLocal: { f.local }, source: { f.source }, currentProfile: { f.profile })
+        await review.refresh()
+        XCTAssertFalse(f.api.calls.contains { $0.hasPrefix("save:") || $0.hasPrefix("create:") || $0.hasPrefix("activate:") || $0.hasPrefix("publish:") })
+        XCTAssertEqual(f.workspace.snapshot.sessionSetup, selection)
+        review.policy.priceText = "2.00"
+        let draft = f.workspace.serverDraft(eventID: id)
+        XCTAssertEqual(draft?.baseline?.policy.unitPriceCentavos, 100)
+        XCTAssertEqual(draft?.policy.unitPriceCentavos, 200)
+        f.api.events[id]?.version += 1
+        let detail = try! await f.api.eventDetail(id: id)
+        let entries = SavedDraftCatalog.entries(workspace: f.workspace, library: f.library.library, remote: [target: detail])
+        XCTAssertTrue(entries.first { $0.id == target }?.notice?.contains("changed") == true)
+    }
+
+    func testDifferentConnectionDraftReviewNeverContactsCurrentServer() async {
+        let f = MatrixFixture(); defer { f.cleanup() }
+        let review = SessionSetupCoordinator(draftTarget: .payment(binding: "another-server", eventID: "pilot"), workspace: f.workspace,
+            acceptance: f.acceptance, library: f.library, api: { f.api }, authorized: { true }, blockingReason: { nil })
+        await review.refresh()
+        XCTAssertTrue(f.api.calls.isEmpty)
+        XCTAssertTrue(review.needsRefresh)
+    }
+
     func testEventOffWithEveryPaymentChoiceUsesTheStudioReceipt() async {
         for choice in GuestPaymentChoice.allCases {
             let f = MatrixFixture(); defer { f.cleanup() }

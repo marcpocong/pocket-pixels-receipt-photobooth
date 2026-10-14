@@ -42,13 +42,6 @@ struct ContentView: View {
             workspace.open()
             isShowingAdmin = true
         })
-        .overlay(alignment: .topTrailing) {
-            if workspace.hasPendingSetup && !isShowingAdmin && !operationalState.customerSessionActive {
-                Button("Resume Draft Setup") { workspace.open(); isShowingAdmin = true }
-                    .buttonStyle(.bordered)
-                    .padding()
-            }
-        }
         .fullScreenCover(isPresented: $isShowingAdmin) {
             OperatorAuthenticationView { PocketPixelsAdminView() }
                 .interactiveDismissDisabled()
@@ -66,7 +59,6 @@ private struct PocketPixelsAdminView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var workspace = OperatorWorkspace.shared
     @Environment(\.scenePhase) private var scenePhase
-    @State private var confirmExit = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -82,8 +74,8 @@ private struct PocketPixelsAdminView: View {
                 Spacer()
 
                 Button("Return to Booth") {
-                    if workspace.hasUnsavedDrafts { confirmExit = true }
-                    else { workspace.finish(keepingDrafts: false); dismiss() }
+                    workspace.finish(keepingDrafts: true)
+                    dismiss()
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(operations.isPreflightRunning || printer.isWorking)
@@ -104,22 +96,12 @@ private struct PocketPixelsAdminView: View {
             }
 
         }
-        .confirmationDialog("Keep your unsaved setup?", isPresented: $confirmExit, titleVisibility: .visible) {
-            Button("Keep Drafts & Return to Booth") { workspace.finish(keepingDrafts: true); dismiss() }
-            Button("Discard Setup Drafts & Return", role: .destructive) {
-                guard OperatorAccessPermit.shared.isAuthorized else { return }
-                workspace.finish(keepingDrafts: false); dismiss()
-            }
-            Button("Continue Editing", role: .cancel) {}
-        } message: { Text("Keeping drafts saves them only on this iPad. Nothing is published or activated.") }
-        .onChange(of: scenePhase) { _, phase in if phase != .active { confirmExit = false } }
         .onReceive(NotificationCenter.default.publisher(for: OperatorWorkspace.didStartSessions)) { _ in
             workspace.finish(keepingDrafts: workspace.hasUnsavedDrafts)
             dismiss()
         }
         .onReceive(NotificationCenter.default.publisher(for: OperatorWorkspace.didResumeCheckout)) { _ in
             guard PaymentRecoveryCoordinator.shared.armedResume != nil else { return }
-            confirmExit = false
             workspace.finish(keepingDrafts: true)
             dismiss()
         }

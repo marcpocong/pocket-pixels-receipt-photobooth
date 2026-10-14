@@ -13,8 +13,13 @@ struct SessionSetupView: View {
     @State private var previewExpanded = true
     @State private var newName = OperatorWorkspace.shared.snapshot.newEventName
     @State private var newVenue = OperatorWorkspace.shared.snapshot.newEventVenue
-    init(eventID: String? = nil, coordinator: SessionSetupCoordinator? = nil) {
-        _setup = StateObject(wrappedValue: coordinator ?? SessionSetupCoordinator(eventID: eventID))
+    init(eventID: String? = nil, coordinator: SessionSetupCoordinator? = nil, opensNewEventDraft: Bool = false) {
+        let model = coordinator ?? SessionSetupCoordinator(eventID: eventID)
+        _setup = StateObject(wrappedValue: model)
+        _workspace = ObservedObject(wrappedValue: model.workspaceForEditing)
+        _newName = State(initialValue: model.workspaceForEditing.snapshot.newEventName)
+        _newVenue = State(initialValue: model.workspaceForEditing.snapshot.newEventVenue)
+        _createEvent = State(initialValue: opensNewEventDraft)
     }
 
     private var regular: Bool { horizontalSizeClass == .regular }

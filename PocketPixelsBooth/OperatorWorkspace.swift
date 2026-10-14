@@ -6,9 +6,11 @@ nonisolated enum OperatorWorkspaceRoute: Codable, Hashable, Sendable {
     case equipment, advanced, printer, recovery, camera, gallery, waitingGalleries, recentSessions, storage, printHistory
     case serverEvent(String)
     case sessionSetup, branding, sales, eventReport(String), eventMaintenance(String)
+    case savedDrafts, draftReview(SavedDraftID)
 
     var title: String {
         switch self {
+        case .savedDrafts, .draftReview: "Saved Drafts"
         case .manageEvent, .sales: "Sales & History"
         case .payments: "Payment Maintenance"
         case .charging, .sessionSetup: "Session Setup"
@@ -41,6 +43,7 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
     var name: String
     var venue: String
     var policy: ServerPolicyDraft
+    var baseline: PaymentDraftBaseline? = nil
 
     func conflicts(with serverVersion: Int) -> Bool { baseVersion != serverVersion }
 }
@@ -136,6 +139,42 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
     }
     func saveNewEvent(name: String, venue: String) {
         snapshot.newEventName = name; snapshot.newEventVenue = venue; persist()
+    }
+
+    var storedDraftIDs: [SavedDraftID] {
+        var ids = (snapshot.designDrafts ?? [:]).keys.map { SavedDraftID.design($0) }
+        ids += snapshot.serverDrafts.values.map { .payment(binding: $0.serverBinding, eventID: $0.eventID) }
+        if snapshot.brandingDraft != nil { ids.append(.branding) }
+        if snapshot.prepaidDraft != nil { ids.append(.prepaid) }
+        if snapshot.sessionSetup != nil { ids.append(.sessionSelection) }
+        if !snapshot.newEventName.isEmpty || !snapshot.newEventVenue.isEmpty { ids.append(.newEvent) }
+        return ids
+    }
+
+    /// Scoped, commit-after-write discard; a failed disk write keeps the visible draft intact.
+    func discardDraft(_ id: SavedDraftID, authorized: () -> Bool = { OperatorAccessPermit.shared.isAuthorized }) throws {
+        guard authorized() else { throw SetupFailure("Unlock Operator again before discarding changes.") }
+        guard !unreadableOriginal else { throw SetupFailure("Saved drafts could not be read. The original file is preserved.") }
+        var candidate = snapshot
+        switch id {
+        case .design(let key): candidate.designDrafts?.removeValue(forKey: key)
+        case .payment(let binding, let event): candidate.serverDrafts.removeValue(forKey: "\(binding):\(event)")
+        case .branding: candidate.brandingDraft = nil
+        case .prepaid: candidate.prepaidDraft = nil
+        case .sessionSelection: candidate.sessionSetup = nil
+        case .newEvent: candidate.newEventName = ""; candidate.newEventVenue = ""
+        }
+        candidate.resumeSetup = !candidate.serverDrafts.isEmpty || candidate.brandingDraft != nil || candidate.prepaidDraft != nil
+            || candidate.sessionSetup != nil || !candidate.newEventName.isEmpty || !candidate.newEventVenue.isEmpty || !(candidate.designDrafts ?? [:]).isEmpty
+        do {
+            try write(JSONEncoder().encode(candidate), file)
+            try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete, .posixPermissions: 0o600], ofItemAtPath: file.path)
+            snapshot = candidate
+            persistenceError = nil
+        } catch {
+            persistenceError = "The draft could not be discarded. Your edits are still saved; try again."
+            throw SetupFailure(persistenceError!)
+        }
     }
 
     private func persist() {

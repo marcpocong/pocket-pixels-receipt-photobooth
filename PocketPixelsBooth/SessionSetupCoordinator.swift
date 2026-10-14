@@ -105,7 +105,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     /// or Start Accepting Guests; nothing reaches guests before activation.
     @Published var design: SavedEventDesign? { didSet { designDidChange(oldValue) } }
     @Published private(set) var requestedMethods: GuestPaymentChoice? { didSet { persistSelection() } }
-    @Published var prepaid: CommercialEventRun { didSet { workspace.savePrepaidDraft(prepaid == loadLocal() ? nil : prepaid) } }
+    @Published var prepaid: CommercialEventRun { didSet { workspace.savePrepaidDraft(SavedDraftDiff.prepaid(prepaid, loadLocal()).isEmpty ? nil : prepaid) } }
     @Published var name = "" { didSet { persistPaid() } }
     @Published var venue = "" { didSet { persistPaid() } }
     @Published var policy = ServerPolicyDraft() { didSet { persistPaid() } }
@@ -117,6 +117,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     @Published private(set) var conflict = false
     @Published private(set) var needsRefresh = false
     private var baseVersion: Int?
+    private let draftTarget: SavedDraftID?
     private var loading = false
     private var operationBinding: String?
     private var loadedBinding: String?
@@ -135,7 +136,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     private let applyProfile: @MainActor (EventProfile) throws -> Void
     private let artworkAvailable: @MainActor (String?) -> Bool
 
-    init(eventID: String? = nil, workspace: OperatorWorkspace? = nil, acceptance: SessionAcceptanceStore? = nil, library: EventDesignLibraryStore? = nil,
+    init(eventID: String? = nil, draftTarget: SavedDraftID? = nil, workspace: OperatorWorkspace? = nil, acceptance: SessionAcceptanceStore? = nil, library: EventDesignLibraryStore? = nil,
          api: @escaping @MainActor () throws -> any SessionSetupAPI = {
              guard let c = PaymentsConfiguration.current() else { throw SetupFailure("Set up this iPad in Advanced → Payment Maintenance first.") }
              return PaymentsAPIClient(configuration: c)
@@ -152,6 +153,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
          }) {
         let workspace = workspace ?? .shared
         let library = library ?? .shared
+        self.draftTarget = draftTarget
         self.workspace = workspace; self.acceptance = acceptance ?? .shared; self.library = library
         self.api = api; self.authorized = authorized; self.blockingReason = blockingReason
         self.loadLocal = loadLocal; self.saveLocal = saveLocal; self.source = source; self.saveSource = saveSource
@@ -172,9 +174,26 @@ extension PaymentsAPIClient: SessionSetupAPI {}
             designID = staged?.designID ?? saved.appliedEventID ?? (saved.events.count == 1 ? saved.events.first?.id : nil)
             selectedID = staged?.serverBinding == workspace.serverBinding ? staged?.eventID : nil
         }
+        if let draftTarget {
+            switch draftTarget {
+            case .design(let id):
+                requestedMethods = nil
+                mode = .localPrepaid; eventModeEnabled = true; designID = id; selectedID = nil; pendingServerEventID = nil
+            case .payment(_, let id):
+                requestedMethods = nil
+                mode = .serverManaged; eventModeEnabled = true; selectedID = id; pendingServerEventID = id
+                designID = saved.design(linkedTo: id, binding: workspace.serverBinding)?.id
+            case .prepaid:
+                requestedMethods = nil
+                mode = .localPrepaid; eventModeEnabled = saved.appliedEventModeEnabled; designID = saved.appliedEventID; selectedID = nil
+            default: break
+            }
+        }
         design = designID.flatMap { workspace.designDraft(id: $0) ?? saved.design(id: $0) }
         if design == nil { designID = nil }
     }
+
+    var workspaceForEditing: OperatorWorkspace { workspace }
 
     // MARK: Payment choice
 
@@ -223,7 +242,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
 
     var designDirty: Bool {
         guard let design else { return false }
-        return !design.hasSameContent(as: library.design(id: design.id))
+        return !SavedDraftDiff.design(design, library.design(id: design.id)).isEmpty
     }
 
     func setEventMode(_ enabled: Bool) async {
@@ -274,7 +293,12 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         guard authorized() else { message = "Unlock Operator again before saving."; return }
         guard let design else { return }
         do {
-            try library.save(design)
+            var value = design
+            if let saved = library.design(id: design.id) {
+                value.serverEvents = saved.serverEvents
+                value.createdAt = saved.createdAt
+            }
+            try library.save(value)
             let saved = library.design(id: design.id)
             self.design = saved
             workspace.saveDesignDraft(nil, id: design.id)
@@ -289,7 +313,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     }
 
     func discardDesignChanges() {
-        guard let id = design?.id, let saved = library.design(id: id) else { return }
+        guard authorized(), let id = design?.id, let saved = library.design(id: id) else { return }
         design = saved
         workspace.saveDesignDraft(nil, id: id)
     }
@@ -297,7 +321,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     private func designDidChange(_ old: SavedEventDesign?) {
         guard let design else { return }
         let saved = library.design(id: design.id)
-        workspace.saveDesignDraft(design.hasSameContent(as: saved) ? nil : design, id: design.id)
+        workspace.saveDesignDraft(SavedDraftDiff.design(design, saved).isEmpty ? nil : design, id: design.id)
         // A linked paid event keeps its server name in step with the event name.
         if eventModeEnabled, mode == .serverManaged, detail != nil, old?.id == design.id {
             let trimmed = design.name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -322,9 +346,10 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     var dirtyPaid: Bool {
         guard let detail else { return false }
         guard let latest = detail.latestRevision else { return true }
-        return name.trimmingCharacters(in: .whitespacesAndNewlines) != detail.event.name
-            || venue.trimmingCharacters(in: .whitespacesAndNewlines) != detail.event.venue
-            || policy.requestBody() != ServerPolicyDraft(revision: latest).requestBody()
+        let draft = OperatorServerSetupDraft(eventID: detail.event.id, serverBinding: workspace.serverBinding,
+                                            baseVersion: baseVersion ?? detail.event.version, name: name, venue: venue, policy: policy)
+        let baseline = PaymentDraftBaseline(name: detail.event.name, venue: detail.event.venue, policy: ServerPolicyDraft(revision: latest))
+        return !SavedDraftDiff.payment(draft, baseline).isEmpty
     }
     var validation: String? {
         if let reason = blockingReason() { return reason }
@@ -368,6 +393,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     }
 
     private func persistSelection() {
+        if let draftTarget, draftTarget != .sessionSelection && draftTarget != .newEvent { return }
         let applied = library.library
         let sameDesignSelection = eventModeEnabled == applied.appliedEventModeEnabled
             && (!eventModeEnabled || designID == applied.appliedEventID)
@@ -391,12 +417,23 @@ extension PaymentsAPIClient: SessionSetupAPI {}
             workspace.removeServerDraft(eventID: selectedID)
             return
         }
-        workspace.saveServerDraft(.init(eventID: selectedID, serverBinding: workspace.serverBinding, baseVersion: baseVersion, name: name, venue: venue, policy: policy))
+        let existingBaseline = workspace.serverDraft(eventID: selectedID)?.baseline
+        let baseline = existingBaseline ?? (detail.flatMap { value in
+            guard value.event.version == baseVersion, let revision = value.latestRevision else { return nil as PaymentDraftBaseline? }
+            return PaymentDraftBaseline(name: value.event.name, venue: value.event.venue, policy: ServerPolicyDraft(revision: revision))
+        })
+        workspace.saveServerDraft(.init(eventID: selectedID, serverBinding: workspace.serverBinding, baseVersion: baseVersion,
+                                       name: name, venue: venue, policy: policy, baseline: baseline))
     }
 
     // MARK: Server events
 
     func refresh() async {
+        if case .payment(let binding, _) = draftTarget, binding != workspace.serverBinding {
+            needsRefresh = true
+            message = "This draft belongs to a different payments connection. Reconnect before reviewing its server settings."
+            return
+        }
         guard !busy else { return }
         busy = true; defer { busy = false }
         do {
@@ -543,7 +580,9 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     }
     func keepReviewedEdits() {
         guard authorized(), let detail else { return }
-        baseVersion = detail.event.version; conflict = false; persistPaid()
+        baseVersion = detail.event.version; conflict = false
+        workspace.removeServerDraft(eventID: detail.event.id)
+        persistPaid()
     }
     func discardPaidEdits() async {
         guard authorized(), let selectedID else { return }

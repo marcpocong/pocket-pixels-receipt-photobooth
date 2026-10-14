@@ -2,6 +2,8 @@ import SwiftUI
 import UIKit
 
 struct OperatorDashboardView: View {
+    @ObservedObject private var workspace = OperatorWorkspace.shared
+    @ObservedObject private var designLibrary = EventDesignLibraryStore.shared
     @StateObject private var operations = EventOperationalState.shared
     @StateObject private var printer = PrinterCoordinator.shared
     @StateObject private var bluetooth = PrinterBluetoothService.shared
@@ -32,6 +34,7 @@ struct OperatorDashboardView: View {
                         .background(OperatorPalette.ink, in: RoundedRectangle(cornerRadius: 22))
                         .foregroundStyle(Color(uiColor: .systemBackground))
                 }.buttonStyle(.plain)
+                OperatorSecondaryLink(title: "Saved Drafts · \(SavedDraftCatalog.entries(workspace: workspace, library: designLibrary.library).count)", systemImage: "doc.text", route: .savedDrafts) { SavedDraftsView() }
                 if !status.attentionItems.isEmpty { OperatorAttentionCard(items: status.attentionItems) }
                 OperatorSecondaryLink(title: "Print Display Samples", systemImage: "printer.dotmatrix", route: .samplePrints) { SamplePrintStudioView() }
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
@@ -484,6 +487,8 @@ extension OperatorWorkspaceRoute {
     @MainActor @ViewBuilder var destination: some View {
         switch self {
         case .manageEvent, .sales: OperatorManageEventView()
+        case .savedDrafts: SavedDraftsView()
+        case .draftReview(let id): SavedDraftReviewView(draftID: id)
         case .sessionSetup, .charging: SessionSetupView()
         case .branding: OperatorBrandingView()
         case .payments: PaymentsOperatorView()
