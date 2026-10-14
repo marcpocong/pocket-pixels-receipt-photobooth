@@ -162,12 +162,17 @@ struct PaymentsOperatorView: View {
         }
         .confirmationDialog("Resume this paid session?", isPresented: Binding(get: { resumeCandidate != nil }, set: { if !$0 { resumeCandidate = nil } }), titleVisibility: .visible, presenting: resumeCandidate) { item in
             Button("Resume for Guest Present Now") {
-                if !recovery.armResume(item) { status = "This checkout is no longer resumable." }
+                guard recovery.armResume(item) else {
+                    status = "This checkout is no longer resumable."
+                    resumeCandidate = nil
+                    return
+                }
                 resumeCandidate = nil
+                NotificationCenter.default.post(name: OperatorWorkspace.didResumeCheckout, object: nil)
             }
             Button("Cancel", role: .cancel) {}
         } message: { item in
-            Text("Close the operator screen and ask the guest to tap the welcome screen within 5 minutes. \(item.classification.operatorDescription)")
+            Text("This returns to the booth and keeps your setup drafts. Ask the guest to tap Make a Memory within 5 minutes. \(item.classification.operatorDescription)")
         }
         .confirmationDialog("Dismiss this checkout on this iPad?", isPresented: Binding(get: { dismissCandidate != nil }, set: { if !$0 { dismissCandidate = nil } }), titleVisibility: .visible, presenting: dismissCandidate) { item in
             Button("Dismiss — Guest Left or Resolved Elsewhere", role: .destructive) {

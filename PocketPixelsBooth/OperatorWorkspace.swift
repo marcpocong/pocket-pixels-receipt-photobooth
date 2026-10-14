@@ -50,6 +50,7 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
     static let shared = OperatorWorkspace()
     static let didUnlock = Notification.Name("pocketPixels.operator.didUnlock")
     static let didStartSessions = Notification.Name("pocketPixels.operator.didStartSessions")
+    static let didResumeCheckout = Notification.Name("pocketPixels.operator.didResumeCheckout")
     nonisolated struct Snapshot: Codable {
         var schemaVersion = 1
         var resumeSetup = false

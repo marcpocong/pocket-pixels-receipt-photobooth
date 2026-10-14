@@ -117,6 +117,12 @@ private struct PocketPixelsAdminView: View {
             workspace.finish(keepingDrafts: workspace.hasUnsavedDrafts)
             dismiss()
         }
+        .onReceive(NotificationCenter.default.publisher(for: OperatorWorkspace.didResumeCheckout)) { _ in
+            guard PaymentRecoveryCoordinator.shared.armedResume != nil else { return }
+            confirmExit = false
+            workspace.finish(keepingDrafts: true)
+            dismiss()
+        }
     }
 }
 
