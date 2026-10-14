@@ -19,3 +19,7 @@ The guest draft shortcut and repeated exit prompt are removed. Operator Home exp
 - Five retained UI captures: list/review in portrait and landscape plus empty state. Visually inspected readable changes, visible resolution actions and rendered receipt preview. Synthetic missing-logo fixture correctly displays standard-header fallback; real artwork remains private.
 - Earlier compile checks found actor-default, optional exclusivity and preview-helper references; corrected before the successful candidate. No failed build was installed.
 - Full Production Gate and Carlo installation/integrity results follow the committed source revision; pending at this source-preparation checkpoint.
+
+## CI timing correction
+
+Production Gate `38594060132` failed its backend job because the existing authentication throttle test crossed a UTC minute boundary: its request burst began at 15:58:59 and ended at 15:59:00, legitimately resetting the fixed-minute counter. This was not caused by draft UI or a deployed Worker change. The opt-in test harness clock now freezes Date.now only inside that test isolate; assertions check the exact fixed bucket, 30 unauthorized responses followed by two rate-limit responses, and a second client address remaining independent. All 207 Worker tests and syntax checks pass locally. No production source/configuration/deployment changes. The original iOS job continues; the corrected source has its own Production Gate run.

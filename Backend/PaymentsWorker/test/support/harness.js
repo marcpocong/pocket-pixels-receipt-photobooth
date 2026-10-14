@@ -96,12 +96,21 @@ export async function generateSigningKey() {
     return { pkcs8, publicKey: pair.publicKey, publicRaw: raw };
 }
 
-export async function createHarness({ bindings = {}, migrateUpTo = Infinity, seedDevices = true } = {}) {
+export async function createHarness({ bindings = {}, migrateUpTo = Infinity, seedDevices = true, fixedTime } = {}) {
     const provider = new ProviderStub();
     const signing = await generateSigningKey();
     const mf = new Miniflare(convertV4MiniflareOptions({
         modulesRoot: root,
-        modules: ["src/index.js", "src/domain.js"].map(file => ({ type: "ESModule", path: path.join(root, file) })),
+        modules: ["src/index.js", "src/domain.js"].map(file => {
+            const module = { type: "ESModule", path: path.join(root, file) };
+            // Opt-in clock override exists only inside this test isolate. Production source is
+            // loaded verbatim after the prefix and is never edited or deployed by the harness.
+            if (file === "src/index.js" && fixedTime !== undefined) {
+                if (!Number.isFinite(fixedTime)) throw new TypeError("fixedTime must be a finite timestamp");
+                module.contents = `Date.now = () => ${fixedTime};\n${readFileSync(module.path, "utf8")}`;
+            }
+            return module;
+        }),
         compatibilityDate: "2026-10-01",
         d1Databases: ["DB"],
         bindings: {

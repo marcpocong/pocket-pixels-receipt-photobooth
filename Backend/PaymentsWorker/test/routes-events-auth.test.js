@@ -3,8 +3,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHarness, activePaidEvent, PAID_POLICY, TOKENS } from "./support/harness.js";
 
-async function withHarness(body) {
-    const h = await createHarness();
+async function withHarness(body, options) {
+    const h = await createHarness(options);
     try { await body(h); } finally { await h.dispose(); }
 }
 
@@ -31,8 +31,12 @@ test("failed authentication is rate limited per client address", () => withHarne
     const statuses = [];
     for (let i = 0; i < 32; i++) statuses.push((await h.request("GET", "/v1/events/active", { token: "z".repeat(40), headers: { "cf-connecting-ip": "203.0.113.9" } })).status);
     assert.equal(statuses.slice(0, 30).every(s => s === 401), true);
-    assert.equal(statuses.at(-1), 429);
-}));
+    assert.deepEqual(statuses.slice(30), [429, 429]);
+    const bucket = await h.one("SELECT minute_window,request_count FROM request_rate_limits WHERE key=?", "authfail:203.0.113.9");
+    assert.equal(bucket.minute_window, Math.floor(Date.UTC(2026, 9, 14, 13, 30, 30) / 60000));
+    assert.equal(bucket.request_count, 32);
+    assert.equal((await h.request("GET", "/v1/events/active", { token: "z".repeat(40), headers: { "cf-connecting-ip": "203.0.113.10" } })).status, 401);
+}, { fixedTime: Date.UTC(2026, 9, 14, 13, 30, 30) }));
 
 test("account isolation: events of another account are invisible", () => withHarness(async h => {
     const event = await activePaidEvent(h);
