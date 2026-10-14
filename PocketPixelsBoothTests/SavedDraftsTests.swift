@@ -58,6 +58,13 @@ import UIKit
         XCTAssertEqual(change.before, "Saved artwork")
         XCTAssertEqual(change.after, "Different artwork selected")
     }
+    func testUnfinishedNewEventShowsOnlyEnteredFields() throws {
+        let (root, workspace, library, _) = try fixture(); defer { try? FileManager.default.removeItem(at: root) }
+        workspace.saveNewEvent(name: "October event", venue: "")
+        let entry = try XCTUnwrap(SavedDraftCatalog.entries(workspace: workspace, library: library.library).first)
+        XCTAssertEqual(entry.id, .newEvent)
+        XCTAssertEqual(entry.changes.map(\.id), ["name"])
+    }
     func testIndividualDiscardPreservesOtherDraftsSavedDesignAndAppliedState() throws {
         let (root, workspace, library, saved) = try fixture(); defer { try? FileManager.default.removeItem(at: root) }
         var draft = saved; draft.profile.receiptHeader.scale = 0.75

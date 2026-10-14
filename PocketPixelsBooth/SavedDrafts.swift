@@ -90,7 +90,7 @@ nonisolated struct SavedDraftEntry: Identifiable, Sendable {
             result.append(.init(id: .newEvent, eventName: snapshot.newEventName.isEmpty ? "Unnamed new event" : snapshot.newEventName,
                                 category: "Unfinished new event", changes: [
                                     .init(id: "name", label: "Event name", before: "Not entered", after: snapshot.newEventName.isEmpty ? "Not entered" : snapshot.newEventName),
-                                    .init(id: "venue", label: "Venue", before: "Not entered", after: snapshot.newEventVenue.isEmpty ? "Not entered" : snapshot.newEventVenue)]))
+                                    .init(id: "venue", label: "Venue", before: "Not entered", after: snapshot.newEventVenue.isEmpty ? "Not entered" : snapshot.newEventVenue)].filter { $0.before != $0.after }))
         }
         return result.sorted { ($0.eventName, $0.category) < ($1.eventName, $1.category) }
     }
