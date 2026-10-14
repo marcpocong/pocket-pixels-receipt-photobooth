@@ -91,7 +91,8 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
         path = loaded.path
     }
 
-    var hasPendingSetup: Bool { snapshot.resumeSetup }
+    /// The guest shortcut reflects unfinished edits, never navigation or a legacy resume flag.
+    var hasPendingSetup: Bool { hasUnsavedDrafts }
     var hasUnsavedDrafts: Bool {
         !snapshot.serverDrafts.isEmpty || snapshot.brandingDraft != nil || snapshot.prepaidDraft != nil
             || !snapshot.newEventName.isEmpty || !snapshot.newEventVenue.isEmpty || snapshot.sessionSetup != nil
@@ -103,10 +104,10 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
         return "\(configuration.environment):\(configuration.baseURL.absoluteString)"
     }
 
-    func open() { snapshot.resumeSetup = true; persist() }
+    func open() { persist() }
     func checkpoint() { persist() }
     func finish(keepingDrafts: Bool) {
-        if keepingDrafts { snapshot.resumeSetup = true; persist(); return }
+        if keepingDrafts { persist(); return }
         snapshot = Snapshot()
         path = []
         persist()
@@ -117,7 +118,6 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
     }
     func saveServerDraft(_ draft: OperatorServerSetupDraft) {
         snapshot.serverDrafts["\(draft.serverBinding):\(draft.eventID)"] = draft
-        snapshot.resumeSetup = true
         persist()
     }
     func removeServerDraft(eventID: String) {
@@ -132,7 +132,6 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
         var drafts = snapshot.designDrafts ?? [:]
         drafts[id] = draft
         snapshot.designDrafts = drafts.isEmpty ? nil : drafts
-        snapshot.resumeSetup = true
         persist()
     }
     func saveNewEvent(name: String, venue: String) {
@@ -141,6 +140,7 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
 
     private func persist() {
         guard !unreadableOriginal else { return }
+        snapshot.resumeSetup = hasUnsavedDrafts
         do {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try write(JSONEncoder().encode(snapshot), file)

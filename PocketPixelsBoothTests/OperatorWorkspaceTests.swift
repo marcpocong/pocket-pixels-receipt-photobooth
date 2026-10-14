@@ -8,6 +8,38 @@ import UIKit
 @MainActor struct OperatorWorkspaceTests {
     private func directory() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent("operator-\(UUID())") }
 
+    @Test func browsingAndReturningFromRecoveryWithoutEditsNeverCreatesPendingSetup() throws {
+        let root = directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = OperatorWorkspace(directory: root)
+        workspace.open()
+        workspace.path = [.payments]
+        workspace.finish(keepingDrafts: true)
+        #expect(!workspace.hasPendingSetup)
+        let restored = OperatorWorkspace(directory: root)
+        #expect(restored.path == [.payments])
+        #expect(!restored.hasPendingSetup)
+        // Legacy navigation-only resume flags must not show a draft shortcut either.
+        var legacy = restored.snapshot
+        legacy.resumeSetup = true
+        try JSONEncoder().encode(legacy).write(to: root.appendingPathComponent("OperatorWorkspaceV1/setup.json"))
+        #expect(!OperatorWorkspace(directory: root).hasPendingSetup)
+    }
+
+    @Test func realDesignEditsRemainPendingUntilSavedOrDiscarded() {
+        let root = directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = OperatorWorkspace(directory: root)
+        let design = SavedEventDesign.new(name: "Unfinished sample", venue: "")
+        workspace.saveDesignDraft(design, id: design.id)
+        workspace.finish(keepingDrafts: true)
+        let restored = OperatorWorkspace(directory: root)
+        #expect(restored.hasPendingSetup)
+        #expect(restored.designDraft(id: design.id) == design)
+        restored.saveDesignDraft(nil, id: design.id)
+        #expect(!restored.hasPendingSetup)
+    }
+
     @Test func relaunchRestoresDestinationAndUnsavedPolicyWithoutPublishing() throws {
         let root = directory()
         defer { try? FileManager.default.removeItem(at: root) }

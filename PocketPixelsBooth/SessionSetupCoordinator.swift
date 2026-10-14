@@ -368,11 +368,29 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     }
 
     private func persistSelection() {
-        workspace.saveSessionSetup(.init(mode: mode, eventID: selectedID, serverBinding: workspace.serverBinding,
-                                         eventModeEnabled: eventModeEnabled, designID: designID, requestedMethods: requestedMethods))
+        let applied = library.library
+        let sameDesignSelection = eventModeEnabled == applied.appliedEventModeEnabled
+            && (!eventModeEnabled || designID == applied.appliedEventID)
+        let samePaymentSelection = mode == source()
+            && (mode != .serverManaged || (selectedID == acceptance.state.eventID
+                && acceptance.state.serverBinding == workspace.serverBinding
+                && (requestedMethods == nil || requestedMethods == detail?.activePolicy.map {
+                    GuestPaymentChoice(qrPhEnabled: $0.qrphEnabled, cashEnabled: $0.cashEnabled)
+                })))
+        // Pausing changes admission, not the applied setup. Viewing it isn't an unsaved edit.
+        if sameDesignSelection && samePaymentSelection {
+            workspace.saveSessionSetup(nil)
+        } else {
+            workspace.saveSessionSetup(.init(mode: mode, eventID: selectedID, serverBinding: workspace.serverBinding,
+                                             eventModeEnabled: eventModeEnabled, designID: designID, requestedMethods: requestedMethods))
+        }
     }
     private func persistPaid() {
         guard !loading, let selectedID, let baseVersion else { return }
+        if !dirtyPaid && !conflict {
+            workspace.removeServerDraft(eventID: selectedID)
+            return
+        }
         workspace.saveServerDraft(.init(eventID: selectedID, serverBinding: workspace.serverBinding, baseVersion: baseVersion, name: name, venue: venue, policy: policy))
     }
 
@@ -520,6 +538,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         loading = false
         // The operator's staged payment choice applies to whichever event carries the policy.
         applyRequestedMethods()
+        persistPaid()
         persistSelection()
     }
     func keepReviewedEdits() {

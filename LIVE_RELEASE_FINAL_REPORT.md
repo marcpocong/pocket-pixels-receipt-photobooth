@@ -3,11 +3,11 @@
 October 14, 2026 · Manila time
 
 **PASS: supervised ₱1 cash-to-paper pilot, including app-restart recovery.**
-**NEEDS OWNER ACTION: provisioning renewal and broader hardware qualification before unrestricted commercial operation.** Full CI for the latest app changes is still running; no full-CI success is claimed for them.
+**NEEDS OWNER ACTION: provisioning renewal and broader hardware qualification before unrestricted commercial operation.** Full CI for supervised-pilot source `3ab7d6d` subsequently passed both jobs. The draft-shortcut follow-up has separate focused validation and will have its own CI result.
 
 ## A. MacBook and Carlo
 
-- **PASS:** Carlo remains a connected physical iPad Pro 11-inch (4th generation), iPadOS 26.6.1. Latest installed app source is `3ab7d6d199966a0df5624e1acb567bec63c09032`.
+- **PASS:** Carlo remains a connected physical iPad Pro 11-inch (4th generation), iPadOS 26.6.1. Supervised-pilot app source was `3ab7d6d199966a0df5624e1acb567bec63c09032`; the subsequent draft-shortcut update is recorded in the readiness report.
 - **PASS:** Release builds and strict code-signature checks. Bundle ID `com.pocketpixels.PocketPixelsBooth`, signing team and iPad-only configuration preserved; no dependencies added.
 - **PASS:** fresh private backups before in-place updates; no uninstall/reset. Final restart succeeded. All 300 original archive files and 210 baseline artwork files retain their hashes. Saved settings/designs and pairing retained. The completed pilot adds its own archive without replacing earlier files.
 - **PASS:** zero unresolved local checkouts after restart; all nine print-outbox entries delivered/reported; zero queued gallery files.
@@ -36,7 +36,7 @@ October 14, 2026 · Manila time
 - At owner request, the current online cash UI instead offers **I’ve paid the attendant**, without Face ID. It uses the existing booth-scoped declaration endpoint and records `SELF_REPORTED`, separate from staff-confirmed cash. Signed offline cash retains attendant authentication.
 - **PASS (local):** customer-declaration endpoint/credential/provenance and authentication tests; cash UI visually centered in portrait/landscape. Initial focused checks passed 28 XCTest tests plus a render test; repair checks passed 11 XCTest and 24 Swift Testing tests (35 total). Navigation Release build/signature verification passed, and owner confirms recovery reaches the camera.
 - **NOT TESTED in a new LIVE transaction:** the new customer-declaration button. This pilot was authenticated through the old attendant button before the UI update; it cannot prove the new flow physically. No additional transaction was created solely to repeat existing payment evidence.
-- Latest full app CI: [Production Gate 38580783813](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/38580783813), still running at closeout. Backend checks passed; iOS completion remains pending. Earlier source-revision full CI passes do not substitute for this result.
+- Latest full app CI: [Production Gate 38580783813](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/38580783813), subsequently passed both iOS and backend. New follow-up changes require their own result.
 
 ## E. Printer and paper
 
@@ -49,6 +49,6 @@ October 14, 2026 · Manila time
 - **PASS:** Supervised LIVE Pilot **PAUSED**, version 11, ₱1, Cash Only, one copy, offline cash disabled. No new public acceptance enabled.
 - **PASS:** Regular Sessions **DRAFT**, version 2, unchanged **₱25/copy**, default 1/max 3, QR-only. No duplicate event or commercial activation.
 - **PASS:** installed app, deployed Worker, genuine staff-confirmed cash, restart recovery, receipt output, cash reconciliation and retained customer data verified under supervision.
-- Recommendation: retain attended operation while finishing current CI, renewing provisioning and completing the separate hardware checklist. Normal commercial activation remains under owner control. Do not call this full production qualification.
+- Recommendation: retain attended operation while finishing follow-up CI and completing the separate hardware checklist. Provisioning covers the October 16 event and needs renewal before October 19. Normal commercial activation remains under owner control. Do not call this full production qualification.
 
 For chronological evidence and checkpoint limitations, see [LIVE_RELEASE_READINESS_REPORT.md](LIVE_RELEASE_READINESS_REPORT.md). Current cash/recovery instructions are in [docs/payment-operations.md](docs/payment-operations.md).

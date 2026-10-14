@@ -111,6 +111,27 @@ import UIKit
         XCTAssertTrue(started, "\(model.validation ?? "") \(model.message)", file: file, line: line)
     }
 
+    func testViewingAppliedAndPausedSetupDoesNotLeaveFalseDrafts() async {
+        let f = MatrixFixture(); defer { f.cleanup() }
+        await f.model.choosePayment(.cashOnly)
+        await f.model.connectPaidCheckout()
+        f.model.policy.priceText = "1.00"
+        await start(f.model)
+        let revisited = f.relaunch()
+        await revisited.refresh()
+        XCTAssertNil(f.workspace.snapshot.sessionSetup)
+        XCTAssertFalse(f.workspace.hasPendingSetup)
+        await revisited.pause()
+        XCTAssertTrue(f.acceptance.state.blocked)
+        XCTAssertTrue(f.workspace.snapshot.serverDrafts.isEmpty)
+        let paused = f.relaunch()
+        await paused.refresh()
+        XCTAssertNil(f.workspace.snapshot.sessionSetup)
+        XCTAssertFalse(f.workspace.hasPendingSetup)
+        paused.policy.priceText = "2.00"
+        XCTAssertTrue(f.workspace.hasPendingSetup, "A real price change still survives exit")
+    }
+
     func testEventOffWithEveryPaymentChoiceUsesTheStudioReceipt() async {
         for choice in GuestPaymentChoice.allCases {
             let f = MatrixFixture(); defer { f.cleanup() }

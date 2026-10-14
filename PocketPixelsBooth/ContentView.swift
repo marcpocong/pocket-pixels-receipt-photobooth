@@ -44,7 +44,7 @@ struct ContentView: View {
         })
         .overlay(alignment: .topTrailing) {
             if workspace.hasPendingSetup && !isShowingAdmin && !operationalState.customerSessionActive {
-                Button("Resume Operator Setup") { workspace.open(); isShowingAdmin = true }
+                Button("Resume Draft Setup") { workspace.open(); isShowingAdmin = true }
                     .buttonStyle(.bordered)
                     .padding()
             }
