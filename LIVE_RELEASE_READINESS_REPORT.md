@@ -1,6 +1,6 @@
 # LIVE release readiness — October 14, 2026
 
-Checkpoint status: **b705a5a installed, full CI green, data intact; compact-header candidate awaiting installation approval and physical acceptance.** Four sample jobs completed: three standard and one Co-Branded Solo. Owner confirms the Co-Branded paper emerged with the same excess top gap. One Duo remains conditional on satisfactory output; no further paper has been sent. No new LIVE deployment, server event mutation, payment or cash attestation performed. This is a readiness report, not a completed financial pilot.
+Checkpoint status: **PASS — fd45f91 installed, full CI green, data intact; NEEDS OWNER ACTION — one approved Duo preview/physical acceptance.** Four sample jobs completed before this update: three standard and one Co-Branded Solo. Owner confirms the Co-Branded paper emerged with the same excess top gap. The compact-header update removes 6 mm of app-added space; physical printer clearance remains unmeasured. Owner explicitly approved the in-place update and one supervised Duo copy. No new LIVE deployment, server event mutation, payment or cash attestation performed. This is a readiness report, not a completed financial pilot.
 
 ## A. MacBook and Carlo
 
@@ -53,7 +53,7 @@ Checkpoint status: **b705a5a installed, full CI green, data intact; compact-head
 - **PASS (code review only):** Event Mode, four payment selections, per-event persisted design, Co-Branded geometry/fallback, owner-authenticated cash and separate operator-credential API path are present. Hardware Qualification remains a separate physical workflow.
 - The installed corrected app opens Sample Print Studio from the design preview with an immutable explicit profile snapshot, labelled Preview Design. The default Operator Home entry still uses applied branding. This permits Co-Branded sample qualification without saving/applying a draft or activating any event. A regression verifies that saved-branding reloads cannot replace the explicit preview snapshot.
 - **PASS:** VOZY G80 connected with its production write characteristic ready. Owner reached Solo/imported a photo after the crash fix. Four one-copy operator-sample jobs completed: three standard (576×1064) and one Co-Branded Solo (576×1071). Owner confirms paper output and repeatedly reports excess blank space above the wordmark. Direct inspection of an existing photographed standard receipt shows readable header/photo/footer and complete paper edges. Transport completion is distinct from physical acceptance.
-- **NEEDS OWNER ACTION:** approve installation of the compact-header candidate and one Duo validation receipt. No Duo has been printed. Physical print-recovery incident remains untested.
+- **NEEDS OWNER ACTION:** prepare and physically validate the approved compact-header Duo receipt, one copy. No Duo has been printed. Physical print-recovery incident remains untested.
 - **NOT TESTED:** 100-session physical endurance qualification. No smoke/pilot result can satisfy that requirement.
 
 ## F. Current state and next checkpoint
@@ -92,3 +92,11 @@ Owner then explicitly approved **two additional bounded receipts**: one Co-Brand
 Regular Sessions remains **DRAFT, version 2, ₱25/copy, default 1/max 3, QR-only**. Existing supervised pilot remains **PAUSED, version 7, ₱1/copy, one copy, QR-only**. No duplicate event or public acceptance activation. Recommend supervised validation first, provisioning renewal, and completion of broader physical qualification before claiming normal commercial release readiness.
 
 Operations guidance updated in `docs/payment-operations.md`: attendant confirmation, historical reporting distinction, runtime gate preservation and approval/recovery sequence. Backups, diagnostic/payment snapshots and render artifacts remain private outside Git; no production data/secrets staged.
+
+### Compact-header installation — fd45f91
+
+Owner explicitly approved Release `fd45f918f5b458dfb41599be2fb0ebf60aa279de` in place after full CI, plus one supervised Duo sample. Production Gate run `38566015270` completed successfully for both jobs: **388 XCTest tests with zero failures, 85 Swift Testing tests passed**, and backend checks passed. No workflow rerun was needed. A fresh private **1,393-file** complete backup and SHA-256 manifest preceded installation; all 300 original archive files and 209 original artwork files remained identical.
+
+The frozen signed candidate installed once in place and launched around **9:17 PM Manila**. Device screenshot shows Welcome and retained Resume Operator Setup; startup confirms the saved VOZY G80 service/characteristic ready. The complete post-install copy contains 1,392 files. Every Application Support file has the same hash and none is missing; preferences dictionaries are equal. Differences are limited to the dyld cache and system launch snapshots. Saved designs, payment journals, print audit and artwork are preserved. Before installation all three checkout checkpoints were completed, all seven outbox local/report states delivered, and pending gallery files numbered zero.
+
+Requested owner unlock and navigation to the retained Release Sample design's sample studio, Duo with two photos, explicit Preview Design and one copy, stopping at the thermal preview. No Duo paper sent yet. LIVE deployment and cash pilot remain separate pending approvals.
