@@ -438,6 +438,10 @@ final class HardwareQualificationEngine: ObservableObject {
     }
 
     func respond(_ response: OperatorResponse) {
+        if response == .stopRun {
+            abort()
+            return
+        }
         guard let continuation = promptContinuation else { return }
         promptContinuation = nil
         prompt = nil
@@ -553,7 +557,7 @@ final class HardwareQualificationEngine: ObservableObject {
                 continueRun = await runEndToEndSession(scenario, plan: plan)
             }
             sampleResources()
-            guard continueRun else { break }
+            guard continueRun, !abortRequested else { break }
             guard await runCheckpoints(after: scenario, plan: plan) else { break }
         }
         await finish()
@@ -1065,7 +1069,12 @@ final class HardwareQualificationEngine: ObservableObject {
         while remaining > 0 {
             stage(&result, "Printing \(remaining) cop\(remaining == 1 ? "y" : "ies") through the production booth")
             result.printJobsRequested += remaining
-            model.selectedPrintCopies = remaining
+            guard model.authorizeQualificationPrint(copies: remaining) else {
+                clearInFlightCheckpoint()
+                result.printJobsCompleted = printed
+                mutate { $0.physicalReceiptsSent += printed }
+                return failSessionAndStop(&result, "Diagnostic print quantity could not be authorized; nothing further printed.", model: model)
+            }
             model.printReceipt(host: printer.wifiHost, port: printer.wifiPort)
             let printTimeout = Double(remaining) * 120 + 30
             _ = await waitFor(timeout: printTimeout) {
@@ -1083,8 +1092,11 @@ final class HardwareQualificationEngine: ObservableObject {
             }
             // Failure before bytes: the booth stayed on the preview; retrying is safe.
             remaining -= model.completedPrintCopies
-            mutate { $0.log(.printer, session: scenario.sessionNumber, "Print stopped before bytes after \(printed) copies: \(model.statusMessage)") }
-            let response = await ask(OperatorPrompt(session: scenario.sessionNumber, kind: .printFailedBeforeBytes(model.statusMessage), title: "Print failed before printing", message: "\(model.statusMessage)\n\n\(printed) of \(scenario.plannedCopies) copies printed. No bytes were sent for the failed copy, so printing the remaining \(remaining) is safe."))
+            let failureMessage: String
+            if case .failure(let message) = model.printerState { failureMessage = message }
+            else { failureMessage = model.statusMessage }
+            mutate { $0.log(.printer, session: scenario.sessionNumber, "Print stopped before bytes after \(printed) copies: \(failureMessage)") }
+            let response = await ask(OperatorPrompt(session: scenario.sessionNumber, kind: .printFailedBeforeBytes(failureMessage), title: "Print failed before printing", message: "\(failureMessage)\n\n\(printed) of \(scenario.plannedCopies) copies printed. No bytes were sent for the failed copy, so printing the remaining \(remaining) is safe."))
             guard response == .retry else {
                 clearInFlightCheckpoint()
                 result.printJobsCompleted = printed

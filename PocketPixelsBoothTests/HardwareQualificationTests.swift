@@ -150,6 +150,50 @@ final class HardwareQualificationTests: XCTestCase {
         XCTAssertTrue(QualificationReportFormatter.text(for: record).contains("Hands-free: Yes"))
     }
 
+    func testDiagnosticCopiesAndRemainingRetryAreAuthorizedOnlyForQualification() throws {
+        let customer = BoothSessionViewModel.immediateConfirmation()
+        XCTAssertFalse(customer.authorizeQualificationPrint(copies: 5))
+        var environment = BoothSessionEnvironment.customer
+        environment.purpose = .hardwareQualification(runID: "COPY-TEST")
+        environment.deliversGallery = false
+        environment.recordsCustomerSessionMetrics = false
+        environment.archiveDirectory = root.appendingPathComponent("copies-archive")
+        environment.recoveryDirectory = root.appendingPathComponent("copies-recovery")
+        let model = BoothSessionViewModel(environment: environment, captureConfirmationPause: {})
+        model.state = .choosingFormat
+        model.selectBoothFormat(.solo)
+        model.state = .receiptPreview
+        model.receiptRasterizedImage = try ReliabilityFixtures.rasterizedImage(seed: 55)
+        XCTAssertEqual(model.checkoutEntitlement?.purchasedCopies, 1)
+        for copies in [1, 2, 3, 5, 10, 3] {
+            XCTAssertTrue(model.authorizeQualificationPrint(copies: copies))
+            XCTAssertEqual(model.selectedPrintCopies, copies)
+            XCTAssertEqual(model.checkoutEntitlement?.purchasedCopies, copies)
+            XCTAssertTrue(model.checkoutEntitlement?.permitsPrint(copyIndex: copies, receiptFingerprint: "test") == true)
+        }
+        XCTAssertFalse(model.authorizeQualificationPrint(copies: 11))
+        XCTAssertFalse(model.authorizeQualificationPrint(copies: 0))
+        model.state = .review
+        XCTAssertFalse(model.authorizeQualificationPrint(copies: 5))
+        model.cancelSession()
+    }
+
+    func testStopRunFromPrintErrorPromptNeverStartsAnotherSession() async throws {
+        printer.outcomes = [.failedBeforeBytes]
+        let engine = makeEngine()
+        try engine.start(physicalConfiguration(sessions: 6), approvedByOperator: true)
+        await drive(engine) { prompt in
+            if case .printFailedBeforeBytes = prompt.kind { return .stopRun }
+            return Self.carefulOperator(prompt)
+        }
+        let record = try XCTUnwrap(engine.record)
+        XCTAssertTrue(engine.abortRequested)
+        XCTAssertEqual(record.state, .stopped)
+        XCTAssertEqual(record.sessions.count, 1)
+        XCTAssertEqual(printer.bytesSentJobs.count, 1)
+        XCTAssertNil(engine.prompt)
+    }
+
     // MARK: 1. Default is simulation and never prints
 
     func testDefaultConfigurationIsSimulationAndNeverTouchesThePrinter() async throws {

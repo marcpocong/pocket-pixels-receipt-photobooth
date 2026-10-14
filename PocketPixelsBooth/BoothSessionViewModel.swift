@@ -1641,11 +1641,33 @@ final class BoothSessionViewModel: ObservableObject {
         } completion: { _ in }
     }
 
+    /// The qualification engine calls this only after its run-bound print-budget gate passes.
+    /// Customer/payment entitlements cannot be changed through this diagnostic entry point.
+    func authorizeQualificationPrint(copies: Int) -> Bool {
+        guard environment.isQualification, state == .receiptPreview,
+              printBatchTask == nil, !isPrintBatchActive,
+              Self.printCopyRange.contains(copies), receiptRasterizedImage != nil,
+              let entitlement = checkoutEntitlement,
+              entitlement.authorizationSource == .privatePrepaid, entitlement.orderID == nil,
+              let sessionIdentifier, entitlement.sessionID == sessionIdentifier,
+              entitlement.selectedFormatRawValue == selectedBoothFormat?.rawValue else { return false }
+        checkoutEntitlement = CheckoutEntitlement(
+            id: entitlement.id, orderID: nil, eventID: entitlement.eventID,
+            policyRevisionID: entitlement.policyRevisionID, sessionID: sessionIdentifier,
+            selectedFormatRawValue: entitlement.selectedFormatRawValue, purchasedCopies: copies,
+            unitPriceCentavos: 0, totalCentavos: 0, authorizationSource: .privatePrepaid,
+            authorizedAt: entitlement.authorizedAt, receiptFingerprint: entitlement.receiptFingerprint
+        )
+        selectedPrintCopies = copies
+        return true
+    }
+
     func printReceipt(host: String, port: UInt16?) {
         debugLog("[PrintTap] state=\(state) printerState=\(printerState) batchTaskActive=\(printBatchTask != nil) port=\(port.map(String.init) ?? "nil") rasterReady=\(receiptRasterizedImage != nil)")
         guard let checkoutEntitlement,
               checkoutEntitlement.purchasedCopies == selectedPrintCopies else {
-            printerState = .failure("This print quantity is not authorized for the session.")
+            statusMessage = "This print quantity is not authorized for the session."
+            printerState = .failure(statusMessage)
             return
         }
         guard printBatchTask == nil else {
