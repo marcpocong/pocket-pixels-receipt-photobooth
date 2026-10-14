@@ -249,7 +249,7 @@ struct SessionSetupView: View {
             totalPreview
             Label(setup.paymentChoice.methodSummary, systemImage: "checkmark.shield").font(.callout)
             if setup.paymentChoice.acceptsCash {
-                Text("Cash is confirmed by an authorized attendant on this iPad before the camera opens. It is never counted as provider-verified money.")
+                Text("Online cash is declared by the customer before the camera opens. It is not verified payment. Signed offline cash still requires attendant authentication.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             DisclosureGroup("Advanced Payment Options") {

@@ -415,7 +415,7 @@ import UIKit
         XCTAssertFalse(GuestPaymentChoice.noPayment.isPaid)
         XCTAssertTrue(GuestPaymentChoice.cashOnly.acceptsCash && !GuestPaymentChoice.cashOnly.acceptsQRPh)
         XCTAssertTrue(GuestPaymentChoice.qrOnly.methodSummary.contains("provider verified"))
-        XCTAssertTrue(GuestPaymentChoice.cashOnly.methodSummary.contains("attendant confirmed"))
+        XCTAssertTrue(GuestPaymentChoice.cashOnly.methodSummary.contains("customer declared"))
     }
 
     func testCashOnlyGoesStraightToTheAttendantScreenWithoutCreatingAnyOrder() {
@@ -446,7 +446,7 @@ import UIKit
         XCTAssertEqual(both.state, .choosingPayment)
     }
 
-    func testGuestCannotAuthorizeCashWithoutAttendantConfirmation() async {
+    func testAttendantConfirmationRequiresAuthentication() async {
         var environment = BoothSessionEnvironment.customer
         var requests = 0
         environment.authorizeAttendantCashConfirmation = { _ in requests += 1; return false }
@@ -475,6 +475,55 @@ import UIKit
         // Without a reachable, updated payments service nothing is authorized.
         XCTAssertNotEqual(model.state, .cameraReady)
         XCTAssertFalse(OperatorAccessPermit.shared.isAuthorized, "The temporary attendant permit is withdrawn")
+    }
+
+    func testOnlineGuestDeclarationDoesNotAskForOperatorAuthentication() async {
+        var environment = BoothSessionEnvironment.customer
+        var authenticationRequests = 0
+        environment.authorizeAttendantCashConfirmation = { _ in authenticationRequests += 1; return false }
+        let model = BoothSessionViewModel(environment: environment)
+        model.configurePaidCheckoutForTesting(qrPhEnabled: false, cashEnabled: true)
+        model.confirmCopySelection()
+        let permitBefore = OperatorAccessPermit.shared.isAuthorized
+        model.declareCashPaidByGuest()
+        model.declareCashPaidByGuest() // A second tap during the transition cannot start another task.
+        await model.activeTaskForTesting?.value
+        XCTAssertEqual(authenticationRequests, 0)
+        XCTAssertEqual(OperatorAccessPermit.shared.isAuthorized, permitBefore)
+        XCTAssertNotEqual(model.state, .cameraReady, "A customer tap still needs a valid server entitlement")
+    }
+
+    func testGuestDeclarationCannotBypassOfflineAttendantAuthentication() async {
+        var environment = BoothSessionEnvironment.customer
+        var authenticationRequests = 0
+        environment.authorizeAttendantCashConfirmation = { _ in authenticationRequests += 1; return false }
+        let model = BoothSessionViewModel(environment: environment)
+        model.configurePaidCheckoutForTesting(qrPhEnabled: false, cashEnabled: true, authority: .signedOffline(snapshotID: "fixture", expiresAt: Date().addingTimeInterval(3600)))
+        model.confirmCopySelection()
+        model.declareCashPaidByGuest()
+        await model.activeTaskForTesting?.value
+        XCTAssertEqual(authenticationRequests, 1)
+        XCTAssertEqual(model.state, .cashAttestation)
+        XCTAssertNil(model.paymentOrder)
+    }
+
+    func testGuestDeclarationUsesBoothCredentialAndKeepsSelfReportedProvenance() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CashConfirmationProtocol.self]
+        CashConfirmationProtocol.requests = []
+        let api = PaymentsAPIClient(configuration: PaymentsConfiguration(baseURL: URL(string: "https://payments.example.test")!, environment: "live"),
+                                    credentialStore: PaymentPairingCredential(token: String(repeating: "b", count: 40)),
+                                    operatorCredentialStore: PaymentPairingCredential(token: String(repeating: "o", count: 40)),
+                                    session: URLSession(configuration: configuration))
+        let response = try await api.declareCash(orderID: "o1")
+        let request = try XCTUnwrap(CashConfirmationProtocol.requests.first)
+        XCTAssertEqual(request.url?.path, "/v1/orders/o1/cash-declaration")
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer \(String(repeating: "b", count: 40))")
+        XCTAssertEqual(response.attempt?.state, "SELF_REPORTED")
+        XCTAssertEqual(response.attempt?.verification, "UNVERIFIED_SELF_REPORTED")
+        XCTAssertFalse(response.attempt?.isOperatorConfirmedCash == true)
+        XCTAssertNotNil(response.entitlement)
     }
 
     func testConfirmationUnavailableErrorsAreRecognised() {
@@ -525,7 +574,11 @@ final class CashConfirmationProtocol: URLProtocol {
             stream.close()
         }
         Self.bodies.append((try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:])
-        let json = #"{"order":{"id":"o1","eventId":"e","policyRevisionId":"r","format":"solo","copies":2,"unitPriceCentavos":2500,"totalCentavos":5000,"currency":"PHP","state":"AUTHORIZED","expiresAt":null,"paymentMethod":"CASH_DECLARED"},"attempt":{"id":"a","method":"CASH_DECLARED","state":"OPERATOR_CONFIRMED","verification":"OPERATOR_CONFIRMED"},"entitlement":{"id":"en","orderId":"o1","eventId":"e","policyRevisionId":"r","selectedFormat":"solo","purchasedCopies":2,"unitPriceCentavos":2500,"totalCentavos":5000,"authorizationSource":"UNVERIFIED_CASH_DECLARED","authorizedAt":"2026-10-14T01:00:00.000Z","state":"AUTHORIZED"},"serverTime":"2026-10-14T01:00:00.000Z"}"#
+        var json = #"{"order":{"id":"o1","eventId":"e","policyRevisionId":"r","format":"solo","copies":2,"unitPriceCentavos":2500,"totalCentavos":5000,"currency":"PHP","state":"AUTHORIZED","expiresAt":null,"paymentMethod":"CASH_DECLARED"},"attempt":{"id":"a","method":"CASH_DECLARED","state":"OPERATOR_CONFIRMED","verification":"OPERATOR_CONFIRMED"},"entitlement":{"id":"en","orderId":"o1","eventId":"e","policyRevisionId":"r","selectedFormat":"solo","purchasedCopies":2,"unitPriceCentavos":2500,"totalCentavos":5000,"authorizationSource":"UNVERIFIED_CASH_DECLARED","authorizedAt":"2026-10-14T01:00:00.000Z","state":"AUTHORIZED"},"serverTime":"2026-10-14T01:00:00.000Z"}"#
+        if request.url?.path.hasSuffix("/cash-declaration") == true {
+            json = json.replacingOccurrences(of: "\"state\":\"OPERATOR_CONFIRMED\"", with: "\"state\":\"SELF_REPORTED\"")
+                .replacingOccurrences(of: "\"verification\":\"OPERATOR_CONFIRMED\"", with: "\"verification\":\"UNVERIFIED_SELF_REPORTED\"")
+        }
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(json.utf8))
         client?.urlProtocolDidFinishLoading(self)
@@ -618,6 +671,14 @@ final class EventLogoImportTests: XCTestCase {
 // MARK: - Rendered operator and guest screens for visual review
 
 @MainActor final class SessionSetupScreenRenderTests: XCTestCase {
+    func testRenderCenteredGuestCash() async throws {
+        let guest = BoothSessionViewModel()
+        guest.configurePaidCheckoutForTesting(qrPhEnabled: false, cashEnabled: true)
+        guest.confirmCopySelection()
+        try await render("Guest_cash_centered_portrait", CashAttestationView(viewModel: guest))
+        try await render("Guest_cash_centered_landscape", CashAttestationView(viewModel: guest), width: 1194, height: 834)
+    }
+
     func testRenderSetupScenarios() async throws {
         // A: regular paid session, QR only.
         let a = MatrixFixture(); defer { a.cleanup() }

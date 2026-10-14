@@ -223,7 +223,7 @@ nonisolated struct PaymentAttempt: Codable, Equatable, Sendable, Identifiable {
     let testURL: URL?
     let expiresAt: Date?
     /// `PROVIDER_VERIFIED`, `NOT_VERIFIED`, `OPERATOR_CONFIRMED` for attendant-confirmed cash, or
-    /// `UNVERIFIED_SELF_REPORTED` for historical guest-declared cash.
+    /// `UNVERIFIED_SELF_REPORTED` for customer-declared cash (including historical records).
     var verification: String? = nil
 
     static let operatorConfirmedVerification = "OPERATOR_CONFIRMED"

@@ -171,7 +171,7 @@ struct ServerEventEditorView: View {
     @ViewBuilder private func policySummary(_ policy: OperatorPolicyRevision, prefix: String) -> some View {
         LabeledContent("\(prefix) copies", value: "Default \(policy.defaultCopies) · maximum \(policy.maxCopies)")
         LabeledContent("\(prefix) payment methods", value: policy.commercialMode == .privatePrepaid ? "Prepaid" :
-            [policy.qrphEnabled ? "QR Ph" : nil, policy.cashEnabled ? "Cash (attendant confirmed)" : nil].compactMap { $0 }.joined(separator: ", "))
+            [policy.qrphEnabled ? "QR Ph" : nil, policy.cashEnabled ? "Cash (customer declared)" : nil].compactMap { $0 }.joined(separator: ", "))
         LabeledContent("\(prefix) offline cash", value: policy.cashEnabled && policy.offlineValidUntil != nil ? "Allowed until \(policy.offlineValidUntil!.formatted())" : "Disabled")
     }
 
@@ -283,7 +283,7 @@ struct ServerEventEditorView: View {
                 LabeledContent("QR Ph verified (LIVE)", value: PHPPriceFormatter.string(centavos: summary.verifiedQRPhLiveCentavos))
                 LabeledContent("QR Ph verified (TEST, excluded)", value: PHPPriceFormatter.string(centavos: summary.verifiedQRPhTestCentavos))
                 LabeledContent("Cash confirmed by attendant", value: PHPPriceFormatter.string(centavos: summary.cashOperatorConfirmedCentavos ?? 0))
-                LabeledContent("Cash guest-declared (unverified, historical)", value: PHPPriceFormatter.string(centavos: summary.cashSelfReportedCentavos))
+                LabeledContent("Cash guest-declared (unverified)", value: PHPPriceFormatter.string(centavos: summary.cashSelfReportedCentavos))
                 if let offline = summary.cashSelfReportedOfflineSyncedCentavos, offline > 0 {
                     LabeledContent("  of which synced from offline", value: PHPPriceFormatter.string(centavos: offline))
                 }
@@ -531,7 +531,7 @@ struct ServerEventEditorView: View {
         switch action {
         case .publish, .activate:
             guard let latest = detail?.latestRevision else { return "" }
-            let methods = [latest.qrphEnabled ? "QR Ph" : nil, latest.cashEnabled ? "cash (attendant confirmed)" : nil].compactMap { $0 }.joined(separator: " and ")
+            let methods = [latest.qrphEnabled ? "QR Ph" : nil, latest.cashEnabled ? "cash (customer declared)" : nil].compactMap { $0 }.joined(separator: " and ")
             return "Guests starting a new checkout will see revision \(latest.revision): \(priceLabel(latest)), up to \(latest.maxCopies) copies\(methods.isEmpty ? "" : ", paid by \(methods)"). Guests already checking out keep their price."
         case .pause: return "No new checkouts can start. Paid entitlements remain usable. Offline policies are revoked when iPads reconnect."
         case .resume: return "Guests can start new checkouts with the published revision."

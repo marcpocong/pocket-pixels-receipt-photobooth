@@ -496,10 +496,16 @@ final class BoothSessionViewModel: ObservableObject {
         state = .choosingPayment
     }
 
-    /// Cash is authorized only after an authorized operator confirms receipt on this iPad. The
-    /// guest's own tap never authorizes: local operator authentication releases the operator
-    /// credential, and the server records the order as operator-confirmed (never provider-verified).
+    /// Online customer declaration stays SELF_REPORTED; it never records staff confirmation.
+    func declareCashPaidByGuest() {
+        completeCashPayment(requireAttendant: false)
+    }
+
     func confirmCashReceivedByAttendant() {
+        completeCashPayment(requireAttendant: true)
+    }
+
+    private func completeCashPayment(requireAttendant: Bool) {
         guard state == .cashAttestation, !isTransitionActive, let format = selectedBoothFormat, let sessionIdentifier, canChooseCash,
               let total = commercialEvent.activePolicy.totalCentavos(for: selectedCheckoutCopies) else { return }
         isTransitionActive = true
@@ -510,15 +516,19 @@ final class BoothSessionViewModel: ObservableObject {
             guard let self else { return }
             let permit = OperatorAccessPermit.shared
             let wasAuthorized = permit.isAuthorized
-            let confirmed = await environment.authorizeAttendantCashConfirmation(PHPPriceFormatter.string(centavos: total))
-            guard isCurrentCustomerSession(generation), state == .cashAttestation else { return }
-            guard confirmed else {
-                isTransitionActive = false
-                paymentNotice = "Cash was not confirmed. An attendant must confirm on this iPad after receiving your payment."
-                return
+            // Signed offline cash retains its existing attendant authentication requirement.
+            let needsAuthentication = requireAttendant || policyAuthority.isOfflineCashOnly
+            if needsAuthentication {
+                let confirmed = await environment.authorizeAttendantCashConfirmation(PHPPriceFormatter.string(centavos: total))
+                guard isCurrentCustomerSession(generation), state == .cashAttestation else { return }
+                guard confirmed else {
+                    isTransitionActive = false
+                    paymentNotice = "Cash was not confirmed. Please ask the attendant for help."
+                    return
+                }
+                permit.authorize()
             }
-            permit.authorize()
-            defer { if !wasAuthorized { permit.revoke() } }
+            defer { if needsAuthentication && !wasAuthorized { permit.revoke() } }
             do {
                 switch policyAuthority {
                 case .serverConfirmed:
@@ -532,8 +542,16 @@ final class BoothSessionViewModel: ObservableObject {
                         order = try await createCheckoutOrder(client: client, event: event, format: format, copies: copies, sessionID: sessionIdentifier, method: "CASH_DECLARED")
                     }
                     checkpointStore?.update(id: sessionIdentifier) { $0.phase = .paymentRequested }
-                    let response = try await retryingUnknownOutcome { try await client.confirmCash(orderID: order.id, expectedTotalCentavos: total) }
-                    guard response.attempt?.isOperatorConfirmedCash == true, let entitlement = response.entitlement else { throw PaymentsAPIError.invalidResponse }
+                    let response = try await retryingUnknownOutcome {
+                        if requireAttendant {
+                            return try await client.confirmCash(orderID: order.id, expectedTotalCentavos: total)
+                        }
+                        return try await client.declareCash(orderID: order.id)
+                    }
+                    let correctProvenance = requireAttendant
+                        ? response.attempt?.isOperatorConfirmedCash == true
+                        : response.attempt?.method == "CASH_DECLARED" && response.attempt?.state == "SELF_REPORTED"
+                    guard correctProvenance, let entitlement = response.entitlement else { throw PaymentsAPIError.invalidResponse }
                     paymentAttempt = response.attempt
                     checkpointStore?.update(id: sessionIdentifier) { $0.phase = .entitled; $0.entitlementID = entitlement.id }
                     guard isCurrentCustomerSession(generation) else { return }
@@ -562,7 +580,7 @@ final class BoothSessionViewModel: ObservableObject {
             } catch {
                 guard isCurrentCustomerSession(generation) else { return }
                 isTransitionActive = false
-                if let apiError = error as? PaymentsAPIError, Self.isCashConfirmationUnavailable(apiError) {
+                if requireAttendant, let apiError = error as? PaymentsAPIError, Self.isCashConfirmationUnavailable(apiError) {
                     // The payments service predates attendant confirmation, or the operator
                     // credential was refused. Never fall back to a guest self-declaration.
                     paymentNotice = "Cash could not be confirmed on the payments server. Please ask the attendant for help\(commercialEvent.activePolicy.qrPhEnabled ? " or pay with QR Ph" : "")."

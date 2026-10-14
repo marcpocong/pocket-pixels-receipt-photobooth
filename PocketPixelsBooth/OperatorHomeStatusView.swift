@@ -26,11 +26,11 @@ struct OperatorBoothStatusCard: View {
             } else if let event = server?.event {
                 Text(event.name).font(.title3)
                 Text("Pay Per Print · \(PHPPriceFormatter.string(centavos: event.unitPriceCentavos))/copy").font(.headline)
-                Text("Default \(event.defaultCopies) · maximum \(event.maxCopies) copies · \([event.qrphEnabled ? "QR Ph — verified" : nil, event.cashEnabled ? "Cash — attendant confirmed" : nil].compactMap { $0 }.joined(separator: ", "))").foregroundStyle(.secondary)
+                Text("Default \(event.defaultCopies) · maximum \(event.maxCopies) copies · \([event.qrphEnabled ? "QR Ph — verified" : nil, event.cashEnabled ? "Cash — customer declared" : nil].compactMap { $0 }.joined(separator: ", "))").foregroundStyle(.secondary)
             } else if let preparedEvent, let policy = preparedEvent.latestRevision {
                 Text(preparedEvent.event.name).font(.title3)
                 Text("Pay Per Print · \(PHPPriceFormatter.string(centavos: policy.unitPriceCentavos))/copy").font(.headline)
-                Text("Default \(policy.defaultCopies) · maximum \(policy.maxCopies) copies · \([policy.qrphEnabled ? "QR Ph — verified" : nil, policy.cashEnabled ? "Cash — attendant confirmed" : nil].compactMap { $0 }.joined(separator: ", "))").foregroundStyle(.secondary)
+                Text("Default \(policy.defaultCopies) · maximum \(policy.maxCopies) copies · \([policy.qrphEnabled ? "QR Ph — verified" : nil, policy.cashEnabled ? "Cash — customer declared" : nil].compactMap { $0 }.joined(separator: ", "))").foregroundStyle(.secondary)
                 Text(preparedEvent.event.lifecycle == .draft ? "Prepared setup — not yet applied" : preparedEvent.event.lifecycle.displayName).font(.callout).foregroundStyle(.secondary)
             } else {
                 Text("Pay Per Print").font(.headline)

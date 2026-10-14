@@ -4,18 +4,19 @@
 
 - Private/prepaid: Welcome → Format → Camera → existing editing/Passport/Sticker/receipt flow → Print → Thank You.
 - Pay per print: Welcome → Format → Copies → Payment → authorized entitlement → Camera → existing flow → exact purchased copies → Thank You.
-- Cash (current app): the guest sees “Please pay the attendant.” After actually receiving the displayed total, the attendant chooses **Attendant: Confirm Cash Received** and completes genuine iPad device-owner authentication. The app uses its separate operator credential to call `POST /v1/admin/orders/{orderID}/cash-confirmation` with `expectedTotalCentavos`. Camera access follows the server entitlement and its booth-scoped claim.
+- Online cash (current app): the guest sees “Please pay the attendant,” hands over the displayed amount and taps **I’ve paid the attendant**. No Face ID/passcode or operator token is needed for this declaration. The booth credential calls `POST /v1/orders/{orderID}/cash-declaration`; the server records `SELF_REPORTED` / `UNVERIFIED_SELF_REPORTED` and issues the existing unverified-cash entitlement. Camera access still follows its booth-scoped claim. The button is the customer's statement, not proof that the attendant received money.
+- Signed offline cash retains **Attendant: Confirm Cash Received** and genuine device-owner authentication; it is never an automatic fallback for an online checkout.
 - QR Ph: camera remains locked until the Worker returns a verified entitlement.
 
 Session Setup offers No Payment Required, QR Ph Only, Cash Only, and QR Ph + Cash. Event Mode and saved receipt designs are separate from payment authorization. Saving a design or setup draft does not authorize publishing or activating a LIVE event.
 
-## Attendant-confirmed cash
+## Cash provenance and attendant confirmation
 
-Confirm only cash physically received, for the exact order total and purchased copy count. The Worker requires operator scope in the order's account and a cash-enabled accepted policy; the booth credential cannot confirm cash. An order already locked to QR Ph cannot be converted to cash. Replayed confirmation returns the same entitlement rather than another purchase. An uncertain response requires status/recovery inspection before another transaction; never collect cash twice or manufacture a paid record in D1.
+The attendant-only confirmation API remains supported for compatible clients, but the current online guest button does not call it. Confirm only cash physically received, for the exact order total and purchased copy count. The Worker requires operator scope in the order's account and a cash-enabled accepted policy; the booth credential cannot confirm cash. An order already locked to QR Ph cannot be converted to cash. Replayed confirmation returns the same entitlement rather than another purchase. An uncertain response requires status/recovery inspection before another transaction; never collect cash twice or manufacture a paid record in D1.
 
 The online attempt retains method `CASH_DECLARED` for compatibility but uses state/verification `OPERATOR_CONFIRMED` and audit action `CASH_OPERATOR_CONFIRMED`. Its entitlement retains the existing `UNVERIFIED_CASH_DECLARED` authorization source: this is staff attestation, not provider verification. No database migration is required for this endpoint. Keep booth and operator credentials separate and reuse valid pairing; missing operator authorization is not a reason to fall back to a booth token.
 
-Historical clients may still call `/v1/orders/{orderID}/cash-declaration`. Those records remain `SELF_REPORTED`, and cannot be relabelled as attendant-confirmed. Keep the legacy endpoint until a separately reviewed compatibility/deprecation decision. Signed offline cash remains provisional/self-reported in server reporting even when local attendant authentication occurs; it is never a fallback for an unresolved online QR checkout.
+The current online guest flow and historical clients call `/v1/orders/{orderID}/cash-declaration`. Those records remain `SELF_REPORTED`, and cannot be relabelled as attendant-confirmed. Keep the legacy endpoint until a separately reviewed compatibility/deprecation decision. Signed offline cash remains provisional/self-reported in server reporting even when local attendant authentication occurs; it is never a fallback for an unresolved online QR checkout.
 
 ## Incident rules
 

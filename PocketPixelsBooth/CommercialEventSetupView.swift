@@ -69,7 +69,7 @@ struct ServerBoothStatusRows: View {
             LabeledContent("Event ID", value: event.id)
             LabeledContent("Policy revision", value: "\(event.revision)")
             LabeledContent("Charging", value: event.commercialMode == .payPerPrint ? "\(PHPPriceFormatter.string(centavos: event.unitPriceCentavos)) per copy" : "Private / Prepaid")
-            LabeledContent("Methods", value: [event.qrphEnabled ? "QR Ph" : nil, event.cashEnabled ? "Cash (attendant confirmed)" : nil].compactMap { $0 }.joined(separator: ", "))
+            LabeledContent("Methods", value: [event.qrphEnabled ? "QR Ph" : nil, event.cashEnabled ? "Cash (customer declared)" : nil].compactMap { $0 }.joined(separator: ", "))
         } else {
             LabeledContent("Active event", value: status.inactiveDescription ?? "None — guests cannot start paid sessions")
         }

@@ -34,8 +34,8 @@ nonisolated enum GuestPaymentChoice: String, Codable, CaseIterable, Identifiable
         switch self {
         case .noPayment: "Guests start free. ₱0 — complimentary or prepaid."
         case .qrOnly: "Guests scan to pay. Verified by the payment provider."
-        case .cashOnly: "Guests pay the attendant, who confirms on this iPad."
-        case .qrAndCash: "Guests choose QR Ph or cash confirmed by the attendant."
+        case .cashOnly: "Guests pay the attendant, then tap “I’ve paid” to start."
+        case .qrAndCash: "Guests choose QR Ph or declare cash paid to the attendant."
         }
     }
 
@@ -53,8 +53,8 @@ nonisolated enum GuestPaymentChoice: String, Codable, CaseIterable, Identifiable
         switch self {
         case .noPayment: "No payment — complimentary / prepaid"
         case .qrOnly: "QR Ph — provider verified"
-        case .cashOnly: "Cash — attendant confirmed"
-        case .qrAndCash: "QR Ph — provider verified · Cash — attendant confirmed"
+        case .cashOnly: "Cash — customer declared"
+        case .qrAndCash: "QR Ph — provider verified · Cash — customer declared"
         }
     }
 }
