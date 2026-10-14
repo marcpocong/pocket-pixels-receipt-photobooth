@@ -586,8 +586,6 @@ final class EventLogoImportTests: XCTestCase {
 // MARK: - Rendered operator and guest screens for visual review
 
 @MainActor final class SessionSetupScreenRenderTests: XCTestCase {
-    private static let output = URL(fileURLWithPath: "/Users/marc/Desktop/PocketPixelsBooth/BuildArtifacts/OperatorSetup", isDirectory: true)
-
     func testRenderSetupScenarios() async throws {
         // A: regular paid session, QR only.
         let a = MatrixFixture(); defer { a.cleanup() }
@@ -651,8 +649,10 @@ final class EventLogoImportTests: XCTestCase {
         let image = UIGraphicsImageRenderer(size: window.bounds.size).image { _ in
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }
-        try FileManager.default.createDirectory(at: Self.output, withIntermediateDirectories: true)
-        try XCTUnwrap(image.pngData()).write(to: Self.output.appendingPathComponent("\(name).png"))
+        let attachment = XCTAttachment(data: try XCTUnwrap(image.pngData()), uniformTypeIdentifier: "public.png")
+        attachment.name = "\(name).png"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 }
 

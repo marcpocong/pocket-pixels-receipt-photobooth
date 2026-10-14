@@ -4,8 +4,18 @@
 
 - Private/prepaid: Welcome → Format → Camera → existing editing/Passport/Sticker/receipt flow → Print → Thank You.
 - Pay per print: Welcome → Format → Copies → Payment → authorized entitlement → Camera → existing flow → exact purchased copies → Thank You.
-- Cash: guest hands cash to the attendant and taps “I’ve Paid.” No operator approval occurs. Reports must call this self-reported/unverified.
+- Cash (current app): the guest sees “Please pay the attendant.” After actually receiving the displayed total, the attendant chooses **Attendant: Confirm Cash Received** and completes genuine iPad device-owner authentication. The app uses its separate operator credential to call `POST /v1/admin/orders/{orderID}/cash-confirmation` with `expectedTotalCentavos`. Camera access follows the server entitlement and its booth-scoped claim.
 - QR Ph: camera remains locked until the Worker returns a verified entitlement.
+
+Session Setup offers No Payment Required, QR Ph Only, Cash Only, and QR Ph + Cash. Event Mode and saved receipt designs are separate from payment authorization. Saving a design or setup draft does not authorize publishing or activating a LIVE event.
+
+## Attendant-confirmed cash
+
+Confirm only cash physically received, for the exact order total and purchased copy count. The Worker requires operator scope in the order's account and a cash-enabled accepted policy; the booth credential cannot confirm cash. An order already locked to QR Ph cannot be converted to cash. Replayed confirmation returns the same entitlement rather than another purchase. An uncertain response requires status/recovery inspection before another transaction; never collect cash twice or manufacture a paid record in D1.
+
+The online attempt retains method `CASH_DECLARED` for compatibility but uses state/verification `OPERATOR_CONFIRMED` and audit action `CASH_OPERATOR_CONFIRMED`. Its entitlement retains the existing `UNVERIFIED_CASH_DECLARED` authorization source: this is staff attestation, not provider verification. No database migration is required for this endpoint. Keep booth and operator credentials separate and reuse valid pairing; missing operator authorization is not a reason to fall back to a booth token.
+
+Historical clients may still call `/v1/orders/{orderID}/cash-declaration`. Those records remain `SELF_REPORTED`, and cannot be relabelled as attendant-confirmed. Keep the legacy endpoint until a separately reviewed compatibility/deprecation decision. Signed offline cash remains provisional/self-reported in server reporting even when local attendant authentication occurs; it is never a fallback for an unresolved online QR checkout.
 
 ## Incident rules
 
@@ -19,8 +29,10 @@
 ## Reporting language
 
 - QR Ph Verified excludes test transactions from live gross.
+- Cash Attendant-Confirmed (`CASH_OPERATOR_CONFIRMED`, `cashOperatorConfirmedCentavos`) is staff-attested and separate from historical self-reported cash; it is not PayMongo-verified revenue.
 - Cash Self-Reported is not independently verified.
 - Cash Unsynced is device-local and absent from server totals.
+- Physical cash-count variance compares the count with both attendant-confirmed and self-reported cash. Pending local sync/conflicts keep the count provisional.
 - Total Reported mixes verification levels and must say so.
 - `payment.paid` is not a bank-settlement or payout claim.
 
@@ -39,6 +51,10 @@ Recover device access with the owner first, then reissue/revoke the affected ser
 ## LIVE monitoring and reconciliation
 
 LIVE runs `*/5 * * * *` in UTC. Disabled LIVE reconciliation returns `live_disabled` before D1/provider access. Once approved and enabled, inspect the latest `reconciliation_runs` every attended pilot session and at opening/closing. Review any `failure_summary`, an unfinished run, no run within 15 minutes, or unresolved QR rows older than provider expiry plus reconciliation grace. Provider timeouts remain unknown and retry with bounded backoff. Late-paid/superseded orders require manual review and never receive a usable entitlement automatically.
+
+The checked-in LIVE configuration defaults `LIVE_PAYMENTS_ENABLED=false`, while the existing deployed service was enabled with a CLI variable override. Before any approved LIVE release, inspect the active version and bindings. Preserve the enabled gate explicitly with `--env live --var LIVE_PAYMENTS_ENABLED:true` when that is the reviewed intended state; a plain deployment would restore the false default. Preserve existing secrets, D1 binding and Cron. A dry run (`wrangler deploy --dry-run --env live --var LIVE_PAYMENTS_ENABLED:true`) uploads nothing and does not authorize deployment. Stop new acceptance through approved event lifecycle changes while keeping verification/reconciliation available for accepted orders.
+
+Before supervised cash qualification, finish app integrity and non-payment preview/sample checks. Obtain separate owner approval for LIVE deployment, event policy/lifecycle changes, the real cash transaction and paper consumption. Reuse a suitable isolated pilot; leave the Regular Sessions ₱25 draft unchanged and inactive. Confirm actual paper output separately from transport delivery, then pause/reconcile the pilot. A short pilot does not satisfy the 100-session physical qualification gate.
 
 Use PayMongo Webhooks → Event Deliveries for delivery visibility, the authenticated `/v1/admin/diagnostics` for unresolved/review counts, and each event's sales/orders view for unclaimed paid entitlements and incomplete batches. On the iPad, inspect Interrupted Paid Sessions and Print Accounting for queued completion, conflict or uncertain outcomes. Capture IDs/status/times only; keep export data and archives private. The designated attendant checks these surfaces; no separate monitoring platform is required for the supervised pilot.
 

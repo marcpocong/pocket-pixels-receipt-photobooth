@@ -4,7 +4,7 @@ import XCTest
 @testable import PocketPixelsBooth
 
 /// Co-Branded receipt header: Made to Keep wordmark × event logo. Every composition uses the
-/// production composer and rasterizer; artifacts are written for visual inspection.
+/// production composer and rasterizer; artifacts are attached for visual inspection.
 final class CoBrandedReceiptTests: XCTestCase {
     private static let date: Date = {
         var components = DateComponents()
@@ -15,7 +15,6 @@ final class CoBrandedReceiptTests: XCTestCase {
         return components.date!
     }()
     private static let galleryURL = URL(string: "https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/?g=\(String(repeating: "c", count: 64))")!
-    private static let artifactDirectory = URL(fileURLWithPath: "/Users/marc/Desktop/PocketPixelsBooth/BuildArtifacts/CoBranded", isDirectory: true)
 
     enum LogoKind: String, CaseIterable { case wideSeal, square, veryWide, tall, vectorPDF, largeTransparent }
 
@@ -163,12 +162,18 @@ final class CoBrandedReceiptTests: XCTestCase {
 
     private func render(format: BoothFormat, profile: EventProfile?, qr: Bool, name: String, passport: PassportSessionData? = nil) throws {
         let receipt = try compose(format: format, profile: profile, qr: qr, passport: passport)
-        try FileManager.default.createDirectory(at: Self.artifactDirectory, withIntermediateDirectories: true)
-        try receipt.imagePNGData.write(to: Self.artifactDirectory.appendingPathComponent("\(name).png"))
+        attachPNG(receipt.imagePNGData, name: name)
         let image = try XCTUnwrap(UIImage(data: receipt.imagePNGData))
         let raster = try ThermalImageRasterizer.rasterize(image, purpose: .completeReceipt)
-        try raster.previewPNGData.write(to: Self.artifactDirectory.appendingPathComponent("\(name)_thermal.png"))
+        attachPNG(raster.previewPNGData, name: "\(name)_thermal")
         XCTAssertEqual(receipt.width, BoothConfiguration.receiptWidth)
+    }
+
+    private func attachPNG(_ data: Data, name: String) {
+        let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.png")
+        attachment.name = "\(name).png"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     private func compose(format: BoothFormat, profile: EventProfile?, qr: Bool, passport: PassportSessionData? = nil) throws -> ComposedReceipt {
