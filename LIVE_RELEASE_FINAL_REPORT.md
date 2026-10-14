@@ -52,3 +52,7 @@ October 14, 2026 · Manila time
 - Recommendation: retain attended operation while finishing follow-up CI and completing the separate hardware checklist. Provisioning covers the October 16 event and needs renewal before October 19. Normal commercial activation remains under owner control. Do not call this full production qualification.
 
 For chronological evidence and checkpoint limitations, see [LIVE_RELEASE_READINESS_REPORT.md](LIVE_RELEASE_READINESS_REPORT.md). Current cash/recovery instructions are in [docs/payment-operations.md](docs/payment-operations.md).
+
+## October 15 printer endurance follow-up
+
+The earlier NOT TESTED status for physical printer endurance is superseded by [Carlo Mode B evidence](docs/hardware-qualification/2026-10-15/REPORT.md): 100 sessions passed and 125 receipts printed and operator-confirmed, with zero recorded violations. Original UNVERIFIED was caused by out-of-scope checks always blocking PASS; the updated app reports PASS specifically for printer endurance. Live-camera Mode C, ambiguous-print fault drills and multi-hour operation remain outstanding. The tested build did not record its commit SHA.

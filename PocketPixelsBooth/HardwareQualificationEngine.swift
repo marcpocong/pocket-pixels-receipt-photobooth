@@ -165,6 +165,7 @@ final class HardwareQualificationEngine: ObservableObject {
         var sessionCount = QualificationPlan.defaultSessionCount
         var seed = QualificationPlan.defaultSeed
         var batchSize = QualificationPlan.defaultBatchSize
+        var handsFreeEndToEnd = true
         var paperStock = ""
         var operatorName = ""
         var commitSHA = ""
@@ -290,7 +291,8 @@ final class HardwareQualificationEngine: ObservableObject {
             mode: configuration.mode,
             sessionCount: configuration.sessionCount,
             seed: configuration.seed,
-            batchSize: configuration.batchSize
+            batchSize: configuration.batchSize,
+            handsFreeEndToEnd: configuration.handsFreeEndToEnd
         )
     }
 
@@ -300,6 +302,9 @@ final class HardwareQualificationEngine: ObservableObject {
 
     /// The first approval window: up to the first batch end, and the receipts it needs.
     static func approvalWindow(for plan: QualificationPlan, after session: Int) -> (throughSession: Int, receipts: Int) {
+        if plan.runsHandsFree {
+            return (plan.sessionCount, plan.plannedPhysicalReceipts)
+        }
         let remaining = plan.scenarios.filter { $0.sessionNumber > session }
         guard let end = remaining.first(where: \.endsBatch)?.sessionNumber ?? remaining.last?.sessionNumber else {
             return (session, 0)
@@ -592,6 +597,10 @@ final class HardwareQualificationEngine: ObservableObject {
 
     private func runCheckpoints(after scenario: QualificationScenario, plan: QualificationPlan) async -> Bool {
         for checkpoint in scenario.checkpoints {
+            if plan.runsHandsFree && checkpoint.isSupervised {
+                mutate { $0.log(.checkpoint, session: scenario.sessionNumber, "\(checkpoint.title): omitted in hands-free run; physical checks remain unverified.") }
+                continue
+            }
             switch checkpoint {
             case .photoPassDetailsAndSignature, .verifyFrozenArchive:
                 continue // handled inside the session
@@ -985,7 +994,7 @@ final class HardwareQualificationEngine: ObservableObject {
             return failSessionAndStop(&result, "Front camera unavailable: \(model.statusMessage)", model: model)
         }
 
-        if scenario.checkpoints.contains(.appBackgroundAndReturn) {
+        if !plan.runsHandsFree, scenario.checkpoints.contains(.appBackgroundAndReturn) {
             let response = await ask(OperatorPrompt(session: scenario.sessionNumber, kind: .checkpoint(.appBackgroundAndReturn), title: QualificationCheckpoint.appBackgroundAndReturn.title, message: QualificationCheckpoint.appBackgroundAndReturn.instruction))
             acknowledge(.appBackgroundAndReturn, session: scenario.sessionNumber, response: response)
             guard await waitFor(timeout: 20, { model.state == .cameraReady && model.canBeginPhotos }) else {
@@ -1009,12 +1018,20 @@ final class HardwareQualificationEngine: ObservableObject {
 
         if scenario.format.usesPassportFlow {
             model.continueFromReview()
-            stage(&result, "Waiting for Photo Pass details and signature on the booth screen")
-            let completed = await waitForBoothInteraction(session: scenario.sessionNumber) { model.state == .passportPreview }
-            guard completed else {
-                return failSession(&result, "Photo Pass details/signature were not completed.", model: model)
+            if plan.runsHandsFree {
+                stage(&result, "Entering diagnostic Photo Pass details and signature")
+                guard Self.enterDiagnosticPhotoPassDetails(model, session: scenario.sessionNumber) else {
+                    return failSession(&result, "Automatic Photo Pass details/signature could not advance.", model: model)
+                }
+                result.notes.append("Photo Pass details and signature supplied automatically; manual input was not verified.")
+            } else {
+                stage(&result, "Waiting for Photo Pass details and signature on the booth screen")
+                let completed = await waitForBoothInteraction(session: scenario.sessionNumber) { model.state == .passportPreview }
+                guard completed else {
+                    return failSession(&result, "Photo Pass details/signature were not completed.", model: model)
+                }
+                acknowledge(.photoPassDetailsAndSignature, session: scenario.sessionNumber, response: .acknowledged)
             }
-            acknowledge(.photoPassDetailsAndSignature, session: scenario.sessionNumber, response: .acknowledged)
         }
 
         stage(&result, "Composing receipt (production pipeline)")
@@ -1113,6 +1130,19 @@ final class HardwareQualificationEngine: ObservableObject {
         let restarts = cameraRestartCount() - cameraRestartBaseline
         mutate { $0.cameraInterruptions = max($0.cameraInterruptions, restarts) }
         return endSession(&result)
+    }
+
+    /// Drives the existing customer transitions only inside the isolated diagnostic model.
+    static func enterDiagnosticPhotoPassDetails(_ model: BoothSessionViewModel, session: Int) -> Bool {
+        guard model.environment.isQualification, model.state == .passportDetails else { return false }
+        model.passportDraft.name = "QA Session \(session)"
+        model.passportDraft.notes = "DIAGNOSTIC TEST - AUTOMATIC INPUT"
+        model.continueFromPassportDetails()
+        model.updatePassportSignature(PassportSignature(strokes: [
+            .init(coordinates: [80, 700, 250, 250, 420, 700, 600, 250, 780, 700, 920, 400])
+        ]))
+        model.continueFromPassportSignature()
+        return model.state == .passportPreview
     }
 
     private func waitForBoothInteraction(session: Int, until condition: @escaping @MainActor () -> Bool) async -> Bool {

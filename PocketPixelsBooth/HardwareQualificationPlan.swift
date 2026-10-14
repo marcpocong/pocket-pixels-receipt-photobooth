@@ -43,7 +43,7 @@ nonisolated enum QualificationMode: String, Codable, CaseIterable, Identifiable,
         case .physicalPrinterEndurance:
             "Clearly watermarked diagnostic photos are composed and printed on the connected printer. Tests printer, paper and transport endurance — not the camera."
         case .endToEnd:
-            "Drives the production booth session with the real front camera for every session, then prints, archives (diagnostic namespace) and resets. Pauses for physical checks and Photo Pass details."
+            "Drives the production booth session with the real front camera for every session, then prints, archives (diagnostic namespace) and resets. Supports hands-free runs with automatic test details, or supervised physical checks."
         }
     }
 
@@ -175,6 +175,10 @@ nonisolated struct QualificationPlan: Codable, Equatable, Sendable {
     let seed: UInt64
     let batchSize: Int
     let scenarios: [QualificationScenario]
+    /// Optional so historical plans decode as supervised and retain their fingerprint.
+    var handsFreeEndToEnd: Bool? = nil
+
+    var runsHandsFree: Bool { mode == .endToEnd && handsFreeEndToEnd == true }
 
     var sessionCount: Int { scenarios.count }
 
@@ -299,7 +303,8 @@ nonisolated enum QualificationPlanner {
         mode: QualificationMode,
         sessionCount: Int = QualificationPlan.defaultSessionCount,
         seed: UInt64 = QualificationPlan.defaultSeed,
-        batchSize: Int = QualificationPlan.defaultBatchSize
+        batchSize: Int = QualificationPlan.defaultBatchSize,
+        handsFreeEndToEnd: Bool = false
     ) -> QualificationPlan {
         let count = max(1, sessionCount)
         let batch = max(1, min(batchSize, count))
@@ -409,7 +414,7 @@ nonisolated enum QualificationPlanner {
             )
         }
 
-        return QualificationPlan(mode: mode, seed: seed, batchSize: batch, scenarios: scenarios)
+        return QualificationPlan(mode: mode, seed: seed, batchSize: batch, scenarios: scenarios, handsFreeEndToEnd: mode == .endToEnd && handsFreeEndToEnd ? true : nil)
     }
 
     static func orientationDescription(format: BoothFormat, photoIndex: Int) -> String {

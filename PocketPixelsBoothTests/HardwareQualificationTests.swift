@@ -82,6 +82,74 @@ final class HardwareQualificationTests: XCTestCase {
         }
     }
 
+    func testHandsFreeApprovalCoversWholeRunOnlyForModeC() throws {
+        let engine = makeEngine()
+        var configuration = HardwareQualificationEngine.Configuration()
+        configuration.mode = .endToEnd
+        let plan = engine.plan(for: configuration)
+        XCTAssertTrue(plan.runsHandsFree)
+        XCTAssertEqual(plan.plannedPhysicalReceipts, 125)
+        let window = HardwareQualificationEngine.approvalWindow(for: plan, after: 0)
+        XCTAssertEqual(window.throughSession, 100)
+        XCTAssertEqual(window.receipts, 125)
+
+        configuration.handsFreeEndToEnd = false
+        let supervised = engine.plan(for: configuration)
+        XCTAssertFalse(supervised.runsHandsFree)
+        XCTAssertNotEqual(plan.fingerprint, supervised.fingerprint)
+        XCTAssertLessThan(HardwareQualificationEngine.approvalWindow(for: supervised, after: 0).throughSession, 100)
+
+        configuration.mode = .physicalPrinterEndurance
+        configuration.handsFreeEndToEnd = true
+        let printerPlan = engine.plan(for: configuration)
+        XCTAssertFalse(printerPlan.runsHandsFree)
+        XCTAssertLessThan(HardwareQualificationEngine.approvalWindow(for: printerPlan, after: 0).throughSession, 100)
+
+        // Old plans have no hands-free key; decoding must preserve supervision and approval.
+        let data = try JSONEncoder().encode(supervised)
+        XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("handsFreeEndToEnd"))
+        let decoded = try JSONDecoder().decode(QualificationPlan.self, from: data)
+        XCTAssertFalse(decoded.runsHandsFree)
+        XCTAssertEqual(decoded.fingerprint, supervised.fingerprint)
+        XCTAssertTrue(try JSONDecoder().decode(QualificationPlan.self, from: JSONEncoder().encode(plan)).runsHandsFree)
+    }
+
+    func testAutomaticPhotoPassInputUsesDiagnosticSessionTransitionsOnly() {
+        let customer = BoothSessionViewModel.immediateConfirmation()
+        customer.state = .passportDetails
+        XCTAssertFalse(HardwareQualificationEngine.enterDiagnosticPhotoPassDetails(customer, session: 6))
+        XCTAssertEqual(customer.passportDraft, .empty)
+
+        var environment = BoothSessionEnvironment.customer
+        environment.purpose = .hardwareQualification(runID: "AUTO-TEST")
+        environment.deliversGallery = false
+        environment.recordsCustomerSessionMetrics = false
+        let model = BoothSessionViewModel(environment: environment, captureConfirmationPause: {})
+        model.selectedBoothFormat = .passport
+        model.capturedPhotos = (1...BoothFormat.passport.photoCount).map {
+            ReliabilityFixtures.syntheticPhoto(session: 6, photo: $0, format: .passport)
+        }
+        model.state = .review
+        model.continueFromReview()
+        XCTAssertEqual(model.state, .passportDetails)
+        XCTAssertTrue(HardwareQualificationEngine.enterDiagnosticPhotoPassDetails(model, session: 6))
+        XCTAssertEqual(model.state, .passportPreview)
+        XCTAssertEqual(model.passportDraft.name, "QA Session 6")
+        XCTAssertFalse(model.passportDraft.signature.strokes.isEmpty)
+        model.cancelSession()
+    }
+
+    func testHandsFreeReportKeepsPhysicalChecksUnverified() {
+        let plan = QualificationPlanner.makePlan(mode: .endToEnd, sessionCount: 12, handsFreeEndToEnd: true)
+        var record = completedRecord(plan: plan)
+        for index in record.sessions.indices { record.sessions[index].physicalConfirmation = .pending }
+        XCTAssertEqual(QualificationVerdict.evaluate(record), .unverified)
+        let missing = QualificationVerdict.unverifiedRequirements(record)
+        XCTAssertTrue(missing.contains { $0.contains("paper output") })
+        XCTAssertTrue(missing.contains { $0.contains("signature not acknowledged") })
+        XCTAssertTrue(QualificationReportFormatter.text(for: record).contains("Hands-free: Yes"))
+    }
+
     // MARK: 1. Default is simulation and never prints
 
     func testDefaultConfigurationIsSimulationAndNeverTouchesThePrinter() async throws {
@@ -228,8 +296,9 @@ final class HardwareQualificationTests: XCTestCase {
         }
         XCTAssertTrue(plan.scenarios.contains { $0.plannedCopies > 1 })
         XCTAssertEqual(record.physicalReceiptsConfirmed, plan.plannedPrintJobs)
-        XCTAssertEqual(QualificationVerdict.evaluate(record), .unverified, "Printer-only runs never claim camera validation")
-        XCTAssertFalse(QualificationVerdict.evaluate(record).claimsHardwareValidation)
+        XCTAssertEqual(QualificationVerdict.evaluate(record), .pass, "Printer endurance passed within its scope")
+        XCTAssertTrue(QualificationVerdict.evaluate(record).claimsHardwareValidation)
+        XCTAssertTrue(QualificationVerdict.outsideScopeRequirements(record).contains { $0.contains("Live front-camera") })
     }
 
     // MARK: 7. Pause / stop
@@ -482,13 +551,30 @@ final class HardwareQualificationTests: XCTestCase {
         XCTAssertTrue(QualificationReportFormatter.csv(for: record).hasPrefix("session,qualification_session_id"))
     }
 
+    func testPrinterEndurancePassIsScopedAndStillRequiresEvidence() {
+        let plan = QualificationPlanner.makePlan(mode: .physicalPrinterEndurance, sessionCount: 100)
+        var record = completedRecord(plan: plan)
+        record.acknowledgedCheckpoints = plan.scenarios.flatMap { scenario in
+            scenario.checkpoints.filter(\.isSupervised).map { QualificationVerdict.checkpointKey(session: scenario.sessionNumber, $0) }
+        }
+        XCTAssertEqual(QualificationVerdict.evaluate(record), .pass)
+        XCTAssertTrue(QualificationVerdict.unverifiedRequirements(record).isEmpty)
+        XCTAssertTrue(QualificationVerdict.outsideScopeRequirements(record).contains { $0.contains("Live front-camera") })
+        XCTAssertTrue(QualificationReportFormatter.text(for: record).contains("not full production qualification"))
+        record.sessions[0].physicalConfirmation = .pending
+        XCTAssertEqual(QualificationVerdict.evaluate(record), .unverified)
+        record.sessions[0].physicalConfirmation = .confirmed(receipts: 1)
+        record.acknowledgedCheckpoints = []
+        XCTAssertEqual(QualificationVerdict.evaluate(record), .unverified)
+    }
+
     func testOnlyACompleteFullyConfirmedRunCanPass() {
         let plan = QualificationPlanner.makePlan(mode: .endToEnd, sessionCount: 12, batchSize: 6)
         var record = completedRecord(plan: plan)
         record.acknowledgedCheckpoints = plan.scenarios.flatMap { scenario in
             scenario.checkpoints.filter(\.isSupervised).map { QualificationVerdict.checkpointKey(session: scenario.sessionNumber, $0) }
         }
-        XCTAssertEqual(QualificationVerdict.evaluate(record), .unverified, "Manual drills outside the plan stay listed as unverified")
+        XCTAssertEqual(QualificationVerdict.evaluate(record), .pass, "All checks in this run are satisfied; release drills remain separate")
         XCTAssertFalse(QualificationVerdict.unverifiedRequirements(record).contains { $0.contains("not acknowledged") })
 
         var partial = record
@@ -512,9 +598,8 @@ final class HardwareQualificationTests: XCTestCase {
         interrupted.state = .interrupted
         XCTAssertEqual(QualificationVerdict.evaluate(interrupted), .interrupted)
 
-        // The only path to PASS is a complete run with every check satisfied; with the manual
-        // drills that remain outside the app, the strongest verdict available is UNVERIFIED.
-        XCTAssertFalse(QualificationVerdict.unverifiedRequirements(record).isEmpty)
+        XCTAssertTrue(QualificationVerdict.unverifiedRequirements(record).isEmpty)
+        XCTAssertFalse(QualificationVerdict.outsideScopeRequirements(record).isEmpty)
     }
 
     // MARK: 14–15. Orientation and customer defaults

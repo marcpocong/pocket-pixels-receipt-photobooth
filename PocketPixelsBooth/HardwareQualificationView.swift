@@ -95,6 +95,12 @@ struct HardwareQualificationView: View {
             Picker("Sessions", selection: $configuration.sessionCount) {
                 ForEach(QualificationPlan.supportedSessionCounts, id: \.self) { Text("\($0)").tag($0) }
             }
+            if configuration.mode == .endToEnd {
+                Toggle("Hands-free run", isOn: $configuration.handsFreeEndToEnd)
+                Text("Approve the whole run once. Captures, test details, signatures, printing and reset advance automatically. Paper checks and recovery drills stay unverified. Printer faults still require inspection.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
             Stepper("Batch size: \(configuration.batchSize) sessions", value: $configuration.batchSize, in: 1...25)
             LabeledContent("Seed") {
                 TextField("Seed", value: $configuration.seed, format: .number.grouping(.never))
@@ -138,7 +144,7 @@ struct HardwareQualificationView: View {
             if configuration.mode.usesPhysicalPrinter {
                 LabeledContent("Estimated paper", value: plan.estimatedPaperMillimeters.map { String(format: "≈ %.1f m (estimate)", $0 / 1_000) } ?? "Not reliably calculable")
             }
-            LabeledContent("Supervised checkpoints", value: "\(plan.scenarios.reduce(0) { $0 + $1.checkpoints.filter(\.isSupervised).count })")
+            LabeledContent("Supervised checkpoints", value: plan.runsHandsFree ? "None — physical checks remain unverified" : "\(plan.scenarios.reduce(0) { $0 + $1.checkpoints.filter(\.isSupervised).count })")
             LabeledContent("Plan fingerprint", value: plan.fingerprint)
             DisclosureGroup("All \(plan.sessionCount) scenarios", isExpanded: $showingPlan) {
                 ForEach(plan.scenarios) { scenario in
@@ -245,6 +251,7 @@ private struct QualificationApprovalSheet: View {
             List {
                 Section("What will happen") {
                     LabeledContent("Test mode", value: plan.mode.displayName)
+                    LabeledContent("Hands-free", value: plan.runsHandsFree ? "Yes — entire run approved once" : "No")
                     LabeledContent("Sessions", value: "\(plan.sessionCount)")
                     LabeledContent("Physical receipts", value: plan.mode.usesPhysicalPrinter ? "\(plan.plannedPhysicalReceipts)" : "None")
                     LabeledContent("Copy distribution", value: plan.copyDistribution.keys.sorted().map { "\($0)-copy × \(plan.copyDistribution[$0] ?? 0)" }.joined(separator: ", "))
@@ -264,8 +271,12 @@ private struct QualificationApprovalSheet: View {
                     Section("Warnings") {
                         Label("Long runs take hours and use a lot of paper. Keep spare rolls ready.", systemImage: "clock")
                         Label("Continuous printing heats the print head. Pause if receipts fade.", systemImage: "thermometer.high")
-                        Label("Supervised checkpoints ask you to power-cycle the printer or background the app between sessions. Never interrupt a print in progress.", systemImage: "hand.raised")
-                        Label("Approval lasts for this launch only and stops at each batch boundary for a paper check and renewed approval.", systemImage: "lock")
+                        if plan.runsHandsFree {
+                            Label("No routine prompts. Test details and signatures are automatic. Paper output and manual recovery drills remain unverified.", systemImage: "info.circle")
+                        } else {
+                            Label("Supervised checkpoints ask you to power-cycle the printer or background the app between sessions. Never interrupt a print in progress.", systemImage: "hand.raised")
+                            Label("Approval lasts for this launch only and stops at each batch boundary for a paper check and renewed approval.", systemImage: "lock")
+                        }
                         Label("If a print's outcome becomes uncertain the run stops and nothing is resent.", systemImage: "exclamationmark.triangle")
                     }
                 }
@@ -612,7 +623,7 @@ private struct QualificationVerdictBadge: View {
     let mode: QualificationMode
 
     var body: some View {
-        Text(verdict.rawValue)
+        Text(verdict == .pass ? "PASS · \(mode.shortName)" : verdict.rawValue)
             .font(.caption.bold())
             .padding(.horizontal, 10)
             .padding(.vertical, 5)

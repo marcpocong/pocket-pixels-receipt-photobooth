@@ -19,7 +19,7 @@ The app ships a preprogrammed, operator-approved qualification tool. It supports
 - Default plan: 100 sessions, balanced round-robin over all six formats (16–17 each), separate 1/2/3/5/10/10-copy print-load sessions, a high-frequency block, a Grid 6/Strip multi-photo window, a frozen-configuration pair, supervised printer power-cycle and background/return drills, and a gallery-delivery attestation. Seeded and reproducible; the plan fingerprint is recorded.
 - Safety: opens in simulation; physical runs need **Approve & Start Hardware Test**, bound to that run, plan, launch and receipt budget, renewed at each batch boundary (default 10 sessions) with an operator paper count. Every physical job re-checks customer session, printer ownership, unresolved print, recovery lock, connected transport, a durable pre-print checkpoint, and budget. An uncertain print halts the run, is never resent, and blocks customer printing until inspected. Relaunch marks a run INTERRUPTED and resumes nothing.
 - Isolation: qualification sessions use `QA-` identities, an isolated diagnostic archive/recovery namespace, no gallery preparation or upload, and no event session counts. Cleanup is per run, requires typing the run code, and never touches customer archives, waiting galleries or unresolved prints.
-- Verdicts: PASS only for a completed physical run with zero violations and every paper confirmation and supervised checkpoint satisfied; otherwise FAILED, INCOMPLETE, INTERRUPTED or UNVERIFIED. Export the text report and CSV via Share and attach them to the release record.
+- Verdicts: PASS applies only to the selected test scope, for a completed physical run with zero violations and every paper confirmation and supervised checkpoint satisfied; otherwise FAILED, INCOMPLETE, INTERRUPTED or UNVERIFIED. Release checks outside the selected run are listed separately and do not block a scoped PASS. Hands-free Mode C skips routine physical checks and remains UNVERIFIED for those checks. Export the text report and CSV via Share and attach them to the release record.
 
 ## Mandatory physical release-candidate qualification
 
@@ -46,3 +46,7 @@ Record the app commit SHA, signed build number, iPad model/iPadOS, VOZY G80 iden
 - A separate custom operator PIN (device-owner authentication now protects operator entry; physical access checks are recorded in the production report)
 - A new privacy/consent/retention framework
 - Cloudflare R2 migration
+
+## October 15 physical printer endurance evidence
+
+Carlo completed Mode B: 100 passed sessions and 125 printed/operator-confirmed receipts, zero recorded violations or unsafe retries. See [device evidence and scoped verdict explanation](docs/hardware-qualification/2026-10-15/REPORT.md). This satisfies printer endurance for the recorded run, not the live-camera or multi-hour release checks.

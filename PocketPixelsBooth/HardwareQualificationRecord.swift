@@ -391,6 +391,12 @@ nonisolated enum QualificationVerdict: String, Codable, Sendable {
                 }
             }
         }
+        return items
+    }
+
+    /// Release checks outside the selected run never change its scoped verdict.
+    static func outsideScopeRequirements(_ record: QualificationRunRecord) -> [String] {
+        var items: [String] = []
         if record.plan.mode == .physicalPrinterEndurance {
             items.append("Live front-camera capture is not part of printer endurance; run Mode C for end-to-end qualification.")
         }
@@ -423,10 +429,11 @@ nonisolated enum QualificationReportFormatter {
             "RESULT: \(verdict.rawValue)",
             record.plan.mode == .simulation
                 ? "SIMULATION ONLY — no physical hardware was validated."
-                : (verdict.claimsHardwareValidation ? "All automated checks and physical confirmations were satisfied." : "This run does not qualify the hardware."),
+                : (verdict.claimsHardwareValidation ? "PASS for the selected test scope: all planned checks and physical confirmations were satisfied. This is not full production qualification." : "This run does not qualify the hardware."),
             "",
             "Run ID: \(record.runID.uuidString)",
             "Mode: \(record.plan.mode.displayName)",
+            "Hands-free: \(record.plan.runsHandsFree ? "Yes — automatic details/signature; physical checks unverified" : "No")",
             "State: \(record.state.rawValue)",
             "App: \(record.environment.appVersion) (\(record.environment.buildNumber))",
             "Commit: \(record.environment.commitSHA)",
@@ -454,6 +461,8 @@ nonisolated enum QualificationReportFormatter {
         ]
         let unverified = QualificationVerdict.unverifiedRequirements(record)
         lines += unverified.isEmpty ? ["None."] : unverified.map { "- \($0)" }
+        lines += ["", "OUTSIDE THIS RUN — SEPARATE RELEASE CHECKS"]
+        lines += QualificationVerdict.outsideScopeRequirements(record).map { "- \($0)" }
         lines += ["", "SESSIONS"]
         for session in record.sessions {
             let duration = session.duration.map { String(format: "%.1fs", $0) } ?? "—"
