@@ -79,17 +79,22 @@ import SwiftUI
     var local = CommercialEventRun.legacy
     var permitted = true
     var blockedReason: String?
-    var branding: [SessionBrandingChoice] = []
+    var applied: [EventProfile] = []
+    var profile = EventProfile.pocketPixelsDefault
+    var usableArtwork: Set<String> = []
+    let library: EventDesignLibraryStore
     lazy var model = makeModel()
     init() {
         workspace = OperatorWorkspace(directory: directory)
         acceptance = SessionAcceptanceStore(directory: directory)
+        library = EventDesignLibraryStore(directory: directory, legacyProfile: { .pocketPixelsDefault }, legacyName: { "" })
         api.barrier = { [weak self] in self?.acceptance.state.blocked == true }
     }
     func makeModel() -> SessionSetupCoordinator {
-        .init(workspace: workspace, acceptance: acceptance, api: { self.api }, authorized: { self.permitted },
+        .init(workspace: workspace, acceptance: acceptance, library: library, api: { self.api }, authorized: { self.permitted },
               blockingReason: { self.blockedReason }, loadLocal: { self.local }, saveLocal: { self.local = $0 },
-              source: { self.source }, saveSource: { self.source = $0 }, brandingError: { _ in nil }, applyBranding: { self.branding.append($0) })
+              source: { self.source }, saveSource: { self.source = $0 }, currentProfile: { self.profile },
+              applyProfile: { self.profile = $0; self.applied.append($0) }, artworkAvailable: { $0.map(self.usableArtwork.contains) ?? false })
     }
     func paid() async { model.mode = .serverManaged; await model.select("event") }
     func cleanup() { try? FileManager.default.removeItem(at: directory) }
@@ -103,12 +108,12 @@ import SwiftUI
     func testModeSelectionIsStagedInBothDirectionsAndDraftsSurviveRelaunch() async {
         let f = SetupFixture(); defer { f.cleanup() }
         await f.paid(); f.model.policy.priceText = "35"; f.model.prepaid.activePolicy.maxCopies = 7
-        f.model.mode = .localPrepaid; f.model.branding = .studio
+        f.model.mode = .localPrepaid; await f.model.setEventMode(true)
         XCTAssertEqual(f.source, .localPrepaid); XCTAssertEqual(f.api.lifecycle, .draft)
         let restored = f.makeModel()
         XCTAssertEqual(restored.mode, .localPrepaid); XCTAssertEqual(restored.prepaid.activePolicy.maxCopies, 7)
         restored.mode = .serverManaged; await restored.select("event")
-        XCTAssertEqual(restored.policy.priceText, "35"); XCTAssertEqual(restored.branding, .studio)
+        XCTAssertEqual(restored.policy.priceText, "35"); XCTAssertTrue(restored.eventModeEnabled)
         XCTAssertFalse(f.acceptance.state.blocked); XCTAssertFalse(f.api.calls.contains("save"))
         f.source = .serverManaged; restored.mode = .localPrepaid
         XCTAssertEqual(f.source, .serverManaged, "Reverse visible selection also stays staged")
@@ -118,23 +123,25 @@ import SwiftUI
         f.local.lifecycle = .paused
         f.model.prepaid.name = "Wedding"; f.model.prepaid.activePolicy.defaultCopies = 2
         f.model.prepaid.activePolicy.maxCopies = 5; f.model.prepaid.activePolicy.supportedFormatRawValues = ["solo"]
-        f.model.branding = .custom
+        await f.model.createEvent(name: "Wedding", venue: "Garden")
         await assertStart(f.model, expected: true)
         XCTAssertTrue(f.api.calls.isEmpty); XCTAssertEqual(f.local.lifecycle, .active)
         XCTAssertEqual(f.local.activePolicy.commercialMode, .privatePrepaid); XCTAssertEqual(f.local.activePolicy.unitPriceCentavos, 0)
         XCTAssertEqual(f.local.activePolicy.defaultCopies, 2); XCTAssertEqual(f.local.activePolicy.supportedFormatRawValues, ["solo"])
-        XCTAssertEqual(f.branding, [.custom]); XCTAssertFalse(f.acceptance.state.blocked)
+        XCTAssertEqual(f.applied.last?.eventName, "Wedding"); XCTAssertEqual(f.local.name, "Wedding")
+        XCTAssertEqual(f.applied.last?.isEnabled, false, "An event without a logo prints the standard receipt")
+        XCTAssertFalse(f.acceptance.state.blocked)
     }
     func testPaidActivationAcknowledgesExactSavedPriceAndCommitsModeOnlyAfterConfirmation() async {
         let f = SetupFixture(); defer { f.cleanup() }
-        await f.paid(); f.model.policy.priceText = "35"; f.model.policy.maxCopies = 5; f.model.branding = .studio
+        await f.paid(); f.model.policy.priceText = "35"; f.model.policy.maxCopies = 5
         await assertStart(f.model, expected: true)
         XCTAssertEqual(f.source, .serverManaged); XCTAssertEqual(f.api.latest.unitPriceCentavos, 3500)
         XCTAssertEqual(f.api.latest.maxCopies, 5); XCTAssertEqual(f.api.acknowledgements.count, 1)
         XCTAssertEqual(f.api.acknowledgements.first?.0, "r2"); XCTAssertEqual(f.api.acknowledgements.first?.1, 3500)
         XCTAssertFalse(f.acceptance.state.blocked); XCTAssertEqual(f.acceptance.state.eventID, "event")
         XCTAssertEqual(SessionAcceptanceStore(directory: f.directory).state.mode, .serverManaged)
-        XCTAssertEqual(f.branding, [.studio])
+        XCTAssertEqual(f.applied.count, 1); XCTAssertFalse(f.applied[0].isEventModeActive)
         XCTAssertEqual(f.api.calls.filter { $0 == "save" }.count, 1)
     }
     func testSaveWithoutStartingNeverChangesSourceOrPublishes() async {
@@ -193,7 +200,7 @@ import SwiftUI
         let f = SetupFixture(); defer { f.cleanup() }
         await f.paid(); f.api.onTransition = { f.permitted = false }
         await assertStart(f.model, expected: false); XCTAssertEqual(f.source, .localPrepaid)
-        XCTAssertTrue(f.acceptance.state.blocked); XCTAssertTrue(f.branding.isEmpty)
+        XCTAssertTrue(f.acceptance.state.blocked); XCTAssertTrue(f.applied.isEmpty)
     }
     func testFulfillmentBlocksSwitchingButDoesNotBlockPausingNewSessions() async {
         let f = SetupFixture(); defer { f.cleanup() }
@@ -230,18 +237,18 @@ import SwiftUI
         XCTAssertEqual(OperatorWorkspaceRoute.charging.title, "Session Setup")
         XCTAssertEqual(OperatorWorkspaceRoute.manageEvent.title, "Sales & History")
     }
-    func testBrandingChoicesRetainDesignAndDoNotAlterChargingPolicy() throws {
-        var profile = EventProfileStore.load(); profile.eventName = "Wedding"
-        let custom = try SessionBrandingChoice.custom.applying(to: profile)
-        XCTAssertTrue(custom.isEventModeActive)
-        let studio = try SessionBrandingChoice.studio.applying(to: custom)
-        XCTAssertFalse(studio.isEventModeActive)
-        XCTAssertEqual(studio.receiptHeader, custom.receiptHeader)
-        XCTAssertEqual(studio.receiptDesign, custom.receiptDesign)
-        XCTAssertEqual(studio.passport, custom.passport)
-        XCTAssertEqual(studio.customerTheme, custom.customerTheme)
-        XCTAssertEqual(studio.eventName, custom.eventName)
-        XCTAssertEqual(try SessionBrandingChoice.current.applying(to: custom), custom)
+    func testTurningTheLogoOffKeepsTheSavedDesignButPrintsTheStandardReceipt() throws {
+        var design = SavedEventDesign.new(name: "Wedding", venue: "Garden")
+        design.profile.receiptHeader.assetIdentifier = "8a6f3a8e-4a52-4cc4-9a1b-8bb1f0d3a111"
+        design.personalizeReceipt = true
+        let personalized = design.appliedProfile()
+        XCTAssertTrue(personalized.isEnabled); XCTAssertEqual(personalized.receiptHeader.mode, .customEventHeader)
+        XCTAssertEqual(personalized.receiptHeader.brandingMode, .coBranded)
+        design.personalizeReceipt = false
+        let standard = design.appliedProfile()
+        XCTAssertFalse(standard.isEnabled); XCTAssertNil(standard.activeReceiptSnapshot)
+        XCTAssertEqual(standard.receiptHeader.assetIdentifier, personalized.receiptHeader.assetIdentifier, "The saved logo is kept")
+        XCTAssertEqual(standard.receiptDesign, personalized.receiptDesign)
     }
     func testLegacyPhotoPassFormatRemainsEnabledAndIsNotSilentlyDroppedFromSavedSetup() throws {
         let f = SetupFixture(); defer { f.cleanup() }

@@ -292,6 +292,14 @@ actor PaymentsAPIClient {
         try await send("v1/orders/\(orderID)/cash-declaration", method: "POST", body: EmptyBody())
     }
 
+    /// Attendant-confirmed cash. Sent with the operator credential, which the iPad releases
+    /// only after local operator authentication; the server records it as operator-confirmed,
+    /// never provider-verified. Idempotent: a replay returns the same entitlement.
+    func confirmCash(orderID: String, expectedTotalCentavos: Int) async throws -> PaymentStatusResponse {
+        struct Body: Encodable { let expectedTotalCentavos: Int }
+        return try await send("v1/admin/orders/\(orderID)/cash-confirmation", method: "POST", body: Body(expectedTotalCentavos: expectedTotalCentavos))
+    }
+
     func status(orderID: String) async throws -> PaymentStatusResponse {
         try await send("v1/orders/\(orderID)/status", method: "GET", body: Optional<EmptyBody>.none)
     }
@@ -537,6 +545,8 @@ nonisolated struct OperatorSalesSummary: Codable, Sendable {
     let physicalCashCount: OperatorCashReconciliation?; let printUtilization: OperatorPrintUtilization; let settlementStatus: String
     var cashSelfReportedOnlineCentavos: Int? = nil
     var cashSelfReportedOfflineSyncedCentavos: Int? = nil
+    /// Attendant-confirmed cash (operator authenticated). Nil from services that predate it.
+    var cashOperatorConfirmedCentavos: Int? = nil
     var unresolvedQRCount: Int? = nil
     var lateQRPaidReviewCentavos: Int? = nil
     var reviewOrderCount: Int? = nil

@@ -271,257 +271,6 @@ enum EventProfileStore {
     }
 }
 
-struct EventSetupView: View {
-    @State private var draft: EventProfile
-    @State private var savedProfile: EventProfile
-    @State private var statusMessage = "Event profile loaded."
-    @State private var isShowingActivationConfirmation = false
-
-    init() {
-        // Load once so an unsaved default profile (which stamps the current date) does not
-        // immediately read as having unsaved changes.
-        let profile = EventProfileStore.load()
-        _draft = State(initialValue: OperatorWorkspace.shared.snapshot.brandingDraft ?? profile)
-        _savedProfile = State(initialValue: profile)
-    }
-
-    var body: some View {
-        Form {
-            Section {
-                VStack(alignment: .leading, spacing: 4) {
-                    Label(
-                        savedProfile.isEventModeActive ? "CUSTOM BRANDING APPLIED" : "STUDIO BRANDING",
-                        systemImage: savedProfile.isEventModeActive ? "checkmark.circle.fill" : "circle"
-                    )
-                    .font(.title3.bold())
-                    .foregroundStyle(savedProfile.isEventModeActive ? .green : .secondary)
-                    Text(savedProfile.isEventModeActive ? savedProfile.eventModeSummary : MadeToKeepBrand.standardModeGuestDescription)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 6)
-
-                NavigationLink {
-                    EventPreviewView(draft: draft)
-                } label: {
-                    Label(savedProfile.isEventModeActive ? "Preview Event" : "Preview Saved Event", systemImage: "eye.fill")
-                        .font(.headline)
-                        .foregroundStyle(.tint)
-                        .frame(minHeight: 36)
-                }
-                .accessibilityHint(
-                    savedProfile.isEventModeActive
-                        ? "Shows guest screens, the receipt and Photo Pass without printing."
-                        : "Previews saved event settings without applying custom branding."
-                )
-
-                if !savedProfile.isEventModeActive {
-                    Text("Previewing saved settings does not apply custom branding.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if hasUnsavedChanges {
-                    Label("Unsaved changes", systemImage: "pencil.circle.fill")
-                        .foregroundStyle(.orange)
-                }
-            }
-
-            Section("Event") {
-                limitedTextField("Event Name", text: $draft.eventName, limit: EventProfile.eventNameLimit)
-                if !canActivate {
-                    Text("Enter an event name to use event details on receipts.")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-
-                limitedTextField("Subtitle / Host", text: $draft.subtitle, limit: EventProfile.subtitleLimit)
-
-                Toggle("Show Date", isOn: $draft.includeEventDate)
-
-                if draft.includeEventDate {
-                    DatePicker("Date", selection: $draft.eventDate, displayedComponents: .date)
-                }
-
-                limitedTextField("Location", text: $draft.location, limit: EventProfile.locationLimit)
-            }
-
-            Section("Receipt") {
-                Text("Receipt Header")
-                    .font(.headline)
-                EventHeaderEditorView(profile: $draft, statusMessage: $statusMessage)
-                limitedTextField("Optional Message", text: $draft.shortMessage, limit: EventProfile.shortMessageLimit, autocapitalization: .sentences)
-            }
-
-            EventTypographySection(typography: $draft.receiptDesign.typography)
-
-            Section("Guest Screens") {
-                Picker("Theme", selection: $draft.customerTheme) {
-                    ForEach(CustomerScreenTheme.allCases) { theme in
-                        Text(theme.displayName).tag(theme)
-                    }
-                }
-
-                DisclosureGroup("Customize Guest Screens") {
-                    limitedTextField("Title", text: $draft.customerTitle, limit: EventProfile.customerTitleLimit)
-                        .accessibilityHint("Optional. Event Name is used when this is blank.")
-                    limitedTextField("Subtitle", text: $draft.customerSubtitle, limit: EventProfile.customerSubtitleLimit)
-                        .accessibilityHint("Optional. Subtitle or Host is used when this is blank.")
-                    limitedTextField("Welcome Message", text: $draft.customerWelcomeMessage, limit: EventProfile.customerMessageLimit, autocapitalization: .sentences)
-                    limitedTextField("Thank-you Message", text: $draft.customerThankYouMessage, limit: EventProfile.customerMessageLimit, autocapitalization: .sentences)
-                }
-            }
-
-            Section {
-                Text("Photo Pass prints the Event Name, Location and, when shown, the Event Date above. Guests only add their name, an optional note and a signature.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            } header: {
-                Text("Photo Pass")
-            } footer: {
-                Text("The Photo Pass design is fixed so every keepsake prints predictably.")
-            }
-
-            Section {
-                if !savedProfile.isEventModeActive {
-                    Text("Studio branding is in use. Saving this design does not start guest sessions.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-
-                Button {
-                    saveDraft()
-                } label: {
-                    Text("Save Changes")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                }
-                .buttonStyle(.bordered)
-                .disabled(!canSave || !hasUnsavedChanges)
-
-                if !savedProfile.isEventModeActive {
-                    Button {
-                        isShowingActivationConfirmation = true
-                    } label: {
-                        Text("Apply Custom Branding…")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(!canActivate)
-                    .accessibilityHint("Asks for confirmation before enabling event branding on receipts and guest screens.")
-                } else {
-                    Button(role: .destructive) {
-                        draft.isEnabled = false
-                        draft.customerScreenEnabled = false
-                        saveDraft()
-                    } label: {
-                        Text("Use Studio Branding")
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(.bordered)
-                }
-
-                if draft.isEnabled != draft.customerScreenEnabled {
-                    Text("Event branding is currently on for \(draft.isEnabled ? "printed receipts" : "guest screens") only.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                DisclosureGroup("Separate Receipt & Screen Branding") {
-                    Toggle("Event branding on printed receipts", isOn: $draft.isEnabled)
-                        .accessibilityHint("When on, new receipts use the event header and details, including on the Photo Pass.")
-                    Toggle("Event branding on guest screens", isOn: $draft.customerScreenEnabled)
-                        .accessibilityHint("When on, guest screens use event wording and the selected theme.")
-                    Text("Most events keep both on. Use Save Changes to apply.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } header: {
-                Text("Apply Design")
-            } footer: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(statusMessage)
-                    Text("Saved settings apply to the next customer. A session in progress keeps its frozen event settings.")
-                }
-            }
-        }
-        .navigationTitle("Custom Event Design")
-        .navigationBarTitleDisplayMode(.inline)
-        .onChange(of: draft) { _, value in
-            OperatorWorkspace.shared.saveBrandingDraft(value.normalized() == savedProfile.normalized() ? nil : value)
-        }
-        .alert("Apply Custom Branding?", isPresented: $isShowingActivationConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            Button("Apply Branding") {
-                draft.isEnabled = true
-                draft.customerScreenEnabled = true
-                saveDraft()
-            }
-        } message: {
-            Text("This enables the saved event branding for new receipts and guest screens.")
-        }
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Save") { saveDraft() }
-                    .fontWeight(.bold)
-                    .disabled(!canSave || !hasUnsavedChanges)
-            }
-        }
-    }
-
-    private var canSave: Bool {
-        !draft.isEnabled || !draft.showEventTextBlock || !draft.normalized().eventName.isEmpty
-    }
-
-    /// Activation turns on receipts, which require an event name whenever event details are shown.
-    private var canActivate: Bool {
-        !draft.showEventTextBlock || !draft.normalized().eventName.isEmpty
-    }
-
-    private var hasUnsavedChanges: Bool {
-        draft.normalized() != savedProfile.normalized()
-    }
-
-    private func limitedTextField(
-        _ title: String,
-        text: Binding<String>,
-        limit: Int,
-        autocapitalization: TextInputAutocapitalization = .words
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            TextField(title, text: text)
-                .textInputAutocapitalization(autocapitalization)
-                .onChange(of: text.wrappedValue) { _, newValue in
-                    let limited = EventProfile.limited(newValue, limit: limit)
-                    if limited != newValue {
-                        text.wrappedValue = limited
-                    }
-                }
-
-            Text("\(text.wrappedValue.count)/\(limit)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private func saveDraft() {
-        guard OperatorAccessPermit.shared.isAuthorized else { return }
-        let normalized = draft.normalized()
-        guard !normalized.isEnabled || !normalized.showEventTextBlock || !normalized.eventName.isEmpty else {
-            statusMessage = "Enter an event name, or turn off event details below the header."
-            return
-        }
-
-        draft = normalized
-        EventProfileStore.save(normalized)
-        savedProfile = normalized
-        statusMessage = normalized.isEnabled || normalized.customerScreenEnabled
-            ? "Event profile saved for future sessions."
-            : "Event branding is off for future sessions."
-    }
-}
-
 /// Pure helpers behind Preview Event. Nothing here saves, prints, archives or uploads.
 enum EventSetupPreview {
     /// The profile Preview Event renders. While Event Mode is off the operator is previewing what
@@ -539,35 +288,6 @@ enum EventSetupPreview {
     nonisolated static func showsActivatedPreview(for draft: EventProfile) -> Bool {
         let profile = draft.normalized()
         return !profile.isEnabled && !profile.customerScreenEnabled
-    }
-}
-
-private struct EventPreviewView: View {
-    let draft: EventProfile
-
-    var body: some View {
-        let profile = EventSetupPreview.previewProfile(for: draft)
-        List {
-            if EventSetupPreview.showsActivatedPreview(for: draft) {
-                Section {
-                    Label("Studio branding is in use. This previews the saved custom design.", systemImage: "info.circle")
-                        .font(.subheadline)
-                }
-            }
-            Section("Guest Screens") {
-                CustomerExperiencePreviewView(profile: profile)
-            }
-            Section {
-                EventReceiptComposerPreview(profile: profile)
-                    .padding(.vertical, 6)
-            } header: {
-                Text("Receipt & Photo Pass")
-            } footer: {
-                Text("Preview only. Nothing is printed, saved or uploaded.")
-            }
-        }
-        .navigationTitle("Preview Event")
-        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -638,8 +358,12 @@ private extension String {
 struct EventReceiptComposerPreview: View {
     let profile: EventProfile
     var printOptions: ReceiptPrintOptions = .default
+    var showsSamplePrintLink = true
+    var maximumPreviewWidth: CGFloat = 360
 
-    @State private var selectedFormat: BoothFormat = .duo
+    @State private var selectedFormat: BoothFormat = .solo
+    @State private var showsThermal = true
+    @State private var normalImage: UIImage?
     @State private var previewImage: UIImage?
     @State private var previewReceipt: ComposedReceipt?
     @State private var previewError: String?
@@ -655,12 +379,26 @@ struct EventReceiptComposerPreview: View {
             }
             .pickerStyle(.segmented)
 
+            Picker("Preview Type", selection: $showsThermal) {
+                Text("Receipt").tag(false)
+                Text("Thermal Print (1-bit)").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityHint("Thermal shows the exact black-and-white dots the printer receives.")
+
+            ForEach(ReceiptComposer.brandingResolution(for: profile).warnings, id: \.self) { warning in
+                Label(warning.message, systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+            }
+
             ScrollView(.vertical) {
-                if let previewImage {
+                if let previewImage = showsThermal ? previewImage : normalImage {
                     Image(uiImage: previewImage)
                         .resizable()
+                        .interpolation(showsThermal ? .none : .high)
                         .scaledToFit()
-                        .frame(maxWidth: 360)
+                        .frame(maxWidth: maximumPreviewWidth)
                         .overlay {
                             Rectangle()
                                 .stroke(Color.secondary.opacity(0.24), lineWidth: 1)
@@ -688,14 +426,16 @@ struct EventReceiptComposerPreview: View {
                     .foregroundStyle(.secondary)
             }
 
-            NavigationLink {
-                SamplePrintStudioView()
-            } label: {
-                Label("Print Display Samples with Your Photos", systemImage: "printer.dotmatrix")
+            if showsSamplePrintLink {
+                NavigationLink {
+                    SamplePrintStudioView()
+                } label: {
+                    Label("Print Display Samples with Your Photos", systemImage: "printer.dotmatrix")
+                }
+                Text("Display samples use saved branding. Save changes first to print them.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            Text("Display samples use saved branding. Save changes first to print them.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
         .onAppear {
             scheduleRender()
@@ -745,6 +485,7 @@ struct EventReceiptComposerPreview: View {
                 await MainActor.run {
                     guard generation == renderGeneration else { return }
                     previewReceipt = receipt
+                    normalImage = image
                     previewImage = printerPreview
                 }
             } catch is CancellationError {
@@ -754,6 +495,7 @@ struct EventReceiptComposerPreview: View {
                     guard generation == renderGeneration else { return }
                     previewReceipt = nil
                     previewImage = nil
+                    normalImage = nil
                     previewError = error.localizedDescription
                 }
             }
@@ -800,34 +542,36 @@ struct EventReceiptComposerPreview: View {
         }
     }
 
-    nonisolated private static func makeSamplePhoto(index: Int) -> UIImage {
+    /// A soft tonal portrait scene: realistic midtones for judging thermal dithering, clearly a
+    /// sample rather than a guest photograph.
+    nonisolated static func makeSamplePhoto(index: Int) -> UIImage {
         let size = CGSize(width: 900, height: 1200)
-        let renderer = UIGraphicsImageRenderer(size: size)
-        return renderer.image { context in
-            UIColor.white.setFill()
-            context.fill(CGRect(origin: .zero, size: size))
-
-            UIColor.black.setFill()
-            context.fill(CGRect(x: 84, y: 92, width: 732, height: 906))
-            UIColor.white.setFill()
-            context.fill(CGRect(x: 126, y: 134, width: 648, height: 822))
-
-            UIColor.black.setFill()
-            UIColor.black.setStroke()
-            context.cgContext.setLineWidth(22)
-            context.cgContext.stroke(CGRect(x: 176, y: 206, width: 548, height: 612))
-            context.fill(CGRect(x: 126, y: 878, width: 648, height: 78))
-
-            let label = "PHOTO \(index + 1)"
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.monospacedSystemFont(ofSize: 72, weight: .bold),
-                .foregroundColor: UIColor.white
-            ]
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            let cg = context.cgContext
+            let space = CGColorSpaceCreateDeviceGray()
+            let tones: [CGFloat] = [0.78, 0.62, 0.7, 0.55, 0.74, 0.66]
+            let top = tones[index % tones.count]
+            let background = CGGradient(colorsSpace: space, colors: [UIColor(white: top, alpha: 1).cgColor, UIColor(white: top - 0.32, alpha: 1).cgColor] as CFArray, locations: [0, 1])!
+            cg.drawLinearGradient(background, start: .zero, end: CGPoint(x: size.width * 0.4, y: size.height), options: [])
+            // Window light.
+            let light = CGPoint(x: size.width * (0.25 + 0.12 * CGFloat(index % 3)), y: size.height * 0.22)
+            let glow = CGGradient(colorsSpace: space, colors: [UIColor(white: 1, alpha: 0.85).cgColor, UIColor(white: 1, alpha: 0).cgColor] as CFArray, locations: [0, 1])!
+            cg.drawRadialGradient(glow, startCenter: light, startRadius: 0, endCenter: light, endRadius: 380, options: [])
+            // Silhouette: head and shoulders.
+            let ink = UIColor(white: 0.18, alpha: 1)
+            ink.setFill()
+            let headSide: CGFloat = 250
+            cg.fillEllipse(in: CGRect(x: size.width / 2 - headSide / 2, y: 430, width: headSide, height: headSide * 1.18))
+            let shoulders = UIBezierPath(roundedRect: CGRect(x: size.width / 2 - 330, y: 760, width: 660, height: 600), cornerRadius: 260)
+            shoulders.fill()
+            let shade = CGGradient(colorsSpace: space, colors: [UIColor(white: 0.32, alpha: 0.6).cgColor, UIColor(white: 0.1, alpha: 0).cgColor] as CFArray, locations: [0, 1])!
+            cg.drawRadialGradient(shade, startCenter: CGPoint(x: size.width / 2 - 40, y: 520), startRadius: 0, endCenter: CGPoint(x: size.width / 2, y: 560), endRadius: 160, options: [])
+            let label = "SAMPLE \(index + 1)"
+            let attributes: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 40, weight: .semibold), .foregroundColor: UIColor(white: 1, alpha: 0.85), .kern: 6]
             let labelSize = NSString(string: label).size(withAttributes: attributes)
-            NSString(string: label).draw(
-                at: CGPoint(x: (size.width - labelSize.width) / 2, y: 884),
-                withAttributes: attributes
-            )
+            NSString(string: label).draw(at: CGPoint(x: (size.width - labelSize.width) / 2, y: size.height - 110), withAttributes: attributes)
         }
     }
 

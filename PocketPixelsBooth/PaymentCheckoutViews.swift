@@ -4,6 +4,14 @@ import UIKit
 struct CheckoutCopySelectionView: View {
     @ObservedObject var viewModel: BoothSessionViewModel
 
+    private var continueTitle: String {
+        switch viewModel.soleOfferedPaymentMethod {
+        case .qrPh?: "Continue to QR Ph Payment"
+        case .cash?: "Continue to Cash Payment"
+        case nil: "Continue to Payment"
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
@@ -40,7 +48,7 @@ struct CheckoutCopySelectionView: View {
                     .accessibilityElement(children: .combine)
                 }
 
-                Button("Continue to Payment") {
+                Button(continueTitle) {
                     viewModel.confirmCopySelection()
                 }
                 .buttonStyle(.borderedProminent)
@@ -97,7 +105,7 @@ struct CheckoutPaymentMethodView: View {
                     Button {
                         viewModel.chooseCash()
                     } label: {
-                        Label("Pay Cash", systemImage: "banknote")
+                        Label("Pay Cash to the Attendant", systemImage: "banknote")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
@@ -110,32 +118,60 @@ struct CheckoutPaymentMethodView: View {
     }
 }
 
+/// Cash: the guest pays the attendant, and only an authorized attendant can confirm receipt on
+/// this iPad (operator authentication). The guest has no button that authorizes the session.
 struct CashAttestationView: View {
     @ObservedObject var viewModel: BoothSessionViewModel
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 24) {
+            VStack(spacing: 26) {
                 Image(systemName: "banknote")
-                    .font(.largeTitle)
+                    .font(.system(size: 48))
                     .accessibilityHidden(true)
-                Text("Cash Payment")
+                Text("Please pay the attendant")
                     .font(.largeTitle.bold())
+                    .multilineTextAlignment(.center)
                     .accessibilityAddTraits(.isHeader)
                 if let total = viewModel.commercialEvent.activePolicy.totalCentavos(for: viewModel.selectedCheckoutCopies) {
-                    Text("Pay \(PHPPriceFormatter.string(centavos: total)) in cash to our attendant. Tap “I’ve Paid” after handing over your payment.")
-                        .font(.title3)
-                        .multilineTextAlignment(.center)
+                    VStack(spacing: 6) {
+                        Text(PHPPriceFormatter.string(centavos: total))
+                            .font(.system(size: 52, weight: .bold, design: .serif))
+                        Text("\(viewModel.selectedCheckoutCopies) \(viewModel.selectedCheckoutCopies == 1 ? "copy" : "copies") · cash")
+                            .font(.headline).foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
                 }
-                Text("Cash is self-reported by your tap. The system does not independently verify that cash was received.")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
+                Text("Hand your cash to the attendant. Your camera opens as soon as they confirm on this iPad.")
+                    .font(.title3)
                     .multilineTextAlignment(.center)
-                Button("I’ve Paid") {
-                    viewModel.declareCashPaid()
+                CheckoutNoticeView(message: viewModel.paymentNotice)
+
+                VStack(spacing: 12) {
+                    Label("FOR STAFF ONLY", systemImage: "person.badge.key")
+                        .font(.caption.weight(.semibold)).tracking(1.5).foregroundStyle(.secondary)
+                    Button {
+                        viewModel.confirmCashReceivedByAttendant()
+                    } label: {
+                        Label(viewModel.isCheckoutTransitionActive ? "Confirming…" : "Attendant: Confirm Cash Received", systemImage: "checkmark.seal")
+                            .frame(maxWidth: .infinity, minHeight: 36)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(viewModel.isCheckoutTransitionActive)
+                    .accessibilityHint("Requires attendant Face ID or the iPad passcode.")
+                    Text("Requires attendant Face ID or the iPad passcode. Confirm only after you have received the full amount.")
+                        .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .padding(20)
+                .frame(maxWidth: .infinity)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+
+                if viewModel.canLeaveCashPayment {
+                    Button("Pay with QR Ph instead") { viewModel.leaveCashPayment() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                }
             }
             .frame(maxWidth: 620)
             .padding(40)

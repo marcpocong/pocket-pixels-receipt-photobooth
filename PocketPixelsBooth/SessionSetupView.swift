@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SessionSetupView: View {
-    @StateObject private var setup = SessionSetupCoordinator()
+    @StateObject private var setup: SessionSetupCoordinator
     @ObservedObject private var workspace = OperatorWorkspace.shared
     @ObservedObject private var acceptance = SessionAcceptanceStore.shared
     @Environment(\.scenePhase) private var scenePhase
@@ -10,63 +10,45 @@ struct SessionSetupView: View {
     @State private var confirmDiscard = false
     @State private var confirmPause = false
     @State private var createEvent = false
+    @State private var previewExpanded = true
     @State private var newName = OperatorWorkspace.shared.snapshot.newEventName
     @State private var newVenue = OperatorWorkspace.shared.snapshot.newEventVenue
     init(eventID: String? = nil, coordinator: SessionSetupCoordinator? = nil) {
         _setup = StateObject(wrappedValue: coordinator ?? SessionSetupCoordinator(eventID: eventID))
     }
 
+    private var regular: Bool { horizontalSizeClass == .regular }
+
     var body: some View {
-        Form {
-            Section {
-                Text("How will guests use the booth?").font(.title2.weight(.semibold))
-                if horizontalSizeClass == .regular { HStack(alignment: .top, spacing: 16) { modeChoices } }
-                else { VStack(spacing: 16) { modeChoices } }
-                Text("Your choices stay in setup until you review and start accepting guests.")
-                    .font(.footnote).foregroundStyle(.secondary)
-                if acceptance.state.blocked {
-                    Label("New sessions are paused on this iPad", systemImage: "pause.circle.fill").foregroundStyle(.orange)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                header
+                if setup.needsRefresh {
+                    SetupCard {
+                        Label("Action Needs Review", systemImage: "exclamationmark.arrow.circlepath").font(.headline).foregroundStyle(.orange)
+                        Text(setup.message)
+                        Button("Check Current Status") { Task { await setup.refresh() } }.buttonStyle(.borderedProminent)
+                    }
                 }
+                SetupSection(number: 1, title: "Session / Event") { eventSection }
+                SetupSection(number: 2, title: "Payment Collection") { paymentSection }
+                SetupSection(number: 3, title: "Receipt & Branding") { receiptSection }
+                SetupSection(number: 4, title: "Review & Start") { summarySection }
             }
-            if setup.needsRefresh {
-                Section("Action Needs Review") {
-                    Text(setup.message)
-                    Button("Check Current Status") { Task { await setup.refresh() } }
-                }
-            }
-            if setup.mode == .localPrepaid { prepaidSections } else { paidSections }
-            Section("Branding") {
-                Picker("Design for new sessions", selection: $setup.branding) {
-                    ForEach(SessionBrandingChoice.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-                Text("Design and payment mode are independent. Saved artwork is retained when you use studio branding.")
-                    .font(.footnote).foregroundStyle(.secondary)
-                NavigationLink("Customize Branding & Design", value: OperatorWorkspaceRoute.branding)
-            }
-            Section {
-                if let validation = setup.validation { Label(validation, systemImage: "info.circle").foregroundStyle(.orange) }
-                if !setup.message.isEmpty { Text(setup.message).font(.callout) }
-                if let error = acceptance.storageError ?? workspace.persistenceError { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
-                if setup.needsRefresh { Button("Check Current Status") { Task { await setup.refresh() } } }
-            } footer: {
-                Text("Pausing preserves paid purchases and print recovery. Starting changes only future guest sessions.")
-            }
+            .frame(maxWidth: 980, alignment: .leading)
+            .padding(.horizontal, regular ? 32 : 16)
+            .padding(.vertical, 24)
+            .frame(maxWidth: .infinity)
         }
         .navigationTitle("Session Setup")
+        .navigationBarTitleDisplayMode(.inline)
         .tint(OperatorPalette.ink)
-        .scrollContentBackground(.hidden).background(OperatorPalette.canvas)
+        .background(OperatorPalette.canvas)
         .disabled(setup.busy)
         .overlay { if setup.busy { ProgressView("Checking setup…").padding(24).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)) } }
-        .safeAreaInset(edge: .bottom) {
-            HStack(spacing: 20) {
-                Button("Pause New Sessions", role: .destructive) { confirmPause = true }.buttonStyle(.bordered).controlSize(.large)
-                Button { review = true } label: {
-                    Label("Review Setup", systemImage: "checklist").font(.headline).frame(maxWidth: .infinity, minHeight: 48)
-                }.buttonStyle(.borderedProminent).disabled(setup.validation != nil)
-            }.padding(.horizontal, 24).padding(.vertical, 14).background(.regularMaterial).tint(OperatorPalette.ink).disabled(setup.busy)
-        }
+        .safeAreaInset(edge: .bottom) { bottomBar }
         .task { if setup.mode == .serverManaged { await setup.refresh() } }
-        .onChange(of: setup.mode) { _, mode in if mode == .serverManaged { Task { await setup.refresh() } } }
+        .onAppear { setup.reloadDesignFromStorage() }
         .onReceive(NotificationCenter.default.publisher(for: OperatorWorkspace.didUnlock)) { _ in
             if setup.mode == .serverManaged { Task { await setup.refresh() } }
         }
@@ -83,113 +65,332 @@ struct SessionSetupView: View {
         } message: { Text("Pauses the booth's current operating mode, even if you are editing a different setup. Paid guests keep their purchased entitlement.") }
     }
 
-    @ViewBuilder private var modeChoices: some View {
-        modeCard(.localPrepaid, title: "Prepaid / Free", icon: "gift", description: "Guests can take photos without paying at the booth. Ideal for private parties, weddings, sponsored events, and prepaid bookings.")
-        modeCard(.serverManaged, title: "Pay Per Print", icon: "qrcode", description: "Guests select their copies, pay through QR Ph, and take photos after payment is verified.")
-    }
-    private func modeCard(_ mode: CommercialPolicySource, title: String, icon: String, description: String) -> some View {
-        Button { setup.mode = mode } label: {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack { Label(title, systemImage: icon).font(.title3.weight(.semibold)); Spacer(); Image(systemName: setup.mode == mode ? "checkmark.circle.fill" : "circle") }
-                Text(description).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+    // MARK: Header
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Set up the next guest session").font(.largeTitle.weight(.semibold))
+            Text("Choose the event, how guests pay and the receipt design. Nothing changes for guests until you review and start.")
+                .font(.callout).foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                StatusPill(text: setup.isCurrentlyApplied ? "Currently applied" : (setup.hasUnsavedChanges ? "Unsaved changes" : "Saved — not yet applied"),
+                           systemImage: setup.isCurrentlyApplied ? "checkmark.circle.fill" : "pencil.circle",
+                           color: setup.isCurrentlyApplied ? .green : .orange)
+                if acceptance.state.blocked { StatusPill(text: "New sessions paused", systemImage: "pause.circle.fill", color: .orange) }
             }
-            .padding(20).frame(minWidth: 250, maxWidth: .infinity, minHeight: 164, alignment: .topLeading)
-            .background(setup.mode == mode ? OperatorPalette.selected : Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
-            .overlay { RoundedRectangle(cornerRadius: 18).stroke(setup.mode == mode ? OperatorPalette.ink : .secondary.opacity(0.25), lineWidth: setup.mode == mode ? 2 : 1) }
-        }.buttonStyle(.plain).accessibilityAddTraits(setup.mode == mode ? .isSelected : [])
+        }
     }
 
-    @ViewBuilder private var prepaidSections: some View {
-        Section("Prepaid / Free Setup") {
-            TextField("Event or session name (optional)", text: $setup.prepaid.name)
-            LabeledContent("Current prepaid status", value: CommercialEventRunStore.load().lifecycle.displayName)
-            Stepper("Maximum copies: \(setup.prepaid.activePolicy.maxCopies)", value: Binding(get: { setup.prepaid.activePolicy.maxCopies }, set: {
-                setup.prepaid.activePolicy.maxCopies = $0; setup.prepaid.activePolicy.defaultCopies = min(setup.prepaid.activePolicy.defaultCopies, $0)
+    // MARK: 1. Session / Event
+
+    @ViewBuilder private var eventSection: some View {
+        SetupCard {
+            Toggle(isOn: Binding(get: { setup.eventModeEnabled }, set: { value in Task { await setup.setEventMode(value) } })) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Event Mode").font(.title3.weight(.semibold))
+                    Text(setup.eventModeEnabled
+                         ? "Guests get this event's name, optional welcome screens and optional receipt logo."
+                         : "Regular Made to Keep sessions. Saved events and logos are kept for later.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
+            .frame(minHeight: 56)
+
+            if setup.eventModeEnabled {
+                Divider()
+                eventPicker
+                if let design = Binding($setup.design) {
+                    VStack(spacing: 12) {
+                        LabeledField(title: "Event name") {
+                            TextField("e.g. CIM Graduation Ball", text: limited(design.name, EventProfile.eventNameLimit)).textInputAutocapitalization(.words)
+                        }
+                        LabeledField(title: "Venue (optional)") {
+                            TextField("Venue", text: limited(design.venue, EventProfile.locationLimit)).textInputAutocapitalization(.words)
+                        }
+                    }
+                    Divider()
+                    guestScreens(design)
+                    Label("Guests will see: \(design.wrappedValue.displayName)", systemImage: "person.2")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var eventPicker: some View {
+        HStack(spacing: 12) {
+            Menu {
+                if !setup.savedEvents.isEmpty {
+                    Section("Saved Events") {
+                        ForEach(setup.savedEvents) { event in
+                            Button { Task { await setup.chooseDesign(event.id) } } label: {
+                                Label(event.displayName, systemImage: event.id == setup.designID ? "checkmark" : (event.personalizeReceipt ? "photo" : "calendar"))
+                            }
+                        }
+                    }
+                }
+                if setup.mode == .serverManaged, !setup.unlinkedServerEvents.isEmpty {
+                    Section("Paid Events on the Payments Server") {
+                        ForEach(setup.unlinkedServerEvents) { event in
+                            Button(event.name) { Task { await setup.useServerEvent(event) } }
+                        }
+                    }
+                }
+                Divider()
+                Button { createEvent = true } label: { Label("New Event…", systemImage: "plus") }
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("EVENT").font(.caption.weight(.semibold)).tracking(1.5).foregroundStyle(.secondary)
+                        Text(setup.design?.displayName ?? "Choose or create an event").font(.title3.weight(.semibold))
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.up.chevron.down")
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, minHeight: 64)
+                .background(Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+            Button { createEvent = true } label: { Label("New Event", systemImage: "plus").frame(minHeight: 44) }
+                .buttonStyle(.bordered)
+        }
+    }
+
+    @ViewBuilder private func guestScreens(_ design: Binding<SavedEventDesign>) -> some View {
+        Toggle(isOn: design.guestScreensEnabled) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Custom Welcome Screens").font(.headline)
+                Text("Show the event name and your messages on the guest welcome and thank-you screens.").font(.callout).foregroundStyle(.secondary)
+            }
+        }
+        .toggleStyle(.switch)
+        if design.wrappedValue.guestScreensEnabled {
+            DisclosureGroup("Welcome screen details") {
+                VStack(spacing: 12) {
+                    TextField("Title (defaults to event name)", text: limited(design.profile.customerTitle, EventProfile.customerTitleLimit))
+                    TextField("Subtitle", text: limited(design.profile.customerSubtitle, EventProfile.customerSubtitleLimit))
+                    TextField("Welcome message", text: limited(design.profile.customerWelcomeMessage, EventProfile.customerMessageLimit))
+                    TextField("Thank-you message", text: limited(design.profile.customerThankYouMessage, EventProfile.customerMessageLimit))
+                    Picker("Theme", selection: design.profile.customerTheme) {
+                        ForEach(CustomerScreenTheme.allCases) { Text($0.displayName).tag($0) }
+                    }
+                }
+                .textFieldStyle(.roundedBorder)
+                .padding(.top, 8)
+            }
+            .font(.callout)
+        }
+    }
+
+    // MARK: 2. Payment
+
+    @ViewBuilder private var paymentSection: some View {
+        SetupCard {
+            Text("How will guests pay?").font(.title3.weight(.semibold))
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: regular ? 2 : 1), spacing: 14) {
+                ForEach(GuestPaymentChoice.allCases) { choice in
+                    PaymentOptionCard(choice: choice, selected: setup.paymentChoice == choice) { Task { await setup.choosePayment(choice) } }
+                }
+            }
+            Divider()
+            if setup.mode == .localPrepaid { freeSettings } else { paidSettings }
+        }
+    }
+
+    @ViewBuilder private var freeSettings: some View {
+        Label("No guest payment required.", systemImage: "gift").font(.headline)
+        Stepper("Included copies: \(setup.prepaid.activePolicy.defaultCopies)", value: $setup.prepaid.activePolicy.defaultCopies, in: 1...setup.prepaid.activePolicy.maxCopies)
+        Stepper("Maximum copies: \(setup.prepaid.activePolicy.maxCopies)", value: Binding(get: { setup.prepaid.activePolicy.maxCopies }, set: {
+            setup.prepaid.activePolicy.maxCopies = $0; setup.prepaid.activePolicy.defaultCopies = min(setup.prepaid.activePolicy.defaultCopies, $0)
+        }), in: PaymentPolicySnapshot.copyRange)
+        Toggle("Allow guests to choose copies", isOn: $setup.prepaid.activePolicy.prepaidGuestCopyChoice)
+        formatChips(isOn: { setup.prepaid.activePolicy.supports($0) }, set: { format, enabled in
+            var formats = setup.prepaid.activePolicy.supportedFormatRawValues
+            formats.removeAll { $0 == format.rawValue }; if enabled { formats.append(format.rawValue) }
+            setup.prepaid.activePolicy.supportedFormatRawValues = formats
+        })
+        Text("Works without a payments connection.").font(.footnote).foregroundStyle(.secondary)
+    }
+
+    @ViewBuilder private var paidSettings: some View {
+        LabeledContent("Payments environment", value: PaymentsConfiguration.current()?.environment.uppercased() ?? "Not connected").font(.callout)
+        if setup.targetServerEventID == nil {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(setup.eventModeEnabled ? "Connect this event to paid checkout" : "Set up regular paid sessions").font(.headline)
+                Text("Creates a saved paid event on the payments server for this environment. It does not accept guests until you review and start.")
+                    .font(.callout).foregroundStyle(.secondary)
+                Button {
+                    Task { await setup.connectPaidCheckout() }
+                } label: { Label(setup.eventModeEnabled ? "Connect to Paid Checkout" : "Set Up Regular Paid Sessions", systemImage: "link").frame(minHeight: 44) }
+                .buttonStyle(.borderedProminent)
+                .disabled(setup.needsRefresh || (setup.eventModeEnabled && setup.design == nil))
+            }
+        } else if let detail = setup.detail {
+            HStack {
+                StatusPill(text: detail.event.lifecycle.displayName, systemImage: detail.event.lifecycle == .active ? "dot.radiowaves.left.and.right" : "circle.dashed",
+                           color: detail.event.lifecycle == .active ? .green : .secondary)
+                if detail.hasUnpublishedRevision { StatusPill(text: "Saved — Not Yet Applied", systemImage: "pencil.circle", color: .orange) }
+                if setup.dirtyPaid { StatusPill(text: "Unsaved Changes", systemImage: "pencil", color: .orange) }
+            }
+            HStack {
+                Text("Price per copy").font(.headline)
+                Spacer()
+                Text("₱")
+                TextField("0.00", text: $setup.policy.priceText).keyboardType(.decimalPad).multilineTextAlignment(.trailing)
+                    .font(.title3.monospacedDigit()).frame(maxWidth: 160).textFieldStyle(.roundedBorder)
+            }
+            Stepper("Default copies: \(setup.policy.defaultCopies)", value: $setup.policy.defaultCopies, in: 1...setup.policy.maxCopies)
+            Stepper("Maximum copies: \(setup.policy.maxCopies)", value: Binding(get: { setup.policy.maxCopies }, set: {
+                setup.policy.maxCopies = $0; setup.policy.defaultCopies = min(setup.policy.defaultCopies, $0)
             }), in: PaymentPolicySnapshot.copyRange)
-            Stepper("Included copies: \(setup.prepaid.activePolicy.defaultCopies)", value: $setup.prepaid.activePolicy.defaultCopies, in: 1...setup.prepaid.activePolicy.maxCopies)
-            Toggle("Allow guests to choose copies", isOn: $setup.prepaid.activePolicy.prepaidGuestCopyChoice)
-            Text("No payment required. Works without a payments connection.").foregroundStyle(.secondary)
-        }
-        Section("Available Formats") {
-            ForEach(BoothFormat.allCases, id: \.self) { format in
-                Toggle(format.displayName, isOn: Binding(get: { setup.prepaid.activePolicy.supports(format) }, set: { enabled in
-                    var formats = setup.prepaid.activePolicy.supportedFormatRawValues
-                    formats.removeAll { $0 == format.rawValue }; if enabled { formats.append(format.rawValue) }
-                    setup.prepaid.activePolicy.supportedFormatRawValues = formats
-                }))
+            formatChips(isOn: { setup.policy.supports($0) }, set: { setup.policy.setFormat($0, enabled: $1) })
+            totalPreview
+            Label(setup.paymentChoice.methodSummary, systemImage: "checkmark.shield").font(.callout)
+            if setup.paymentChoice.acceptsCash {
+                Text("Cash is confirmed by an authorized attendant on this iPad before the camera opens. It is never counted as provider-verified money.")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
-        }
-    }
-
-    @ViewBuilder private var paidSections: some View {
-        Section("Pay Per Print Event") {
-            LabeledContent("Payments environment", value: PaymentsConfiguration.current()?.environment.uppercased() ?? "Not connected")
-            Picker("Event", selection: Binding(get: { setup.selectedID ?? "" }, set: { id in Task { await setup.select(id) } })) {
-                Text("Choose an event").tag("")
-                ForEach(setup.events) { event in Text("\(event.name) · \(CommercialEventLifecycle(rawValue: event.lifecycle)?.displayName ?? event.lifecycle)").tag(event.id) }
-            }
-            Button("Check Current Status") { Task { await setup.refresh() } }
-            Button("Create New Event") { createEvent = true }.disabled(setup.needsRefresh)
-            if let detail = setup.detail {
-                LabeledContent("Event status", value: detail.event.lifecycle.displayName)
-                if let active = detail.activePolicy {
-                    LabeledContent("Currently applied", value: "\(PHPPriceFormatter.string(centavos: active.unitPriceCentavos))/copy · default \(active.defaultCopies) · maximum \(active.maxCopies)")
-                } else { Text("Saved setup has not been applied to guests.").foregroundStyle(.secondary) }
-                if detail.hasUnpublishedRevision { Label("Saved — Not Yet Applied", systemImage: "pencil.circle").foregroundStyle(.orange) }
-                if setup.dirtyPaid { Label("Unsaved Changes", systemImage: "pencil").foregroundStyle(.orange) }
-            }
-        }
-        if setup.detail != nil {
-            Section("Price & Copies") {
-                TextField("Event name", text: $setup.name)
-                TextField("Venue (optional)", text: $setup.venue)
-                HStack { Text("Price per physical copy"); Spacer(); Text("₱"); TextField("0.00", text: $setup.policy.priceText).keyboardType(.decimalPad).multilineTextAlignment(.trailing).frame(maxWidth: 140) }
-                Stepper("Maximum copies: \(setup.policy.maxCopies)", value: Binding(get: { setup.policy.maxCopies }, set: {
-                    setup.policy.maxCopies = $0; setup.policy.defaultCopies = min(setup.policy.defaultCopies, $0)
-                }), in: PaymentPolicySnapshot.copyRange)
-                Stepper("Default copies: \(setup.policy.defaultCopies)", value: $setup.policy.defaultCopies, in: 1...setup.policy.maxCopies)
-                Toggle("QR Ph", isOn: $setup.policy.qrPhEnabled)
-                DisclosureGroup("Advanced Payment Options") {
-                    Toggle("Guest-declared cash — unverified", isOn: $setup.policy.cashEnabled)
-                    Text("A guest saying “I've Paid” is not proof of payment. Use cash only with an attendant checking payment.").font(.footnote).foregroundStyle(.secondary)
-                    Toggle("Allow signed offline cash", isOn: $setup.policy.offlineCashEnabled).disabled(!setup.policy.cashEnabled)
-                    if setup.policy.offlineCashEnabled {
-                        DatePicker("Offline cash allowed until", selection: $setup.policy.offlineValidUntil, in: Date()...)
-                        Text("Offline permissions are time-limited. A disconnected iPad learns of a pause when it reconnects.").font(.footnote)
+            DisclosureGroup("Advanced Payment Options") {
+                VStack(alignment: .leading, spacing: 12) {
+                    if setup.paymentChoice.acceptsCash {
+                        Toggle("Allow signed offline cash", isOn: $setup.policy.offlineCashEnabled)
+                        if setup.policy.offlineCashEnabled {
+                            DatePicker("Offline cash allowed until", selection: $setup.policy.offlineValidUntil, in: Date()...)
+                            Text("Offline permissions are signed and time-limited. A disconnected iPad learns of a pause when it reconnects.").font(.footnote).foregroundStyle(.secondary)
+                        }
                     }
-                }
-            }
-            Section("Guest Total Preview") {
-                if let price = setup.policy.unitPriceCentavos, price > 0 {
-                    ForEach(1...max(1, min(10, setup.policy.maxCopies)), id: \.self) { count in
-                        LabeledContent("\(count) \(count == 1 ? "copy" : "copies")", value: PHPPriceFormatter.string(centavos: price * count))
+                    if !setup.eventModeEnabled {
+                        Picker("Paid sessions record", selection: Binding(get: { setup.selectedID ?? "" }, set: { id in Task { await setup.select(id) } })) {
+                            ForEach(setup.events.filter { !["ENDED", "ARCHIVED"].contains($0.lifecycle) }) { Text($0.name).tag($0.id) }
+                        }
                     }
-                } else { Text("Enter a valid price to see guest totals.") }
-                Text("Guests pay the total before taking photos. These settings apply only after you start accepting guests.").font(.footnote).foregroundStyle(.secondary)
-            }
-            Section("Available Formats") {
-                ForEach(BoothFormat.allCases, id: \.self) { format in
-                    Toggle(format.displayName, isOn: Binding(get: { setup.policy.supports(format) }, set: { setup.policy.setFormat(format, enabled: $0) }))
+                    Button("Check Current Status") { Task { await setup.refresh() } }
                 }
+                .padding(.top, 8)
             }
-            if setup.conflict, let latest = setup.detail?.latestRevision {
-                Section("Server Settings Changed — Review Required") {
+            .font(.callout)
+            if setup.conflict, let latest = detail.latestRevision {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Server Settings Changed — Review Required", systemImage: "exclamationmark.triangle.fill").font(.headline).foregroundStyle(.orange)
                     Text("Your edits are retained. Compare them with the saved settings before continuing.")
-                    LabeledContent("Saved name / venue", value: "\(setup.detail?.event.name ?? "") · \(setup.detail?.event.venue ?? "")")
+                    LabeledContent("Saved name / venue", value: "\(detail.event.name) · \(detail.event.venue)")
                     LabeledContent("Saved price", value: PHPPriceFormatter.string(centavos: latest.unitPriceCentavos))
                     LabeledContent("Saved copies", value: "Default \(latest.defaultCopies) · maximum \(latest.maxCopies)")
                     LabeledContent("Saved methods", value: paymentMethods(latest.qrphEnabled, latest.cashEnabled))
                     LabeledContent("Saved offline cash", value: latest.offlineValidUntil.map { $0.formatted() } ?? "Disabled")
                     LabeledContent("Saved formats", value: formatNames(latest.supportedFormats))
-                    Button("I've Reviewed — Keep My Edits") { setup.keepReviewedEdits() }.disabled(setup.needsRefresh)
-                    Button("Discard My Edits…", role: .destructive) { confirmDiscard = true }
+                    HStack {
+                        Button("I've Reviewed — Keep My Edits") { setup.keepReviewedEdits() }.buttonStyle(.borderedProminent).disabled(setup.needsRefresh)
+                        Button("Discard My Edits…", role: .destructive) { confirmDiscard = true }.buttonStyle(.bordered)
+                    }
                 }
+                .padding(14)
+                .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
             }
-            Section {
-                Button("Save Setup Without Starting") { Task { await setup.saveOnly() } }.disabled(setup.validation != nil || !setup.dirtyPaid)
-                Text("Saves this event's settings without opening the booth. Existing guests keep their purchased price.").font(.footnote).foregroundStyle(.secondary)
+        } else {
+            HStack(spacing: 12) {
+                ProgressView()
+                Text("Loading paid settings…").foregroundStyle(.secondary)
+                Spacer()
+                Button("Check Current Status") { Task { await setup.refresh() } }
             }
         }
+    }
+
+    @ViewBuilder private var totalPreview: some View {
+        if let price = setup.policy.unitPriceCentavos, price > 0 {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(1...max(1, min(10, setup.policy.maxCopies)), id: \.self) { count in
+                        VStack(spacing: 2) {
+                            Text("\(count) \(count == 1 ? "copy" : "copies")").font(.caption).foregroundStyle(.secondary)
+                            Text(PHPPriceFormatter.string(centavos: price * count)).font(.callout.weight(.semibold).monospacedDigit())
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .background(Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
+                    }
+                }
+            }
+        } else {
+            Text("Enter a valid price to see guest totals.").font(.callout).foregroundStyle(.secondary)
+        }
+    }
+
+    private func formatChips(isOn: @escaping (BoothFormat) -> Bool, set: @escaping (BoothFormat, Bool) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Available formats").font(.headline)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 10)], spacing: 10) {
+                ForEach(BoothFormat.allCases, id: \.self) { format in
+                    let enabled = isOn(format)
+                    Button { set(format, !enabled) } label: {
+                        Label(format.displayName, systemImage: enabled ? "checkmark.circle.fill" : "circle")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(enabled ? OperatorPalette.selected : Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
+                            .overlay { RoundedRectangle(cornerRadius: 10).stroke(enabled ? OperatorPalette.ink : .clear, lineWidth: 1.5) }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(enabled ? .isSelected : [])
+                }
+            }
+        }
+    }
+
+    // MARK: 3. Receipt & Branding
+
+    @ViewBuilder private var receiptSection: some View {
+        SetupCard {
+            if setup.eventModeEnabled, let design = Binding($setup.design) {
+                EventReceiptDesignPanel(design: design, isDirty: setup.designDirty, save: { setup.saveDesign() }, discard: { setup.discardDesignChanges() })
+                NavigationLink {
+                    EventDesignEditorView(setup: setup)
+                } label: {
+                    Label("More Design Options — typography, caption, event details, Photo Pass", systemImage: "paintbrush").font(.callout)
+                }
+            } else {
+                Label("Studio Default Receipt", systemImage: "doc.plaintext").font(.headline)
+                Text(setup.eventModeEnabled
+                     ? "Choose an event to personalize its receipt."
+                     : "Regular sessions print the Made to Keep receipt. Turn on Event Mode to personalize receipts with an event logo.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            Divider()
+            DisclosureGroup("Preview Receipt", isExpanded: $previewExpanded) {
+                EventReceiptComposerPreview(profile: setup.effectiveProfile, printOptions: ReceiptPrintSettingsStore.load(), showsSamplePrintLink: false)
+                    .padding(.top, 8)
+            }
+            .font(.headline)
+        }
+    }
+
+    // MARK: 4. Review
+
+    private var summarySection: some View {
+        SetupCard {
+            SetupSummaryRows(setup: setup)
+            if let validation = setup.validation { Label(validation, systemImage: "info.circle").foregroundStyle(.orange) }
+            if !setup.message.isEmpty, !setup.needsRefresh { Text(setup.message).font(.callout) }
+            if let error = acceptance.storageError ?? workspace.persistenceError ?? setup.library.storageError {
+                Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
+            }
+            Text("Pausing preserves paid purchases and print recovery. Starting changes only future guest sessions.")
+                .font(.footnote).foregroundStyle(.secondary)
+        }
+    }
+
+    private var bottomBar: some View {
+        HStack(spacing: 14) {
+            Button("Pause New Sessions", role: .destructive) { confirmPause = true }.buttonStyle(.bordered).controlSize(.large)
+            Button { Task { await setup.saveOnly() } } label: { Text("Save Setup").frame(minHeight: 30) }
+                .buttonStyle(.bordered).controlSize(.large)
+                .disabled(setup.validation != nil || !setup.hasUnsavedChanges)
+            Button { review = true } label: {
+                Label("Review & Start", systemImage: "checklist").font(.headline).frame(maxWidth: .infinity, minHeight: 48)
+            }
+            .buttonStyle(.borderedProminent).disabled(setup.validation != nil)
+        }
+        .padding(.horizontal, 24).padding(.vertical, 14).background(.regularMaterial).tint(OperatorPalette.ink).disabled(setup.busy)
     }
 
     private var reviewSheet: some View {
@@ -202,50 +403,79 @@ struct SessionSetupView: View {
     private var newEventSheet: some View {
         NavigationStack {
             Form {
-                Section("New Pay Per Print Event") {
+                Section {
                     TextField("Event name", text: $newName)
                     TextField("Venue (optional)", text: $newVenue)
-                    Text("Created as saved setup only. No guests can pay until you review and start accepting guests.").font(.footnote)
-                    Button("Create Event") { Task { createEvent = false; await setup.create(name: newName, venue: newVenue) } }
+                } header: { Text("New Event") } footer: {
+                    Text(setup.mode == .serverManaged
+                         ? "Saved and connected to paid checkout. No guests can pay until you review and start."
+                         : "Saved on this iPad. Nothing changes for guests until you review and start.")
+                }
+            }
+            .navigationTitle("New Event")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { createEvent = false } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create") { Task { createEvent = false; await setup.createEvent(name: newName, venue: newVenue); newName = ""; newVenue = "" } }
                         .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
-            }.navigationTitle("Create Event")
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { createEvent = false } } }
+            }
         }
         .onChange(of: newName) { _, _ in workspace.saveNewEvent(name: newName, venue: newVenue) }
         .onChange(of: newVenue) { _, _ in workspace.saveNewEvent(name: newName, venue: newVenue) }
+    }
+
+    private func limited(_ text: Binding<String>, _ limit: Int) -> Binding<String> {
+        Binding(get: { text.wrappedValue }, set: { text.wrappedValue = String($0.prefix(limit)) })
+    }
+}
+
+/// The reviewed setup as rows; shared by the summary card and the review sheet.
+struct SetupSummaryRows: View {
+    @ObservedObject var setup: SessionSetupCoordinator
+    @ObservedObject private var printer = PrinterCoordinator.shared
+
+    var body: some View {
+        let design = setup.design
+        LabeledContent("Session", value: setup.eventModeEnabled ? "Event Mode" : "Regular Session")
+        if setup.eventModeEnabled { LabeledContent("Event", value: design?.displayName ?? "None selected") }
+        LabeledContent("Payment", value: setup.paymentChoice.methodSummary)
+        if setup.mode == .serverManaged {
+            LabeledContent("Price per copy", value: setup.policy.unitPriceCentavos.map { PHPPriceFormatter.string(centavos: $0) } ?? "Invalid price")
+            LabeledContent("Copies", value: "Default \(setup.policy.defaultCopies) · maximum \(setup.policy.maxCopies)")
+            LabeledContent("Offline cash", value: setup.policy.offlineCashEnabled && setup.paymentChoice.acceptsCash ? "Enabled until \(setup.policy.offlineValidUntil.formatted())" : "Disabled")
+            LabeledContent("Formats", value: formatNames(Array(setup.policy.supportedFormats)))
+            LabeledContent("Payments environment", value: PaymentsConfiguration.current()?.environment.uppercased() ?? "Not connected")
+        } else {
+            LabeledContent("Included / maximum copies", value: "\(setup.prepaid.activePolicy.defaultCopies) / \(setup.prepaid.activePolicy.maxCopies)")
+            LabeledContent("Guest copy choice", value: setup.prepaid.activePolicy.prepaidGuestCopyChoice ? "Allowed" : "Fixed included quantity")
+            LabeledContent("Formats", value: formatNames(setup.prepaid.activePolicy.supportedFormatRawValues))
+        }
+        let personalized = setup.eventModeEnabled && design?.personalizeReceipt == true
+        LabeledContent("Personalized receipt", value: personalized ? "On" : "Off — Made to Keep standard")
+        if personalized {
+            LabeledContent("Event logo", value: setup.logoIsUsable ? "Ready" : (design?.logoIdentifier == nil ? "Missing" : "Can’t be read"))
+            LabeledContent("Receipt layout", value: design?.layout.displayName ?? "")
+        }
+        LabeledContent("Guest screens", value: setup.eventModeEnabled && design?.guestScreensEnabled == true ? "Event welcome screens" : "Made to Keep standard")
+        LabeledContent("Status", value: setup.isCurrentlyApplied ? "Currently applied" : (setup.hasUnsavedChanges ? "Unsaved changes" : "Saved — not yet applied"))
+        LabeledContent("Printer", value: printer.state.message)
     }
 }
 
 struct SessionSetupReviewView: View {
     @ObservedObject var setup: SessionSetupCoordinator
-    @ObservedObject private var printer = PrinterCoordinator.shared
     let onBack: () -> Void
     let onFinished: (Bool) -> Void
     var body: some View {
         NavigationStack {
             Form {
-                Section("Your Next Guest Session") {
-                    LabeledContent("Mode", value: setup.mode == .localPrepaid ? "Prepaid / Free" : "Pay Per Print")
-                    LabeledContent("Event", value: setup.mode == .localPrepaid ? (setup.prepaid.name.isEmpty ? "Unnamed session" : setup.prepaid.name) : setup.name)
-                    if setup.mode == .serverManaged {
-                        LabeledContent("Price per copy", value: setup.policy.unitPriceCentavos.map { PHPPriceFormatter.string(centavos: $0) } ?? "Invalid price")
-                        LabeledContent("Copies", value: "Default \(setup.policy.defaultCopies) · maximum \(setup.policy.maxCopies)")
-                        LabeledContent("Payments", value: paymentMethods(setup.policy.qrPhEnabled, setup.policy.cashEnabled))
-                        LabeledContent("Offline cash", value: setup.policy.offlineCashEnabled ? "Enabled until \(setup.policy.offlineValidUntil.formatted())" : "Disabled")
-                        LabeledContent("Formats", value: formatNames(Array(setup.policy.supportedFormats)))
-                        LabeledContent("Environment", value: PaymentsConfiguration.current()?.environment.uppercased() ?? "Not connected")
-                    } else {
-                        LabeledContent("Included copies / maximum", value: "\(setup.prepaid.activePolicy.defaultCopies) / \(setup.prepaid.activePolicy.maxCopies)")
-                        LabeledContent("Guest copy choice", value: setup.prepaid.activePolicy.prepaidGuestCopyChoice ? "Allowed" : "Fixed included quantity")
-                        LabeledContent("Formats", value: formatNames(setup.prepaid.activePolicy.supportedFormatRawValues))
-                        Text("No payment required.")
-                    }
-                    LabeledContent("Branding", value: setup.branding == .current ? (EventProfileStore.load().isEventModeActive ? "Current custom branding" : "Studio Default") : setup.branding.title)
-                    LabeledContent("Printer", value: printer.state.message)
+                Section("Your Next Guest Session") { SetupSummaryRows(setup: setup) }
+                Section("Receipt Preview") {
+                    EventReceiptComposerPreview(profile: setup.effectiveProfile, printOptions: ReceiptPrintSettingsStore.load(), showsSamplePrintLink: false, maximumPreviewWidth: 300)
                 }
                 Section {
-                    Text("This starts new guest sessions with the setup shown above. Previously paid sessions keep their original entitlement.")
+                    Text("This starts new guest sessions with the setup shown above. Sessions already in progress keep their original design and purchased entitlement.")
                     if let validation = setup.validation { Text(validation).foregroundStyle(.orange) }
                     Button {
                         Task {
@@ -263,6 +493,85 @@ struct SessionSetupReviewView: View {
     }
 }
 
+// MARK: Building blocks
+
+private struct SetupSection<Content: View>: View {
+    let number: Int
+    let title: String
+    @ViewBuilder let content: () -> Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Text("\(number)").font(.subheadline.weight(.bold)).frame(width: 28, height: 28)
+                    .background(OperatorPalette.ink, in: Circle()).foregroundStyle(Color(uiColor: .systemBackground))
+                Text(title.uppercased()).font(.subheadline.weight(.semibold)).tracking(1.6)
+            }
+            .accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
+            content()
+        }
+    }
+}
+
+private struct SetupCard<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) { content() }
+            .padding(22)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
+    }
+}
+
+private struct LabeledField<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: () -> Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            content().textFieldStyle(.roundedBorder).font(.title3)
+        }
+    }
+}
+
+private struct StatusPill: View {
+    let text: String
+    let systemImage: String
+    let color: Color
+    var body: some View {
+        Label(text, systemImage: systemImage)
+            .font(.footnote.weight(.semibold))
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(color.opacity(0.12), in: Capsule())
+            .foregroundStyle(color == .secondary ? Color.secondary : color)
+    }
+}
+
+private struct PaymentOptionCard: View {
+    let choice: GuestPaymentChoice
+    let selected: Bool
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: choice.systemImage).font(.title2).frame(width: 32)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(choice.title).font(.headline)
+                    Text(choice.subtitle).font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle").font(.title3)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
+            .background(selected ? OperatorPalette.selected : Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+            .overlay { RoundedRectangle(cornerRadius: 16).stroke(selected ? OperatorPalette.ink : .secondary.opacity(0.2), lineWidth: selected ? 2 : 1) }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
 enum OperatorPalette {
     static let canvas = Color(uiColor: .systemGroupedBackground)
     static let ink = Color(uiColor: .label)
@@ -270,7 +579,7 @@ enum OperatorPalette {
 }
 
 private func paymentMethods(_ qr: Bool, _ cash: Bool) -> String {
-    [qr ? "QR Ph" : nil, cash ? "Cash — unverified" : nil].compactMap { $0 }.joined(separator: ", ")
+    [qr ? "QR Ph" : nil, cash ? "Cash" : nil].compactMap { $0 }.joined(separator: ", ")
 }
 private func formatNames(_ values: [String]) -> String {
     BoothFormat.allCases.filter { $0.paymentRawValue(in: values) != nil }.map(\.displayName).joined(separator: ", ")

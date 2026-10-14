@@ -90,6 +90,7 @@ export function reportCategory(row) {
         return "QRPH_UNRESOLVED";
     }
     if (row.method === "CASH_DECLARED") {
+        if (row.payment_state === "OPERATOR_CONFIRMED") return "CASH_OPERATOR_CONFIRMED";
         return row.payment_state === "SELF_REPORTED_OFFLINE" ? "CASH_SELF_REPORTED_OFFLINE_SYNCED" : "CASH_SELF_REPORTED";
     }
     return "NO_PAYMENT";

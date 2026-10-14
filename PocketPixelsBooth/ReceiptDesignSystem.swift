@@ -16,6 +16,8 @@ nonisolated enum ReceiptBrandingMode: String, Codable, CaseIterable, Identifiabl
     case studioFirst
     /// Event artwork replaces the Made to Keep masthead at the top.
     case eventFirst
+    /// Made to Keep wordmark × event logo side by side in the top header.
+    case coBranded
 
     var id: String { rawValue }
 
@@ -23,6 +25,7 @@ nonisolated enum ReceiptBrandingMode: String, Codable, CaseIterable, Identifiabl
         switch self {
         case .studioFirst: "Studio-First"
         case .eventFirst: "Event-First"
+        case .coBranded: "Co-Branded"
         }
     }
 
@@ -30,8 +33,12 @@ nonisolated enum ReceiptBrandingMode: String, Codable, CaseIterable, Identifiabl
         switch self {
         case .studioFirst: "Made to Keep stays at the top. Event artwork prints as a small signature near the bottom."
         case .eventFirst: "Event artwork replaces the Made to Keep masthead at the top of the receipt. The Made to Keep monogram stays in the footer."
+        case .coBranded: "Made to Keep × your event logo, side by side at the top of the receipt."
         }
     }
+
+    /// Layouts offered behind the operator's Advanced disclosure; Co-Branded is the primary choice.
+    static let advancedLayouts: [ReceiptBrandingMode] = [.studioFirst, .eventFirst]
 }
 
 /// Where branding actually lands on one receipt after artwork availability is considered.
@@ -40,11 +47,14 @@ nonisolated enum ReceiptBrandingPlacement: String, Sendable, Equatable {
     case legacyHeader
     case studioFirst
     case eventFirst
+    /// Made to Keep wordmark × event logo share the top header.
+    case coBranded
 }
 
 nonisolated enum ReceiptBrandingWarning: String, Sendable, Equatable, CaseIterable {
     case eventFirstMissingArtwork
     case eventFirstArtworkHidden
+    case coBrandedMissingArtwork
 
     var message: String {
         switch self {
@@ -52,6 +62,8 @@ nonisolated enum ReceiptBrandingWarning: String, Sendable, Equatable, CaseIterab
             "Event-First needs event artwork. Until artwork is added, new receipts print the Made to Keep masthead instead."
         case .eventFirstArtworkHidden:
             "Event-First is selected but event artwork is turned off. New receipts print the Made to Keep masthead instead."
+        case .coBrandedMissingArtwork:
+            "Co-Branded needs a usable event logo. Until one is added, new receipts print the standard Made to Keep header."
         }
     }
 }
@@ -60,9 +72,10 @@ nonisolated enum ReceiptBrandingWarning: String, Sendable, Equatable, CaseIterab
 /// and whether its artwork file could be loaded, never from live operator settings.
 nonisolated struct ReceiptBrandingResolution: Sendable, Equatable {
     let placement: ReceiptBrandingPlacement
-    /// Made to Keep wordmark at the top of standard formats.
+    /// Made to Keep wordmark at the top of standard formats (centred, or beside the logo when Co-Branded).
     let showsStudioMasthead: Bool
-    /// Event artwork replaces the masthead (Event-First, or a legacy custom header).
+    /// Event artwork at the top: replacing the masthead (Event-First, legacy custom header) or
+    /// beside it (Co-Branded).
     let showsTopArtwork: Bool
     /// Event artwork prints as a compact signature below the footer.
     let showsArtworkSignature: Bool
@@ -109,6 +122,28 @@ nonisolated struct ReceiptBrandingResolution: Sendable, Equatable {
                 showsStudioMasthead: true,
                 showsTopArtwork: false,
                 showsArtworkSignature: artworkReady,
+                showsStudioCredit: false,
+                showsEventDetailsBelowFooter: true,
+                warnings: []
+            )
+        case .coBranded:
+            guard artworkReady else {
+                // Never reserve blank logo space: the standard masthead prints instead.
+                return ReceiptBrandingResolution(
+                    placement: .studioFirst,
+                    showsStudioMasthead: true,
+                    showsTopArtwork: false,
+                    showsArtworkSignature: false,
+                    showsStudioCredit: false,
+                    showsEventDetailsBelowFooter: true,
+                    warnings: [.coBrandedMissingArtwork]
+                )
+            }
+            return ReceiptBrandingResolution(
+                placement: .coBranded,
+                showsStudioMasthead: true,
+                showsTopArtwork: true,
+                showsArtworkSignature: false,
                 showsStudioCredit: false,
                 showsEventDetailsBelowFooter: true,
                 warnings: []

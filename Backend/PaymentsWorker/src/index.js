@@ -67,6 +67,7 @@ export async function route(request, env) {
     if (request.method === "GET" && /^\/v1\/admin\/events\/[^/]+\/offline-conflicts$/.test(path)) return offlineConflicts(request, env, principal, segment(path, 4));
     if (request.method === "GET" && /^\/v1\/admin\/events\/[^/]+\/export.csv$/.test(path)) return eventCSV(request, env, principal, segment(path, 4));
     if (request.method === "POST" && /^\/v1\/admin\/events\/[^/]+\/cash-counts$/.test(path)) return recordCashCount(request, env, principal, segment(path, 4));
+    if (request.method === "POST" && /^\/v1\/admin\/orders\/[^/]+\/cash-confirmation$/.test(path)) return confirmCash(request, env, principal, segment(path, 4));
     if (request.method === "GET" && path === "/v1/admin/diagnostics") return diagnostics(env, principal);
     return json({ error: "not_found" }, 404);
 }
@@ -396,7 +397,7 @@ async function createQR(request, env, principal, orderId) {
         env.DB.prepare(`INSERT INTO payment_attempts(id,order_id,method,livemode,state,created_at,updated_at)
             SELECT ?,id,'QRPH',?,'CREATING',?,? FROM orders WHERE id=? AND method_lock_token=?`).bind(attemptId, +live, timestamp, timestamp, orderId, lockToken)
     ]);
-    if (changes(results[0]) !== 1) return existingLockResponse(env, principal, orderId, "QRPH");
+    if (changes(results[0]) !== 1) return existingLockResponse(env, principal.id, orderId, "QRPH");
 
     let intent;
     try {
@@ -457,11 +458,48 @@ async function declareCash(request, env, principal, orderId) {
     ]);
     if (changes(results[0]) !== 1) {
         const current = await ownedOrder(env, principal.id, orderId);
-        if (current.payment_method !== "CASH_DECLARED") return existingLockResponse(env, principal, orderId, "CASH_DECLARED");
+        if (current.payment_method !== "CASH_DECLARED") return existingLockResponse(env, principal.id, orderId, "CASH_DECLARED");
     } else {
         await audit(env, principal.id, order.event_id, orderId, "CASH_SELF_DECLARED", { totalCentavos: order.total_centavos, verification: "UNVERIFIED_SELF_REPORTED" });
     }
     return orderStatus(env, principal, orderId);
+}
+
+/// Attendant-confirmed cash. Operator scope only: the iPad releases its operator credential just
+/// after local operator authentication, so a guest tap can never reach this route. Locks the
+/// booth's order to cash and creates its entitlement in one transaction, exactly like guest cash,
+/// but records the attempt as `OPERATOR_CONFIRMED`. Staff-attested, never provider-verified.
+/// Replays of a confirmed order return the same entitlement; nothing is created twice.
+async function confirmCash(request, env, principal, orderId) {
+    const body = await bodyJSON(request, true);
+    const order = await env.DB.prepare("SELECT o.* FROM orders o JOIN devices d ON d.id=o.device_id WHERE o.id=? AND d.account_id=?").bind(orderId, principal.accountId).first();
+    if (!order) throw http(404, "Order not found.", "order_not_found");
+    // The attendant confirms the exact amount the guest was shown; a mismatch is never accepted.
+    if (integer(body.expectedTotalCentavos) !== order.total_centavos) {
+        throw http(409, "The cash amount does not match this order.", "cash_amount_mismatch", { totalCentavos: order.total_centavos });
+    }
+    const policy = await env.DB.prepare("SELECT cash_enabled FROM event_policy_revisions WHERE id=?").bind(order.policy_revision_id).first();
+    if (!policy?.cash_enabled) throw http(409, "Cash is disabled for this event.", "cash_disabled");
+    const lockToken = crypto.randomUUID(), timestamp = now(), live = environment(env) === "live";
+    const results = await env.DB.batch([
+        lockStatement(env, "CASH_DECLARED", "AUTHORIZED", lockToken, timestamp, orderId, order.device_id),
+        env.DB.prepare(`INSERT INTO payment_attempts(id,order_id,method,livemode,state,created_at,updated_at)
+            SELECT ?,id,'CASH_DECLARED',?,'OPERATOR_CONFIRMED',?,? FROM orders WHERE id=? AND method_lock_token=?`).bind(crypto.randomUUID(), +live, timestamp, timestamp, orderId, lockToken),
+        env.DB.prepare(`INSERT INTO entitlements(id,order_id,device_id,purchased_copies,authorization_source,state,created_at,updated_at)
+            SELECT ?,id,device_id,copies,'UNVERIFIED_CASH_DECLARED','AUTHORIZED',?,? FROM orders WHERE id=? AND method_lock_token=?`).bind(crypto.randomUUID(), timestamp, timestamp, orderId, lockToken)
+    ]);
+    if (changes(results[0]) !== 1) {
+        const current = await ownedOrder(env, order.device_id, orderId);
+        const attempt = await env.DB.prepare("SELECT state FROM payment_attempts WHERE order_id=?").bind(orderId).first();
+        if (current.payment_method === "CASH_DECLARED" && attempt?.state !== "OPERATOR_CONFIRMED") {
+            // A guest self-declaration already authorized this order; it stays reported as such.
+            throw http(409, "This order was already self-declared as cash.", "payment_method_locked", { lockedMethod: "CASH_DECLARED", attemptState: attempt?.state || null });
+        }
+        if (current.payment_method !== "CASH_DECLARED") return existingLockResponse(env, order.device_id, orderId, "CASH_DECLARED");
+    } else {
+        await audit(env, principal.id, order.event_id, orderId, "CASH_OPERATOR_CONFIRMED", { totalCentavos: order.total_centavos, verification: "OPERATOR_CONFIRMED", boothDeviceId: order.device_id });
+    }
+    return statusResponse(env, await ownedOrder(env, order.device_id, orderId));
 }
 
 function lockStatement(env, method, nextState, lockToken, timestamp, orderId, deviceId) {
@@ -472,8 +510,8 @@ function lockStatement(env, method, nextState, lockToken, timestamp, orderId, de
         .bind(method, lockToken, nextState, timestamp, orderId, deviceId, timestamp);
 }
 
-async function existingLockResponse(env, principal, orderId, requestedMethod) {
-    const order = await ownedOrder(env, principal.id, orderId);
+async function existingLockResponse(env, deviceId, orderId, requestedMethod) {
+    const order = await ownedOrder(env, deviceId, orderId);
     const attempt = await env.DB.prepare("SELECT * FROM payment_attempts WHERE order_id=?").bind(orderId).first();
     if (requestedMethod === "QRPH" && order.payment_method === "QRPH" && attempt) {
         if (attempt.state === "CREATING") throw http(409, "QR Ph is still being created. Check the order status.", "qr_creation_in_progress", { attemptState: attempt.state });
@@ -494,7 +532,11 @@ async function setAttemptState(env, attemptId, state, error) {
 }
 
 async function orderStatus(env, principal, orderId) {
-    const order = await ownedOrder(env, principal.id, orderId);
+    return statusResponse(env, await ownedOrder(env, principal.id, orderId));
+}
+
+async function statusResponse(env, order) {
+    const orderId = order.id;
     const attempt = await env.DB.prepare("SELECT * FROM payment_attempts WHERE order_id=?").bind(orderId).first();
     const entitlement = await entitlementRow(env, "e.order_id=?", orderId);
     return json({
@@ -859,6 +901,7 @@ async function eventSummary(request, env, principal, eventId) {
       COALESCE(SUM(CASE WHEN a.method='QRPH' AND a.state='PAID_VERIFIED' AND o.superseded_by_order_id IS NOT NULL THEN o.total_centavos ELSE 0 END),0) qr_late_review_centavos,
       COALESCE(SUM(CASE WHEN a.method='CASH_DECLARED' AND a.state='SELF_REPORTED' THEN o.total_centavos ELSE 0 END),0) cash_online_centavos,
       COALESCE(SUM(CASE WHEN a.method='CASH_DECLARED' AND a.state='SELF_REPORTED_OFFLINE' THEN o.total_centavos ELSE 0 END),0) cash_offline_centavos,
+      COALESCE(SUM(CASE WHEN a.method='CASH_DECLARED' AND a.state='OPERATOR_CONFIRMED' THEN o.total_centavos ELSE 0 END),0) cash_operator_confirmed_centavos,
       COUNT(CASE WHEN a.method='QRPH' AND a.state='PAID_VERIFIED' AND o.superseded_by_order_id IS NULL THEN 1 END) qr_sessions,
       COUNT(CASE WHEN a.method='CASH_DECLARED' THEN 1 END) cash_sessions,
       COUNT(CASE WHEN a.method='QRPH' AND a.state IN ('CREATING','AWAITING_PAYMENT','UNKNOWN_RECONCILIATION','MANUAL_REVIEW') THEN 1 END) qr_unresolved,
@@ -876,19 +919,22 @@ async function eventSummary(request, env, principal, eventId) {
       COALESCE(SUM(CASE WHEN po.outcome='NOT_STARTED' THEN 1 ELSE 0 END),0) not_started
       FROM print_copy_outcomes po JOIN print_batches pb ON pb.id=po.batch_id JOIN entitlements en ON en.id=pb.entitlement_id JOIN orders o ON o.id=en.order_id WHERE o.event_id=?`).bind(eventId).first();
     const selfReported = Number(row.cash_online_centavos || 0) + Number(row.cash_offline_centavos || 0);
+    // A physical count is compared with every cash order: guest-declared and attendant-confirmed.
+    const expectedCash = selfReported + Number(row.cash_operator_confirmed_centavos || 0);
     const offlineConflicts = Number(conflicts?.count || 0);
     return json({
         eventId, currency: "PHP",
         verifiedQRPhLiveCentavos: row.qr_live_centavos, verifiedQRPhTestCentavos: row.qr_test_centavos,
         cashSelfReportedCentavos: selfReported, cashSelfReportedOnlineCentavos: row.cash_online_centavos, cashSelfReportedOfflineSyncedCentavos: row.cash_offline_centavos,
+        cashOperatorConfirmedCentavos: row.cash_operator_confirmed_centavos,
         cashLocalUnsyncedCentavos: null,
         qrSessions: row.qr_sessions, cashSessions: row.cash_sessions, unresolvedQRCount: row.qr_unresolved,
         lateQRPaidReviewCentavos: row.qr_late_review_centavos, reviewOrderCount: row.review_orders, offlineConflictCount: offlineConflicts,
-        physicalCashCount: count ? { countedCentavos: count.counted_centavos, provisional: !!count.provisional || pendingLocal > 0 || offlineConflicts > 0, createdAt: count.created_at, varianceCentavos: count.counted_centavos - selfReported } : null,
+        physicalCashCount: count ? { countedCentavos: count.counted_centavos, provisional: !!count.provisional || pendingLocal > 0 || offlineConflicts > 0, createdAt: count.created_at, varianceCentavos: count.counted_centavos - expectedCash } : null,
         printUtilization: { purchased: purchased.purchased, confirmed: outcomes.confirmed, delivered: outcomes.delivered, uncertain: outcomes.uncertain, failed: outcomes.failed, notStarted: outcomes.not_started },
         settlementStatus: "NOT_REPORTED",
         unsupported: { refunds: "UNSUPPORTED", complimentaryPrints: "UNSUPPORTED", processorFees: "UNSUPPORTED", payouts: "UNSUPPORTED" },
-        categories: ["QRPH_VERIFIED_TEST", "QRPH_VERIFIED_LIVE", "CASH_SELF_REPORTED", "CASH_LOCAL_UNSYNCED", "CASH_PHYSICALLY_COUNTED", "VARIANCE"]
+        categories: ["QRPH_VERIFIED_TEST", "QRPH_VERIFIED_LIVE", "CASH_OPERATOR_CONFIRMED", "CASH_SELF_REPORTED", "CASH_LOCAL_UNSYNCED", "CASH_PHYSICALLY_COUNTED", "VARIANCE"]
     });
 }
 
@@ -1059,7 +1105,7 @@ async function bodyJSON(request, optional = false) {
 function policyRevision(p) { return { id: p.id, revision: p.revision, commercialMode: p.commercial_mode, unitPriceCentavos: p.unit_price_centavos, maxCopies: p.max_copies, defaultCopies: p.default_copies, cashEnabled: !!p.cash_enabled, qrphEnabled: !!p.qrph_enabled, prepaidGuestCopyChoice: !!p.prepaid_guest_copy_choice, supportedFormats: JSON.parse(p.supported_formats_json), features: JSON.parse(p.features_json), offlineValidUntil: p.offline_valid_until, createdAt: p.created_at, activatedAt: p.activated_at }; }
 function publicPolicy(r) { return { id: r.event_id || r.id, name: r.name, venue: r.venue, lifecycle: r.lifecycle, policyRevisionId: r.id, revision: r.revision, commercialMode: r.commercial_mode, unitPriceCentavos: r.unit_price_centavos, maxCopies: r.max_copies, defaultCopies: r.default_copies, cashEnabled: !!r.cash_enabled, qrphEnabled: !!r.qrph_enabled, prepaidGuestCopyChoice: !!r.prepaid_guest_copy_choice, supportedFormats: JSON.parse(r.supported_formats_json), features: JSON.parse(r.features_json), offlineValidUntil: r.offline_valid_until }; }
 function publicOrder(o) { return { id: o.id, eventId: o.event_id, policyRevisionId: o.policy_revision_id, format: o.booth_format, copies: o.copies, unitPriceCentavos: o.unit_price_centavos, totalCentavos: o.total_centavos, currency: o.currency, state: o.state, paymentMethod: o.payment_method ?? null, checkoutSessionId: o.checkout_session_id ?? null, supersedesOrderId: o.supersedes_order_id ?? null, supersededByOrderId: o.superseded_by_order_id ?? null, expiresAt: o.expires_at }; }
-function publicAttempt(a) { return { id: a.id, method: a.method, state: a.state, qrImageDataURL: a.qr_image_data_url, testURL: a.provider_test_url, expiresAt: a.expires_at, verification: a.method === "CASH_DECLARED" ? "UNVERIFIED_SELF_REPORTED" : a.state === "PAID_VERIFIED" ? "PROVIDER_VERIFIED" : "NOT_VERIFIED" }; }
+function publicAttempt(a) { return { id: a.id, method: a.method, state: a.state, qrImageDataURL: a.qr_image_data_url, testURL: a.provider_test_url, expiresAt: a.expires_at, verification: a.method === "CASH_DECLARED" ? (a.state === "OPERATOR_CONFIRMED" ? "OPERATOR_CONFIRMED" : "UNVERIFIED_SELF_REPORTED") : a.state === "PAID_VERIFIED" ? "PROVIDER_VERIFIED" : "NOT_VERIFIED" }; }
 function publicEntitlement(e) { return { id: e.id, orderId: e.order_id, eventId: e.entitlement_event_id, policyRevisionId: e.entitlement_policy_revision_id, sessionId: e.session_id, selectedFormat: e.entitlement_format, purchasedCopies: e.purchased_copies, unitPriceCentavos: e.entitlement_unit_price, totalCentavos: e.entitlement_total, authorizationSource: e.authorization_source, authorizedAt: e.created_at, state: e.state, receiptFingerprint: e.receipt_fingerprint }; }
 function environment(env) { return env.PAYMENTS_ENVIRONMENT === "live" ? "live" : "test"; }
 function isLiveEnabled(env) { return environment(env) === "live" && env.LIVE_PAYMENTS_ENABLED === "true" && !!env.PAYMONGO_SECRET_KEY_LIVE && !!env.PAYMONGO_WEBHOOK_SECRET_LIVE; }

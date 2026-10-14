@@ -24,6 +24,15 @@ struct EventArtworkEditorView: View {
     @State private var canvasWidth: CGFloat = 576
 
     private var configuration: ReceiptHeaderConfiguration { profile.receiptHeader.normalized() }
+    /// Co-Branded places the logo beside the Made to Keep wordmark; the canvas shows that lockup.
+    private var isCoBranded: Bool { configuration.brandingMode == .coBranded }
+    private var coBrandedProfile: EventProfile {
+        var value = profile
+        value.isEnabled = true
+        value.showEventTextBlock = false
+        value.receiptHeader.mode = .customEventHeader
+        return value
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -51,7 +60,7 @@ struct EventArtworkEditorView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Reset", role: .destructive) { profile.receiptHeader.resetAdjustments() }
+                Button("Reset", role: .destructive) { resetLayout() }
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done") { dismiss() }
@@ -107,12 +116,14 @@ struct EventArtworkEditorView: View {
     }
 
     private var originalStrip: UIImage {
-        EventHeaderImageProcessor.receiptStrip(source: artwork, configuration: configuration).image
+        if isCoBranded { return ReceiptComposer.renderHeaderStrip(eventProfile: coBrandedProfile).image }
+        return EventHeaderImageProcessor.receiptStrip(source: artwork, configuration: configuration).image
     }
 
     /// Same placement maths as the receipt, without rendering.
     private var stripFrame: CGRect {
-        EventHeaderImageProcessor.frameRect(
+        if isCoBranded, let frame = ReceiptComposer.renderHeaderStrip(eventProfile: coBrandedProfile).artworkFrame { return frame }
+        return EventHeaderImageProcessor.frameRect(
             sourceSize: artwork.size,
             configuration: configuration,
             y: CGFloat(Int(configuration.topSpacing.rounded()))
@@ -152,6 +163,10 @@ struct EventArtworkEditorView: View {
                     if overflow.height > 0.5 {
                         updated.cropPositionY = clamp(start.cropPositionY - Double(dy / (overflow.height / 2)), -1, 1)
                     }
+                } else if isCoBranded {
+                    let available = CoBrandedHeaderGeometry.slotWidth() - stripFrame.width
+                    guard available > 0.5 else { return }
+                    updated.horizontalPosition = clamp(start.effectiveHorizontalPosition + Double(2 * dx / available), -1, 1)
                 } else {
                     let available = CGFloat(BoothConfiguration.receiptWidth) - EventHeaderImageProcessor.horizontalInset * 2 - stripFrame.width
                     guard available > 0.5 else { return }
@@ -236,7 +251,7 @@ struct EventArtworkEditorView: View {
             }
 
             Button(role: .destructive) {
-                profile.receiptHeader.resetAdjustments()
+                resetLayout()
             } label: {
                 Label("Reset Artwork Layout", systemImage: "arrow.counterclockwise")
                     .frame(maxWidth: .infinity, minHeight: 40)
@@ -246,6 +261,17 @@ struct EventArtworkEditorView: View {
             Text("Artwork is limited to the printable width and a safe maximum height. Saved changes apply to the next customer only.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Co-Branded resets to its recommended placement beside the ×; other layouts to the default.
+    private func resetLayout() {
+        if isCoBranded {
+            let identifier = profile.receiptHeader.assetIdentifier
+            profile.receiptHeader = .coBrandedRecommended
+            profile.receiptHeader.assetIdentifier = identifier
+        } else {
+            profile.receiptHeader.resetAdjustments()
         }
     }
 
@@ -307,12 +333,17 @@ struct EventArtworkEditorView: View {
         let generation = thermalGeneration
         let configuration = configuration
         let artwork = artwork
+        let coBranded = isCoBranded ? coBrandedProfile : nil
         thermalStrip = nil
         thermalTask = Task {
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }
-            let image = await Task.detached(priority: .userInitiated) {
-                try? EventHeaderImageProcessor.thermalPreview(source: artwork, configuration: configuration)
+            let image = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+                if let coBranded {
+                    let strip = ReceiptComposer.renderHeaderStrip(eventProfile: coBranded).image
+                    return (try? ThermalImageRasterizer.rasterize(strip, purpose: .completeReceipt)).flatMap { UIImage(data: $0.previewPNGData) }
+                }
+                return try? EventHeaderImageProcessor.thermalPreview(source: artwork, configuration: configuration)
             }.value
             guard !Task.isCancelled, generation == thermalGeneration else { return }
             thermalStrip = image

@@ -10,6 +10,7 @@
 //
 
 import Foundation
+import LocalAuthentication
 
 struct BoothSessionEnvironment {
     enum Purpose: Equatable {
@@ -41,6 +42,12 @@ struct BoothSessionEnvironment {
         nil // Legacy injection point; the static studio never consults it.
     }
 
+    /// Authorized-operator confirmation that cash for the shown total was received. True only
+    /// after local operator authentication on this iPad; a guest tap alone can never pass it.
+    var authorizeAttendantCashConfirmation: @MainActor (_ totalText: String) async -> Bool = { total in
+        await AttendantCashConfirmation.authenticate(totalText: total)
+    }
+
     static var customer: BoothSessionEnvironment { BoothSessionEnvironment() }
 
     var isQualification: Bool {
@@ -53,5 +60,19 @@ struct BoothSessionEnvironment {
             return try RecentSessionArchiveStore(directoryURL: directory)
         }
         return try RecentSessionArchiveStore()
+    }
+}
+
+/// Device-owner authentication (Face ID, Touch ID or the iPad passcode) for attendants
+/// confirming cash. Mirrors the operator unlock; it stores nothing.
+enum AttendantCashConfirmation {
+    @MainActor static func authenticate(totalText: String) async -> Bool {
+        let context = LAContext()
+        context.touchIDAuthenticationAllowableReuseDuration = 0
+        context.localizedFallbackTitle = "Use iPad Passcode"
+        var error: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else { return false }
+        return (try? await context.evaluatePolicy(.deviceOwnerAuthentication,
+            localizedReason: "Attendant: confirm you received \(totalText) in cash")) ?? false
     }
 }

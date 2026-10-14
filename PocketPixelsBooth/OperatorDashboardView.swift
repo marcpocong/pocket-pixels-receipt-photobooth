@@ -24,7 +24,7 @@ struct OperatorDashboardView: View {
                         Image(systemName: "slider.horizontal.3").font(.largeTitle)
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Session Setup").font(.title2.weight(.semibold))
-                            Text("Choose how guests use the booth, review, and start.").font(.callout)
+                            Text("Event, payment, receipt design — review and start.").font(.callout)
                         }
                         Spacer()
                         Image(systemName: "arrow.right").font(.title3)
@@ -144,7 +144,7 @@ private struct OperatorDestinationView: View {
         case .gallerySetup: OperatorGallerySettingsView()
         case .waitingGalleries: PendingUploadsView()
         case .storage: OperatorStorageView()
-        case .eventSetup: EventSetupView()
+        case .eventSetup: EventDesignRouteView()
         }
     }
 }
@@ -487,9 +487,8 @@ extension OperatorWorkspaceRoute {
         case .sessionSetup, .charging: SessionSetupView()
         case .branding: OperatorBrandingView()
         case .payments: PaymentsOperatorView()
-        case .eventSetup: EventSetupView()
+        case .eventSetup, .receiptDesign: EventDesignRouteView()
         case .boothCheck: EventPreflightView()
-        case .receiptDesign: ReceiptDesignAndBrandingView()
         case .stickers: StickerStudioOperatorView()
         case .samplePrints: SamplePrintStudioView()
         case .equipment: OperatorEquipmentView()

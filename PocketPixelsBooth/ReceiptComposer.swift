@@ -75,6 +75,8 @@ private struct ReceiptTextSnapshot: Sendable {
     /// already been switched to the Made to Keep masthead.
     let headerConfiguration: ReceiptHeaderConfiguration
     let headerSourceSize: CGSize?
+    /// Visible content of the header artwork (padding excluded); Co-Branded sizes by this.
+    let headerContentBounds: CGRect?
     let branding: ReceiptBrandingResolution
     let captionLines: [String]
     /// Frozen session date and time, e.g. `OCT 13 2026` / `2:50 AM` (Asia/Manila).
@@ -93,6 +95,8 @@ private struct ReceiptHeaderLayout: Sendable {
     /// Legacy headers keep their divider above the photographs.
     let dividerY: Int?
     let bottom: Int
+    /// Co-Branded only: the × between the Made to Keep wordmark and the event logo.
+    var coBrandSeparator: CGRect? = nil
 }
 
 /// The reference footer: decorative barcode | MTK monogram | session date and time, divided by
@@ -147,6 +151,9 @@ struct ReceiptLayoutPlan: Sendable {
     let customHeaderFrame: CGRect?
     /// Event artwork printed as the compact Studio-First signature below the footer.
     let eventSignatureFrame: CGRect?
+    /// Co-Branded only: the × centred between the wordmark (`mastheadFrames`) and the logo
+    /// (`customHeaderFrame`).
+    let coBrandSeparatorFrame: CGRect?
     let mastheadFrames: [CGRect]
     let captionLines: [String]
     let captionFrames: [CGRect]
@@ -302,7 +309,8 @@ enum ReceiptComposer {
             date: date,
             sessionIdentifier: printsSessionIdentifier ? sessionIdentifier : "",
             eventProfile: eventSnapshot,
-            headerSourceSize: headerArtwork?.size
+            headerSourceSize: headerArtwork?.size,
+            headerContentBounds: headerArtwork?.contentBounds
         )
         let qrImage: UIImage? = try {
             guard let galleryURL, printOptions.includesPrintedGalleryQR else { return nil }
@@ -455,7 +463,7 @@ enum ReceiptComposer {
         let header = plan.headerLayout
         let editorial = plan.editorialLayout
         var rects: [CGRect] = header.mastheadTexts.map(\.rect)
-        rects += [header.customImageFrame].compactMap { $0 }
+        rects += [header.customImageFrame, header.coBrandSeparator].compactMap { $0 }
         rects += header.eventTextFrames.map(\.rect)
         rects += editorial.footer.elementFrames
         rects += editorial.captionTexts.map(\.rect)
@@ -483,12 +491,14 @@ enum ReceiptComposer {
         date: Date = Date(timeIntervalSince1970: 1_788_692_040)
     ) throws -> ReceiptLayoutPlan {
         let eventSnapshot = eventProfile?.activeReceiptSnapshot
+        let artwork = loadEffectiveHeaderArtwork(for: eventSnapshot)
         let textSnapshot = makeTextSnapshot(
             format: format,
             date: date,
             sessionIdentifier: "PP-20260907-161400",
             eventProfile: eventSnapshot,
-            headerSourceSize: loadEffectiveHeaderArtwork(for: eventSnapshot)?.size
+            headerSourceSize: artwork?.size,
+            headerContentBounds: artwork?.contentBounds
         )
         let passportContent = makePassportContent(
             format: format,
@@ -546,14 +556,7 @@ enum ReceiptComposer {
         // Profiles saved before branding modes never printed their header artwork on Photo Pass;
         // it keeps the Made to Keep masthead. Event-First artwork leads Photo Pass like any format.
         let showsTopArtwork = branding.showsTopArtwork && !(format == .passport && branding.placement == .legacyHeader)
-        let headerLayout: ReceiptHeaderLayout
-        if isLegacyPassport {
-            headerLayout = makeSuppressedHeaderLayout(textSnapshot: textSnapshot, startY: Metrics.receiptTopPadding)
-        } else if branding.placement == .legacyHeader && format != .passport {
-            headerLayout = makeLegacyHeaderLayout(textSnapshot: textSnapshot, startY: Metrics.receiptTopPadding, width: width)
-        } else {
-            headerLayout = makeEditorialHeaderLayout(textSnapshot: textSnapshot, showsTopArtwork: showsTopArtwork, startY: Metrics.receiptTopPadding, width: width)
-        }
+        let headerLayout = makeHeaderLayout(format: format, textSnapshot: textSnapshot, isLegacyPassport: isLegacyPassport, width: width)
 
         let top = headerLayout.bottom
         let photoWidth = width - Metrics.photoMargin * 2
@@ -648,6 +651,7 @@ enum ReceiptComposer {
             branding: branding,
             customHeaderFrame: passportLayout?.headerGraphicRect ?? headerLayout.customImageFrame,
             eventSignatureFrame: editorial.signatureFrame,
+            coBrandSeparatorFrame: headerLayout.coBrandSeparator,
             mastheadFrames: headerLayout.mastheadTexts.map(\.rect),
             captionLines: editorial.captionTexts.map(\.text),
             captionFrames: editorial.captionTexts.map(\.rect),
@@ -667,6 +671,43 @@ enum ReceiptComposer {
     }
 
     // MARK: Header
+
+    /// The one place that decides which header a receipt prints.
+    nonisolated private static func makeHeaderLayout(format: BoothFormat, textSnapshot: ReceiptTextSnapshot, isLegacyPassport: Bool, width: Int) -> ReceiptHeaderLayout {
+        let branding = textSnapshot.branding
+        // Profiles saved before branding modes never printed their header artwork on Photo Pass;
+        // it keeps the Made to Keep masthead. Event-First artwork leads Photo Pass like any format.
+        let showsTopArtwork = branding.showsTopArtwork && !(format == .passport && branding.placement == .legacyHeader)
+        if isLegacyPassport {
+            return makeSuppressedHeaderLayout(textSnapshot: textSnapshot, startY: Metrics.receiptTopPadding)
+        } else if branding.placement == .coBranded, let sourceSize = textSnapshot.headerSourceSize {
+            return makeCoBrandedHeaderLayout(textSnapshot: textSnapshot, sourceSize: sourceSize, startY: Metrics.receiptTopPadding, width: width)
+        } else if branding.placement == .legacyHeader && format != .passport {
+            return makeLegacyHeaderLayout(textSnapshot: textSnapshot, startY: Metrics.receiptTopPadding, width: width)
+        }
+        return makeEditorialHeaderLayout(textSnapshot: textSnapshot, showsTopArtwork: showsTopArtwork, startY: Metrics.receiptTopPadding, width: width)
+    }
+
+    /// The header band exactly as a Solo receipt prints it (masthead, Co-Branded lockup or event
+    /// artwork), for design editors. Uses the same layout and drawing as `compose`.
+    nonisolated static func renderHeaderStrip(eventProfile: EventProfile?) -> (image: UIImage, artworkFrame: CGRect?) {
+        let snapshot = eventProfile?.activeReceiptSnapshot
+        let artwork = loadEffectiveHeaderArtwork(for: snapshot)
+        let textSnapshot = makeTextSnapshot(format: .solo, date: Date(), sessionIdentifier: "", eventProfile: snapshot,
+                                            headerSourceSize: artwork?.size, headerContentBounds: artwork?.contentBounds)
+        let width = BoothConfiguration.receiptWidth
+        let layout = makeHeaderLayout(format: .solo, textSnapshot: textSnapshot, isLegacyPassport: false, width: width)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let size = CGSize(width: width, height: max(1, layout.bottom))
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            drawHeader(textSnapshot: textSnapshot, layout: layout, customArtwork: artwork)
+        }
+        return (image, layout.customImageFrame)
+    }
 
     /// The legacy Passport carries its own title and artwork inside the upper card, so no
     /// masthead or event text block is stacked above it.
@@ -722,6 +763,73 @@ enum ReceiptComposer {
             eventTextFrames: [],
             dividerY: nil,
             bottom: masthead.bottom + Metrics.mastheadPhotoGap
+        )
+    }
+
+    /// Co-Branded: `made to keep / studios` × event logo on one shared midline. The wordmark is
+    /// sized to its half of the paper, the logo keeps its own proportions inside a box that suits
+    /// both wide and square marks, and the × stays centred on the paper.
+    nonisolated private static func makeCoBrandedHeaderLayout(textSnapshot: ReceiptTextSnapshot, sourceSize: CGSize, startY: Int, width: Int) -> ReceiptHeaderLayout {
+        typealias Geometry = CoBrandedHeaderGeometry
+        let config = textSnapshot.headerConfiguration
+        let receiptWidth = CGFloat(width)
+        let slot = Geometry.slotWidth(receiptWidth: receiptWidth)
+        let position = config.effectiveHorizontalPosition
+        let spacing = Geometry.verticalSpacing(configuration: config, mastheadTopInset: Metrics.mastheadTopInset, mastheadPhotoGap: Metrics.mastheadPhotoGap)
+
+        // Largest wordmark that fits its slot, with `studios` kept in masthead proportion.
+        var wordmarkSize = Geometry.wordmarkMaximumSize
+        let wordmarkFont = font(for: .wordmark, size: wordmarkSize)
+        let naturalWidth = visibleWidth(MadeToKeepBrand.wordmark, font: wordmarkFont, tracking: 0)
+        if naturalWidth > slot {
+            wordmarkSize = max(Geometry.wordmarkMinimumSize, floor(wordmarkSize * slot / naturalWidth * 10) / 10)
+        }
+        let ratio = wordmarkSize / Geometry.mastheadWordmarkSize
+        let studiosSize = max(Geometry.studiosMinimumSize, (Geometry.mastheadStudiosSize * ratio * 10).rounded() / 10)
+        let studiosTracking = (Geometry.mastheadStudiosTracking * ratio * 10).rounded() / 10
+
+        // Measure at y = 0, then place the lockup and logo on one midline.
+        let probeWordmark = makeTextFrame(MadeToKeepBrand.wordmark, style: .wordmark, size: wordmarkSize, tracking: 0, anchor: .leading(0), y: 0)
+        let wordmarkVisible = max(0, probeWordmark.rect.width - 1)
+        let probeStudios = makeTextFrame(MadeToKeepBrand.secondary, style: .studios, size: studiosSize, tracking: studiosTracking, anchor: .leading(0), y: 0)
+        let studiosTop = Int(probeWordmark.rect.maxY) + Metrics.wordmarkStudiosGap
+        let blockHeight = CGFloat(studiosTop) + probeStudios.rect.height
+
+        let logoSize = Geometry.logoFrameSize(sourceSize: textSnapshot.headerContentBounds?.size ?? sourceSize, configuration: config, receiptWidth: receiptWidth)
+        let bandTop = CGFloat(startY + spacing.top)
+        let bandHeight = max(blockHeight, logoSize.height)
+        let midline = bandTop + bandHeight / 2
+
+        let blockTop = Int((midline - blockHeight / 2).rounded())
+        let wordmarkX = Geometry.slotX(width: wordmarkVisible, leftSide: true, position: position, receiptWidth: receiptWidth)
+        let wordmark = makeTextFrame(MadeToKeepBrand.wordmark, style: .wordmark, size: wordmarkSize, tracking: 0, anchor: .leading(wordmarkX), y: blockTop)
+        let studios = makeTextFrame(
+            MadeToKeepBrand.secondary,
+            style: .studios,
+            size: studiosSize,
+            tracking: studiosTracking,
+            anchor: .center(wordmarkX + wordmarkVisible / 2),
+            y: Int(wordmark.rect.maxY) + Metrics.wordmarkStudiosGap
+        )
+
+        let logoX = Geometry.slotX(width: logoSize.width, leftSide: false, position: position, receiptWidth: receiptWidth)
+        let logoFrame = CGRect(x: logoX, y: floor(midline - logoSize.height / 2), width: logoSize.width, height: logoSize.height)
+        let separator = CGRect(
+            x: floor(receiptWidth / 2 - Geometry.separatorSize / 2),
+            y: floor(midline - Geometry.separatorSize / 2),
+            width: Geometry.separatorSize,
+            height: Geometry.separatorSize
+        )
+        let contentBottom = max(studios.rect.maxY, logoFrame.maxY)
+        return ReceiptHeaderLayout(
+            mode: .customEventHeader,
+            startY: startY,
+            mastheadTexts: [wordmark, studios],
+            customImageFrame: logoFrame,
+            eventTextFrames: [],
+            dividerY: nil,
+            bottom: Int(ceil(contentBottom)) + spacing.bottom,
+            coBrandSeparator: separator
         )
     }
 
@@ -1006,7 +1114,8 @@ enum ReceiptComposer {
         date: Date,
         sessionIdentifier: String,
         eventProfile: EventProfile?,
-        headerSourceSize: CGSize? = nil
+        headerSourceSize: CGSize? = nil,
+        headerContentBounds: CGRect? = nil
     ) -> ReceiptTextSnapshot {
         let branding = ReceiptBrandingResolution.resolve(header: eventProfile?.receiptHeader, artworkAvailable: headerSourceSize != nil)
         var configuration = eventProfile?.receiptHeader.normalized() ?? .default
@@ -1038,6 +1147,7 @@ enum ReceiptComposer {
             eventTypography: eventProfile?.receiptDesign.typography.resolved ?? .preset(.classic),
             headerConfiguration: configuration,
             headerSourceSize: headerSourceSize,
+            headerContentBounds: headerContentBounds,
             branding: branding,
             captionLines: captionLines,
             footerDateLines: [
@@ -1080,6 +1190,9 @@ enum ReceiptComposer {
                 throw ReceiptComposerError.invalidLayout("custom header exceeds its safe maximum height")
             }
         }
+        if let separator = header.coBrandSeparator {
+            try validateCoBrandedHeader(header, separator: separator, canvas: canvas)
+        }
         try validateEventText(header.eventTextFrames, name: "header.event", inside: canvas)
         for frame in header.eventTextFrames {
             if let customImageFrame = header.customImageFrame, frame.rect.intersects(customImageFrame) {
@@ -1089,7 +1202,7 @@ enum ReceiptComposer {
         if let lastEventFrame = header.eventTextFrames.last, let dividerY = header.dividerY, Int(ceil(lastEventFrame.rect.maxY)) > dividerY {
             throw ReceiptComposerError.invalidLayout("event text extends past the header divider")
         }
-        let headerContentBottom = ([header.customImageFrame].compactMap { $0 } + header.mastheadTexts.map(\.rect) + header.eventTextFrames.map(\.rect))
+        let headerContentBottom = ([header.customImageFrame, header.coBrandSeparator].compactMap { $0 } + header.mastheadTexts.map(\.rect) + header.eventTextFrames.map(\.rect))
             .map(\.maxY).max() ?? CGFloat(header.startY)
         guard headerContentBottom <= CGFloat(header.bottom),
               header.bottom <= Int(plan.photoFrames.map(\.rect.minY).min() ?? CGFloat(plan.height)) else {
@@ -1129,6 +1242,26 @@ enum ReceiptComposer {
             try validatePhotoPassLayout(photoPassLayout, contentBottom: photoBottom, canvas: canvas)
         }
         try validateEditorialLayout(plan.editorialLayout, contentBottom: photoBottom, height: plan.height, canvas: canvas)
+    }
+
+    /// The wordmark sits left of the ×, the logo right of it, nothing touches, everything stays
+    /// inside the printable width and the × is centred on the paper.
+    nonisolated private static func validateCoBrandedHeader(_ header: ReceiptHeaderLayout, separator: CGRect, canvas: CGRect) throws {
+        try validateFrame(separator, name: "header.coBrandSeparator", inside: canvas)
+        guard let logo = header.customImageFrame, header.mastheadTexts.count == 2 else {
+            throw ReceiptComposerError.invalidLayout("co-branded header is missing an identity")
+        }
+        let printableLeft = CGFloat(BoothConfiguration.receiptHorizontalMargin)
+        let printableRight = canvas.width - CGFloat(BoothConfiguration.receiptHorizontalMargin)
+        let wordmarkRight = header.mastheadTexts.map { $0.rect.maxX - $0.tracking - 1 }.max() ?? canvas.maxX
+        guard abs(separator.midX - canvas.midX) <= 1,
+              header.mastheadTexts.allSatisfy({ $0.rect.minX >= printableLeft }),
+              wordmarkRight <= separator.minX,
+              logo.minX >= separator.maxX,
+              logo.maxX <= printableRight,
+              logo.width > 0, logo.height > 0 else {
+            throw ReceiptComposerError.invalidLayout("co-branded identities overlap the × or leave the printable width")
+        }
     }
 
     /// Every editorial block sits inside the paper and strictly below the previous one, the
@@ -1477,6 +1610,16 @@ enum ReceiptComposer {
         customArtwork: EventArtwork?
     ) {
         layout.mastheadTexts.forEach(drawText)
+        if let separator = layout.coBrandSeparator {
+            drawCoBrandSeparator(in: separator)
+            if let customArtwork, let frame = layout.customImageFrame {
+                // Rendered at the logo's exact dot size: vectors stay sharp, bitmaps resample once.
+                let rendered = EventHeaderImageProcessor.renderedArtwork(source: customArtwork, configuration: textSnapshot.headerConfiguration,
+                                                                         frameSize: frame.size, contentRect: textSnapshot.headerContentBounds ?? CGRect(origin: .zero, size: customArtwork.size))
+                rendered.image.draw(in: frame)
+            }
+            return
+        }
         if let customArtwork, let frame = layout.customImageFrame {
             let rendered = EventHeaderImageProcessor.renderedHeader(
                 source: customArtwork,
@@ -1543,6 +1686,20 @@ enum ReceiptComposer {
         let text = NSString(string: "MTK")
         let size = text.size(withAttributes: attributes)
         text.draw(at: CGPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2), withAttributes: attributes)
+    }
+
+    /// A thin vector × that survives 1-bit conversion without reading as a heavy glyph.
+    nonisolated private static func drawCoBrandSeparator(in rect: CGRect) {
+        let inset = CoBrandedHeaderGeometry.separatorLineWidth / 2
+        let path = UIBezierPath()
+        path.move(to: CGPoint(x: rect.minX + inset, y: rect.minY + inset))
+        path.addLine(to: CGPoint(x: rect.maxX - inset, y: rect.maxY - inset))
+        path.move(to: CGPoint(x: rect.maxX - inset, y: rect.minY + inset))
+        path.addLine(to: CGPoint(x: rect.minX + inset, y: rect.maxY - inset))
+        path.lineWidth = CoBrandedHeaderGeometry.separatorLineWidth
+        path.lineCapStyle = .butt
+        UIColor.black.setStroke()
+        path.stroke()
     }
 
     nonisolated private static func drawDashedRule(_ rect: CGRect, context: CGContext) {

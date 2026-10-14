@@ -171,7 +171,7 @@ struct ServerEventEditorView: View {
     @ViewBuilder private func policySummary(_ policy: OperatorPolicyRevision, prefix: String) -> some View {
         LabeledContent("\(prefix) copies", value: "Default \(policy.defaultCopies) · maximum \(policy.maxCopies)")
         LabeledContent("\(prefix) payment methods", value: policy.commercialMode == .privatePrepaid ? "Prepaid" :
-            [policy.qrphEnabled ? "QR Ph" : nil, policy.cashEnabled ? "Cash (self-reported)" : nil].compactMap { $0 }.joined(separator: ", "))
+            [policy.qrphEnabled ? "QR Ph" : nil, policy.cashEnabled ? "Cash (attendant confirmed)" : nil].compactMap { $0 }.joined(separator: ", "))
         LabeledContent("\(prefix) offline cash", value: policy.cashEnabled && policy.offlineValidUntil != nil ? "Allowed until \(policy.offlineValidUntil!.formatted())" : "Disabled")
     }
 
@@ -282,13 +282,14 @@ struct ServerEventEditorView: View {
             Section("Sales Provenance") {
                 LabeledContent("QR Ph verified (LIVE)", value: PHPPriceFormatter.string(centavos: summary.verifiedQRPhLiveCentavos))
                 LabeledContent("QR Ph verified (TEST, excluded)", value: PHPPriceFormatter.string(centavos: summary.verifiedQRPhTestCentavos))
-                LabeledContent("Cash self-reported (unverified)", value: PHPPriceFormatter.string(centavos: summary.cashSelfReportedCentavos))
+                LabeledContent("Cash confirmed by attendant", value: PHPPriceFormatter.string(centavos: summary.cashOperatorConfirmedCentavos ?? 0))
+                LabeledContent("Cash guest-declared (unverified, historical)", value: PHPPriceFormatter.string(centavos: summary.cashSelfReportedCentavos))
                 if let offline = summary.cashSelfReportedOfflineSyncedCentavos, offline > 0 {
                     LabeledContent("  of which synced from offline", value: PHPPriceFormatter.string(centavos: offline))
                 }
                 if let physical = summary.physicalCashCount {
                     LabeledContent("Cash physically counted", value: PHPPriceFormatter.string(centavos: physical.countedCentavos))
-                    LabeledContent("Variance (counted − self-reported)", value: PHPPriceFormatter.string(centavos: physical.varianceCentavos))
+                    LabeledContent("Variance (counted − all cash orders)", value: PHPPriceFormatter.string(centavos: physical.varianceCentavos))
                     if physical.provisional { Label("Provisional: offline cash is still unsynced or in conflict", systemImage: "exclamationmark.triangle") }
                 } else {
                     Text("Cash reconciliation: NOT RECONCILED").foregroundStyle(.secondary)
@@ -530,7 +531,7 @@ struct ServerEventEditorView: View {
         switch action {
         case .publish, .activate:
             guard let latest = detail?.latestRevision else { return "" }
-            let methods = [latest.qrphEnabled ? "QR Ph" : nil, latest.cashEnabled ? "cash (self-reported)" : nil].compactMap { $0 }.joined(separator: " and ")
+            let methods = [latest.qrphEnabled ? "QR Ph" : nil, latest.cashEnabled ? "cash (attendant confirmed)" : nil].compactMap { $0 }.joined(separator: " and ")
             return "Guests starting a new checkout will see revision \(latest.revision): \(priceLabel(latest)), up to \(latest.maxCopies) copies\(methods.isEmpty ? "" : ", paid by \(methods)"). Guests already checking out keep their price."
         case .pause: return "No new checkouts can start. Paid entitlements remain usable. Offline policies are revoked when iPads reconnect."
         case .resume: return "Guests can start new checkouts with the published revision."

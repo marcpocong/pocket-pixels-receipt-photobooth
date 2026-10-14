@@ -222,8 +222,12 @@ nonisolated struct PaymentAttempt: Codable, Equatable, Sendable, Identifiable {
     let qrImageDataURL: String?
     let testURL: URL?
     let expiresAt: Date?
-    /// `PROVIDER_VERIFIED`, `NOT_VERIFIED`, or `UNVERIFIED_SELF_REPORTED` for guest cash.
+    /// `PROVIDER_VERIFIED`, `NOT_VERIFIED`, `OPERATOR_CONFIRMED` for attendant-confirmed cash, or
+    /// `UNVERIFIED_SELF_REPORTED` for historical guest-declared cash.
     var verification: String? = nil
+
+    static let operatorConfirmedVerification = "OPERATOR_CONFIRMED"
+    var isOperatorConfirmedCash: Bool { method == "CASH_DECLARED" && verification == Self.operatorConfirmedVerification }
 
     /// No payment can still arrive for this attempt's own QR code.
     var isConclusivelyUnpaid: Bool {

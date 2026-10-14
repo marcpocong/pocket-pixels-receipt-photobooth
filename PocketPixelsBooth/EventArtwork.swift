@@ -56,6 +56,8 @@ nonisolated final class EventArtwork: @unchecked Sendable {
     private let page: CGPDFPage?
     /// CGPDFPage drawing is serialized so previews and receipt composition can share one instance.
     private let drawLock = NSLock()
+    private let boundsLock = NSLock()
+    private var cachedContentBounds: CGRect?
 
     init(image: UIImage) {
         kind = .bitmap
@@ -141,6 +143,50 @@ nonisolated final class EventArtwork: @unchecked Sendable {
         context.translateBy(x: -box.minX, y: -box.minY)
         context.clip(to: box)
         context.drawPDFPage(page)
+    }
+
+    /// The visible mark inside the artwork, in intrinsic units: transparent and near-white
+    /// margins are excluded so a padded logo is sized by what actually prints. Never smaller
+    /// than the drawn content; falls back to the whole artwork when nothing is visible.
+    var contentBounds: CGRect {
+        boundsLock.lock()
+        defer { boundsLock.unlock() }
+        if let cachedContentBounds { return cachedContentBounds }
+        let measured = Self.measureContentBounds(of: self)
+        cachedContentBounds = measured
+        return measured
+    }
+
+    private static func measureContentBounds(of artwork: EventArtwork) -> CGRect {
+        let whole = CGRect(origin: .zero, size: artwork.size)
+        let sampleLimit: CGFloat = 512
+        let factor = min(1, sampleLimit / max(artwork.size.width, artwork.size.height))
+        let width = max(1, Int(ceil(artwork.size.width * factor)))
+        let height = max(1, Int(ceil(artwork.size.height * factor)))
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        guard let context = CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return whole }
+        // UIKit-style top-left coordinates so rows map directly to y.
+        context.translateBy(x: 0, y: CGFloat(height))
+        context.scaleBy(x: 1, y: -1)
+        artwork.draw(in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)), context: context)
+        var minX = width, minY = height, maxX = -1, maxY = -1
+        for y in 0..<height {
+            for x in 0..<width {
+                let index = (y * width + x) * 4
+                let alpha = Int(pixels[index + 3])
+                guard alpha > 24 else { continue }
+                // Premultiplied colour: visible means noticeably darker than white paper.
+                let darkest = min(Int(pixels[index]), Int(pixels[index + 1]), Int(pixels[index + 2]))
+                guard darkest * 100 < alpha * 94 else { continue }
+                minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+            }
+        }
+        guard maxX >= minX, maxY >= minY else { return whole }
+        // One sample pixel of padding on each side so anti-aliased edges are never clipped.
+        let rect = CGRect(x: CGFloat(minX - 1) / factor, y: CGFloat(minY - 1) / factor,
+                          width: CGFloat(maxX - minX + 3) / factor, height: CGFloat(maxY - minY + 3) / factor)
+        return rect.intersection(whole).isNull ? whole : rect.intersection(whole)
     }
 
     /// A bitmap for thumbnails, quality analysis and layouts that need a `UIImage`.

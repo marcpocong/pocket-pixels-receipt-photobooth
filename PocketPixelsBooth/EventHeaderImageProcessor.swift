@@ -163,6 +163,28 @@ enum EventHeaderImageProcessor {
         return EventHeaderRenderResult(image: image, frameSize: size, sourceDrawRect: drawRect)
     }
 
+    /// Renders only the artwork's visible content (`contentRect`, intrinsic units) into the frame,
+    /// so empty padding never shrinks the mark. Fit shows the whole content; Fill crops it.
+    nonisolated static func renderedArtwork(source: EventArtwork, configuration config: ReceiptHeaderConfiguration, frameSize size: CGSize, contentRect: CGRect) -> EventHeaderRenderResult {
+        let content = contentRect.isEmpty ? CGRect(origin: .zero, size: source.size) : contentRect
+        let base = sourceDrawRect(sourceSize: content.size, frameSize: size, configuration: config)
+        let scale = base.width / max(1, content.width)
+        let drawRect = CGRect(x: base.minX - content.minX * scale, y: base.minY - content.minY * scale,
+                              width: source.size.width * scale, height: source.size.height * scale)
+        let frame = CGRect(origin: .zero, size: size)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            UIColor.white.setFill()
+            context.fill(frame)
+            context.cgContext.clip(to: frame)
+            context.cgContext.interpolationQuality = .high
+            source.draw(in: drawRect, context: context.cgContext)
+        }
+        return EventHeaderRenderResult(image: image, frameSize: size, sourceDrawRect: drawRect)
+    }
+
     /// Where the artwork is drawn inside its frame for the given fit, zoom and crop position.
     nonisolated static func sourceDrawRect(sourceSize: CGSize, frameSize size: CGSize, configuration: ReceiptHeaderConfiguration) -> CGRect {
         let config = configuration.normalized()

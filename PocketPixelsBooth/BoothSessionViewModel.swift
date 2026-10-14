@@ -45,6 +45,8 @@ final class BoothSessionViewModel: ObservableObject {
     @Published private(set) var checkoutGuard = CheckoutGuard()
     /// Guest-visible checkout notice (for example an updated price or a failed QR start).
     @Published private(set) var paymentNotice: String?
+    /// True while the attendant confirms cash or the checkout is being created.
+    var isCheckoutTransitionActive: Bool { isTransitionActive }
     @Published private(set) var isPrintBatchActive = false
     @Published var selectedPrintCopies = 1 {
         didSet {
@@ -447,6 +449,22 @@ final class BoothSessionViewModel: ObservableObject {
         selectedPrintCopies = selectedCheckoutCopies
         paymentNotice = nil
         state = .choosingPayment
+        // A single offered method skips the choice screen. This runs only from the guest's own
+        // tap; QR creation stays idempotent and guarded by the payment state.
+        switch soleOfferedPaymentMethod {
+        case .qrPh? where canChooseQRPh: chooseQRPh()
+        case .cash? where canChooseCash: chooseCash()
+        default: break
+        }
+    }
+
+    /// The only method this event offers, or nil when the guest chooses between QR Ph and cash.
+    var soleOfferedPaymentMethod: GuestPaymentMethod? {
+        let policy = commercialEvent.activePolicy
+        guard policy.commercialMode == .payPerPrint else { return nil }
+        if policy.qrPhEnabled && !policy.cashEnabled && !policyAuthority.isOfflineCashOnly { return .qrPh }
+        if policy.cashEnabled && (!policy.qrPhEnabled || policyAuthority.isOfflineCashOnly) { return .cash }
+        return nil
     }
 
     var canChooseCash: Bool {
@@ -461,27 +479,62 @@ final class BoothSessionViewModel: ObservableObject {
         state == .paymentReconciliation && checkoutGuard.canStartNewCheckout() && paymentOrder != nil
     }
 
+    /// The guest may go back from cash to the other method only before anything was confirmed.
+    var canLeaveCashPayment: Bool {
+        state == .cashAttestation && !isTransitionActive && commercialEvent.activePolicy.qrPhEnabled && soleOfferedPaymentMethod == nil
+    }
+
     func chooseCash() {
         guard state == .choosingPayment, canChooseCash else { return }
+        paymentNotice = nil
         state = .cashAttestation
     }
 
-    func declareCashPaid() {
-        guard state == .cashAttestation, !isTransitionActive, let format = selectedBoothFormat, let sessionIdentifier, canChooseCash else { return }
+    func leaveCashPayment() {
+        guard canLeaveCashPayment else { return }
+        paymentNotice = nil
+        state = .choosingPayment
+    }
+
+    /// Cash is authorized only after an authorized operator confirms receipt on this iPad. The
+    /// guest's own tap never authorizes: local operator authentication releases the operator
+    /// credential, and the server records the order as operator-confirmed (never provider-verified).
+    func confirmCashReceivedByAttendant() {
+        guard state == .cashAttestation, !isTransitionActive, let format = selectedBoothFormat, let sessionIdentifier, canChooseCash,
+              let total = commercialEvent.activePolicy.totalCentavos(for: selectedCheckoutCopies) else { return }
         isTransitionActive = true
+        paymentNotice = nil
         let generation = customerSessionGeneration
         let copies = selectedCheckoutCopies
         activeTask = Task { [weak self] in
             guard let self else { return }
+            let permit = OperatorAccessPermit.shared
+            let wasAuthorized = permit.isAuthorized
+            let confirmed = await environment.authorizeAttendantCashConfirmation(PHPPriceFormatter.string(centavos: total))
+            guard isCurrentCustomerSession(generation), state == .cashAttestation else { return }
+            guard confirmed else {
+                isTransitionActive = false
+                paymentNotice = "Cash was not confirmed. An attendant must confirm on this iPad after receiving your payment."
+                return
+            }
+            permit.authorize()
+            defer { if !wasAuthorized { permit.revoke() } }
             do {
                 switch policyAuthority {
                 case .serverConfirmed:
                     guard let event = serverEventPolicy, let client = paymentsClient else { throw PaymentsAPIError.configuration("Payments are not set up on this iPad.") }
                     checkoutGuard.serverCheckoutStarted = true
-                    let order = try await createCheckoutOrder(client: client, event: event, format: format, copies: copies, sessionID: sessionIdentifier, method: "CASH_DECLARED")
+                    // A retry after an unconfirmed attempt reuses this session's open order.
+                    let order: PaymentOrder
+                    if let existing = paymentOrder, existing.supersededByOrderID == nil, existing.paymentMethod == nil || existing.paymentMethod == "CASH_DECLARED" {
+                        order = existing
+                    } else {
+                        order = try await createCheckoutOrder(client: client, event: event, format: format, copies: copies, sessionID: sessionIdentifier, method: "CASH_DECLARED")
+                    }
                     checkpointStore?.update(id: sessionIdentifier) { $0.phase = .paymentRequested }
-                    let response = try await retryingUnknownOutcome { try await client.declareCash(orderID: order.id) }
-                    guard let entitlement = response.entitlement else { throw PaymentsAPIError.invalidResponse }
+                    let response = try await retryingUnknownOutcome { try await client.confirmCash(orderID: order.id, expectedTotalCentavos: total) }
+                    guard response.attempt?.isOperatorConfirmedCash == true, let entitlement = response.entitlement else { throw PaymentsAPIError.invalidResponse }
+                    paymentAttempt = response.attempt
                     checkpointStore?.update(id: sessionIdentifier) { $0.phase = .entitled; $0.entitlementID = entitlement.id }
                     guard isCurrentCustomerSession(generation) else { return }
                     try await claimAndPrepareCamera(entitlement, client: client, sessionID: sessionIdentifier, generation: generation)
@@ -509,9 +562,22 @@ final class BoothSessionViewModel: ObservableObject {
             } catch {
                 guard isCurrentCustomerSession(generation) else { return }
                 isTransitionActive = false
+                if let apiError = error as? PaymentsAPIError, Self.isCashConfirmationUnavailable(apiError) {
+                    // The payments service predates attendant confirmation, or the operator
+                    // credential was refused. Never fall back to a guest self-declaration.
+                    paymentNotice = "Cash could not be confirmed on the payments server. Please ask the attendant for help\(commercialEvent.activePolicy.qrPhEnabled ? " or pay with QR Ph" : "")."
+                    return
+                }
                 handleCheckoutError(error)
             }
         }
+    }
+
+    /// The server cannot take attendant confirmations (older service, missing operator pairing or
+    /// refused operator credential). Nothing was authorized; the guest stays on the cash screen.
+    nonisolated static func isCashConfirmationUnavailable(_ error: PaymentsAPIError) -> Bool {
+        if case .configuration = error { return true }
+        return error == .unauthorized || ["not_found", "forbidden"].contains(error.code ?? "")
     }
 
     func chooseQRPh() {
@@ -939,6 +1005,25 @@ final class BoothSessionViewModel: ObservableObject {
         isCameraUnavailable = false
         state = .cameraReady
     }
+
+    /// A paid session at copy selection with the given methods, without touching the server.
+    func configurePaidCheckoutForTesting(qrPhEnabled: Bool, cashEnabled: Bool, authority: PolicyAuthority = .serverConfirmed(fetchedAt: Date())) {
+        var run = CommercialEventRun.legacy
+        run.activePolicy.commercialMode = .payPerPrint
+        run.activePolicy.unitPriceCentavos = 2_500
+        run.activePolicy.qrPhEnabled = qrPhEnabled
+        run.activePolicy.cashEnabled = cashEnabled
+        commercialEvent = run
+        policyAuthority = authority
+        checkoutGuard = CheckoutGuard()
+        selectedBoothFormat = .solo
+        sessionIdentifier = "TEST-\(UUID().uuidString)"
+        selectedCheckoutCopies = 2
+        isTransitionActive = false
+        state = .choosingCopies
+    }
+
+    var activeTaskForTesting: Task<Void, Never>? { activeTask }
 
     func cancelActiveTaskForTesting() {
         activeTask?.cancel()

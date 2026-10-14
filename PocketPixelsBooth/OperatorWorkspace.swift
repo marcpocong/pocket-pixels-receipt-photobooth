@@ -60,6 +60,9 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
         var newEventName = ""
         var newEventVenue = ""
         var sessionSetup: OperatorSessionSetupDraft?
+        /// Unsaved event design edits keyed by saved-event ID, so switching events never mixes
+        /// one event's logo into another's.
+        var designDrafts: [String: SavedEventDesign]?
     }
 
     @Published var path: [OperatorWorkspaceRoute] { didSet { snapshot.path = path; persist() } }
@@ -91,6 +94,7 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
     var hasUnsavedDrafts: Bool {
         !snapshot.serverDrafts.isEmpty || snapshot.brandingDraft != nil || snapshot.prepaidDraft != nil
             || !snapshot.newEventName.isEmpty || !snapshot.newEventVenue.isEmpty || snapshot.sessionSetup != nil
+            || !(snapshot.designDrafts ?? [:]).isEmpty
     }
     var currentSection: String { path.last?.title ?? "Operator" }
     var serverBinding: String {
@@ -122,6 +126,14 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
     func saveBrandingDraft(_ draft: EventProfile?) { snapshot.brandingDraft = draft; persist() }
     func savePrepaidDraft(_ draft: CommercialEventRun?) { snapshot.prepaidDraft = draft; persist() }
     func saveSessionSetup(_ draft: OperatorSessionSetupDraft?) { snapshot.sessionSetup = draft; persist() }
+    func designDraft(id: String) -> SavedEventDesign? { snapshot.designDrafts?[id] }
+    func saveDesignDraft(_ draft: SavedEventDesign?, id: String) {
+        var drafts = snapshot.designDrafts ?? [:]
+        drafts[id] = draft
+        snapshot.designDrafts = drafts.isEmpty ? nil : drafts
+        snapshot.resumeSetup = true
+        persist()
+    }
     func saveNewEvent(name: String, venue: String) {
         snapshot.newEventName = name; snapshot.newEventVenue = venue; persist()
     }

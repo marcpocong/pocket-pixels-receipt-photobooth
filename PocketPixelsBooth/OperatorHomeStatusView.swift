@@ -26,11 +26,11 @@ struct OperatorBoothStatusCard: View {
             } else if let event = server?.event {
                 Text(event.name).font(.title3)
                 Text("Pay Per Print · \(PHPPriceFormatter.string(centavos: event.unitPriceCentavos))/copy").font(.headline)
-                Text("Default \(event.defaultCopies) · maximum \(event.maxCopies) copies · \([event.qrphEnabled ? "QR Ph" : nil, event.cashEnabled ? "Cash — unverified" : nil].compactMap { $0 }.joined(separator: ", "))").foregroundStyle(.secondary)
+                Text("Default \(event.defaultCopies) · maximum \(event.maxCopies) copies · \([event.qrphEnabled ? "QR Ph — verified" : nil, event.cashEnabled ? "Cash — attendant confirmed" : nil].compactMap { $0 }.joined(separator: ", "))").foregroundStyle(.secondary)
             } else if let preparedEvent, let policy = preparedEvent.latestRevision {
                 Text(preparedEvent.event.name).font(.title3)
                 Text("Pay Per Print · \(PHPPriceFormatter.string(centavos: policy.unitPriceCentavos))/copy").font(.headline)
-                Text("Default \(policy.defaultCopies) · maximum \(policy.maxCopies) copies · \([policy.qrphEnabled ? "QR Ph" : nil, policy.cashEnabled ? "Cash — unverified" : nil].compactMap { $0 }.joined(separator: ", "))").foregroundStyle(.secondary)
+                Text("Default \(policy.defaultCopies) · maximum \(policy.maxCopies) copies · \([policy.qrphEnabled ? "QR Ph — verified" : nil, policy.cashEnabled ? "Cash — attendant confirmed" : nil].compactMap { $0 }.joined(separator: ", "))").foregroundStyle(.secondary)
                 Text(preparedEvent.event.lifecycle == .draft ? "Prepared setup — not yet applied" : preparedEvent.event.lifecycle.displayName).font(.callout).foregroundStyle(.secondary)
             } else {
                 Text("Pay Per Print").font(.headline)
@@ -73,15 +73,24 @@ struct OperatorBoothStatusCard: View {
 }
 
 struct OperatorBrandingView: View {
+    @State private var printsGalleryQR = ReceiptPrintSettingsStore.load().includesPrintedGalleryQR
+
     var body: some View {
         List {
             Section {
-                Text("Create the look of your booth. Branding works with both Prepaid / Free and Pay Per Print; it does not start or pause sessions.")
+                Text("Event logos and receipt layouts are part of each event's setup. Branding never starts or pauses sessions; changes reach guests after Review & Start.")
+                NavigationLink(value: OperatorWorkspaceRoute.sessionSetup) { Label("Session Setup", systemImage: "slider.horizontal.3") }
             }
             Section("Design") {
-                NavigationLink("Custom Event Design", value: OperatorWorkspaceRoute.eventSetup)
-                NavigationLink("Receipt Design", value: OperatorWorkspaceRoute.receiptDesign)
-                NavigationLink("Sticker Studio", value: OperatorWorkspaceRoute.stickers)
+                NavigationLink(value: OperatorWorkspaceRoute.receiptDesign) { Label("Event Receipt Design", systemImage: "paintpalette") }
+                NavigationLink(value: OperatorWorkspaceRoute.stickers) { Label("Sticker Studio", systemImage: "face.smiling") }
+                NavigationLink(value: OperatorWorkspaceRoute.samplePrints) { Label("Print Display Samples", systemImage: "printer.dotmatrix") }
+            }
+            Section {
+                Toggle("Print Gallery QR Code", isOn: $printsGalleryQR)
+                    .onChange(of: printsGalleryQR) { _, value in ReceiptPrintSettingsStore.save(ReceiptPrintOptions(includesPrintedGalleryQR: value)) }
+            } header: { Text("Physical Printing") } footer: {
+                Text("Applies to every receipt, with or without Event Mode. The guest’s gallery QR always stays available on the iPad.")
             }
             Section("Preview") {
                 NavigationLink("Preview Guest Experience") {

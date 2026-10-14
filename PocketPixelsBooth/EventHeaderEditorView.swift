@@ -178,56 +178,35 @@ struct EventHeaderEditorView: View {
     }
 
     private func importPhoto(_ item: PhotosPickerItem?) {
-        guard let item else { return }
-        Task {
-            do {
-                guard let data = try await item.loadTransferable(type: Data.self) else {
-                    throw EventHeaderAssetStoreError.unsupportedOrCorruptImage
-                }
-                try await importData(data)
-            } catch {
-                loadError = error.localizedDescription
-                isImporting = false
-            }
-        }
+        guard let item, !isImporting else { return }
+        runImport { try await EventArtworkImporter.importPhoto(item) }
     }
 
     private func importFile(_ result: Result<[URL], Error>) {
-        Task {
-            do {
-                let url = try result.get().first ?? { throw EventHeaderAssetStoreError.unsupportedOrCorruptImage }()
-                let accessed = url.startAccessingSecurityScopedResource()
-                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-                try await importData(Data(contentsOf: url))
-            } catch {
-                loadError = error.localizedDescription
-                isImporting = false
-            }
-        }
+        if case .failure(let error) = result, (error as NSError).code == NSUserCancelledError { return }
+        guard !isImporting else { return }
+        runImport { try await EventArtworkImporter.importFile(result) }
     }
 
-    private func importData(_ data: Data) async throws {
+    private func runImport(_ operation: @escaping () async throws -> EventArtworkImporter.Imported) {
         isImporting = true
-        defer { isImporting = false }
-        let result = try await Task.detached(priority: .userInitiated) {
-            let store = try EventHeaderAssetStore()
-            let identifier = try store.importArtworkData(data)
-            guard let artwork = store.loadArtwork(identifier: identifier) else {
-                throw EventHeaderAssetStoreError.encodingFailed
+        Task {
+            defer { isImporting = false; photoItem = nil }
+            do {
+                let result = try await operation()
+                profile.receiptHeader.assetIdentifier = result.identifier
+                // New artwork always starts from the safe automatic layout (centered, whole artwork,
+                // default size and spacing). Saved artwork keeps its adjustments; only replacement resets.
+                profile.receiptHeader.mode = .customEventHeader
+                profile.receiptHeader.resetAdjustments()
+                artwork = result.artwork
+                loadError = nil
+                statusMessage = "Artwork ready. Save to apply it to future sessions."
+                scheduleProcessing()
+            } catch {
+                loadError = error.localizedDescription
             }
-            return (identifier, artwork)
-        }.value
-
-        profile.receiptHeader.assetIdentifier = result.0
-        // New artwork always starts from the safe automatic layout (centered, whole artwork,
-        // default size and spacing). Saved artwork keeps its adjustments; only replacement resets.
-        profile.receiptHeader.mode = .customEventHeader
-        profile.receiptHeader.resetAdjustments()
-        photoItem = nil
-        artwork = result.1
-        loadError = nil
-        statusMessage = "Artwork ready. Save to apply it to future sessions."
-        scheduleProcessing()
+        }
     }
 
     /// Debounced and generation-checked so a slow render never overwrites newer settings.
