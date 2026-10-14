@@ -4,15 +4,15 @@ import Combine
 import Security
 import UIKit
 
-/// A short-lived permit, shared with the API credential reader. Locking never changes booth data.
+/// Session-scoped operator access, shared with the API credential reader. No inactivity expiry.
 nonisolated final class OperatorAccessPermit: @unchecked Sendable {
     static let shared = OperatorAccessPermit()
     private let lock = NSLock()
-    private var expiresAt = Date.distantPast
+    private var authorized = false
 
-    var isAuthorized: Bool { lock.withLock { Date() < expiresAt } }
-    func authorize() { lock.withLock { expiresAt = Date().addingTimeInterval(300) } }
-    func revoke() { lock.withLock { expiresAt = .distantPast } }
+    var isAuthorized: Bool { lock.withLock { authorized } }
+    func authorize() { lock.withLock { authorized = true } }
+    func revoke() { lock.withLock { authorized = false } }
 }
 
 @MainActor final class OperatorAuthentication: ObservableObject {
@@ -79,7 +79,7 @@ nonisolated final class OperatorAccessPermit: @unchecked Sendable {
         permit.revoke()
     }
 
-    func expireIfNeeded() { if isUnlocked && !permit.isAuthorized { lock() } }
+    func synchronizeAuthorization() { if isUnlocked && !permit.isAuthorized { lock() } }
 
     /// A passcode-only Keychain ACL gives attendants an explicit system passcode prompt,
     /// without storing a PIN or relying on a failed Face ID attempt to reveal the fallback.
@@ -128,7 +128,6 @@ struct OperatorAuthenticationView<Controls: View>: View {
     @State private var hasOpenedWorkspace = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
-    private let clock = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
     @ViewBuilder let controls: () -> Controls
 
     init(authentication: OperatorAuthentication? = nil, @ViewBuilder controls: @escaping () -> Controls) {
@@ -170,9 +169,8 @@ struct OperatorAuthenticationView<Controls: View>: View {
                 OperatorWorkspace.shared.checkpoint()
                 authentication.lock()
             }
-            if phase == .active { authentication.expireIfNeeded() }
+            if phase == .active { authentication.synchronizeAuthorization() }
         }
-        .onReceive(clock) { _ in authentication.expireIfNeeded() }
         .onDisappear { authentication.lock() }
     }
 }

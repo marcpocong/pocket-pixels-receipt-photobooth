@@ -295,6 +295,39 @@ struct PrintOutboxTests {
 @Suite("Checkout checkpoint recovery")
 @MainActor
 struct CheckoutCheckpointTests {
+    @Test func successfulCashResponseReopensAnEarlyEmptyRecoveryResolution() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cash-recovery-race-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try CheckoutCheckpointStore(directory: root)
+        let original = checkpoint(method: "CASH_DECLARED")
+        try store.begin(original)
+        store.resolve(id: original.id, reason: "auto:No payment was taken.")
+        store.update(id: original.id) { $0.orderID = "cash-order"; $0.entitlementID = "cash-entitlement"; $0.phase = .claimed; $0.lastServerState = "IN_SESSION" }
+        #expect(store.unresolved.count == 1)
+        #expect(store.unresolved.first?.phase == .claimed)
+        #expect(store.unresolved.first?.resolution == nil)
+        #expect(store.unresolved.first?.resolvedAt == nil)
+        let restarted = try CheckoutCheckpointStore(directory: root)
+        #expect(restarted.unresolved.first?.orderID == "cash-order")
+    }
+
+    @Test func restartRepairsLegacyFalseNoPaymentResolutionButKeepsOperatorDismissal() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cash-recovery-legacy-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try CheckoutCheckpointStore(directory: root)
+        var original = checkpoint(method: "CASH_DECLARED", phase: .claimed, orderID: "cash-order")
+        original.entitlementID = "cash-entitlement"
+        original.resolution = "auto:No payment was taken."
+        original.resolvedAt = Date()
+        try store.begin(original)
+        var dismissed = checkpoint("dismissed", method: "CASH_DECLARED", phase: .claimed, orderID: "dismissed-order")
+        dismissed.resolution = "operator:guest_left_or_resolved"
+        try store.begin(dismissed)
+        let restarted = try CheckoutCheckpointStore(directory: root)
+        #expect(restarted.unresolved.map(\.id) == [original.id])
+        #expect(restarted.checkpoint(id: "dismissed")?.resolution == "operator:guest_left_or_resolved")
+    }
+
     private func checkpoint(_ id: String = "PP-20261011-120000", method: String? = "QRPH", phase: CheckoutPhase = .orderRequested, orderID: String? = nil) -> CheckoutCheckpoint {
         CheckoutCheckpoint(id: id, environment: "test", deviceID: "dev-booth", accountID: "acct-a", eventID: "ev", policyRevisionID: "r1",
                            unitPriceCentavos: 5_000, copies: 3, format: "solo", method: method, orderID: orderID, entitlementID: nil,
@@ -381,6 +414,7 @@ struct CheckoutCheckpointTests {
         #expect(classify(try server(orderJSON(state: "AUTHORIZED", attemptState: "PAID_VERIFIED", entitlementState: "AUTHORIZED"))) == .paidUnclaimed(verified: true))
         #expect(classify(try server(orderJSON(state: "AUTHORIZED", method: "CASH_DECLARED", attemptState: "SELF_REPORTED", entitlementState: "AUTHORIZED", source: "UNVERIFIED_CASH_DECLARED"))) == .paidUnclaimed(verified: false), "cash stays unverified")
         #expect(classify(try server(orderJSON(state: "IN_SESSION", attemptState: "PAID_VERIFIED", entitlementState: "IN_SESSION", sessionID: session))) == .claimedNotPrinted(verified: true))
+        #expect(classify(try server(orderJSON(state: "IN_SESSION", method: "CASH_DECLARED", attemptState: "OPERATOR_CONFIRMED", entitlementState: "IN_SESSION", source: "UNVERIFIED_CASH_DECLARED", sessionID: session)), checkpoint: checkpoint(method: "CASH_DECLARED", phase: .claimed)) == .claimedNotPrinted(verified: false), "Confirmed cash survives restart and can resume without another payment")
         #expect(classify(try server(orderJSON(state: "IN_SESSION", attemptState: "PAID_VERIFIED", entitlementState: "IN_SESSION", sessionID: session)), printed: true) == .printStarted)
         #expect(classify(try server(orderJSON(state: "IN_SESSION", attemptState: "PAID_VERIFIED", entitlementState: "IN_SESSION", sessionID: session, prints: #"[{"copy_index":1,"outcome":"DELIVERED"}]"#))) == .printStarted)
         #expect(classify(try server(orderJSON(state: "COMPLETE", attemptState: "PAID_VERIFIED", entitlementState: "CONSUMED", sessionID: session))) == .completed)
@@ -389,6 +423,7 @@ struct CheckoutCheckpointTests {
         #expect(classify(try server(orderJSON(state: "AUTHORIZED", attemptState: "PAID_VERIFIED", entitlementState: "AUTHORIZED"), session: "PP-other")) == .inconsistent("session mismatch"))
         #expect(classify(try server(orderJSON(state: "AUTHORIZED", attemptState: "PAID_VERIFIED", entitlementState: "AUTHORIZED")), checkpoint: checkpoint(orderID: "o-missing")) == .inconsistent("recorded order not found for this iPad"))
         #expect(classify(nil) == .inconsistent("server view unavailable"))
+        #expect(classify(try server("", open: nil), checkpoint: checkpoint(method: "CASH_DECLARED", phase: .claimed, orderID: "cash-order")) == .inconsistent("saved purchase missing from server recovery view"))
     }
 
     @Test func offlineCashRecoveryDependsOnTheLocalLedgerRecord() {

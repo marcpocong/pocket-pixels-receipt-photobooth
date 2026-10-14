@@ -91,6 +91,20 @@ final class CheckoutCheckpointStore {
             try? fileManager.moveItem(at: url, to: quarantine)
             integrityFault = "the checkout record file was unreadable and was set aside for review (\(quarantine.lastPathComponent)). Check server orders for this iPad."
         }
+        // Older builds could resolve an empty recovery response while order creation was still
+        // in flight, then save its successful response without reopening the checkpoint.
+        var repaired = payload
+        for index in repaired.checkpoints.indices where Self.hasStaleNoPaymentResolution(repaired.checkpoints[index]) {
+            repaired.checkpoints[index].resolution = nil
+            repaired.checkpoints[index].resolvedAt = nil
+        }
+        if repaired.checkpoints != payload.checkpoints { try commit(repaired) }
+    }
+
+    private static func hasStaleNoPaymentResolution(_ checkpoint: CheckoutCheckpoint) -> Bool {
+        checkpoint.resolution == "auto:No payment was taken."
+            && (checkpoint.orderID != nil || checkpoint.entitlementID != nil || checkpoint.phase >= .entitled)
+            && checkpoint.phase < .completed
     }
 
     var all: [CheckoutCheckpoint] { payload.checkpoints }
@@ -123,6 +137,10 @@ final class CheckoutCheckpointStore {
         let previousPhase = candidate.checkpoints[index].phase
         change(&candidate.checkpoints[index])
         candidate.checkpoints[index].phase = max(previousPhase, candidate.checkpoints[index].phase)
+        if Self.hasStaleNoPaymentResolution(candidate.checkpoints[index]) {
+            candidate.checkpoints[index].resolution = nil
+            candidate.checkpoints[index].resolvedAt = nil
+        }
         candidate.checkpoints[index].updatedAt = now
         return (try? commit(candidate)) != nil
     }
@@ -236,7 +254,12 @@ nonisolated enum CheckoutRecoveryClassifier {
         }
         guard let server else { return .inconsistent("server view unavailable") }
         guard server.checkoutSessionId == checkpoint.id else { return .inconsistent("session mismatch") }
-        if server.orders.isEmpty { return .nothingCharged }
+        if server.orders.isEmpty {
+            guard checkpoint.orderID == nil, checkpoint.entitlementID == nil, checkpoint.phase < .entitled else {
+                return .inconsistent("saved purchase missing from server recovery view")
+            }
+            return .nothingCharged
+        }
         if let known = checkpoint.orderID, !server.orders.contains(where: { $0.order.id == known }) {
             return .inconsistent("recorded order not found for this iPad")
         }

@@ -274,7 +274,7 @@ struct BoothSessionView: View {
         if paymentRecovery.armedResume != nil {
             noticeText("Your attendant has prepared your session. Tap to continue.")
         } else if paymentRecovery.items.contains(where: { !$0.classification.isTerminal }) {
-            noticeText("Was your session interrupted? Please ask our attendant.")
+            noticeText("Your interrupted session is saved. Ask the attendant to resume it; don’t pay again.")
         }
     }
 
