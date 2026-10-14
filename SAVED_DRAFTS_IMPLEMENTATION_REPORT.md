@@ -18,7 +18,19 @@ The guest draft shortcut and repeated exit prompt are removed. Operator Home exp
 - 62 XCTest and nine Swift Testing focused checks passed (71 total), covering discovery, normalized reversion, restart, individual discard, authorization/write failure, metadata, baseline compatibility, typed routes, connection isolation, conflicts, setup and cash regressions. The final save-metadata adjustment passed two additional focused checks.
 - Five retained UI captures: list/review in portrait and landscape plus empty state. Visually inspected readable changes, visible resolution actions and rendered receipt preview. Synthetic missing-logo fixture correctly displays standard-header fallback; real artwork remains private.
 - Earlier compile checks found actor-default, optional exclusivity and preview-helper references; corrected before the successful candidate. No failed build was installed.
-- Full Production Gate and Carlo installation/integrity results follow the committed source revision; pending at this source-preparation checkpoint.
+- The unfinished-new-event review also omits unentered, unchanged fields; its focused regression test and a fresh signed Release build passed.
+- Initial iOS Production Gate job `115956102661` passed all 408 XCTest and 89 Swift Testing checks (497 total). Its overall run still failed the separate backend throttle test described below.
+- Final app source is `4ea7dd300f2bb5acf5fd1af504b935fb657e4a86`, with a frozen signed candidate and strict signature verification. [Production Gate 38596623171](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/38596623171) passed both jobs: 409 XCTest plus 89 Swift Testing checks (498 iPad tests), with zero failures; backend checks also passed.
+
+## Carlo rollout — October 15, 2026
+
+After the final CI pass, a fresh 1,400-file app-container backup was retained privately. The candidate installed once in place and launched successfully at approximately 00:57 Manila. A direct device screenshot verifies Welcome without the draft shortcut.
+
+The post-install copy also contains 1,400 files. Every Application Support file retains its exact hash, including the design library, genuine Release Sample draft, payment journals, artwork, receipt archives and print audit. Preferences dictionaries are identical. Changes are limited to the dyld cache and four replaced system launch snapshots. No saved draft was resolved during installation. Bundle ID, signing and existing app identity are preserved. No event, price, payment or print operation was performed.
+
+List/review rendering was verified in both iPad orientations in the focused test run. The owner then opened Saved Drafts → Release Sample → Review on Carlo. A direct portrait screenshot at approximately 00:59 verifies the exact preserved draft, three human-readable changes (personalization, logo artwork, header mode), visible Edit/Save/Discard actions and the rendered co-branded thermal receipt preview. The draft remains unsaved, undiscarded and unapplied.
+
+A further container copy after operator review confirms the genuine design draft is identical. The only changed Application Support file is the operator workspace: its navigation path advanced and equivalent payment-draft records were pruned after the read-only server comparison. All other support files, including financial and print records, retain their pre-install hashes.
 
 ## CI timing correction
 
