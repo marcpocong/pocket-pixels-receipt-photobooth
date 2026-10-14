@@ -59,6 +59,7 @@ struct SamplePrintStudioView: View {
         .navigationTitle("Print Display Samples")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: pickerItems) { _, items in importPhotos(items) }
+        .onChange(of: model.format) { _, _ in selectedSlot = nil }
         .onReceive(NotificationCenter.default.publisher(for: EventProfileStore.didChangeNotification)) { _ in
             model.reloadSavedBranding()
         }
@@ -290,13 +291,13 @@ private struct StudioStep<Content: View>: View {
     }
 }
 
-private struct SampleSlotCard: View {
+struct SampleSlotCard: View {
     @ObservedObject var model: SamplePrintStudioModel
     let index: Int
     let choose: () -> Void
 
     var body: some View {
-        let photo = model.photo(for: model.slots[index])
+        let photo = model.photo(for: model.photoID(at: index))
         VStack(spacing: 8) {
             Button(action: choose) {
                 ZStack {
@@ -323,7 +324,7 @@ private struct SampleSlotCard: View {
                 }
             }
             .buttonStyle(.plain)
-            .disabled(model.library.isEmpty || model.isPrinting)
+            .disabled(model.library.isEmpty || model.isPrinting || !model.slots.indices.contains(index))
             .accessibilityLabel("\(model.slotTitle(index)), \(photo == nil ? "empty" : "filled")")
 
             HStack(spacing: 4) {
@@ -383,7 +384,7 @@ private struct SampleTrayThumbnail: View {
     }
 }
 
-private struct SamplePhotoChooser: View {
+struct SamplePhotoChooser: View {
     @ObservedObject var model: SamplePrintStudioModel
     let slot: Int
     let dismiss: () -> Void
@@ -403,13 +404,13 @@ private struct SamplePhotoChooser: View {
                                 .frame(width: 120, height: 120)
                                 .clipShape(RoundedRectangle(cornerRadius: 10))
                                 .overlay {
-                                    if model.slots[slot] == photo.id {
+                                    if model.photoID(at: slot) == photo.id {
                                         RoundedRectangle(cornerRadius: 10).stroke(Color.accentColor, lineWidth: 4)
                                     }
                                 }
                                 .overlay(alignment: .bottomLeading) {
                                     let uses = model.usageCount(of: photo.id)
-                                    if uses > 0 && model.slots[slot] != photo.id {
+                                    if uses > 0 && model.photoID(at: slot) != photo.id {
                                         Text("Used · tap to duplicate").font(.caption2.bold())
                                             .padding(4).background(.thinMaterial, in: Capsule()).padding(4)
                                     }

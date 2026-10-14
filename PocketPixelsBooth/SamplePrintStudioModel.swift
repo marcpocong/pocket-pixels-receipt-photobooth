@@ -267,6 +267,12 @@ final class SamplePrintStudioModel: ObservableObject {
         return library.first { $0.id == id }
     }
 
+    /// SwiftUI may update a departing slot/chooser after a format change shrinks the array.
+    func photoID(at slot: Int) -> UUID? {
+        guard slots.indices.contains(slot) else { return nil }
+        return slots[slot]
+    }
+
     func slotTitle(_ index: Int) -> String {
         guard format == .passport else { return "Photo \(index + 1)" }
         return index == PhotoPassReceiptLayout.portraitPhotoIndex ? "Portrait" : "Main Photo"

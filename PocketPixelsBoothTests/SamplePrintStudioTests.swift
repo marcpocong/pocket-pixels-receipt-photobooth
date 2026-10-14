@@ -1,5 +1,6 @@
 import ImageIO
 import UIKit
+import SwiftUI
 import UniformTypeIdentifiers
 import XCTest
 @testable import PocketPixelsBooth
@@ -9,6 +10,42 @@ final class SamplePrintStudioTests: XCTestCase {
     private let openGate = SamplePrintStudioModel.PrinterGate(printerBusy: false, recoveryLocked: false, unresolvedPrint: false, guestSessionActive: false)
 
     // MARK: Policy
+
+    func testMountedDepartingSlotAndChooserSurviveShrinkingFormats() async throws {
+        for populated in [false, true] {
+            for original in [BoothFormat.duo, .gridSix, .passport] {
+                let model = makeModel()
+                model.setFormat(original)
+                if populated { model.addImported((0..<original.photoCount).map(photo)) }
+                let departingSlot = original.photoCount - 1
+                let host = UIHostingController(rootView: VStack {
+                    SampleSlotCard(model: model, index: departingSlot, choose: {})
+                    SamplePhotoChooser(model: model, slot: departingSlot, dismiss: {})
+                })
+                let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+                let window = UIWindow(windowScene: scene)
+                window.frame = CGRect(x: 0, y: 0, width: 834, height: 1194)
+                window.rootViewController = host
+                window.makeKeyAndVisible()
+                defer { window.isHidden = true; window.rootViewController = nil }
+                host.view.layoutIfNeeded()
+                try await Task.sleep(for: .milliseconds(80))
+                // Keep the departing views mounted, reproducing SwiftUI's stale-index update.
+                model.setFormat(.solo)
+                host.view.setNeedsLayout()
+                host.view.layoutIfNeeded()
+                try await Task.sleep(for: .milliseconds(80))
+                XCTAssertEqual(model.slots.count, 1)
+                XCTAssertNil(model.photoID(at: departingSlot))
+                XCTAssertNil(model.photoID(at: -1))
+                XCTAssertEqual(model.filledSlotCount, populated ? 1 : 0)
+                let rendered = UIGraphicsImageRenderer(size: window.bounds.size).image { _ in
+                    window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+                }
+                XCTAssertNotNil(rendered.pngData())
+            }
+        }
+    }
 
     func testPolicyBlocksGuestSessionsUnresolvedPrintsRecoveryAndDoubleTap() {
         XCTAssertTrue(SamplePrintPolicy.canStart(hasPreview: true, printerBusy: false, recoveryLocked: false, unresolvedPrint: false, operationActive: false, guestSessionActive: false))
