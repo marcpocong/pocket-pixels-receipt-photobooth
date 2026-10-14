@@ -1,6 +1,6 @@
 # LIVE release readiness — October 14, 2026
 
-Checkpoint status: **PASS — fd45f91 installed and physically accepted on Duo; approved LIVE Worker deployed and verified. IN PROGRESS — approved pilot changed at owner request to customer-declared cash.** Active LIVE version is `ccdc2798-96e5-46e5-b34c-c113d8534818`, with payments enabled. Five sample jobs completed; no additional sample allowance remains. No cash transaction or event change has been performed. Provisioning renewal and 100-session endurance remain outstanding. Earlier sections record the historical checkpoints; the post-deployment update below supersedes their pending-deployment status.
+Checkpoint status: **PASS — latest app installed, LIVE Worker deployed, one genuine staff-confirmed ₱1 purchase recovered after restart and printed, cash variance zero, pilot PAUSED. NEEDS OWNER ACTION — provisioning renewal and 100-session endurance.** Full CI for latest app source remains running. Current online cash uses the owner-requested customer declaration button; that new flow was locally tested, not used for another LIVE transaction. The complete current closeout is in `LIVE_RELEASE_FINAL_REPORT.md`; earlier sections below are historical checkpoints.
 
 ## A. MacBook and Carlo
 
@@ -158,3 +158,11 @@ Final repair validation passes: Carlo Release build and strict signature verific
 Repair `087b101` installed once in place after a fresh private 1,393-file backup and strict signature verification. Launch succeeded. Post-install inspection confirms the target ₱1 checkpoint is claimed with resolution/resolvedAt cleared and lastServerState IN_SESSION. Only the intended checkout-checkpoints.json changed in Application Support; no file is missing, all 300 archive files and 210 artwork files match, and preferences are equal. Full CI remains in progress.
 
 Owner reports “Resume for Guest Present Now” leaves the operator page open, and Return to Booth then prompts about unsaved drafts. That was the existing arm-only navigation, not a failed payment recovery. Refinement returns directly to the booth after successful arming and automatically preserves local drafts without publishing/applying setup or showing the exit prompt. The guest's Make a Memory tap still consumes the single-use armed resume; no automatic payment or print occurs.
+
+### Supervised pilot completion
+
+Owner confirmed recovery now opens the camera. Read-only LIVE inspection shows the original checkout/session/entitlement reused, no duplicate. The original Solo receipt preview shows one purchased copy with complete header/photo/footer. Owner sent one approved print and reports it “looks okay.” Server records the original ₱1 cash order COMPLETE, one OPERATOR_CONFIRMED attempt, one CONSUMED entitlement and one COMPLETE one-copy Bluetooth print batch with one DELIVERED copy outcome. No second cash payment or QR transaction.
+
+Owner paused the pilot; server confirms PAUSED/version 11, while Regular Sessions remains DRAFT/version 2 and its latest ₱25 QR-only policy is unchanged. Owner saved physical cash count ₱1; server expected cash ₱1, variance zero and non-provisional. Zero unresolved server orders and outstanding entitlements. After supported app relaunch, zero unresolved local checkouts, every print-outbox entry delivered/reported and zero queued gallery files. All 300 original archives and 210 baseline artwork files retain hashes. Historical financial rows in six tables remain unchanged. Private full LIVE export was loaded into SQLite and integrity/foreign-key checks passed; no backup/payment data committed.
+
+Installed source `3ab7d6d` passed Release/signature verification; current full CI `38580783813` is still running with backend success. Provisioning expiry freshly confirmed October 19 at 4:10 PM Manila. Supervised pilot passes; no claim of full hardware qualification or completed current full CI.
