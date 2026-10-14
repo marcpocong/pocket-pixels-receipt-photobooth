@@ -35,6 +35,29 @@ final class CoBrandedReceiptTests: XCTestCase {
 
     // MARK: Geometry
 
+    func testDefaultStandardAndCoBrandedMastheadsStartWithinSixMillimetres() throws {
+        let branded = coBranded(try logoIdentifier(.wideSeal))
+        for format in BoothFormat.allCases {
+            for profile in [nil, branded] as [EventProfile?] {
+                let receipt = try compose(format: format, profile: profile, qr: false)
+                let image = try XCTUnwrap(UIImage(data: receipt.imagePNGData))
+                let raster = try ThermalImageRasterizer.rasterize(image, purpose: .completeReceipt)
+                // Measure the final bytes sent to the printer, including font ascenders
+                // and thermal conversion, rather than only the layout's text boxes.
+                let blankTop = try XCTUnwrap((0..<min(raster.height, 160)).first { row in
+                    raster.rasterData[(row * raster.widthBytes)..<((row + 1) * raster.widthBytes)].contains { $0 != 0 }
+                })
+                if format == .solo {
+                    let name = profile == nil ? "compact_standard" : "compact_cobranded"
+                    attachPNG(receipt.imagePNGData, name: name)
+                    attachPNG(raster.previewPNGData, name: "\(name)_thermal")
+                }
+                XCTAssertLessThan(blankTop, 48, "\(format): digital top blank must stay below 6 mm")
+                XCTAssertGreaterThan(blankTop, 0, "Keep a small clear border; don't clip the masthead")
+            }
+        }
+    }
+
     func testCoBrandedHeaderPlacesWordmarkSeparatorAndLogoOnOneMidlineForEveryFormat() throws {
         for kind in LogoKind.allCases {
             let profile = coBranded(try logoIdentifier(kind))

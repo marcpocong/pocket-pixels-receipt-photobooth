@@ -73,7 +73,7 @@ nonisolated enum CoBrandedHeaderGeometry {
         let defaults = ReceiptHeaderConfiguration.default
         let top = mastheadTopInset + Int((config.topSpacing - defaults.topSpacing).rounded())
         let bottom = mastheadPhotoGap + Int((config.bottomSpacing - defaults.bottomSpacing).rounded())
-        return (max(16, top), max(20, bottom))
+        return (max(8, top), max(20, bottom))
     }
 }
 

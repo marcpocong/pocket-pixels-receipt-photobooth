@@ -220,7 +220,9 @@ enum ReceiptComposer {
     /// receipt and shared by every format.
     private enum Metrics {
         nonisolated static let receiptTopPadding = 14
-        nonisolated static let mastheadTopInset = 56
+        // Keep the digital inset compact while preserving a clear masthead border.
+        // Physical printer clearance is separate from this rendered padding.
+        nonisolated static let mastheadTopInset = 8
         nonisolated static let wordmarkSize: CGFloat = 55
         nonisolated static let studiosSize: CGFloat = 14
         nonisolated static let studiosTracking: CGFloat = 8.5
