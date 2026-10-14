@@ -54,3 +54,5 @@ Regression coverage includes diagnostic quantities 1/2/3/5/10, remaining-copy re
 Stopped Mode C original JSON SHA-256: `f4890935e4b0a096d7283f7d13fcea1d62e8146d2a577e823ba6ff9e65abbc93`.
 
 Validation: all **27 hardware qualification tests passed** in the full simulator suite. Signed Release build and strict signature/identity verification passed for Carlo. Corrected executable SHA-256: `d8f77f6fa3734ba1cfbbf2364e484efd2a8444e0d198d6167d793ea64bdde5b2`.
+
+The corrected signed Release app from source `ed1b95e` was installed in place and launched on Carlo. Complete before/after SHA-256 comparison verified **2,378 protected saved-data files unchanged**, with zero missing or changed files, including the stopped Mode C and successful Mode B evidence. No new print or qualification test was started. Physical confirmation of the corrected multi-copy Mode C batch remains outstanding.
