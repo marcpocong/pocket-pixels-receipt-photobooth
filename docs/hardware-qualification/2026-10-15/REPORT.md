@@ -29,3 +29,14 @@ Mode C now defaults to hands-free: one explicit approval covers the selected com
 Validation: simulator build and all 25 qualification tests passed across the full run and a focused rerun after updating one old scoped-verdict expectation. The signed Release build for Carlo passed; strict signature, unchanged bundle/team, iPad-only device family and provisioning membership were verified. Release executable SHA-256: `54c52937646b84cefd9ef74699adf97dd3aa68367dabb7f6109db214b2812fa1`.
 
 A private pre-install copy contains 2,404 app-container files (2,167 Application Support files), including all four historical qualification records. No private app backup, customer photos or credentials are included in Git. Installation is pending at this source/evidence commit.
+
+## Carlo installation completed
+
+- Source/evidence commit: `1ce96e6` (pushed to GitHub main before installation).
+- Signed Release app 1.0 (1) installed successfully in place with `devicectl`, using the unchanged bundle ID and signing identity. No uninstall or data reset.
+- The new application launched successfully on Carlo. No new qualification or physical print test was started.
+- Completed before/after SHA-256 comparison: **2,185 protected files, zero missing, zero changed** across Application Support, preferences and Documents. All four original qualification JSON records are unchanged. Private backups remain outside Git.
+- The app derives the new scoped PASS from the unchanged historical Mode B evidence; its original event log continues to say UNVERIFIED, preserving what the earlier build reported.
+- Physical hands-free Mode C execution remains to be performed on the new build. Installation does not retrospectively qualify that build's camera pipeline or printer behavior.
+
+Installation verification recorded October 15, 2026, 01:49 AM Manila.

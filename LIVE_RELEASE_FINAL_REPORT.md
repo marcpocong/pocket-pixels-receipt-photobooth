@@ -56,3 +56,5 @@ For chronological evidence and checkpoint limitations, see [LIVE_RELEASE_READINE
 ## October 15 printer endurance follow-up
 
 The earlier NOT TESTED status for physical printer endurance is superseded by [Carlo Mode B evidence](docs/hardware-qualification/2026-10-15/REPORT.md): 100 sessions passed and 125 receipts printed and operator-confirmed, with zero recorded violations. Original UNVERIFIED was caused by out-of-scope checks always blocking PASS; the updated app reports PASS specifically for printer endurance. Live-camera Mode C, ambiguous-print fault drills and multi-hour operation remain outstanding. The tested build did not record its commit SHA.
+
+The hands-free/scoped-verdict update from source `1ce96e6` was subsequently installed and launched successfully on Carlo. Bundle/signing/version were preserved; SHA-256 comparison verified all 2,185 protected app-data files unchanged, including the four original qualification reports. See the linked hardware report for build validation and installation evidence.
