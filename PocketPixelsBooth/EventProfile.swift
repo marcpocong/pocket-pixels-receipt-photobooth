@@ -354,7 +354,7 @@ private extension String {
 }
 
 /// Read-only guest-receipt preview for branding screens, including unsaved drafts. Physical
-/// display samples are printed only from Sample Print Studio, which uses saved branding.
+/// display samples open in Sample Print Studio with a snapshot of this preview's design.
 struct EventReceiptComposerPreview: View {
     let profile: EventProfile
     var printOptions: ReceiptPrintOptions = .default
@@ -428,11 +428,11 @@ struct EventReceiptComposerPreview: View {
 
             if showsSamplePrintLink {
                 NavigationLink {
-                    SamplePrintStudioView()
+                    SamplePrintStudioView(previewProfile: profile)
                 } label: {
                     Label("Print Display Samples with Your Photos", systemImage: "printer.dotmatrix")
                 }
-                Text("Display samples use saved branding. Save changes first to print them.")
+                Text("Print this preview's design without applying it to guests or starting an event.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

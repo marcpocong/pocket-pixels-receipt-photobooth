@@ -230,6 +230,24 @@ final class SamplePrintStudioTests: XCTestCase {
 
     // MARK: Import decoding
 
+    func testExplicitPreviewDesignStaysIsolatedFromAppliedBranding() {
+        var draft = profile(enabled: true, name: "Preview Only")
+        draft.receiptHeader = .coBrandedRecommended
+        let snapshot = draft.normalized()
+        var appliedLoads = 0
+        let model = SamplePrintStudioModel(previewProfile: draft, loadProfile: {
+            appliedLoads += 1
+            return self.profile(enabled: true, name: "Applied Event")
+        }, photoQualityProfile: { .customerPrintDefault })
+        XCTAssertEqual(model.request.eventProfile, snapshot)
+        draft.eventName = "Later edit"
+        model.reloadSavedBranding()
+        XCTAssertEqual(model.request.eventProfile, snapshot)
+        XCTAssertEqual(appliedLoads, 0)
+        model.branding = .standard
+        XCTAssertNil(model.request.eventProfile)
+    }
+
     func testDecoderAppliesOrientationAndBoundsLargePhotos() throws {
         let data = try jpeg(width: 4_000, height: 3_000, orientation: .right)
         let decoded = try XCTUnwrap(SamplePhotoDecoder.decode(data))

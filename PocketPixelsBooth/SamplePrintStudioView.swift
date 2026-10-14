@@ -10,13 +10,19 @@ import PhotosUI
 import SwiftUI
 
 struct SamplePrintStudioView: View {
-    @StateObject private var model = SamplePrintStudioModel()
+    @StateObject private var model: SamplePrintStudioModel
+    private let usesPreviewDesign: Bool
     @StateObject private var printer = PrinterCoordinator.shared
     @StateObject private var operations = EventOperationalState.shared
     @AppStorage("printerIP") private var printerIP = BoothConfiguration.defaultPrinterIP
     @AppStorage("printerPort") private var printerPort = BoothConfiguration.defaultPrinterPort
     @State private var pickerItems: [PhotosPickerItem] = []
     @State private var selectedSlot: Int?
+
+    init(previewProfile: EventProfile? = nil) {
+        usesPreviewDesign = previewProfile != nil
+        _model = StateObject(wrappedValue: SamplePrintStudioModel(previewProfile: previewProfile))
+    }
 
     private var gate: SamplePrintStudioModel.PrinterGate {
         .init(
@@ -128,12 +134,14 @@ struct SamplePrintStudioView: View {
             StudioStep(number: 3, title: "Design") {
                 Picker("Branding", selection: $model.branding) {
                     ForEach(SamplePrintBranding.allCases) { branding in
-                        Text(branding.displayName).tag(branding)
+                        Text(usesPreviewDesign && branding == .savedEvent ? "Preview Design" : branding.displayName).tag(branding)
                     }
                 }
                 .pickerStyle(.segmented)
                 .disabled(model.isPrinting || !model.hasSavedEventBranding)
-                Text(model.hasSavedEventBranding
+                Text(usesPreviewDesign
+                     ? "Samples use the design from the receipt preview. Guest branding and event acceptance are unchanged."
+                     : model.hasSavedEventBranding
                      ? "Saved Event Branding uses the design guests currently receive. Unsaved edits are never used."
                      : "No event branding is saved, so samples use the Made to Keep Studios design.")
                     .font(.footnote)

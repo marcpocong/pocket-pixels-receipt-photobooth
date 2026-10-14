@@ -147,6 +147,38 @@ import UIKit
         XCTAssertEqual(again.targetServerEventID, "srv-1")
     }
 
+    func testExistingRegularSessionsNamesAreReusedWithoutChangingServerPolicy() async throws {
+        for name in ["Regular Sessions", "Made to Keep Studios — Regular Sessions"] {
+            let f = MatrixFixture(); defer { f.cleanup() }
+            let original = try await f.api.createEvent(name: name, venue: "Existing venue")
+            var policy = ServerPolicyDraft()
+            policy.priceText = "25"; policy.maxCopies = 3; policy.defaultCopies = 1
+            _ = try await f.api.saveDraft(eventID: original.id, expectedVersion: 1, name: name, venue: "Existing venue", policy: XCTUnwrap(policy.requestBody()))
+            f.api.calls.removeAll()
+            await f.model.choosePayment(.qrOnly)
+            await f.model.connectPaidCheckout()
+            XCTAssertEqual(f.model.targetServerEventID, original.id)
+            XCTAssertEqual(f.model.policy.requestBody()?.unitPriceCentavos, 2500)
+            XCTAssertEqual(f.model.policy.maxCopies, 3)
+            XCTAssertEqual(f.api.events.count, 1)
+            XCTAssertFalse(f.api.calls.contains { $0.hasPrefix("create:") || $0.hasPrefix("save:") || $0.hasPrefix("activate:") })
+            XCTAssertEqual(f.api.events[original.id]?.lifecycle, .draft)
+        }
+    }
+
+    func testAmbiguousRegularSessionsDoNotCreateOrChooseAnotherEvent() async throws {
+        let f = MatrixFixture(); defer { f.cleanup() }
+        _ = try await f.api.createEvent(name: "Regular Sessions", venue: "")
+        _ = try await f.api.createEvent(name: "Made to Keep Studios — Regular Sessions", venue: "")
+        f.api.calls.removeAll()
+        await f.model.choosePayment(.qrOnly)
+        await f.model.connectPaidCheckout()
+        XCTAssertNil(f.model.targetServerEventID)
+        XCTAssertEqual(f.api.events.count, 2)
+        XCTAssertTrue(f.model.needsRefresh)
+        XCTAssertFalse(f.api.calls.contains { $0.hasPrefix("create:") })
+    }
+
     func testEventOnLogoOffFreeAppliesEventScreensButStandardReceipt() async {
         let f = MatrixFixture(); defer { f.cleanup() }
         await f.model.createEvent(name: "Garden Wedding", venue: "Cebu")

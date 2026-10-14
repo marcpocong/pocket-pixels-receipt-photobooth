@@ -26,7 +26,7 @@ struct SamplePrintPhoto: Identifiable, @unchecked Sendable {
 nonisolated enum SamplePrintBranding: String, CaseIterable, Identifiable, Sendable {
     /// The standard Made to Keep Studios receipt.
     case standard
-    /// The event branding currently saved for guests (never an unsaved draft).
+    /// Applied guest branding, or an explicit preview snapshot when opened from a design.
     case savedEvent
 
     var id: String { rawValue }
@@ -225,10 +225,14 @@ final class SamplePrintStudioModel: ObservableObject {
     private let photoQualityProfile: () -> PocketPixelsThermalPhotoProfile
 
     init(
+        previewProfile: EventProfile? = nil,
         loadProfile: @escaping () -> EventProfile = { EventProfileStore.load() },
         photoQualityProfile: @escaping () -> PocketPixelsThermalPhotoProfile = { CustomerReceiptPhotoToneStore.load().profile }
     ) {
-        self.loadProfile = loadProfile
+        // A design preview supplies a value snapshot. Printing it never publishes/applies it,
+        // and later saved-branding notifications cannot replace it with the guest profile.
+        if let previewProfile { self.loadProfile = { previewProfile } }
+        else { self.loadProfile = loadProfile }
         self.photoQualityProfile = photoQualityProfile
         reloadSavedBranding()
         branding = savedEventProfile == nil ? .standard : .savedEvent

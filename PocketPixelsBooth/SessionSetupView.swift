@@ -357,7 +357,7 @@ struct SessionSetupView: View {
             }
             Divider()
             DisclosureGroup("Preview Receipt", isExpanded: $previewExpanded) {
-                EventReceiptComposerPreview(profile: setup.effectiveProfile, printOptions: ReceiptPrintSettingsStore.load(), showsSamplePrintLink: false)
+                EventReceiptComposerPreview(profile: setup.effectiveProfile, printOptions: ReceiptPrintSettingsStore.load())
                     .padding(.top, 8)
             }
             .font(.headline)

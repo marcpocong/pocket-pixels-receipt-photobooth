@@ -474,7 +474,19 @@ extension PaymentsAPIClient: SessionSetupAPI {}
             } else {
                 events = try await api().listEvents()
                 let id: String
-                if let reusable = unlinkedServerEvents.first(where: { $0.name == Self.regularEventName }) { id = reusable.id }
+                // Earlier releases used the studio-prefixed name. Reuse that event without
+                // changing its policy; never create a second commercial draft on an upgrade.
+                let existing = events.filter {
+                    ($0.name == Self.regularEventName || $0.name == "Made to Keep Studios — \(Self.regularEventName)")
+                        && !["ENDED", "ARCHIVED"].contains($0.lifecycle)
+                }
+                guard existing.count <= 1 else { throw SetupFailure("Multiple regular-session events exist. Select the intended existing event in Event Mode before continuing.") }
+                if let reusable = existing.first {
+                    guard unlinkedServerEvents.contains(where: { $0.id == reusable.id }) else {
+                        throw SetupFailure("Regular sessions are already linked to a saved event. Select that existing event in Event Mode before continuing.")
+                    }
+                    id = reusable.id
+                }
                 else { id = try await api().createEvent(name: Self.regularEventName, venue: "").id }
                 try library.setRegularServerEvent(id, binding: binding)
             }
