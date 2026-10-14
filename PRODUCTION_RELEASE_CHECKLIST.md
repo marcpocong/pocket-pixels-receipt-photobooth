@@ -50,3 +50,7 @@ Record the app commit SHA, signed build number, iPad model/iPadOS, VOZY G80 iden
 ## October 15 physical printer endurance evidence
 
 Carlo completed Mode B: 100 passed sessions and 125 printed/operator-confirmed receipts, zero recorded violations or unsafe retries. See [device evidence and scoped verdict explanation](docs/hardware-qualification/2026-10-15/REPORT.md). This satisfies printer endurance for the recorded run, not the live-camera or multi-hour release checks.
+
+## October 15 completed live-camera session evidence
+
+Mode C run `7A09A919` completed 100 live-camera sessions and 125 print jobs. The owner verified physical receipt output afterward: scoped Mode C **PASS**. [Original and owner-confirmed records](docs/hardware-qualification/2026-10-15/REPORT.md) preserve both automated and physical evidence. Hands-free omitted drills remain separate release requirements.

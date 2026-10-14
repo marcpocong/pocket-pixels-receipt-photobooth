@@ -56,3 +56,17 @@ Stopped Mode C original JSON SHA-256: `f4890935e4b0a096d7283f7d13fcea1d62e8146d2
 Validation: all **27 hardware qualification tests passed** in the full simulator suite. Signed Release build and strict signature/identity verification passed for Carlo. Corrected executable SHA-256: `d8f77f6fa3734ba1cfbbf2364e484efd2a8444e0d198d6167d793ea64bdde5b2`.
 
 The corrected signed Release app from source `ed1b95e` was installed in place and launched on Carlo. Complete before/after SHA-256 comparison verified **2,378 protected saved-data files unchanged**, with zero missing or changed files, including the stopped Mode C and successful Mode B evidence. No new print or qualification test was started. Physical confirmation of the corrected multi-copy Mode C batch remains outstanding.
+
+## Completed Mode C — owner-confirmed PASS
+
+Run `7A09A919-EF20-4D20-B3EE-61E41C3EB2A9` completed October 15, 2026, 2:26:42–3:24:53 AM Manila (58 minutes 11 seconds). All **100 live-camera sessions passed**, all **125 print jobs completed**, zero recorded violations, duplicate detections or unsafe retries, and no in-flight print checkpoint remained. Peak reported memory was 221 MB.
+
+The owner subsequently confirmed: **“verified it myself, just pass it”**. This is recorded as post-run operator verification of the physical receipt output and quality: **125 receipts confirmed**. The Mode C scoped result is therefore **PASS**. The original automated report/event remains UNVERIFIED because it preceded physical confirmation; the added owner attestation explains the later result.
+
+Evidence: [original completed record](mode-c-completed-original.json), [record with owner paper confirmation](mode-c-owner-confirmed.json). Session outcomes, photos/raster fingerprints, timings and original events are unchanged; only paper confirmations, the confirmed receipt total and an appended attestation event differ. No skipped recovery drill or manual Photo Pass interaction was invented as acknowledged.
+
+The hands-free verdict now requires automated success and paper confirmation; its omitted supervised drills are listed separately as outside this execution scope. A failed, incomplete or interrupted run still cannot pass. Multi-hour operation, interruption/paper-out drills, manual customer interaction and gallery delivery remain separate release evidence.
+
+Original completed report SHA-256: `7829225cdfcbe44d2e29fda8edb9433aff7e5c568a271a8d9b22432471533ac5`.
+
+Owner-verification verdict change: all five focused verdict regression tests passed, including failure precedence and unconfirmed-paper rejection. Signed Release build and strict identity/signature checks passed for Carlo. Executable SHA-256: `9b74035e3ae29cb6daaff2edf001f47423edd95b60598547c15872850eb187c1`.

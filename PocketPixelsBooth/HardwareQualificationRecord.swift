@@ -384,7 +384,7 @@ nonisolated enum QualificationVerdict: String, Codable, Sendable {
             items.append("Operator confirmation of physical paper output is missing for one or more sessions.")
         }
         for scenario in record.plan.scenarios {
-            for checkpoint in scenario.checkpoints where checkpoint.isSupervised && checkpoint != .confirmPaperOutput {
+            for checkpoint in scenario.checkpoints where checkpoint.isSupervised && checkpoint != .confirmPaperOutput && !record.plan.runsHandsFree {
                 let key = Self.checkpointKey(session: scenario.sessionNumber, checkpoint)
                 if !record.acknowledgedCheckpoints.contains(key) {
                     items.append("Session \(scenario.sessionNumber): \(checkpoint.title) not acknowledged.")
@@ -399,6 +399,15 @@ nonisolated enum QualificationVerdict: String, Codable, Sendable {
         var items: [String] = []
         if record.plan.mode == .physicalPrinterEndurance {
             items.append("Live front-camera capture is not part of printer endurance; run Mode C for end-to-end qualification.")
+        }
+        if record.plan.runsHandsFree {
+            items.append("Hands-free Photo Pass input is automated; manual typing/signature interaction was not tested.")
+            for scenario in record.plan.scenarios {
+                for checkpoint in scenario.checkpoints where checkpoint.isSupervised
+                    && checkpoint != .confirmPaperOutput && checkpoint != .photoPassDetailsAndSignature {
+                    items.append("Session \(scenario.sessionNumber): \(checkpoint.title) was omitted by the hands-free plan, not performed or attested.")
+                }
+            }
         }
         items.append("Bluetooth disconnect during bytes, paper-out/reload and multi-hour operation remain manual drills (see release checklist).")
         return items
@@ -433,7 +442,7 @@ nonisolated enum QualificationReportFormatter {
             "",
             "Run ID: \(record.runID.uuidString)",
             "Mode: \(record.plan.mode.displayName)",
-            "Hands-free: \(record.plan.runsHandsFree ? "Yes — automatic details/signature; physical checks unverified" : "No")",
+            "Hands-free: \(record.plan.runsHandsFree ? "Yes — automatic details/signature; skipped drills listed outside scope" : "No")",
             "State: \(record.state.rawValue)",
             "App: \(record.environment.appVersion) (\(record.environment.buildNumber))",
             "Commit: \(record.environment.commitSHA)",

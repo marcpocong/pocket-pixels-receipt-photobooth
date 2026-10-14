@@ -146,8 +146,23 @@ final class HardwareQualificationTests: XCTestCase {
         XCTAssertEqual(QualificationVerdict.evaluate(record), .unverified)
         let missing = QualificationVerdict.unverifiedRequirements(record)
         XCTAssertTrue(missing.contains { $0.contains("paper output") })
-        XCTAssertTrue(missing.contains { $0.contains("signature not acknowledged") })
+        XCTAssertTrue(QualificationVerdict.outsideScopeRequirements(record).contains { $0.contains("manual typing/signature") })
         XCTAssertTrue(QualificationReportFormatter.text(for: record).contains("Hands-free: Yes"))
+    }
+
+    func testOwnerConfirmedHandsFreeRunPassesWithoutInventingDrillAcknowledgments() {
+        let plan = QualificationPlanner.makePlan(mode: .endToEnd, sessionCount: 100, handsFreeEndToEnd: true)
+        var record = completedRecord(plan: plan)
+        record.physicalReceiptsSent = 125
+        record.physicalReceiptsConfirmed = 125
+        XCTAssertTrue(record.acknowledgedCheckpoints.isEmpty)
+        XCTAssertEqual(QualificationVerdict.evaluate(record), .pass)
+        XCTAssertTrue(QualificationVerdict.outsideScopeRequirements(record).contains { $0.contains("not performed or attested") })
+        record.sessions[0].physicalConfirmation = .pending
+        XCTAssertEqual(QualificationVerdict.evaluate(record), .unverified)
+        record.sessions[0].physicalConfirmation = .confirmed(receipts: 1)
+        record.sessions[0].violations = ["Recorded failure must not be overridden by owner attestation"]
+        XCTAssertEqual(QualificationVerdict.evaluate(record), .failed)
     }
 
     func testDiagnosticCopiesAndRemainingRetryAreAuthorizedOnlyForQualification() throws {
