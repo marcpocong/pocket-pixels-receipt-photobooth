@@ -70,3 +70,5 @@ The hands-free verdict now requires automated success and paper confirmation; it
 Original completed report SHA-256: `7829225cdfcbe44d2e29fda8edb9433aff7e5c568a271a8d9b22432471533ac5`.
 
 Owner-verification verdict change: all five focused verdict regression tests passed, including failure precedence and unconfirmed-paper rejection. Signed Release build and strict identity/signature checks passed for Carlo. Executable SHA-256: `9b74035e3ae29cb6daaff2edf001f47423edd95b60598547c15872850eb187c1`.
+
+Owner-confirmation update installed on Carlo from source `c44602a`. Device readback exactly matches the owner-confirmed record: 100 passed sessions and 125 receipts confirmed. SHA-256 comparison checked 3177 protected files: zero missing, and only the intended Mode C attestation record changed. Other test records, customer archives and saved settings are unchanged. The original pre-attestation report remains preserved in Git and the private backup.
