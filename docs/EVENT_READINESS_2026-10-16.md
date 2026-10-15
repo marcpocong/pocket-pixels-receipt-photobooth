@@ -15,7 +15,9 @@ connectivity failures, pending galleries and holders of old-host QR links.
   matched at start. Existing Desktop repository/project only; no dependencies added.
 - Implementation: `e931c90ad8b8076dd96f910ecd6e723e86b3a8e6`; final durable-attempt follow-up:
   **`25a90d82f654ebdf21fb2c2b99a7418fd1dfbce3`**. Subsequent documentation/Worker configuration commits do not change the iPad candidate.
-- Signed candidate CDHash: `7418a91de54d8c5aa5cfa83b1bad9c1bed24129a`.
+- Current payment-navigation follow-up: **`9c4fbe2`**, signed candidate CDHash
+  **`71be13f6ae7757b81f91a47532e8a54ad4c52e2d`**. The earlier physically checked candidate
+  had CDHash `7418a91de54d8c5aa5cfa83b1bad9c1bed24129a`.
 - Existing bundle `com.pocketpixels.PocketPixelsBooth`, version **1.0 (1)**, existing team and
   Apple Development signing preserved. Release product:
   `build/EventRelease/Build/Products/Release-iphoneos/PocketPixelsBooth.app`.
@@ -26,6 +28,29 @@ connectivity failures, pending galleries and holders of old-host QR links.
   selection, working Back and confirmed Cancel. Owner then confirmed a controlled nonfinancial
   session: camera/review, matching onscreen/receipt QR, exact selected print count and clean return
   to Welcome all passed. These are owner observations, not agent screenshots or unattended tests.
+
+## Payment-navigation follow-up (October 16)
+
+- Centered “How would you like to pay?” and “Please pay the attendant” with the existing ivory /
+  burgundy typography, Back and confirmed Cancel. Method Back returns to copies. Cash Back
+  returns to methods when both are offered, or copies for a cash-only event. Session identity,
+  quantity and pricing stay unchanged. In-flight/unresolved checkouts cannot leave these screens.
+- Owner clarified that “Checking payment” appeared after pressing Cancel at camera-ready following
+  successful payment. Explicit Cancel now returns to Welcome for verified QR, online cash and
+  offline cash, while keeping the paid checkout unresolved and recoverable by the attendant.
+  This does not recheck payment, transfer it to the next guest or automatically grant another
+  session. Existing print recovery locks and conservative automatic idle-reset guards remain.
+- Same bundle/signing/version, installed in place after owner confirmed Welcome/idle. Launch
+  succeeded; all **3,835** Application Support/Preferences entries remain present at unchanged
+  sizes. No new financial test, price/mode change or backend deployment was made for this follow-up.
+- Final signed Release build and signature verification passed. **42 targeted regressions passed**
+  (24 XCTest + 18 Swift Testing), including new measured portrait/landscape layouts, safe payment
+  navigation, paid cancellation with unchanged recovery records, cash provenance/authentication,
+  checkout guards/checkpoints and queued-gallery preservation. An earlier 11-test iteration also
+  passed. Synthetic rendered views were inspected; no customer images were used.
+- Owner confirmation of these two updated screens remains pending. The prior 515-test Production
+  Gate below covers the earlier release; the follow-up's new GitHub Actions run must be reported
+  separately and is not assumed green from the prior result.
 
 ## Implemented
 
