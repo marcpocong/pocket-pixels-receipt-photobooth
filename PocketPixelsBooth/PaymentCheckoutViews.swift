@@ -121,60 +121,98 @@ struct CheckoutCopySelectionView: View {
     }
 }
 
+/// Shared safe-area layout for the two screens before payment confirmation.
+private struct CheckoutNavigationLayout<Content: View>: View {
+    @ObservedObject var viewModel: BoothSessionViewModel
+    @ViewBuilder let content: Content
+    @State private var showingCancel = false
+
+    var body: some View {
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(spacing: 24) {
+                    HStack {
+                        Button { viewModel.backFromPaymentSelection() } label: {
+                            Label("Back", systemImage: "chevron.left")
+                                .frame(minWidth: 72, minHeight: 48)
+                        }
+                        Spacer()
+                        MadeToKeepLockup(scale: .compact)
+                        Spacer()
+                        Button("Cancel") { showingCancel = true }
+                            .frame(minWidth: 72, minHeight: 48)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!viewModel.canLeavePaymentSelection)
+                    Spacer(minLength: 0)
+                    content
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    // Balance the header so the payment content sits in the viewport's center.
+                    Color.clear.frame(height: 48).accessibilityHidden(true)
+                }
+                .multilineTextAlignment(.center)
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
+                .frame(maxWidth: 620)
+                .padding(24)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: proxy.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+        .confirmationDialog("Cancel this session?", isPresented: $showingCancel, titleVisibility: .visible) {
+            Button("Return to Welcome", role: .destructive) { viewModel.cancelSession() }
+            Button("Keep Session", role: .cancel) { }
+        } message: {
+            Text("Payment has not been confirmed on this iPad. If you have handed over cash, please ask the attendant for help before leaving.")
+        }
+    }
+}
+
 struct CheckoutPaymentMethodView: View {
     @ObservedObject var viewModel: BoothSessionViewModel
     @ObservedObject private var operations = EventOperationalState.shared
+    @ScaledMetric(relativeTo: .largeTitle) private var headingSize = 48.0
 
     var body: some View {
-        ScrollView {
+        CheckoutNavigationLayout(viewModel: viewModel) {
             VStack(spacing: 24) {
                 Text("How would you like to pay?")
-                    .font(.largeTitle.bold())
+                    .font(MadeToKeepTheme.Typography.serif(size: headingSize))
                     .accessibilityAddTraits(.isHeader)
-
                 if let total = viewModel.commercialEvent.activePolicy.totalCentavos(for: viewModel.selectedCheckoutCopies) {
                     Text("Total: \(PHPPriceFormatter.string(centavos: total))")
-                        .font(.title2)
+                        .font(MadeToKeepTheme.Typography.serif(size: 32))
                 }
                 CheckoutNoticeView(message: viewModel.paymentNotice)
-
                 if viewModel.commercialEvent.activePolicy.qrPhEnabled {
-                    Button {
-                        viewModel.chooseQRPh()
-                    } label: {
+                    Button { viewModel.chooseQRPh() } label: {
                         Label("Pay with QR Ph", systemImage: "qrcode")
-                            .frame(maxWidth: .infinity)
+                            .frame(maxWidth: .infinity, minHeight: 48)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(!viewModel.canChooseQRPh)
+                    .buttonStyle(MadeToKeepPrimaryButtonStyle())
+                    .disabled(!viewModel.canChooseQRPh || viewModel.isCheckoutTransitionActive)
                     if operations.networkPathStatus != "Online" {
                         Text("QR Ph is unavailable while this iPad is offline. A pending QR payment is never switched to cash automatically.")
                             .font(.callout)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
                     }
                 }
-
                 if viewModel.policyAuthority.isOfflineCashOnly {
                     Text("This iPad is offline. Cash is available under the event's signed offline policy.")
                         .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
+                        .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
                 }
-
                 if viewModel.commercialEvent.activePolicy.cashEnabled && viewModel.canChooseCash {
-                    Button {
-                        viewModel.chooseCash()
-                    } label: {
+                    Button { viewModel.chooseCash() } label: {
                         Label("Pay Cash to the Attendant", systemImage: "banknote")
-                            .frame(maxWidth: .infinity)
+                            .frame(maxWidth: .infinity, minHeight: 48)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
+                    .disabled(viewModel.isCheckoutTransitionActive)
                 }
             }
-            .frame(maxWidth: 560)
-            .padding(40)
         }
     }
 }
@@ -182,68 +220,57 @@ struct CheckoutPaymentMethodView: View {
 /// Online cash is customer-declared; signed offline cash keeps attendant authentication.
 struct CashAttestationView: View {
     @ObservedObject var viewModel: BoothSessionViewModel
+    @ScaledMetric(relativeTo: .largeTitle) private var headingSize = 48.0
+    @ScaledMetric(relativeTo: .title) private var amountSize = 48.0
 
     var body: some View {
-        GeometryReader { geometry in
-            ScrollView {
-                VStack(spacing: 26) {
-                    Image(systemName: "banknote")
-                        .font(.system(size: 48))
-                        .accessibilityHidden(true)
-                    Text("Please pay the attendant")
-                        .font(.largeTitle.bold())
-                        .multilineTextAlignment(.center)
-                        .accessibilityAddTraits(.isHeader)
-                    if let total = viewModel.commercialEvent.activePolicy.totalCentavos(for: viewModel.selectedCheckoutCopies) {
-                        VStack(spacing: 6) {
-                            Text(PHPPriceFormatter.string(centavos: total))
-                                .font(.system(size: 52, weight: .bold, design: .serif))
-                            Text("\(viewModel.selectedCheckoutCopies) \(viewModel.selectedCheckoutCopies == 1 ? "copy" : "copies") · cash")
-                                .font(.headline).foregroundStyle(.secondary)
-                        }
-                        .accessibilityElement(children: .combine)
+        CheckoutNavigationLayout(viewModel: viewModel) {
+            VStack(spacing: 24) {
+                Image(systemName: "banknote")
+                    .font(.system(size: 40))
+                    .accessibilityHidden(true)
+                Text("Please pay the attendant")
+                    .font(MadeToKeepTheme.Typography.serif(size: headingSize))
+                    .accessibilityAddTraits(.isHeader)
+                if let total = viewModel.commercialEvent.activePolicy.totalCentavos(for: viewModel.selectedCheckoutCopies) {
+                    VStack(spacing: 6) {
+                        Text(PHPPriceFormatter.string(centavos: total))
+                            .font(MadeToKeepTheme.Typography.serif(size: amountSize))
+                        Text("\(viewModel.selectedCheckoutCopies) \(viewModel.selectedCheckoutCopies == 1 ? "copy" : "copies") · cash")
+                            .font(.headline)
                     }
-                    Text(viewModel.policyAuthority.isOfflineCashOnly
-                         ? "Hand your cash to the attendant. They will confirm on this iPad."
-                         : "Hand your cash to the attendant, then tap below to start your photos.")
-                        .font(.title3)
-                        .multilineTextAlignment(.center)
-                    CheckoutNoticeView(message: viewModel.paymentNotice)
-
-                    VStack(spacing: 12) {
-                        Button {
-                            if viewModel.policyAuthority.isOfflineCashOnly {
-                                viewModel.confirmCashReceivedByAttendant()
-                            } else {
-                                viewModel.declareCashPaidByGuest()
-                            }
-                        } label: {
-                            Label(viewModel.isCheckoutTransitionActive ? "Starting…" : (viewModel.policyAuthority.isOfflineCashOnly ? "Attendant: Confirm Cash Received" : "I’ve paid the attendant"), systemImage: "checkmark.circle")
-                                .frame(maxWidth: .infinity, minHeight: 36)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        .disabled(viewModel.isCheckoutTransitionActive)
-                        .accessibilityHint(viewModel.policyAuthority.isOfflineCashOnly ? "Requires attendant Face ID or the iPad passcode." : "Starts your photos after you declare your cash payment.")
-                        Text(viewModel.policyAuthority.isOfflineCashOnly
-                             ? "Requires attendant Face ID or the iPad passcode."
-                             : "Tap only after handing over the full amount.")
-                            .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                    }
-                    .padding(20)
-                    .frame(maxWidth: .infinity)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
-
-                    if viewModel.canLeaveCashPayment {
-                        Button("Pay with QR Ph instead") { viewModel.leaveCashPayment() }
-                            .buttonStyle(.bordered)
-                            .controlSize(.large)
-                    }
+                    .accessibilityElement(children: .combine)
                 }
-                .frame(maxWidth: 620)
-                .padding(40)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: geometry.size.height, alignment: .center)
+                Text(viewModel.policyAuthority.isOfflineCashOnly
+                     ? "Hand your cash to the attendant. They will confirm on this iPad."
+                     : "Hand your cash to the attendant, then tap below to start your photos.")
+                    .font(MadeToKeepTheme.Typography.body())
+                CheckoutNoticeView(message: viewModel.paymentNotice)
+                VStack(spacing: 12) {
+                    Button {
+                        if viewModel.policyAuthority.isOfflineCashOnly {
+                            viewModel.confirmCashReceivedByAttendant()
+                        } else {
+                            viewModel.declareCashPaidByGuest()
+                        }
+                    } label: {
+                        Label(viewModel.isCheckoutTransitionActive ? "Starting…" : (viewModel.policyAuthority.isOfflineCashOnly ? "Attendant: Confirm Cash Received" : "I’ve paid the attendant"), systemImage: "checkmark.circle")
+                            .frame(maxWidth: .infinity, minHeight: 48)
+                    }
+                    .buttonStyle(MadeToKeepPrimaryButtonStyle())
+                    .disabled(viewModel.isCheckoutTransitionActive)
+                    .accessibilityHint(viewModel.policyAuthority.isOfflineCashOnly ? "Requires attendant Face ID or the iPad passcode." : "Starts your photos after you declare your cash payment.")
+                    Text(viewModel.policyAuthority.isOfflineCashOnly
+                         ? "Requires attendant Face ID or the iPad passcode."
+                         : "Tap only after handing over the full amount.")
+                        .font(.footnote)
+                        .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
+                }
+                if viewModel.canLeaveCashPayment {
+                    Button("Pay with QR Ph instead") { viewModel.leaveCashPayment() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                }
             }
         }
     }

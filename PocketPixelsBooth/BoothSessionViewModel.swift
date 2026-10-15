@@ -500,21 +500,33 @@ final class BoothSessionViewModel: ObservableObject {
         state == .paymentReconciliation && checkoutGuard.canStartNewCheckout() && paymentOrder != nil
     }
 
-    /// The guest may go back from cash to the other method only before anything was confirmed.
+    /// Neither screen may abandon a checkout request that may have reached the server.
+    var canLeavePaymentSelection: Bool {
+        (state == .choosingPayment || state == .cashAttestation) && !isTransitionActive
+            && paymentOrder == nil && paymentAttempt == nil && checkoutEntitlement == nil
+            && !checkoutGuard.serverCheckoutStarted && !checkoutGuard.qrAttemptUnresolved
+    }
+
+    func backFromPaymentSelection() {
+        guard canLeavePaymentSelection else { return }
+        paymentNotice = nil
+        state = state == .cashAttestation && soleOfferedPaymentMethod == nil ? .choosingPayment : .choosingCopies
+    }
+
     var canLeaveCashPayment: Bool {
-        state == .cashAttestation && !isTransitionActive && commercialEvent.activePolicy.qrPhEnabled && soleOfferedPaymentMethod == nil
+        state == .cashAttestation && canLeavePaymentSelection
+            && commercialEvent.activePolicy.qrPhEnabled && soleOfferedPaymentMethod == nil
     }
 
     func chooseCash() {
-        guard state == .choosingPayment, canChooseCash else { return }
+        guard state == .choosingPayment, !isTransitionActive, canChooseCash else { return }
         paymentNotice = nil
         state = .cashAttestation
     }
 
     func leaveCashPayment() {
         guard canLeaveCashPayment else { return }
-        paymentNotice = nil
-        state = .choosingPayment
+        backFromPaymentSelection()
     }
 
     /// Online customer declaration stays SELF_REPORTED; it never records staff confirmation.
@@ -1040,7 +1052,7 @@ final class BoothSessionViewModel: ObservableObject {
         activeTask = Task { await Task.yield() }
     }
 
-    func configureAuthorizedCameraReadyForTesting() {
+    func configureAuthorizedCameraReadyForTesting(authorizationSource: CheckoutAuthorizationSource = .privatePrepaid) {
         let identifier = "TEST-\(UUID().uuidString)"
         selectedBoothFormat = .solo
         sessionIdentifier = identifier
@@ -1048,7 +1060,7 @@ final class BoothSessionViewModel: ObservableObject {
             id: "prepaid-\(identifier)", orderID: nil, eventID: "test", policyRevisionID: "test",
             sessionID: identifier, selectedFormatRawValue: BoothFormat.solo.rawValue,
             purchasedCopies: 1, unitPriceCentavos: 0, totalCentavos: 0,
-            authorizationSource: .privatePrepaid, authorizedAt: Date(), receiptFingerprint: nil
+            authorizationSource: authorizationSource, authorizedAt: Date(), receiptFingerprint: nil
         )
         isTransitionActive = false
         isCameraUnavailable = false
@@ -1119,8 +1131,10 @@ final class BoothSessionViewModel: ObservableObject {
         if let entitlement = checkoutEntitlement,
            entitlement.authorizationSource != .privatePrepaid,
            capturedPhotos.isEmpty {
-            statusMessage = "This paid session is saved. Ask the attendant to resume it; do not pay again."
-            state = .paymentReconciliation
+            // Payment is already authorized. End the guest interaction without rechecking it
+            // or resolving/deleting its durable checkout; the attendant can resume the same
+            // paid session from Payment Recovery. No printing has started (guards above).
+            resetToWelcome()
             return
         }
         debugLog("Session \(sessionIdentifier ?? "unknown") cancelled.")

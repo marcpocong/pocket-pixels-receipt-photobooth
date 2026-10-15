@@ -2,6 +2,7 @@ import CoreImage
 import SwiftUI
 import UIKit
 import WebKit
+import Vision
 import XCTest
 @testable import PocketPixelsBooth
 
@@ -50,6 +51,118 @@ final class EventFinalizationTests: XCTestCase {
         XCTAssertEqual(model.state, .paymentReconciliation)
         XCTAssertTrue(model.checkoutGuard.qrAttemptUnresolved)
         XCTAssertNotNil(model.sessionIdentifier)
+    }
+
+    func testPaymentAndCashBackPreserveSessionAndCopiesWithoutCreatingOrders() {
+        let model = BoothSessionViewModel()
+        model.configurePaidCheckoutForTesting(qrPhEnabled: true, cashEnabled: true)
+        let session = model.sessionIdentifier
+        model.confirmCopySelection()
+        XCTAssertTrue(model.canLeavePaymentSelection)
+        model.backFromPaymentSelection()
+        XCTAssertEqual(model.state, .choosingCopies)
+        model.confirmCopySelection()
+        model.chooseCash()
+        model.backFromPaymentSelection()
+        XCTAssertEqual(model.state, .choosingPayment)
+        XCTAssertEqual(model.sessionIdentifier, session)
+        XCTAssertEqual(model.selectedCheckoutCopies, 2)
+        XCTAssertNil(model.paymentOrder)
+        XCTAssertNil(model.checkoutEntitlement)
+        XCTAssertFalse(model.checkoutGuard.serverCheckoutStarted)
+        model.cancelSession()
+        XCTAssertEqual(model.state, .welcome)
+
+        for authority: PolicyAuthority in [.serverConfirmed(fetchedAt: Date()), .signedOffline(snapshotID: "fixture", expiresAt: Date().addingTimeInterval(3600))] {
+            model.configurePaidCheckoutForTesting(qrPhEnabled: false, cashEnabled: true, authority: authority)
+            model.confirmCopySelection()
+            XCTAssertEqual(model.state, .cashAttestation)
+            XCTAssertTrue(model.canLeavePaymentSelection)
+            model.backFromPaymentSelection()
+            XCTAssertEqual(model.state, .choosingCopies, "Cash-only Back must not lead to an empty method screen")
+            model.confirmCopySelection()
+            model.cancelSession()
+            XCTAssertEqual(model.state, .welcome)
+        }
+    }
+
+    func testPaymentScreenNavigationCannotAbandonAnUnresolvedRequest() {
+        for state: BoothSessionState in [.choosingPayment, .cashAttestation] {
+            let model = BoothSessionViewModel()
+            model.configurePaidCheckoutForTesting(qrPhEnabled: true, cashEnabled: true)
+            model.state = state
+            model.configureUnresolvedCheckoutForTesting()
+            XCTAssertFalse(model.canLeavePaymentSelection)
+            XCTAssertFalse(model.canLeaveCashPayment)
+            model.backFromPaymentSelection()
+            model.leaveCashPayment()
+            XCTAssertEqual(model.state, state)
+            model.cancelSession()
+            XCTAssertEqual(model.state, .paymentReconciliation)
+            XCTAssertTrue(model.checkoutGuard.qrAttemptUnresolved)
+        }
+    }
+
+    func testCancelAtPaidCameraReadyReturnsToWelcomeAndRetainsRecoveryForEveryPaidSource() throws {
+        let store = try XCTUnwrap(CheckoutCheckpointStore.shared)
+        for source: CheckoutAuthorizationSource in [.verifiedQRPh, .unverifiedCashDeclared, .localUnsyncedCashDeclared] {
+            let model = BoothSessionViewModel()
+            model.configureAuthorizedCameraReadyForTesting(authorizationSource: source)
+            let session = try XCTUnwrap(model.sessionIdentifier)
+            let now = Date()
+            let checkpoint = CheckoutCheckpoint(id: session, environment: "test", deviceID: nil, accountID: nil,
+                eventID: "test", policyRevisionID: "test", unitPriceCentavos: 2500, copies: 1,
+                format: BoothFormat.solo.rawValue, method: source == .verifiedQRPh ? "QRPH" : "CASH_DECLARED",
+                orderID: nil, entitlementID: model.checkoutEntitlement?.id, offlineRecordID: nil,
+                phase: .claimed, lastServerState: nil, createdAt: now, updatedAt: now, resolution: nil, resolvedAt: nil)
+            try store.begin(checkpoint)
+            defer { store.resolve(id: session, reason: "test_cleanup") }
+            model.galleryToken = String(repeating: "a", count: 64)
+            model.installAuthorizationTaskForTesting()
+            XCTAssertFalse(model.isCustomerResetSafe, "Automatic idle reset remains conservative")
+            model.cancelSession()
+            XCTAssertEqual(model.state, .welcome)
+            XCTAssertNil(model.checkoutEntitlement)
+            XCTAssertNil(model.sessionIdentifier)
+            XCTAssertNil(model.galleryToken)
+            XCTAssertNil(model.galleryQRCodeImage)
+            XCTAssertTrue(model.capturedPhotos.isEmpty)
+            XCTAssertFalse(model.hasActiveTaskForTesting)
+            XCTAssertEqual(store.checkpoint(id: session), checkpoint, "Cancel must not resolve or alter the paid checkout")
+            model.configurePaidCheckoutForTesting(qrPhEnabled: true, cashEnabled: true)
+            XCTAssertNotEqual(model.sessionIdentifier, session)
+            XCTAssertNil(model.checkoutEntitlement, "A new customer cannot inherit the cancelled customer's payment")
+        }
+    }
+
+    func testPaymentAndCashScreensFitAndCenterInBothCarloOrientations() async throws {
+        for size in [CGSize(width: 834, height: 1194), CGSize(width: 1194, height: 834)] {
+            let model = BoothSessionViewModel()
+            model.configurePaidCheckoutForTesting(qrPhEnabled: true, cashEnabled: true)
+            model.confirmCopySelection()
+            for cash in [false, true] {
+                if cash { model.chooseCash() }
+                let content = cash ? AnyView(CashAttestationView(viewModel: model)) : AnyView(CheckoutPaymentMethodView(viewModel: model))
+                let (image, scroll) = try await render(content, size: size, name: "payment-\(cash ? "cash" : "methods")-\(Int(size.width))")
+                XCTAssertLessThanOrEqual(scroll.contentSize.height, scroll.bounds.height + 1)
+                XCTAssertLessThanOrEqual(scroll.contentSize.width, scroll.bounds.width + 1)
+                let request = VNRecognizeTextRequest()
+                request.recognitionLevel = .accurate
+                try VNImageRequestHandler(cgImage: XCTUnwrap(image.cgImage)).perform([request])
+                let lines = (request.results ?? []).compactMap { observation -> (String, CGRect)? in
+                    guard let text = observation.topCandidates(1).first?.string else { return nil }
+                    return (text, observation.boundingBox)
+                }
+                XCTAssertTrue(lines.contains { $0.0.contains("Back") })
+                XCTAssertTrue(lines.contains { $0.0.contains("Cancel") })
+                let contentBounds = lines.filter { text, _ in
+                    cash ? (text.contains("Please pay") || text.contains("QR Ph instead"))
+                         : (text.contains("How would") || text.contains("Pay Cash"))
+                }.map(\.1).reduce(CGRect.null) { $0.union($1) }
+                XCTAssertFalse(contentBounds.isNull)
+                XCTAssertEqual(contentBounds.midY, 0.5, accuracy: 0.12, "Payment content should be centered, not top aligned")
+            }
+        }
     }
 
     func testConclusivePolicyRejectionReopensCopyReviewButUnresolvedPaymentDoesNot() {

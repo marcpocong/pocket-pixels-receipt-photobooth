@@ -81,7 +81,13 @@ struct BoothSessionView: View {
                 }
                 Button("Keep Session", role: .cancel) { }
             } message: {
-                Text("All captured photos and the current receipt preview will be cleared.")
+                if let entitlement = viewModel.checkoutEntitlement,
+                   entitlement.authorizationSource != .privatePrepaid,
+                   viewModel.capturedPhotos.isEmpty {
+                    Text("Return to Welcome? Your paid session stays saved for the attendant to resume. Please do not pay again.")
+                } else {
+                    Text("All captured photos and the current receipt preview will be cleared.")
+                }
             }
 #if DEBUG
             .confirmationDialog("End this test session without printing?", isPresented: $showingEndNoPrintConfirmation, titleVisibility: .visible) {
