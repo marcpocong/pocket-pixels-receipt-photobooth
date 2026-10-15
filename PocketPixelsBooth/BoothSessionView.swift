@@ -277,12 +277,11 @@ struct BoothSessionView: View {
         }
     }
 
-    /// Neutral guest notice: reveals nothing about any previous guest or payment.
-    @ViewBuilder private var interruptedCheckoutNotice: some View {
+    /// Only an explicit attendant action adds a guest prompt. Saved checkout records belong
+    /// in operator recovery and must not display another customer's interruption on Welcome.
+    @ViewBuilder private var attendantResumeNotice: some View {
         if paymentRecovery.armedResume != nil {
             noticeText("Your attendant has prepared your session. Tap to continue.")
-        } else if paymentRecovery.items.contains(where: { !$0.classification.isTerminal }) {
-            noticeText("Your interrupted session is saved. Ask the attendant to resume it; don’t pay again.")
         }
     }
 
@@ -307,7 +306,7 @@ struct BoothSessionView: View {
             onStart: { viewModel.startSession() },
             onAdminLongPress: onAdminAccessRequested == nil ? nil : { openAdminAccess() }
         )
-        .overlay(alignment: .top) { interruptedCheckoutNotice }
+        .overlay(alignment: .top) { attendantResumeNotice }
 #if DEBUG
         .overlay(alignment: .bottom) {
             if onAdminAccessRequested != nil {
