@@ -1,15 +1,16 @@
 # Customer Gallery — Event release and rollback (October 16, 2026)
 
-**Prepared in source; NOT deployed. Owner approval is required before any live update.**
+**Released October 16 with owner approval after final candidate Production Gate passed.**
 
 ## Verified current deployment
 
 - Public front door: `https://gallery.madetokeepstudios.workers.dev/`. Its read-only
   `?diagnostic=proxy` reports healthy upstream and backend
-  `made-to-keep-gallery-v2-optional-gif-20261009`.
+  `made-to-keep-gallery-v3-stills-20261016`.
 - Existing Apps Script project: **Pocket Pixels Gallery Backend**, signed-in Pocket Pixels
   account, project ID `1EdArbkIBJzbdyuyqrDcbp898FfudGv2TbrlFNNYrMoiAhkStzc7qJg5h`.
-- Manage deployments confirms the existing Web App is **version 22** (October 9).
+- Manage deployments confirms the existing Web App is **version 23** (October 16).
+  Version 22 (October 9) is retained for rollback.
   Its `/exec` URL exactly matches `PocketPixelsBooth/Info.plist` and the Worker configuration.
   Execute as owner / Anyone access are already configured; preserve both.
 - The October 14 editorial source was never deployed. The active page is generated in
@@ -18,9 +19,22 @@
   returns NXDOMAIN from both 1.1.1.1 and 8.8.8.8. Historical tokens remain supported in source, but
   availability of that old hostname is **unverified and requires account/routing investigation**.
   Do not rename, delete, or redirect either front door while resolving this.
-- Cloudflare browser inspection stopped at existing-account sign-in; no account settings changed.
+- Authenticated existing Cloudflare CLI access confirms account
+  `f4119288ab0fe1f5c0e2f37b86735236`, subdomain `madetokeepstudios`, Worker `gallery`,
+  no custom domains and no legacy gallery Worker. The existing account cannot retain the current
+  workers.dev host while also being renamed to the former subdomain. No subdomain change occurred.
+- Live Worker rollback version: `c5ccf383-0010-48f1-9fd7-0eb17679078c`. Configuration
+  preserves production compatibility date `2026-10-08`, enabled workers.dev and disabled preview URLs.
+  Deploy with `--keep-vars`; the existing origin is the sole binding. Dry run and 29 tests pass.
+- Released Worker: `aabb760a-95e1-4964-b698-39c7aff376d6`. Live API comparison confirms prior
+  bindings, compatibility flags/date, observability, tail consumers and logpush are preserved.
+  Observability was briefly disabled by the initial CLI upload and immediately restored; the
+  complete prior settings are now explicit in `wrangler.toml`.
+- Public proxy health confirms v3/upstream 200; invalid/pending native URLSession reads pass.
+  A historical token on the current host loads its photo and both receipts, including lightbox.
+  Fresh phone save/share and physical offline recovery checks remain operator evidence.
 
-## Prepared changes
+## Released changes
 
 `Code.gs` backend version: `made-to-keep-gallery-v3-stills-20261016`.
 Warm ivory / burgundy editorial page, centered wordmark, oversized headline, primary Save All
@@ -45,7 +59,7 @@ Real iPhone Safari and Android Chrome share/save flows still require a phone che
 
 ## Authorized release sequence
 
-1. Confirm owner approval and retain Apps Script **version 22** as the rollback version.
+1. Owner approval received; retain Apps Script **version 22** as the rollback version.
 2. In the existing project editor, replace **Code.gs** with validated source. Do not run upload
    functions or edit script properties. Browser access to this exact project is available;
    manual owner copying is not a prerequisite.
@@ -70,7 +84,8 @@ cache bump makes the switch immediate. Do not change the PayMongo Worker for thi
 ## Rollback
 
 Edit the **same** Apps Script deployment back to **version 22**. Restore the previous Worker
-version using Cloudflare deployment rollback (same Worker, account and routes). The prior
+version `c5ccf383-0010-48f1-9fd7-0eb17679078c` using Cloudflare deployment rollback
+(same Worker, account and routes). The prior
 repository Worker is at `9dfd258`; restoring it only changes the internal cache namespace.
 Recheck proxy diagnostics, a consented diagnostic gallery and private historical links.
 No data migration or file deletion is part of release or rollback. New still-only payloads were

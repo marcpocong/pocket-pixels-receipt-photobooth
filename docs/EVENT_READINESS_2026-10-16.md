@@ -1,22 +1,27 @@
 # Made to Keep Studios — October 16 event readiness
 
-**Verdict: NOT READY — BLOCKERS REMAIN for the updated candidate.** The October 15 physical
-qualification is useful baseline evidence, but the changed guest screens/status-bar behavior
-still need an authorized in-place install and a short physical smoke test. The legacy printed
-hostname also needs investigation. No new physical print or financial transaction was made.
+**Verdict: NOT READY — BLOCKERS REMAIN pending the fresh phone-gallery check.** The signed
+candidate is installed on Carlo; the owner confirmed the changed guest flow and a controlled
+camera/print/QR/reset session. Automated gates passed and both gallery backends are released.
+The legacy printed hostname remains unavailable and must not be presented as restored.
 
 ## Source and build
 
 - Baseline: `9dfd258b9f1a808a075cf8a4a91095ccad878d77`; clean workspace and fetched `origin/main`
   matched at start. Existing Desktop repository/project only; no dependencies added.
 - Implementation: `e931c90ad8b8076dd96f910ecd6e723e86b3a8e6`; final durable-attempt follow-up:
-  **`25a90d82f654ebdf21fb2c2b99a7418fd1dfbce3`**. Subsequent documentation commits do not change the candidate.
+  **`25a90d82f654ebdf21fb2c2b99a7418fd1dfbce3`**. Subsequent documentation/Worker configuration commits do not change the iPad candidate.
 - Signed candidate CDHash: `7418a91de54d8c5aa5cfa83b1bad9c1bed24129a`.
 - Existing bundle `com.pocketpixels.PocketPixelsBooth`, version **1.0 (1)**, existing team and
   Apple Development signing preserved. Release product:
   `build/EventRelease/Build/Products/Release-iphoneos/PocketPixelsBooth.app`.
-- Carlo is connected: iPad Pro 11-inch (4th generation), iPadOS **26.6.1**. Candidate not installed;
-  existing app, protected container, operator settings, prices and customer data are untouched.
+- Carlo is connected: iPad Pro 11-inch (4th generation), iPadOS **26.6.1**. Candidate installed **in place and launched successfully** after owner authorization and confirmation
+  that Carlo was at Welcome/idle. All 3,827 Application Support/Preferences inventory entries remain
+  present with unchanged sizes. No uninstall, container deletion, price or settings edit occurred.
+- Owner confirmed on Carlo: status bar hidden through Welcome → format → copies, centered copy
+  selection, working Back and confirmed Cancel. Owner then confirmed a controlled nonfinancial
+  session: camera/review, matching onscreen/receipt QR, exact selected print count and clean return
+  to Welcome all passed. These are owner observations, not agent screenshots or unattended tests.
 
 ## Implemented
 
@@ -57,7 +62,9 @@ hostname also needs investigation. No new physical print or financial transactio
 | Payments Worker | 207 passed, 0 failed |
 
 The complete rerun passed, followed by the 20-test queue-checkpoint follow-up for `25a90d8`.
-GitHub Actions backend passed; iOS CI was still running at handoff preparation (not claimed green).
+GitHub Actions full UI-source gate `38794547032` and final candidate gate `38795453578`
+passed, including iOS and backend. Final candidate CI ran **426 XCTest + 89 Swift Testing tests**
+(515 total), with no failures. Worker configuration preservation also passed a Wrangler dry build.
 Candidate-source run: [Production Gate](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/38795453578).
 [Production Gate runs](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/workflows/ci.yml)
 identify the pushed SHA; do not treat a pending job as a pass. Pre-existing Swift actor-isolation
@@ -76,22 +83,36 @@ Existing recovery, payment, print checkpoint and receipt regressions are retaine
 
 ## Live backend release
 
-Production remains Apps Script **version 22**, backend
-`made-to-keep-gallery-v2-optional-gif-20261009`, on the existing `/exec` deployment. The healthy
-front door is `https://gallery.madetokeepstudios.workers.dev/`. The October 14 editorial source
-was never deployed. Prepared source is `made-to-keep-gallery-v3-stills-20261016`.
+Owner-authorized release completed October 16 at approximately 04:14–04:16 Manila time:
 
-The documented legacy `pocket-pixels-gallery.pocketpixels-ceb.workers.dev` returns NXDOMAIN from both 1.1.1.1 and 8.8.8.8. Historical-token compatibility passes locally, but hostname availability is not
-proven. Authenticated Apps Script browser access and the exact existing deployment were inspected;
-Cloudflare inspection reached existing-account sign-in. No deployment or credential change occurred.
-Read-only live checks using curl and native Apple URLSession on this Mac received branded invalid
-(404) and unused-token pending (200) pages, without Google sign-in or any gallery upload. Python's
-user agent receives Cloudflare 1010; actual Carlo verification and phone save/share checks remain
-required. No Cloudflare security settings were changed.
+- Existing Apps Script deployment updated **22 → 23**, backend
+  `made-to-keep-gallery-v3-stills-20261016`. Same deployment ID and `/exec`, owner execution and
+  Anyone access; source was copied back and verified identical before publishing.
+- Existing `gallery` Worker deployed as **`aabb760a-95e1-4964-b698-39c7aff376d6`** with the new
+  internal completed-page cache namespace. Live API comparison confirms unchanged bindings,
+  compatibility date/flags, observability, tail consumers and logpush; workers.dev stays enabled,
+  preview URLs disabled. The initial CLI deploy briefly disabled dashboard-only observability;
+  it was immediately restored and explicitly captured in configuration before final verification.
+- Public front door: `https://gallery.madetokeepstudios.workers.dev/`. Proxy diagnostic is healthy,
+  upstream 200 and recognizes v3. Native Apple URLSession returns branded invalid (404) and
+  random unused-token pending (200), without Google sign-in or completed-page false positives.
+- A private historical gallery opens after release with its completed marker and new editorial
+  page; its photo, color receipt and printed receipt load. The printed receipt lightbox opens
+  and closes. No GIF image is loaded. No private token or customer image was put in source/reports.
+- Fresh controlled-session phone access/saving remains pending owner observation. Automated
+  backoff/ambiguity tests pass; a physical disconnect/restore upload drill remains unperformed.
 
-Owner approval is required before updating the existing Apps Script deployment and verified
-existing Worker(s). [Deployment and rollback instructions](gallery-redesign-deployment.md) preserve
-version 22, all tokens, Drive data, authentication and URLs. No PayMongo deployment is needed.
+The legacy `pocket-pixels-gallery.pocketpixels-ceb.workers.dev` returned NXDOMAIN from both
+1.1.1.1 and 8.8.8.8 before release and remains unavailable. Authenticated account inspection
+confirms subdomain `madetokeepstudios`, existing `gallery` Worker, no custom domains and no legacy
+gallery Worker. Renaming this account would disrupt the working front door; no rename occurred.
+Historical tokens work on the current host, but old-host QR availability is **not restored**.
+Attendants must assist holders of such old links; do not advertise that hostname for this event.
+
+Python's user agent receives Cloudflare 1010; native Apple URLSession and Chrome public reads work.
+No Cloudflare security setting or credential was changed. No PayMongo deployment occurred.
+[Deployment and rollback instructions](gallery-redesign-deployment.md) retain Apps Script **22**
+and Worker **`c5ccf383-0010-48f1-9fd7-0eb17679078c`**. No data migration/deletion is involved.
 
 ## Carlo kiosk setup — operator actions
 
@@ -119,14 +140,10 @@ These are manual settings, not app-enforced notification blocking or MDM. Refere
 
 ## Remaining owner actions before accepting guests
 
-- Approve in-place candidate installation while Carlo is idle. Never uninstall or erase its data.
-- On Carlo: launch and transition through guest screens; verify hidden status bar, centered copies,
-  Back/Cancel, camera, review/stickers, QR/receipt identity, one deliberately controlled print with
-  exact copies, then return to welcome with no previous guest content. Use existing event settings;
-  no live test payment without separate explicit consent.
 - With a consented diagnostic session, disconnect/restore Wi-Fi and confirm queue recovery and
   phone access. Do not delete waiting galleries or interpret pending/unknown as lost.
-- Authorize backend release separately; check a private historical link and diagnostic gallery,
-  actual iPhone Safari / Android Chrome saving, both receipt views, and the legacy hostname.
+- Confirm fresh controlled-session phone access/saving; test the other mobile platform and native
+  share sheets where available. Resolve the unavailable legacy hostname separately without
+  disrupting the current front door. Historical gallery/receipt reads on the current host passed.
 - Configure/rehearse the kiosk checklist. Complete any still-required supervised physical drills
   from the production checklist; the new candidate is not hardware-qualified merely by building.
