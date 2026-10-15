@@ -32,7 +32,9 @@
   complete prior settings are now explicit in `wrangler.toml`.
 - Public proxy health confirms v3/upstream 200; invalid/pending native URLSession reads pass.
   A historical token on the current host loads its photo and both receipts, including lightbox.
-  Fresh phone save/share and physical offline recovery checks remain operator evidence.
+  Owner confirmed a fresh session on iPhone Safari after release: no sign-in, all photos and both
+  receipts visible, individual photo saving passed. Android Chrome, native bulk sharing and a
+  physical offline-recovery drill remain unverified.
 
 ## Released changes
 
@@ -55,7 +57,8 @@ node Backend/GoogleAppsScript/GridSixValidation.test.cjs --fixtures
 
 Run the iOS gate, including `GalleryBrowserLayoutTests`, after generating these synthetic
 fixtures. Local WebKit tests cover 1/2/3/4/6 photos at 320/375/390/430/768/1024/1440 px.
-Real iPhone Safari and Android Chrome share/save flows still require a phone check.
+Fresh-gallery access and individual saving passed on real iPhone Safari by owner observation.
+Android Chrome and native bulk share sheets still require a phone check.
 
 ## Authorized release sequence
 

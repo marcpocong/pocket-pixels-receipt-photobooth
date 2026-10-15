@@ -1,9 +1,13 @@
 # Made to Keep Studios — October 16 event readiness
 
-**Verdict: NOT READY — BLOCKERS REMAIN pending the fresh phone-gallery check.** The signed
-candidate is installed on Carlo; the owner confirmed the changed guest flow and a controlled
-camera/print/QR/reset session. Automated gates passed and both gallery backends are released.
-The legacy printed hostname remains unavailable and must not be presented as restored.
+**Verdict: READY WITH SPECIFIC LIMITATIONS for an attended event using the current Made to Keep
+gallery host.** The signed candidate is installed on Carlo. Owner-confirmed guest-flow and
+controlled camera/print/QR/reset checks passed; a fresh session also passed on iPhone Safari:
+no Google sign-in, all photos and both receipts visible, and individual photo saving works.
+Automated gates passed and both gallery backends are released. Configure/rehearse Guided Access
+and Focus before opening. The legacy hostname remains unavailable; Android Chrome/native bulk
+sharing and a physical offline-recovery drill remain unverified. An attendant must handle
+connectivity failures, pending galleries and holders of old-host QR links.
 
 ## Source and build
 
@@ -75,8 +79,8 @@ which now have a 44px minimum. One overlapping local Release invocation hit Xcod
 lock; it was rerun serially. No failing assertion was disabled or weakened.
 
 Visual evidence uses synthetic images, never customer photos. WebKit and desktop Chrome checks
-cover the requested widths, with additional phone/tablet landscape checks. Emulation does not
-prove native iPhone Safari / Android Chrome share sheets or actual filesystem saving.
+cover the requested widths, with additional phone/tablet landscape checks. The owner subsequently confirmed fresh-gallery access, both receipts and individual photo saving
+on actual iPhone Safari. Native bulk share sheets and Android Chrome saving remain unverified.
 Existing recovery, payment, print checkpoint and receipt regressions are retained. See
 [October 15 physical Mode B and owner-confirmed Mode C evidence](hardware-qualification/2026-10-15/REPORT.md):
 100 live-camera sessions / 125 physical print jobs; omitted supervised drills remain separate.
@@ -99,8 +103,11 @@ Owner-authorized release completed October 16 at approximately 04:14–04:16 Man
 - A private historical gallery opens after release with its completed marker and new editorial
   page; its photo, color receipt and printed receipt load. The printed receipt lightbox opens
   and closes. No GIF image is loaded. No private token or customer image was put in source/reports.
-- Fresh controlled-session phone access/saving remains pending owner observation. Automated
-  backoff/ambiguity tests pass; a physical disconnect/restore upload drill remains unperformed.
+- Owner confirmed the fresh controlled-session QR on **iPhone Safari** after release: no Google
+  sign-in, all photos and both receipts present, and photo saving passed. This confirms the new
+  session delivery path by owner observation; it does not attest Android Chrome or bulk sharing.
+  Automated backoff/ambiguity tests pass; a physical disconnect/restore upload drill remains
+  unperformed.
 
 The legacy `pocket-pixels-gallery.pocketpixels-ceb.workers.dev` returned NXDOMAIN from both
 1.1.1.1 and 8.8.8.8 before release and remains unavailable. Authenticated account inspection
@@ -142,8 +149,8 @@ These are manual settings, not app-enforced notification blocking or MDM. Refere
 
 - With a consented diagnostic session, disconnect/restore Wi-Fi and confirm queue recovery and
   phone access. Do not delete waiting galleries or interpret pending/unknown as lost.
-- Confirm fresh controlled-session phone access/saving; test the other mobile platform and native
-  share sheets where available. Resolve the unavailable legacy hostname separately without
+- Test Android Chrome and native bulk share sheets where available. Resolve the unavailable
+  legacy hostname separately without
   disrupting the current front door. Historical gallery/receipt reads on the current host passed.
 - Configure/rehearse the kiosk checklist. Complete any still-required supervised physical drills
   from the production checklist; the new candidate is not hardware-qualified merely by building.
