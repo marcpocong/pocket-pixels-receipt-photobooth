@@ -114,7 +114,20 @@ jobs:
       - name: Payments Worker tests
         working-directory: Backend/PaymentsWorker
         run: |
-          npm ci
+          # npm may silently skip a failed optional binary download. Verify the pinned
+          # workerd executable before starting tests, with one clean install retry.
+          # Test failures are never retried or ignored.
+          for install_attempt in 1 2; do
+            if npm ci --include=dev --include=optional --foreground-scripts &&
+               node -e "require('node:child_process').execFileSync(require('workerd').default, ['--version'], {stdio: 'inherit'})"; then
+              break
+            fi
+            if [ "$install_attempt" -eq 2 ]; then
+              echo "Payment test runtime installation failed after two attempts."
+              exit 1
+            fi
+            echo "Payment test runtime unavailable; retrying the clean dependency install once."
+          done
           npm test
       - name: Gallery Worker tests
         working-directory: Backend/CloudflareGalleryProxy

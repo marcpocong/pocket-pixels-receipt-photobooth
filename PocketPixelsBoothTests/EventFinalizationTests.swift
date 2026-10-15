@@ -279,14 +279,9 @@ final class GalleryBrowserLayoutTests: XCTestCase {
             HTMLAnchorElement.prototype.click=function(){window.downloadedFiles.push(this.download);};
             """
             configuration.userContentController.addUserScript(WKUserScript(source: stub, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-            let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844), configuration: configuration)
-            web.loadHTMLString(html, baseURL: URL(string: "https://gallery.example.test"))
-            var loaded = false
-            for _ in 0..<100 {
-                try await Task.sleep(for: .milliseconds(50))
-                if (try? await web.evaluateJavaScript("typeof photoItems !== 'undefined' && !!document.getElementById('shareAll')")) as? Bool == true { loaded = true; break }
-            }
-            XCTAssertTrue(loaded)
+            let (web, window) = hostedBrowser(configuration: configuration)
+            defer { web.stopLoading(); window.isHidden = true }
+            try await loadFixture(html, in: web)
             if sharing {
                 let hint = try await web.evaluateJavaScript("document.getElementById('allHint').textContent") as? String
                 XCTAssertTrue(hint?.contains("Opens the share sheet") == true)
@@ -314,23 +309,19 @@ final class GalleryBrowserLayoutTests: XCTestCase {
 
     func testSyntheticGalleriesFitAllWidthsAndOpenPhotosAndReceipts() async throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("DerivedData/gallery-fixtures")
+        // Keep one visible browser alive for the matrix rather than launching 45 WebContent
+        // processes. Each fixture still loads independently and every viewport is asserted.
+        let (web, window) = hostedBrowser()
+        defer { web.stopLoading(); window.isHidden = true }
         for count in [1, 2, 3, 4, 6] {
             let html = try String(contentsOf: root.appendingPathComponent("gallery-\(count).html"), encoding: .utf8)
+            try await loadFixture(html, in: web)
             for (width, height) in [(320, 900), (375, 900), (390, 900), (430, 900), (768, 1024), (1024, 768), (1440, 900), (844, 390), (1194, 834)] {
-                let web = WKWebView(frame: CGRect(x: 0, y: 0, width: width, height: height))
-                let window = UIWindow(frame: web.frame)
-                let controller = UIViewController()
-                controller.view = web
-                window.rootViewController = controller
-                window.makeKeyAndVisible()
-                defer { window.isHidden = true }
-                web.loadHTMLString(html, baseURL: URL(string: "https://gallery.example.com"))
-                var loaded = false
-                for _ in 0..<100 {
-                    try await Task.sleep(for: .milliseconds(50))
-                    if (try? await web.evaluateJavaScript("document.readyState === 'complete' && !!document.getElementById('shareAll')")) as? Bool == true { loaded = true; break }
-                }
-                XCTAssertTrue(loaded)
+                window.frame = CGRect(x: 0, y: 0, width: width, height: height)
+                web.frame = window.bounds
+                window.layoutIfNeeded()
+                web.layoutIfNeeded()
+                try await waitForViewport(width, in: web)
                 let checks = try await web.evaluateJavaScript("""
                 (()=>{const buttons=[...document.querySelectorAll('button')].filter(b=>b.getBoundingClientRect().width>0);return {overflow:document.documentElement.scrollWidth>innerWidth, photos:document.querySelectorAll('.shot').length, gif:document.querySelectorAll('[data-open="session.gif"]').length, small:buttons.filter(b=>b.getBoundingClientRect().height<43).length, save:!document.getElementById('shareAll').hidden}})()
                 """) as! [String: Any]
@@ -353,5 +344,71 @@ final class GalleryBrowserLayoutTests: XCTestCase {
                 }
             }
         }
+    }
+
+    private func hostedBrowser(configuration: WKWebViewConfiguration? = nil) -> (WKWebView, UIWindow) {
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844), configuration: configuration ?? WKWebViewConfiguration())
+        let controller = UIViewController()
+        controller.view = web
+        let window = UIWindow(frame: web.frame)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        controller.view.layoutIfNeeded()
+        return (web, window)
+    }
+
+    private func loadFixture(_ html: String, in web: WKWebView) async throws {
+        let observer = GalleryFixtureNavigationObserver()
+        web.navigationDelegate = observer
+        defer { web.navigationDelegate = nil }
+        web.loadHTMLString(html, baseURL: URL(string: "https://gallery.example.test"))
+        await fulfillment(of: [observer.finished], timeout: 15)
+        if let error = observer.error { throw error }
+        guard observer.didFinish else {
+            throw NSError(domain: "GalleryBrowserFixture", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "Visible gallery fixture navigation did not finish within 15 seconds."])
+        }
+        let ready = try await web.evaluateJavaScript("document.readyState === 'complete' && typeof photoItems !== 'undefined' && !!document.getElementById('shareAll') && !!document.getElementById('allHint')") as? Bool
+        XCTAssertEqual(ready, true, "Navigation must finish with the actual gallery script and controls ready")
+        guard ready == true else {
+            throw NSError(domain: "GalleryBrowserFixture", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey: "Gallery fixture loaded without its required script or controls."])
+        }
+    }
+
+    private func waitForViewport(_ width: Int, in web: WKWebView) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        var actual: Int?
+        repeat {
+            actual = try await web.evaluateJavaScript("innerWidth") as? Int
+            if actual == width { return }
+            try await Task.sleep(for: .milliseconds(50))
+        } while ContinuousClock.now < deadline
+        XCTFail("Browser viewport did not resize to \(width); actual: \(String(describing: actual))")
+        throw NSError(domain: "GalleryBrowserFixture", code: 3)
+    }
+
+}
+
+
+@MainActor
+private final class GalleryFixtureNavigationObserver: NSObject, WKNavigationDelegate {
+    let finished = XCTestExpectation(description: "Visible gallery fixture navigation")
+    private(set) var didFinish = false
+    private(set) var error: Error?
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        didFinish = true
+        finished.fulfill()
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        self.error = error
+        finished.fulfill()
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        self.error = error
+        finished.fulfill()
     }
 }
