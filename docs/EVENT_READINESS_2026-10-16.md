@@ -54,6 +54,20 @@ connectivity failures, pending galleries and holders of old-host QR links.
   The prior 515-test Production Gate below covers the earlier release; the follow-up's new
   GitHub Actions run is still pending and is not assumed green from the prior result.
 
+## Welcome-message follow-up (October 16)
+
+- Source **`9990914`** removes the automatic “Your interrupted session is saved” banner from
+  guest Welcome. The previous cancellation fix returned to Welcome correctly, but this separate
+  overlay was triggered by any unresolved checkout, including deliberately cancelled paid ones.
+- Only an explicit attendant-armed resume may show the prepared-session continuation prompt.
+  Checkout records, operator recovery, payment reconciliation and print locks are unchanged.
+- Signed Release build and signature verification passed. Current installed CDHash:
+  **`f38253ed61412d75ddfd4aa9ca05f56d0d17aa3c`**. Installed in place and launched on Carlo;
+  all Application Support/Preferences entries remain present at unchanged sizes. Bundle ID,
+  signing, settings and customer data were preserved. New device visual confirmation is not claimed.
+- This is a presentation-only change; the preceding 42-test result is retained as earlier-source
+  evidence, not reported as a fresh test run. The new full CI run remains separate.
+
 ## Implemented
 
 - Centered ivory/burgundy copy-selection composition at 834×1194 and 1194×834, configurable
