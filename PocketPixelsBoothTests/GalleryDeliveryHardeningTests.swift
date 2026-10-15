@@ -18,6 +18,8 @@ final class GalleryDeliveryHardeningTests: XCTestCase {
             try queue.save(payload)
             DeliveryProtocol.scenario = scenario
             DeliveryProtocol.requests = []
+            DeliveryProtocol.queueDirectory = directory
+            DeliveryProtocol.metadataBeforePOST = nil
             let configuration = URLSessionConfiguration.ephemeral
             configuration.protocolClasses = [DeliveryProtocol.self]
             let service = GoogleDriveGalleryUploadService(
@@ -27,6 +29,10 @@ final class GalleryDeliveryHardeningTests: XCTestCase {
                 _ = try await service.uploadPendingGallery(galleryToken: token, deviceToken: String(repeating: "x", count: 32))
                 XCTFail("\(scenario) must not report delivery")
             } catch { }
+            let attemptedMetadata = try XCTUnwrap(DeliveryProtocol.metadataBeforePOST)
+            let metadataObject = try XCTUnwrap(JSONSerialization.jsonObject(with: attemptedMetadata) as? [String: Any])
+            let stateBeforePOST = try XCTUnwrap(metadataObject["deliveryState"] as? [String: Any])
+            XCTAssertNotNil(stateBeforePOST["deliveryUnknown"], "Every transmitted attempt is durably marked unknown before sending")
             let reopened = try GalleryPendingUploadStore(directoryURL: directory)
             let retained = try XCTUnwrap(reopened.load(galleryToken: token))
             XCTAssertEqual(retained.photos.map(\.data), payload.photos.map(\.data))
@@ -74,10 +80,15 @@ private enum DeliveryStub: String, Sendable {
 private final class DeliveryProtocol: URLProtocol {
     nonisolated(unsafe) static var scenario: DeliveryStub = .complete
     nonisolated(unsafe) static var requests: [URLRequest] = []
+    nonisolated(unsafe) static var queueDirectory: URL?
+    nonisolated(unsafe) static var metadataBeforePOST: Data?
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         Self.requests.append(request)
+        if request.httpMethod == "POST", let directory = Self.queueDirectory {
+            Self.metadataBeforePOST = try? Data(contentsOf: directory.appendingPathComponent(String(repeating: "e", count: 64)).appendingPathComponent("metadata.json"))
+        }
         let errorCode: URLError.Code? = switch Self.scenario {
         case .offline: .notConnectedToInternet
         case .lostConnection: .networkConnectionLost

@@ -111,7 +111,11 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
     private func uploadPendingPayload(_ payload: GalleryPreparedUploadPayload, deviceToken: String) async throws -> GalleryUploadResult {
         try beginUpload(galleryToken: payload.galleryToken)
         defer { endUpload(galleryToken: payload.galleryToken) }
-        try? pendingStore?.recordAttempt(galleryToken: payload.galleryToken)
+        guard let pendingStore else { throw GalleryUploadError.configuration("Gallery storage is unavailable.") }
+        // Persist ambiguity before any bytes can leave. A process exit during POST must never
+        // resurrect an attempted upload as conclusively not started. Storage failure blocks POST.
+        try pendingStore.recordAttempt(galleryToken: payload.galleryToken)
+        try pendingStore.updateDeliveryState(.deliveryUnknown, galleryToken: payload.galleryToken)
         let configuration = try configurationProvider()
         return try await postQueuedPayload(payload, deviceToken: deviceToken, configuration: configuration)
     }
