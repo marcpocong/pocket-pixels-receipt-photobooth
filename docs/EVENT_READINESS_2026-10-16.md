@@ -48,9 +48,11 @@ connectivity failures, pending galleries and holders of old-host QR links.
   navigation, paid cancellation with unchanged recovery records, cash provenance/authentication,
   checkout guards/checkpoints and queued-gallery preservation. An earlier 11-test iteration also
   passed. Synthetic rendered views were inspected; no customer images were used.
-- Owner confirmation of these two updated screens remains pending. The prior 515-test Production
-  Gate below covers the earlier release; the follow-up's new GitHub Actions run must be reported
-  separately and is not assumed green from the prior result.
+- Owner confirmed on the updated Carlo installation that **both centered payment-choice and cash
+  instruction screens have working Back and Cancel controls**. Paid camera-ready cancellation
+  is covered by automated QR/online-cash/offline-cash tests; no new live payment was requested.
+  The prior 515-test Production Gate below covers the earlier release; the follow-up's new
+  GitHub Actions run is still pending and is not assumed green from the prior result.
 
 ## Implemented
 
