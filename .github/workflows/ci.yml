@@ -40,6 +40,9 @@ jobs:
           xcrun simctl boot "$DEVICE_ID" || true
           xcrun simctl bootstatus "$DEVICE_ID" -b
 
+      - name: Generate synthetic gallery browser fixtures
+        run: node Backend/GoogleAppsScript/GridSixValidation.test.cjs --fixtures
+
       - name: Build for testing
         run: |
           set -o pipefail

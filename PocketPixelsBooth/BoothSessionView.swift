@@ -144,6 +144,8 @@ struct BoothSessionView: View {
             }
             .onDisappear { cancelIdleReset() }
         }
+        .statusBarHidden(true)
+        .persistentSystemOverlays(.hidden)
         .preferredColorScheme(.light)
     }
 
@@ -635,15 +637,6 @@ struct BoothSessionView: View {
         }
     }
 
-    private var motionPreviewAvailable: Bool {
-        SessionMotionPreview.isAvailable(format: viewModel.selectedBoothFormat, photoCount: viewModel.capturedPhotos.count)
-    }
-
-    /// Changes with the session and with any retake, so a stale sequence is never shown.
-    private var motionPreviewIdentity: String {
-        ([viewModel.sessionIdentifier ?? "session"] + viewModel.capturedPhotos.map { String(ObjectIdentifier($0).hashValue) }).joined(separator: "|")
-    }
-
     private var receiptCustomerHeader: some View {
         VStack(spacing: 8) {
             MadeToKeepLockup(scale: .compact)
@@ -684,10 +677,6 @@ struct BoothSessionView: View {
                 if let previewImage = viewModel.receiptImage, showsPrinterSlot {
                     FeedingReceiptView(image: previewImage, maxWidth: maxWidth, maxHeight: maxHeight,
                                        isPrinting: viewModel.state == .printing)
-                } else if receiptPreviewMode == .motion, motionPreviewAvailable {
-                    SessionMotionPreviewView(identity: motionPreviewIdentity, photos: viewModel.capturedPhotos)
-                        .frame(width: min(maxWidth, maxHeight), height: min(maxWidth, maxHeight))
-                        .accessibilityIdentifier("receiptPreview.motion")
                 } else if let previewImage = receiptPreviewMode.image(
                     keepsake: viewModel.receiptImage,
                     thermal: viewModel.thermalReceiptPreview
@@ -731,7 +720,7 @@ struct BoothSessionView: View {
     private func receiptPreviewModePicker(width: CGFloat) -> some View {
         VStack(spacing: 5) {
             HStack(spacing: 6) {
-                ForEach(ReceiptPreviewMode.available(motion: motionPreviewAvailable), id: \.self) { mode in
+                ForEach(ReceiptPreviewMode.available(motion: false), id: \.self) { mode in
                     let isSelected = receiptPreviewMode == mode
                     Button {
                         receiptPreviewMode = mode
@@ -1135,119 +1124,13 @@ struct BoothSessionView: View {
     }
 
     private var thankYouScreen: some View {
-        GeometryReader { proxy in
-            let contentWidth = clampedContentWidth(for: proxy, maximum: 620)
-            let qrSize = min(max(contentWidth * 0.52, 280), 340)
-
-            VStack(spacing: 0) {
-                Spacer(minLength: 48)
-
-                VStack(spacing: 16) {
-                    MadeToKeepLockup(scale: .medium)
-
-                    MadeToKeepTrackedText(
-                        text: MadeToKeepBrand.thankYouHeadline,
-                        font: MadeToKeepTheme.Typography.sans(size: 22, weight: .medium),
-                        size: 22,
-                        tracking: MadeToKeepTheme.Tracking.descriptor
-                    )
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.7)
-                    .accessibilityAddTraits(.isHeader)
-
-                    MadeToKeepRule(width: 54)
-                }
-                .pocketPixelsEntrance(active: thankYouMotionActive, reduceMotion: reduceMotion, delay: 0, offset: 0, scale: 0.985)
-
-                thankYouQRCode(size: qrSize)
-                    .padding(.top, 34)
-                    .pocketPixelsEntrance(active: thankYouMotionActive, reduceMotion: reduceMotion, delay: 0.08, offset: 0, scale: 0.97)
-
-                HStack(spacing: 18) {
-                    // A compact secondary tile: the QR above stays the focus of this screen.
-                    if motionPreviewAvailable {
-                        SessionMotionPreviewView(identity: motionPreviewIdentity, photos: viewModel.capturedPhotos)
-                            .frame(width: 92, height: 92)
-                            .accessibilityIdentifier("thankYou.motion")
-                    }
-                    VStack(spacing: 10) {
-                        Text("scan to view and save your photos.")
-                            .font(MadeToKeepTheme.Typography.italicSerif(size: 28))
-                            .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
-                            .multilineTextAlignment(motionPreviewAvailable ? .leading : .center)
-
-                        Text("The same QR is on your receipt.")
-                            .font(MadeToKeepTheme.Typography.sans(size: 17, weight: .regular))
-                            .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
-                            .multilineTextAlignment(motionPreviewAvailable ? .leading : .center)
-                    }
-                    .frame(maxWidth: motionPreviewAvailable ? .infinity : nil, alignment: .leading)
-                }
-                .padding(.top, 22)
-                .pocketPixelsEntrance(active: thankYouMotionActive, reduceMotion: reduceMotion, delay: 0.16, offset: 8)
-
-                thankYouGalleryStatus
-                    .padding(.top, 14)
-                    .pocketPixelsEntrance(active: thankYouMotionActive, reduceMotion: reduceMotion, delay: 0.22, offset: 8)
-
-                if let message = customerThankYouMessage {
-                    Text(message)
-                        .font(MadeToKeepTheme.Typography.italicSerif(size: 22))
-                        .foregroundStyle(viewModel.customerTheme.customerTextColor)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(3)
-                        .frame(width: contentWidth * 0.82)
-                        .padding(.top, 14)
-                }
-
-                Button {
-                    viewModel.resetAfterDone()
-                } label: {
-                    Text("Start Another Session")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(MadeToKeepPrimaryButtonStyle())
-                .frame(width: contentWidth * 0.74)
-                .padding(.top, 40)
-                .pocketPixelsEntrance(active: thankYouMotionActive, reduceMotion: reduceMotion, delay: 0.28, offset: 8)
-
-                Spacer(minLength: 64)
-            }
-            .frame(width: contentWidth)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .padding(MadeToKeepTheme.Spacing.screenPadding)
+        SessionThankYouContent(
+            qrImage: viewModel.galleryQRCodeImage,
+            status: thankYouGalleryStatusText,
+            message: customerThankYouMessage,
+            startAnotherSession: { viewModel.resetAfterDone() }
+        )
         .transition(.opacity)
-        .onAppear {
-            startThankYouMotion()
-        }
-    }
-
-    private func thankYouQRCode(size: CGFloat) -> some View {
-        Group {
-            if let qrImage = viewModel.galleryQRCodeImage {
-                Image(uiImage: qrImage)
-                    .interpolation(.none)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: size, height: size)
-                    .accessibilityLabel("Gallery QR code")
-            } else {
-                Text("QR is getting ready.")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
-                    .frame(width: size, height: size)
-            }
-        }
-        // Solid white quiet zone: no paper texture or imagery ever sits behind the QR.
-        .padding(18)
-        .background(Color.white)
-        .overlay {
-            Rectangle()
-                .strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.35), lineWidth: 1)
-        }
-        .shadow(color: MadeToKeepTheme.ColorPalette.shadowTint.opacity(0.14), radius: 12, x: 0, y: 6)
     }
 
     private var thankYouGalleryStatus: some View {
@@ -1667,10 +1550,16 @@ struct BoothSessionView: View {
         switch viewModel.uploadPhase {
         case .success:
             "Your gallery is ready."
-        case .idle, .preparing, .checkingInternet, .uploading, .pendingNoInternet, .deliveryUnknown, .retryAvailable:
-            "Your photos are still uploading. This QR will stay the same."
+        case .idle, .preparing:
+            "Preparing your gallery. Your QR will stay the same."
+        case .checkingInternet:
+            "Waiting for a connection. Your QR will stay the same."
+        case .uploading:
+            "Uploading your photos. Your QR will stay the same."
+        case .pendingNoInternet, .deliveryUnknown, .retryAvailable:
+            "Still uploading — your QR will remain the same."
         case .unauthorized, .serverRejected, .failed:
-            "Your gallery needs a little more time."
+            "Please ask our attendant for help. Your QR will stay the same."
         }
     }
 
@@ -1982,5 +1871,65 @@ private struct FeedingReceiptView: View {
             feedStartedAt = printing ? Date() : nil
         }
         .accessibilityLabel(isPrinting ? "Receipt feeding out of printer" : "Receipt ready at printer")
+    }
+}
+
+/// Presentation uses only the session's frozen QR; rendering never creates a token or an upload.
+struct SessionThankYouContent: View {
+    let qrImage: UIImage?
+    let status: String
+    var message: String? = nil
+    let startAnotherSession: () -> Void
+    @ScaledMetric(relativeTo: .title) private var headingSize = 40.0
+
+    var body: some View {
+        GeometryReader { proxy in
+            let compact = proxy.size.height < 900
+            let qrSide = max(1, min(compact ? 260 : 340, proxy.size.width - 100))
+            ScrollView {
+                VStack(spacing: compact ? 16 : 24) {
+                    MadeToKeepLockup(scale: .compact)
+                    Text("A little moment, made to keep.")
+                        .font(MadeToKeepTheme.Typography.serif(size: headingSize))
+                        .accessibilityAddTraits(.isHeader)
+                    Group {
+                        if let qrImage {
+                            Image(uiImage: qrImage)
+                                .interpolation(.none)
+                                .resizable()
+                                .scaledToFit()
+                                .accessibilityLabel("Gallery QR code. The same QR is on your receipt.")
+                        } else {
+                            Text("Preparing your QR. Please ask our attendant for help.")
+                                .font(.body)
+                        }
+                    }
+                    .frame(width: qrSide, height: qrSide)
+                    .padding(20)
+                    .background(Color.white)
+                    .overlay { Rectangle().strokeBorder(MadeToKeepTheme.ColorPalette.hairline) }
+                    .shadow(color: .black.opacity(0.08), radius: 12, y: 6)
+                    Text("Scan to view and save your photos.")
+                        .font(MadeToKeepTheme.Typography.body(.title3))
+                    Text(status)
+                        .font(MadeToKeepTheme.Typography.body(.callout))
+                        .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
+                    if let message {
+                        Text(message).font(MadeToKeepTheme.Typography.body())
+                    }
+                    Button("Start Another Session", action: startAnotherSession)
+                        .buttonStyle(MadeToKeepPrimaryButtonStyle())
+                        .padding(.top, 8)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
+                .frame(maxWidth: 620)
+                .padding(24)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: proxy.size.height, alignment: .center)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
     }
 }

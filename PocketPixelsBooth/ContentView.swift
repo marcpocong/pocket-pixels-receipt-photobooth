@@ -16,6 +16,8 @@ struct ContentView: View {
 
     var body: some View {
         customerExperience
+            .statusBarHidden(true)
+            .persistentSystemOverlays(.hidden)
             .onAppear {
                 setIdleTimerDisabled(true)
                 operationalState.start()

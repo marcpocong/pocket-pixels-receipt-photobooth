@@ -41,7 +41,7 @@ final class SessionMotionPreviewTests: XCTestCase {
         }
     }
 
-    func testEveryMultiPhotoFormatUploadsAGIFAndSoloDoesNot() throws {
+    func testEveryFormatUploadsStillPhotosAndBothReceiptsWithoutGIF() throws {
         for format in BoothFormat.allCases {
             let photos = (0..<format.photoCount).map { photo(color: .gray, portrait: $0.isMultiple(of: 2)) }
             let payload = try GoogleDriveGalleryUploadService.preparePayload(
@@ -52,7 +52,11 @@ final class SessionMotionPreviewTests: XCTestCase {
                 galleryToken: String(repeating: "b", count: 64),
                 customerGalleryBaseURL: try XCTUnwrap(URL(string: "https://gallery.example.com/"))
             )
-            XCTAssertEqual(payload.gif != nil, format != .solo, format.rawValue)
+            XCTAssertNil(payload.gif, format.rawValue)
+            XCTAssertNotNil(payload.thermalReceipt)
+            XCTAssertEqual(payload.colorReceipt.filename, "receipt-color.jpg")
+            let request = try GoogleDriveGalleryUploadService.makeRequestBody(payload: payload, deviceToken: String(repeating: "x", count: 32))
+            XCTAssertNil(request.gif)
             XCTAssertEqual(payload.photos.count, format.photoCount)
         }
     }

@@ -73,18 +73,12 @@ assert.equal(loaded.gif.filename, 'session.gif');
 assert.equal(loaded.gif.mimeType, 'image/gif');
 assert.equal(loaded.gif.role, 'gif');
 const html = context.renderGalleryPage_(fixture, {}, Date.now()).getContent();
-assert.match(html, /Your GIF/);
-assert.match(html, /your moments, made to keep\./);
-assert.match(html, /Relive, save, and share your photobooth memories\./);
-assert.match(html, /id="motionTitle">Your GIF</);
-assert.match(html, /id="motionToggle"[^>]*hidden>Play</, 'Reduced-motion still preview has an explicit Play control');
-assert.match(html, /prefers-reduced-motion: reduce/);
+assert.doesNotMatch(html, /Your GIF|Save GIF|Share GIF|motionTitle|motionToggle|image-session\.gif|data-open="session\.gif"/);
+assert.match(html, /your moments,<br>made to keep\./);
+assert.match(html, /View, save and share the photographs from your session\./);
+assert.match(html, /Save your photos before closing this page\./);
+assert.match(html, /prefers-reduced-motion:reduce/);
 assert.match(html, /Printed version/);
-assert.match(html, /id="image-session\.gif"/);
-assert.match(html, /data-open="session\.gif"/);
-assert.match(html, /data-download="session\.gif">Save GIF/);
-assert.match(html, /data-share="session\.gif">Share GIF/);
-assert.match(html, /item\.role===\\?"gif\\?"/);
 assert.match(html, /item\.filename.*item\.mimeType/);
 assert.match(html, /showEmbeddedImages\(\)/);
 assert.match(html, /Color Receipt/);
@@ -119,14 +113,14 @@ for (const page of [html, legacyHTML]) {
   assert.match(page, /data-pocket-pixels-gallery-status="complete"/);
   assert.match(page, /Photo Gallery/);
   assert.match(page, /Receipt Copy/);
-  assert.match(page, /Save All Photos/);
+  assert.match(page, /SAVE ALL PHOTOS/);
   assert.match(page, /data-download="photo-01\.jpg">Save Photo/);
   assert.match(page, /data-share="photo-01\.jpg">Share/);
   assert.match(page, /class="footer-tagline">little moments, made to keep\.</);
   assert.match(page, /title:\\?"Made to Keep Studios\\?"/);
   assert.match(page, /alt="Made to Keep Studios photo 1"/);
 }
-assert.match(html, /alt="Animated Made to Keep Studios session GIF"/);
+assert.doesNotMatch(html, /Animated Made to Keep Studios session GIF/);
 assert.match(html, /Thermal Receipt/);
 assert.match(pendingHTML, /your photos are still being prepared\./);
 assert.match(invalidHTML, /This gallery link cannot be opened\./);
@@ -269,4 +263,42 @@ function encodedImage(filename, mimeType, byteCount) {
   const bytes = Buffer.alloc(byteCount, 0x5a);
   signatures[mimeType].copy(bytes);
   return { filename, mimeType, base64Data: bytes.toString('base64') };
+}
+
+// Emit synthetic, self-contained pages for WKWebView layout/interaction regression tests.
+if (process.argv.includes('--fixtures')) {
+  const output = path.resolve(__dirname, '../../DerivedData/gallery-fixtures');
+  fs.mkdirSync(output, { recursive: true });
+  // Real PNG fixtures with the expected portrait/receipt proportions; no customer assets.
+  function syntheticPNG(width, height) {
+    const zlib = require('node:zlib');
+    function chunk(type, data) {
+      const bytes = Buffer.concat([Buffer.from(type), data]);
+      let crc = 0xffffffff;
+      for (const value of bytes) {
+        crc ^= value;
+        for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+      }
+      const length = Buffer.alloc(4); length.writeUInt32BE(data.length);
+      const checksum = Buffer.alloc(4); checksum.writeUInt32BE((crc ^ 0xffffffff) >>> 0);
+      return Buffer.concat([length, bytes, checksum]);
+    }
+    const header = Buffer.alloc(13); header.writeUInt32BE(width); header.writeUInt32BE(height, 4); header[8] = 8; header[9] = 2;
+    const pixels = Buffer.alloc(height * (width * 3 + 1));
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      const at = y * (width * 3 + 1) + 1 + x * 3;
+      pixels[at] = 160 + Math.round(60 * y / height); pixels[at + 1] = 135 + Math.round(60 * x / width); pixels[at + 2] = 125;
+    }
+    return Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]), chunk('IHDR', header), chunk('IDAT', zlib.deflateSync(pixels)), chunk('IEND', Buffer.alloc(0))]);
+  }
+  for (const count of [1, 2, 3, 4, 6]) {
+    const fixture = galleryFixture(count);
+    for (const [name, file] of Object.entries(fixture.filesByName)) {
+      const bytes = syntheticPNG(300, name.startsWith('receipt') ? 800 : 400);
+      file.getBlob = () => ({getBytes: () => Array.from(bytes)});
+    }
+    fs.writeFileSync(path.join(output, `gallery-${count}.html`), context.renderGalleryPage_(fixture, {}, Date.now()).getContent());
+  }
+  fs.writeFileSync(path.join(output, 'pending.html'), pendingHTML);
+  fs.writeFileSync(path.join(output, 'invalid.html'), invalidHTML);
 }

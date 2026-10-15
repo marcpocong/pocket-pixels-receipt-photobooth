@@ -12,51 +12,112 @@ struct CheckoutCopySelectionView: View {
         }
     }
 
+    @State private var showingCancel = false
+    @ScaledMetric(relativeTo: .largeTitle) private var headingSize = 54.0
+    @ScaledMetric(relativeTo: .title) private var amountSize = 48.0
+
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                Text("Choose your copies")
-                    .font(.largeTitle.bold())
-                    .accessibilityAddTraits(.isHeader)
-                Text("Every copy is the same complete keepsake from one photo session.")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                CheckoutNoticeView(message: viewModel.paymentNotice)
+        GeometryReader { proxy in
+            let compact = proxy.size.height < 900
+            ScrollView {
+                VStack(spacing: compact ? 20 : 32) {
+                    HStack {
+                        Button { viewModel.backToFormatSelection() } label: {
+                            Label("Back", systemImage: "chevron.left").frame(minWidth: 72, minHeight: 48)
+                        }
+                        Spacer()
+                        MadeToKeepLockup(scale: .compact)
+                        Spacer()
+                        Button("Cancel") { showingCancel = true }
+                            .frame(minWidth: 72, minHeight: 48)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!viewModel.canLeaveCopySelection)
 
-                Stepper(
-                    value: $viewModel.selectedCheckoutCopies,
-                    in: 1...viewModel.commercialEvent.activePolicy.maxCopies
-                ) {
-                    LabeledContent("Physical copies") {
-                        Text(viewModel.selectedCheckoutCopies, format: .number)
-                            .font(.title2.bold())
+                    Spacer(minLength: compact ? 0 : 24)
+                    VStack(spacing: compact ? 18 : 28) {
+                        Text("Choose your copies")
+                            .font(MadeToKeepTheme.Typography.serif(size: headingSize * (compact ? 0.85 : 1)))
+                            .accessibilityAddTraits(.isHeader)
+                        Text("Every copy is the same complete keepsake from one photo session.")
+                            .font(MadeToKeepTheme.Typography.body())
+                            .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
+                        CheckoutNoticeView(message: viewModel.paymentNotice)
+                        HStack(spacing: 32) {
+                            quantityButton("minus", label: "Fewer copies", enabled: viewModel.selectedCheckoutCopies > 1) {
+                                viewModel.adjustCheckoutCopies(by: -1)
+                            }
+                            VStack(spacing: 4) {
+                                Text(viewModel.selectedCheckoutCopies, format: .number)
+                                    .font(MadeToKeepTheme.Typography.serif(size: amountSize))
+                                    .monospacedDigit()
+                                Text(viewModel.selectedCheckoutCopies == 1 ? "copy" : "copies")
+                                    .font(.body)
+                            }
+                            .frame(minWidth: 80)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("Physical copies")
+                            .accessibilityValue("\(viewModel.selectedCheckoutCopies)")
+                            .accessibilityAdjustableAction { direction in
+                                if direction == .increment { viewModel.adjustCheckoutCopies(by: 1) }
+                                if direction == .decrement { viewModel.adjustCheckoutCopies(by: -1) }
+                            }
+                            quantityButton("plus", label: "More copies", enabled: viewModel.selectedCheckoutCopies < viewModel.commercialEvent.activePolicy.maxCopies) {
+                                viewModel.adjustCheckoutCopies(by: 1)
+                            }
+                        }
+                        .padding(20)
+                        .background(.white.opacity(0.5), in: RoundedRectangle(cornerRadius: 18))
+                        .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(MadeToKeepTheme.ColorPalette.hairline) }
+
+                        if let total = viewModel.commercialEvent.activePolicy.totalCentavos(for: viewModel.selectedCheckoutCopies) {
+                            VStack(spacing: 8) {
+                                Text("\(PHPPriceFormatter.string(centavos: viewModel.commercialEvent.activePolicy.unitPriceCentavos)) per copy")
+                                    .font(.body)
+                                Text(PHPPriceFormatter.string(centavos: total))
+                                    .font(MadeToKeepTheme.Typography.serif(size: amountSize))
+                                Text("TOTAL").font(.caption).tracking(3)
+                            }
+                            .accessibilityElement(children: .combine)
+                        }
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: compact ? 0 : 24)
+                    VStack(spacing: 12) {
+                        Button(continueTitle) { viewModel.confirmCopySelection() }
+                            .buttonStyle(MadeToKeepPrimaryButtonStyle())
+                            .disabled(!viewModel.canLeaveCopySelection)
+                        Text("Your photos begin after payment confirmation.")
+                            .font(.footnote)
+                            .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
                     }
                 }
-                .accessibilityValue("\(viewModel.selectedCheckoutCopies) physical copies")
-
-                if let total = viewModel.commercialEvent.activePolicy.totalCentavos(for: viewModel.selectedCheckoutCopies) {
-                    VStack(spacing: 8) {
-                        Text("\(PHPPriceFormatter.string(centavos: viewModel.commercialEvent.activePolicy.unitPriceCentavos)) × \(viewModel.selectedCheckoutCopies)")
-                            .font(.headline)
-                        Text(PHPPriceFormatter.string(centavos: total))
-                            .font(.largeTitle.bold())
-                        Text("Total")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    .accessibilityElement(children: .combine)
-                }
-
-                Button(continueTitle) {
-                    viewModel.confirmCopySelection()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
+                .frame(maxWidth: 620)
+                .padding(24)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: proxy.size.height)
             }
-            .frame(maxWidth: 560)
-            .padding(40)
+            .scrollBounceBehavior(.basedOnSize)
         }
+        .confirmationDialog("Cancel this session?", isPresented: $showingCancel, titleVisibility: .visible) {
+            Button("Return to Welcome", role: .destructive) { viewModel.cancelSession() }
+            Button("Keep Session", role: .cancel) { }
+        } message: {
+            Text("No payment has started. Pending galleries from earlier sessions stay safely queued.")
+        }
+    }
+
+    private func quantityButton(_ symbol: String, label: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.title2).frame(width: 60, height: 60)
+                .background(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.06), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .disabled(!enabled || !viewModel.canLeaveCopySelection)
+        .opacity(enabled ? 1 : 0.3)
     }
 }
 

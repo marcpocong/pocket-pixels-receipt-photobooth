@@ -20,6 +20,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
     private let configurationProvider: () throws -> GoogleDriveGalleryConfiguration
     private let customerGalleryConfigurationProvider: () throws -> CustomerGalleryConfiguration
     private let urlSession: URLSession
+    private let verificationSession: URLSession
     private let connectivityTester: GalleryBackendConnectivityTester
     private let pendingStore: GalleryPendingUploadStore?
     private static var activeUploadToken: String?
@@ -35,6 +36,11 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         self.configurationProvider = configurationProvider
         self.customerGalleryConfigurationProvider = customerGalleryConfigurationProvider
         self.urlSession = urlSession
+        let verificationConfiguration = urlSession.configuration
+        verificationConfiguration.waitsForConnectivity = false
+        verificationConfiguration.timeoutIntervalForRequest = 8
+        verificationConfiguration.timeoutIntervalForResource = 8
+        self.verificationSession = URLSession(configuration: verificationConfiguration, delegate: GoogleGalleryURLSessionDelegate(), delegateQueue: nil)
         self.connectivityTester = connectivityTester
         self.pendingStore = pendingStore ?? (try? GalleryPendingUploadStore())
     }
@@ -88,7 +94,10 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             )
         }.value
 
-        try pendingStore?.save(payload)
+        guard let pendingStore else {
+            throw GalleryUploadError.configuration("Gallery storage is unavailable. Ask the attendant to check iPad storage.")
+        }
+        try pendingStore.save(payload)
         return payload
     }
 
@@ -237,22 +246,9 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             mimeType: "image/png",
             data: thermalRaster.previewPNGData
         )
-        let assetsWithoutGIF = preparedPhotos + [preparedReceipt, preparedThermalReceipt]
-        // A GIF is an enhancement, never a prerequisite for delivering the approved photos and
-        // receipts. Solo intentionally has no animation; encoding or budget failures for other
-        // formats degrade to a complete still gallery instead of losing the whole session.
-        let preparedGIF: GalleryStoredUploadImage?
-        if photos.count > 1,
-           let maximumGIFBytes = try? GalleryPreparedUploadBudget.maximumGIFBytes(afterPreparing: assetsWithoutGIF),
-           let gifData = try? SessionGIFRenderer.render(images: photos, maximumByteCount: maximumGIFBytes) {
-            preparedGIF = GalleryStoredUploadImage(
-                filename: "session.gif",
-                mimeType: "image/gif",
-                data: gifData
-            )
-        } else {
-            preparedGIF = nil
-        }
+        // New galleries contain approved still photos and both receipt representations only.
+        // Optional GIF fields remain supported for durable queues and historical manifests.
+        let preparedGIF: GalleryStoredUploadImage? = nil
 
         let imagePreparationDuration = Date().timeIntervalSince(preparationStart)
         let allAssets = preparedPhotos + [preparedReceipt, preparedThermalReceipt] + [preparedGIF].compactMap { $0 }
@@ -355,6 +351,10 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
     ) async throws -> GalleryUploadResult {
         do {
             let result = try await post(payload: payload, deviceToken: deviceToken, configuration: configuration)
+            // The upload response proves backend acceptance; only a completed public page proves
+            // delivery through the exact front door printed on this guest's receipt. This bounded
+            // read runs in the gallery task and never gates physical receipt printing.
+            try await verifyPublicGallery(at: payload.galleryURL)
             try pendingStore?.clear(galleryToken: payload.galleryToken)
             return result
         } catch GalleryUploadError.deliveryUnknown {
@@ -369,6 +369,21 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         } catch {
             try? pendingStore?.updateDeliveryState(payload.deliveryState, galleryToken: payload.galleryToken, lastSafeError: error.localizedDescription)
             throw error
+        }
+    }
+
+    private func verifyPublicGallery(at url: URL) async throws {
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 8)
+        request.setValue("text/html", forHTTPHeaderField: "Accept")
+        do {
+            let (data, response) = try await verificationSession.data(for: request)
+            guard let response = response as? HTTPURLResponse, response.statusCode == 200,
+                  let html = String(data: data, encoding: .utf8),
+                  html.contains("data-pocket-pixels-gallery-status=\"complete\"") else {
+                throw GalleryUploadError.deliveryUnknown
+            }
+        } catch {
+            throw GalleryUploadError.deliveryUnknown
         }
     }
 
@@ -400,22 +415,27 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         do {
             (responseData, response) = try await urlSession.data(for: request)
         } catch is CancellationError {
-            throw GalleryUploadError.cancelled
+            throw GalleryUploadError.deliveryUnknown
         } catch let error as URLError where error.code == .cancelled {
-            throw GalleryUploadError.cancelled
+            throw GalleryUploadError.deliveryUnknown
         } catch let error as URLError where error.code == .timedOut {
             debugLog("POST timed out after transmission began. Host: \(error.failureURLString.flatMap { URL(string: $0)?.host() } ?? configuration.webAppURL.host() ?? "unknown"), URLError code: \(error.errorCode).")
             throw GalleryUploadError.deliveryUnknown
         } catch let error as URLError {
             let state = GalleryNetworkClassifier.classify(urlError: error, fallbackHost: configuration.webAppURL.host())
             debugLog(state.diagnosticDescription)
-            throw GalleryUploadError.network(state.diagnosticDescription)
+            switch error.code {
+            case .notConnectedToInternet, .cannotFindHost, .dnsLookupFailed, .cannotConnectToHost:
+                throw GalleryUploadError.network(state.diagnosticDescription)
+            default:
+                throw GalleryUploadError.deliveryUnknown
+            }
         } catch {
-            throw GalleryUploadError.network(error.localizedDescription)
+            throw GalleryUploadError.deliveryUnknown
         }
         let networkDuration = Date().timeIntervalSince(networkStart)
 
-        guard let httpResponse = response as? HTTPURLResponse else { throw GalleryUploadError.invalidResponse }
+        guard let httpResponse = response as? HTTPURLResponse else { throw GalleryUploadError.deliveryUnknown }
         guard (200...299).contains(httpResponse.statusCode) else {
             if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 { throw GalleryUploadError.unauthorized }
             if let serverResponse = try? JSONDecoder().decode(GalleryUploadResponse.self, from: responseData), let error = serverResponse.error {
@@ -430,8 +450,11 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
                 }
                 throw GalleryUploadError.server(Self.safeServerMessage(response: serverResponse, fallback: error))
             }
-            if httpResponse.statusCode == 408 || httpResponse.statusCode == 429 || httpResponse.statusCode >= 500 {
-                throw GalleryUploadError.network("Upload service is temporarily unavailable. HTTP \(httpResponse.statusCode).")
+            if httpResponse.statusCode == 408 || httpResponse.statusCode >= 500 {
+                throw GalleryUploadError.deliveryUnknown
+            }
+            if httpResponse.statusCode == 429 {
+                throw GalleryUploadError.network("Upload service is busy. Please retry later.")
             }
             throw GalleryUploadError.httpStatus(httpResponse.statusCode)
         }
@@ -440,7 +463,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         do {
             uploadResponse = try JSONDecoder().decode(GalleryUploadResponse.self, from: responseData)
         } catch {
-            throw GalleryUploadError.decoding(error.localizedDescription)
+            throw GalleryUploadError.deliveryUnknown
         }
 
         guard uploadResponse.ok else {
@@ -459,7 +482,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         guard Self.validateSuccessfulResponse(uploadResponse, expectedGalleryToken: payload.galleryToken, expectedGalleryURL: payload.galleryURL, expectedPhotoCount: payload.photos.count, expectedGIFIncluded: payload.gif != nil),
               let galleryToken = uploadResponse.galleryToken,
               let galleryURL = uploadResponse.galleryURL else {
-            throw GalleryUploadError.invalidResponse
+            throw GalleryUploadError.deliveryUnknown
         }
 
 #if DEBUG

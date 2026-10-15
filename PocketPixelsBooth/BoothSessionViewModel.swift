@@ -209,7 +209,10 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     var isCustomerResetSafe: Bool {
-        CustomerIdleResetPolicy.isEligible(
+        guard !isTransitionActive else { return false }
+        if checkoutEntitlement == nil && (checkoutGuard.serverCheckoutStarted || checkoutGuard.qrAttemptUnresolved || paymentOrder != nil || paymentAttempt != nil) { return false }
+        if let entitlement = checkoutEntitlement, entitlement.authorizationSource != .privatePrepaid, capturedPhotos.isEmpty { return false }
+        return CustomerIdleResetPolicy.isEligible(
             state: state,
             printerWorking: printerState.isWorking,
             printBatchActive: isPrintBatchActive,
@@ -399,8 +402,8 @@ final class BoothSessionViewModel: ObservableObject {
             state = .error("That format is not available for this event.")
             return
         }
-        let sessionDate = Date()
-        prepareSessionContext(format: format, sessionIdentifier: environment.makeSessionIdentifier(sessionDate), createdAt: sessionDate)
+        let sessionDate = sessionCreatedAt ?? Date()
+        prepareSessionContext(format: format, sessionIdentifier: sessionIdentifier ?? environment.makeSessionIdentifier(sessionDate), createdAt: sessionDate)
         if commercialEvent.activePolicy.commercialMode == .payPerPrint {
             selectedCheckoutCopies = min(commercialEvent.activePolicy.defaultCopies, commercialEvent.activePolicy.maxCopies)
             selectedPrintCopies = selectedCheckoutCopies
@@ -427,8 +430,8 @@ final class BoothSessionViewModel: ObservableObject {
             : .empty
         resetPassportPreview()
         do {
-            let token = try GalleryTokenGenerator.makeGalleryToken()
-            let url = try GalleryURLBuilder.makeGalleryURL(customerGalleryBaseURL: CustomerGalleryConfiguration.load().baseURL, galleryToken: token)
+            let token = try galleryToken ?? GalleryTokenGenerator.makeGalleryToken()
+            let url = try galleryURL ?? GalleryURLBuilder.makeGalleryURL(customerGalleryBaseURL: CustomerGalleryConfiguration.load().baseURL, galleryToken: token)
             galleryToken = token
             galleryURL = url
             galleryQRCodeImage = try GalleryQRCodeGenerator.makeQRCodeImage(for: url)
@@ -444,8 +447,26 @@ final class BoothSessionViewModel: ObservableObject {
         }
     }
 
+    /// Navigation is permitted only before any checkout request or paid authorization exists.
+    var canLeaveCopySelection: Bool {
+        state == .choosingCopies && !isTransitionActive && paymentOrder == nil
+            && paymentAttempt == nil && checkoutEntitlement == nil
+            && !checkoutGuard.serverCheckoutStarted && !checkoutGuard.qrAttemptUnresolved
+    }
+
+    func adjustCheckoutCopies(by delta: Int) {
+        guard canLeaveCopySelection else { return }
+        selectedCheckoutCopies = min(commercialEvent.activePolicy.maxCopies, max(1, selectedCheckoutCopies + delta))
+    }
+
+    func backToFormatSelection() {
+        guard canLeaveCopySelection else { return }
+        paymentNotice = nil
+        state = .choosingFormat
+    }
+
     func confirmCopySelection() {
-        guard state == .choosingCopies, selectedBoothFormat != nil, commercialEvent.activePolicy.totalCentavos(for: selectedCheckoutCopies) != nil else { return }
+        guard canLeaveCopySelection, selectedBoothFormat != nil, commercialEvent.activePolicy.totalCentavos(for: selectedCheckoutCopies) != nil else { return }
         selectedPrintCopies = selectedCheckoutCopies
         paymentNotice = nil
         state = .choosingPayment
@@ -716,6 +737,16 @@ final class BoothSessionViewModel: ObservableObject {
                 state = .error("This event changed. Please see the attendant.")
                 return
             }
+            // createOrder rejects a stale policy before inserting any order. Only that
+            // conclusive rejection may reopen navigation; an existing order stays recoverable.
+            guard paymentOrder == nil, paymentAttempt == nil, checkoutEntitlement == nil,
+                  !checkoutGuard.qrAttemptUnresolved else {
+                statusMessage = "Please ask the attendant to check this payment. Do not pay again."
+                state = .paymentReconciliation
+                return
+            }
+            checkoutGuard = CheckoutGuard()
+            if let sessionIdentifier { checkpointStore?.resolve(id: sessionIdentifier, reason: "policy_changed_before_order") }
             serverEventPolicy = policy
             commercialEvent = policy.eventRun
             selectedCheckoutCopies = min(max(1, selectedCheckoutCopies), policy.maxCopies)
@@ -1041,6 +1072,12 @@ final class BoothSessionViewModel: ObservableObject {
         state = .choosingCopies
     }
 
+    func handleCheckoutErrorForTesting(_ error: PaymentsAPIError) { handleCheckoutError(error) }
+
+    func configureUnresolvedCheckoutForTesting(qrAttemptUnresolved: Bool = true) {
+        checkoutGuard = CheckoutGuard(serverCheckoutStarted: true, qrAttemptUnresolved: qrAttemptUnresolved, newCheckoutAllowed: false)
+    }
+
     var activeTaskForTesting: Task<Void, Never>? { activeTask }
 
     func cancelActiveTaskForTesting() {
@@ -1068,6 +1105,12 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     func cancelSession() {
+        if isTransitionActive && (state == .choosingPayment || state == .cashAttestation || state == .paymentReconciliation) { return }
+        if checkoutEntitlement == nil && (checkoutGuard.serverCheckoutStarted || checkoutGuard.qrAttemptUnresolved || paymentOrder != nil || paymentAttempt != nil) {
+            statusMessage = "Please ask the attendant to check this payment. Do not pay again."
+            state = .paymentReconciliation
+            return
+        }
         guard !printerState.isWorking, !isPrintBatchActive,
               !printerCoordinator.requiresRecovery, !operationalState.hasUnresolvedPrint else {
             statusMessage = "Printer needs operator attention before this session can be cleared."

@@ -223,7 +223,7 @@ final class GalleryFrontDoorMigrationTests: XCTestCase {
         try queue.save(legacyPayload)
 
         FrontDoorStubURLProtocol.responseBody = Data("""
-        {"ok":true,"schemaVersion":2,"galleryToken":"\(token)","galleryURL":"\(madeToKeepBase)?g=\(token)","fileCount":\(legacyPayload.photos.count + 4),"status":"created"}
+        {"ok":true,"schemaVersion":2,"galleryToken":"\(token)","galleryURL":"\(madeToKeepBase)?g=\(token)","fileCount":\(legacyPayload.photos.count + 3),"status":"created"}
         """.utf8)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [FrontDoorStubURLProtocol.self]
@@ -326,7 +326,9 @@ private final class FrontDoorStubURLProtocol: URLProtocol {
     override func startLoading() {
         let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Self.responseBody)
+        client?.urlProtocol(self, didLoad: request.httpMethod == "GET"
+            ? Data("<main data-pocket-pixels-gallery-status=\"complete\"></main>".utf8)
+            : Self.responseBody)
         client?.urlProtocolDidFinishLoading(self)
     }
 
