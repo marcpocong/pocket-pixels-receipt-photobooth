@@ -46,31 +46,22 @@ npm test
 
 The customer browser must stay on the Worker/custom domain and must never navigate to `script.google.com`.
 
-## Made to Keep gallery front-door migration (Phase 2)
+## Current Made to Keep front door and legacy compatibility
 
-### Old front door (legacy, keep live)
+The app currently uses `https://gallery.madetokeepstudios.workers.dev/`. The checked-in
+`wrangler.toml` names `gallery`; it does not define a `madetokeep` environment. Confirm the
+Cloudflare account and existing Worker before publishing. Do not create a replacement Worker
+or change public routes to release an HTML update.
 
-`https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/` is already printed on customer receipts. It must stay deployed and routed as a permanent legacy alias until explicitly retired. Do not rename, delete, or re-route it. It is the existing Worker deployment; the top-level `wrangler.toml` config is left untouched.
+The legacy `https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/` address remains in
+historical receipts and app compatibility configuration. It returned NXDOMAIN from both public resolvers during the
+October 16 inspection; its live routing needs investigation. Token compatibility tests do not
+prove that a hostname is reachable.
 
-### New front door (Made to Keep)
+Both front doors must continue to use the same existing Apps Script `/exec` deployment.
+`MADE_TO_KEEP_CUSTOMER_GALLERY_BASE_URL` takes precedence for new upload response URLs;
+the legacy property remains a fallback. Existing sessions, archives, recovery records and queued
+uploads keep their frozen URL. New uploads contain still photographs and both receipts.
+Historical optional GIF assets remain accepted and stored.
 
-`wrangler.toml` defines a separate `madetokeep` environment (Worker name `made-to-keep-gallery`). It runs the same source as the legacy Worker. The Worker is host-agnostic: it only reads `?g=<token>`, always proxies to `APPS_SCRIPT_GALLERY_ORIGIN`, and caches completed galleries per public origin + token. Any hostname attached to it works. No production Made to Keep hostname is chosen in this repository yet; attach the final custom domain in Cloudflare once it is decided.
-
-### Apps Script
-
-Both front doors proxy the same Apps Script deployment. Gallery storage and lookup are by token only. `MADE_TO_KEEP_CUSTOMER_GALLERY_BASE_URL` (preferred) or the legacy `POCKET_PIXELS_CUSTOMER_GALLERY_BASE_URL` only controls the URL echoed in new upload responses. The `/exec` upload URL does not change.
-
-### iPad app
-
-Front-door precedence for NEW sessions: operator override (Operator → Gallery Backend) → `MADE_TO_KEEP_CUSTOMER_GALLERY_BASE_URL` Info.plist key (expanded from the build setting of the same name; blank by default) → legacy `POCKET_PIXELS_CUSTOMER_GALLERY_BASE_URL` → configuration error. Sessions that already have a gallery URL keep it: recovery snapshots, recent-session archives, reprints, and queued uploads never switch front doors. The app accepts upload responses from either front door for the same token.
-
-### Deployment order (manual, after review)
-
-1. Deploy the new Worker: `wrangler deploy --env madetokeep`, with `APPS_SCRIPT_GALLERY_ORIGIN` set to the same `/exec` URL as the legacy Worker. Leave the legacy Worker untouched.
-2. Attach the final Made to Keep custom domain or route to the new Worker.
-3. Verify `https://<new-host>/?diagnostic=proxy` and `https://<new-host>/?g=<known-test-token>`. Then verify the same token still opens on the legacy host.
-4. Set Apps Script property `MADE_TO_KEEP_CUSTOMER_GALLERY_BASE_URL` to `https://<new-host>/`.
-5. Deploy the updated Apps Script as a new version of the existing deployment, so the `/exec` URL is unchanged.
-6. Set the iPad build setting `MADE_TO_KEEP_CUSTOMER_GALLERY_BASE_URL = https://<new-host>/` (or use the operator override). Then build and install the newest iPad app.
-7. Create a fresh session and confirm its QR uses the new Made to Keep host and opens the gallery, including the GIF and the Color and Thermal Receipts.
-8. Open an old Pocket Pixels QR, or `https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/?g=<old-token>`, and confirm it still opens.
+See [verified deployment targets, owner approval, validation and rollback](../../docs/gallery-redesign-deployment.md).
