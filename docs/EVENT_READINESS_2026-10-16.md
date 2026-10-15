@@ -48,7 +48,7 @@ hostname also needs investigation. No new physical print or financial transactio
 
 | Check | Observed result |
 | --- | --- |
-| Complete local iOS suite before final refinements | 513 passed, 0 failed, 0 skipped |
+| Complete local iOS rerun (`e931c90`, final UI/payment/browser source) | 515 passed, 0 failed, 0 skipped |
 | Final UI / payment / browser / gallery regressions (`e931c90`) | 47 passed, 0 failed, 0 skipped |
 | Durable-attempt / historical URL follow-up (`25a90d8`, separate iPad simulator) | 20 passed, 0 failed, 0 skipped |
 | Signed Release build for Carlo, final candidate | Passed; no new warnings in changed production code |
@@ -56,7 +56,9 @@ hostname also needs investigation. No new physical print or financial transactio
 | Gallery Worker | 29 passed, 0 failed |
 | Payments Worker | 207 passed, 0 failed |
 
-A second complete local run and GitHub Actions are checked separately in the final handoff.
+The complete rerun passed, followed by the 20-test queue-checkpoint follow-up for `25a90d8`.
+GitHub Actions backend passed; iOS CI was still running at handoff preparation (not claimed green).
+Candidate-source run: [Production Gate](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/38795453578).
 [Production Gate runs](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/workflows/ci.yml)
 identify the pushed SHA; do not treat a pending job as a pass. Pre-existing Swift actor-isolation
 warnings remain in untouched operator/sample infrastructure; no gate assertions were relaxed.
@@ -82,6 +84,10 @@ was never deployed. Prepared source is `made-to-keep-gallery-v3-stills-20261016`
 The documented legacy `pocket-pixels-gallery.pocketpixels-ceb.workers.dev` returns NXDOMAIN from both 1.1.1.1 and 8.8.8.8. Historical-token compatibility passes locally, but hostname availability is not
 proven. Authenticated Apps Script browser access and the exact existing deployment were inspected;
 Cloudflare inspection reached existing-account sign-in. No deployment or credential change occurred.
+Read-only live checks using curl and native Apple URLSession on this Mac received branded invalid
+(404) and unused-token pending (200) pages, without Google sign-in or any gallery upload. Python's
+user agent receives Cloudflare 1010; actual Carlo verification and phone save/share checks remain
+required. No Cloudflare security settings were changed.
 
 Owner approval is required before updating the existing Apps Script deployment and verified
 existing Worker(s). [Deployment and rollback instructions](gallery-redesign-deployment.md) preserve
