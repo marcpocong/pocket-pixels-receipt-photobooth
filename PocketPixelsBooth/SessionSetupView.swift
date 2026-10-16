@@ -45,7 +45,7 @@ struct SessionSetupView: View {
             .padding(.vertical, 24)
             .frame(maxWidth: .infinity)
         }
-        .navigationTitle("Session Setup")
+        .navigationTitle("Event Setup")
         .navigationBarTitleDisplayMode(.inline)
         .tint(OperatorPalette.ink)
         .background(OperatorPalette.canvas)
@@ -66,8 +66,8 @@ struct SessionSetupView: View {
             Button("Discard & Reload", role: .destructive) { Task { await setup.discardPaidEdits() } }
         } message: { Text("Reloads saved settings for this event. Nothing is applied to guests.") }
         .confirmationDialog("Pause new sessions?", isPresented: $confirmPause, titleVisibility: .visible) {
-            Button("Pause New Sessions", role: .destructive) { Task { await setup.pause() } }
-        } message: { Text("Pauses the booth's current operating mode, even if you are editing a different setup. Paid guests keep their purchased entitlement.") }
+            Button("Pause This Booth", role: .destructive) { Task { await setup.pause() } }
+        } message: { Text("Pauses new sessions on this iPad only, even if you are editing a different setup. A shared paid event stays open for other booths. Paid guests keep their purchased entitlement.") }
     }
 
     // MARK: Header
@@ -375,6 +375,19 @@ struct SessionSetupView: View {
         SetupCard {
             SetupSummaryRows(setup: setup)
             if let validation = setup.validation { Label(validation, systemImage: "info.circle").foregroundStyle(.orange) }
+            if setup.canStartNewPaidOccurrence {
+                Button { Task { await setup.startNewPaidOccurrence() } } label: {
+                    Label("Start New Paid Occurrence", systemImage: "arrow.triangle.2.circlepath").frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("new-paid-occurrence")
+                Text("Creates a fresh paid event for this design with the same price and methods as a draft. The ended event keeps its orders and reports.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Label(setup.occurrenceSummary, systemImage: "calendar.badge.clock").font(.callout)
+            if case .requiresNewOccurrence = setup.occurrencePlan {
+                Toggle("Start New Occurrence — fresh statistics", isOn: $setup.startsNewOccurrence).frame(minHeight: 44)
+            }
             if !setup.message.isEmpty, !setup.needsRefresh { Text(setup.message).font(.callout) }
             if let error = acceptance.storageError ?? workspace.persistenceError ?? setup.library.storageError {
                 Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
@@ -386,7 +399,7 @@ struct SessionSetupView: View {
 
     private var bottomBar: some View {
         HStack(spacing: 14) {
-            Button("Pause New Sessions", role: .destructive) { confirmPause = true }.buttonStyle(.bordered).controlSize(.large)
+            Button("Pause This Booth", role: .destructive) { confirmPause = true }.buttonStyle(.bordered).controlSize(.large)
             Button { Task { await setup.saveOnly() } } label: { Text("Save Setup").frame(minHeight: 30) }
                 .buttonStyle(.bordered).controlSize(.large)
                 .disabled(setup.validation != nil || !setup.hasUnsavedChanges)
@@ -472,10 +485,21 @@ struct SessionSetupReviewView: View {
     @ObservedObject var setup: SessionSetupCoordinator
     let onBack: () -> Void
     let onFinished: (Bool) -> Void
+    private var needsOccurrenceChoice: Bool {
+        if case .requiresNewOccurrence = setup.occurrencePlan { return !setup.startsNewOccurrence }
+        return false
+    }
     var body: some View {
         NavigationStack {
             Form {
                 Section("Your Next Guest Session") { SetupSummaryRows(setup: setup) }
+                Section("Event Run") {
+                    Text(setup.occurrenceSummary)
+                    if case .requiresNewOccurrence = setup.occurrencePlan {
+                        Toggle("Start New Occurrence — fresh statistics", isOn: $setup.startsNewOccurrence).frame(minHeight: 44)
+                            .accessibilityIdentifier("start-new-occurrence")
+                    }
+                }
                 Section("Receipt Preview") {
                     EventReceiptComposerPreview(profile: setup.effectiveProfile, printOptions: ReceiptPrintSettingsStore.load(), showsSamplePrintLink: false, maximumPreviewWidth: 300)
                 }
@@ -488,7 +512,7 @@ struct SessionSetupReviewView: View {
                             onFinished(started)
                         }
                     } label: { Text("Start Accepting Guests").font(.headline).frame(maxWidth: .infinity, minHeight: 48) }
-                    .buttonStyle(.borderedProminent).disabled(setup.busy || setup.validation != nil)
+                    .buttonStyle(.borderedProminent).disabled(setup.busy || setup.validation != nil || needsOccurrenceChoice)
                 }
             }
             .navigationTitle("Review Setup").tint(OperatorPalette.ink)

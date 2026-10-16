@@ -12,6 +12,9 @@ struct PaymentsOperatorView: View {
     @State private var eventsError: String?
     @State private var refreshRequest = UUID()
     @State private var eventsLoaded = false
+    @State private var eventsLoadedAt: Date?
+    @State private var eventsBinding: String?
+    @State private var deviceError: String?
     @State private var showsHistory = false
     @State private var pairingURL = PaymentsConfiguration.current()?.baseURL.absoluteString ?? ""
     @State private var pairingToken = ""
@@ -96,6 +99,12 @@ struct PaymentsOperatorView: View {
                 if let eventsError { Label(eventsError, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
                 if client == nil { Text("Pair this iPad in Advanced → Payment Maintenance.") }
                 if eventsLoaded, events.isEmpty { Text("No commercial events were returned by this server.").foregroundStyle(.secondary) }
+                if let eventsLoadedAt {
+                    Text(eventsError == nil ? "Last refreshed \(eventsLoadedAt.formatted(date: .omitted, time: .shortened))."
+                                            : "Showing the list from \(eventsLoadedAt.formatted(date: .omitted, time: .shortened)); it may be out of date.")
+                        .font(.footnote).foregroundStyle(eventsError == nil ? Color.secondary : Color.orange)
+                }
+                if let deviceError, !salesOnly { Label(deviceError, systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(.orange) }
                 LabeledContent("Environment", value: configuration?.environment.uppercased() ?? "NOT CONFIGURED")
                 Button("Refresh Event List") { Task { await refresh() } }.disabled(isLoading)
                 if salesOnly { NavigationLink("Operator API Credentials", value: OperatorWorkspaceRoute.payments) }
@@ -289,32 +298,42 @@ struct PaymentsOperatorView: View {
         }
     }
 
+    /// Read-only reports load first and independently: an unavailable booth-device check,
+    /// diagnostics or recovery refresh never blocks an authorized report.
     private func refresh() async {
         let request = UUID(); refreshRequest = request
         let binding = OperatorWorkspace.shared.serverBinding
-        events = []; eventsLoaded = false; diagnostics = nil; pairedDevice = nil
         configuration = PaymentsConfiguration.current()
-        await loadLedger()
-        await recovery.refresh()
-        guard refreshRequest == request, OperatorWorkspace.shared.serverBinding == binding, !Task.isCancelled else { return }
-        guard let client else { eventsError = "Payments API is not configured."; return }
+        // Stale rows are only ever shown for the same payments connection.
+        if eventsBinding != binding { events = []; eventsLoaded = false; eventsLoadedAt = nil; eventsBinding = nil }
+        guard let client else { events = []; eventsLoaded = false; eventsLoadedAt = nil; eventsError = "Payments API is not configured."; return }
         isLoading = true
-        defer { if refreshRequest == request { isLoading = false } }
         do {
-            let device = try await client.device().device
             let loadedEvents = try await client.listEvents()
-            let loadedDiagnostics = salesOnly ? nil : try? await client.diagnostics()
             guard refreshRequest == request, OperatorWorkspace.shared.serverBinding == binding, !Task.isCancelled else { return }
-            pairedDevice = device; events = loadedEvents
-            eventsLoaded = true; eventsError = nil
-            diagnostics = loadedDiagnostics
+            events = loadedEvents; eventsLoaded = true; eventsError = nil; eventsLoadedAt = Date(); eventsBinding = binding
             status = "Loaded \(events.count) server events at \(Date().formatted(date: .omitted, time: .shortened))."
         } catch {
             guard refreshRequest == request, OperatorWorkspace.shared.serverBinding == binding else { return }
+            // Keep the last successful list visible but labeled stale; a failure is never zero sales.
             eventsError = "Event reports unavailable: \(error.localizedDescription). LIVE requires a separate operator credential for the selected server. This does not mean sales are zero."
-            eventsLoaded = false
             status = "Not refreshed: \(error.localizedDescription)"
         }
+        if refreshRequest == request { isLoading = false }
+        guard !salesOnly else { return }
+        do {
+            let device = try await client.device().device
+            guard refreshRequest == request, OperatorWorkspace.shared.serverBinding == binding else { return }
+            pairedDevice = device; deviceError = nil
+        } catch {
+            guard refreshRequest == request else { return }
+            pairedDevice = nil; deviceError = "Booth device check unavailable: \(error.localizedDescription)"
+        }
+        let loadedDiagnostics = try? await client.diagnostics()
+        guard refreshRequest == request, OperatorWorkspace.shared.serverBinding == binding else { return }
+        diagnostics = loadedDiagnostics
+        await loadLedger()
+        await recovery.refresh()
     }
 
     private func loadLedger() async {

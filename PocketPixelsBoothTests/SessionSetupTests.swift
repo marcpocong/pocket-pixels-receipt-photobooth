@@ -83,6 +83,7 @@ import SwiftUI
     var profile = EventProfile.pocketPixelsDefault
     var usableArtwork: Set<String> = []
     let library: EventDesignLibraryStore
+    lazy var runs = EventRunStore(directory: directory.appendingPathComponent("runs"), authorized: { [unowned self] in self.permitted }, blockingReason: { [unowned self] in self.blockedReason })
     lazy var model = makeModel()
     init() {
         workspace = OperatorWorkspace(directory: directory)
@@ -91,7 +92,7 @@ import SwiftUI
         api.barrier = { [weak self] in self?.acceptance.state.blocked == true }
     }
     func makeModel() -> SessionSetupCoordinator {
-        .init(workspace: workspace, acceptance: acceptance, library: library, api: { self.api }, authorized: { self.permitted },
+        .init(workspace: workspace, acceptance: acceptance, library: library, eventRuns: runs, api: { self.api }, authorized: { self.permitted },
               blockingReason: { self.blockedReason }, loadLocal: { self.local }, saveLocal: { self.local = $0 },
               source: { self.source }, saveSource: { self.source = $0 }, currentProfile: { self.profile },
               applyProfile: { self.profile = $0; self.applied.append($0) }, artworkAvailable: { $0.map(self.usableArtwork.contains) ?? false })
@@ -234,8 +235,9 @@ import SwiftUI
     func testUnifiedAndMaintenanceRoutesRoundTripWithoutLosingSavedNavigation() throws {
         let routes: [OperatorWorkspaceRoute] = [.sessionSetup, .branding, .sales, .eventReport("event"), .eventMaintenance("event")]
         XCTAssertEqual(try JSONDecoder().decode([OperatorWorkspaceRoute].self, from: JSONEncoder().encode(routes)), routes)
-        XCTAssertEqual(OperatorWorkspaceRoute.charging.title, "Session Setup")
-        XCTAssertEqual(OperatorWorkspaceRoute.manageEvent.title, "Sales & History")
+        XCTAssertEqual(OperatorWorkspaceRoute.charging.title, "Event Setup", "A legacy saved route opens the unified setup")
+        XCTAssertEqual(OperatorWorkspaceRoute.manageEvent.title, "Event Library & History")
+        XCTAssertEqual(OperatorWorkspaceRoute.sales.title, "Reports & Statistics")
     }
     func testTurningTheLogoOffKeepsTheSavedDesignButPrintsTheStandardReceipt() throws {
         var design = SavedEventDesign.new(name: "Wedding", venue: "Garden")
@@ -280,7 +282,7 @@ import SwiftUI
             if fail { throw CocoaError(.fileWriteOutOfSpace) }
             try DurableFileWriter.write(data, to: url)
         }, legacyProfile: { .pocketPixelsDefault }, legacyName: { "" })
-        let model = SessionSetupCoordinator(workspace: f.workspace, acceptance: f.acceptance, library: library,
+        let model = SessionSetupCoordinator(workspace: f.workspace, acceptance: f.acceptance, library: library, eventRuns: f.runs,
             api: { f.api }, authorized: { true }, blockingReason: { nil }, loadLocal: { f.local }, saveLocal: { f.local = $0 },
             source: { f.source }, saveSource: { f.source = $0 }, currentProfile: { f.profile }, applyProfile: { f.profile = $0 })
         fail = true
