@@ -14,7 +14,8 @@ The existing idle-reset task now waits 60 seconds on Thank You, then shows a 15-
 - Installed in place on paired Carlo (`00008112-000D08463E8BC01E`) after explicit owner confirmation of safe idle. Launch succeeded. No uninstall, container reset, financial transaction or physical print test.
 - Before launch, all 3,635 Application Support files and 18 preference files were present after installation at unchanged sizes. Only system SplashBoard snapshots disappeared. Application Support and preferences were copied to local `/tmp/PocketPixels-live-preupdate-*` safeguards; these contain private customer data and are not committed.
 - Initial queue: 24 galleries, all on the current front door; 23 delivery-unknown and one not started. Read-only app-style public checks returned 22 complete pages, one timeout and one page without the completion marker. Python's default client received Cloudflare 403; app-style and Safari-style clients reached completed pages. This does not establish iPad recovery counts.
-- First post-launch queue snapshot still had 24 entries. Awaiting operator/device confirmation of retry counts, settings, camera/printer status and the physical thank-you timer.
+- Post-launch device inventory confirms 2 of the original 24 galleries reconciled and 22 remain retained in the queue. Saved preferences were compared byte-for-byte after launch: all 18 unchanged. The remaining metadata retains delivery uncertainty and photos. Camera/printer appearance and the physical thank-you timer still require operator observation.
+- Code pushed as `01e0a4e`; full Production Gate: https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/38859354702 (pending at this report).
 
 ## Deferred until after the event
 
