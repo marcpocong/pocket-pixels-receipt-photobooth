@@ -67,7 +67,12 @@ extension CustomerScreenTheme {
 nonisolated enum CustomerIdleResetPolicy {
     static let inactivityDuration: TimeInterval = 5 * 60
     static let warningDuration: Int = 30
-    static let thankYouInactivityDuration: TimeInterval = 2 * 60
+    static let thankYouInactivityDuration: TimeInterval = 60
+    static let thankYouWarningDuration: Int = 15
+
+    static func warningDuration(for state: BoothSessionState) -> Int {
+        state == .thankYou ? thankYouWarningDuration : warningDuration
+    }
 
     static func isEligible(
         state: BoothSessionState,

@@ -147,6 +147,9 @@ final class CustomerExperienceTests: XCTestCase {
         XCTAssertEqual(CustomerIdleResetPolicy.initialDelay(for: .thankYou), CustomerIdleResetPolicy.thankYouInactivityDuration)
         XCTAssertEqual(CustomerIdleResetPolicy.initialDelay(for: .review), CustomerIdleResetPolicy.inactivityDuration)
         XCTAssertGreaterThanOrEqual(CustomerIdleResetPolicy.warningDuration, 30)
+        XCTAssertEqual(CustomerIdleResetPolicy.initialDelay(for: .thankYou), 60)
+        XCTAssertEqual(CustomerIdleResetPolicy.warningDuration(for: .thankYou), 15)
+        XCTAssertEqual(CustomerIdleResetPolicy.warningDuration(for: .review), 30)
     }
 
     func testCustomerErrorClassificationDoesNotExposeTechnicalDetail() {

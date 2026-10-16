@@ -179,15 +179,25 @@ final class EventOperationalState: ObservableObject {
                 self.refresh()
             }
 
-            do {
-                let results = try await uploadService.retryPendingQueue(deviceToken: deviceToken, maxAttemptsPerGallery: 2)
-                lastUploadWorkerMessage = results.isEmpty
-                    ? "No pending uploads."
-                    : "Uploaded \(results.count) pending \(results.count == 1 ? "gallery" : "galleries")."
-            } catch {
-                uploadFailuresThisLaunch += 1
-                lastUploadWorkerMessage = "Upload paused. Photos remain saved locally. Check connection and gallery settings."
-            }
+            repeat {
+                do {
+                    let results = try await uploadService.retryPendingQueue(deviceToken: deviceToken, maxAttemptsPerGallery: 2)
+                    lastUploadWorkerMessage = "Ready: \(results.count). Waiting: \(uploadService.pendingUploadSummaries().count)."
+                } catch let failure as GalleryPendingQueueFailure {
+                    uploadFailuresThisLaunch += failure.failedCount
+                    lastUploadWorkerMessage = "Ready: \(failure.successfulResults.count). Needs attention / waiting: \(failure.failedCount). Photos retained."
+                } catch {
+                    lastUploadWorkerMessage = "Another upload is active or retry is unavailable. Photos retained; retrying shortly."
+                }
+                refresh()
+                guard !pendingUploads.isEmpty, networkPathStatus == "Online" else { return }
+                // Reconnection can arrive while another upload owns the worker. Keep one recovery
+                // task alive so a busy trigger or delayed public verification is not lost.
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+                guard networkPathStatus == "Online" else { return }
+                isUploadWorkerRunning = true
+            } while !Task.isCancelled
+
         }
     }
 

@@ -9,6 +9,8 @@ import UIKit
 struct GalleryPendingQueueFailure: Error, LocalizedError {
     let galleryToken: String
     let underlyingError: Error
+    var successfulResults: [GalleryUploadResult] = []
+    var failedCount: Int = 1
 
     var errorDescription: String? {
         underlyingError.localizedDescription
@@ -109,9 +111,21 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
     }
 
     private func uploadPendingPayload(_ payload: GalleryPreparedUploadPayload, deviceToken: String) async throws -> GalleryUploadResult {
-        try beginUpload(galleryToken: payload.galleryToken)
+        try await beginUpload(galleryToken: payload.galleryToken)
         defer { endUpload(galleryToken: payload.galleryToken) }
         guard let pendingStore else { throw GalleryUploadError.configuration("Gallery storage is unavailable.") }
+        guard let payload = try pendingStore.load(galleryToken: payload.galleryToken) else {
+            // A preceding owner cleared it only after verifying this exact public URL.
+            try await verifyPublicGallery(at: payload.galleryURL)
+            return GalleryUploadResult(galleryToken: payload.galleryToken, galleryURL: payload.galleryURL, status: .existingComplete)
+        }
+        // A previous POST may already have completed. Reconcile the frozen public QR first;
+        // otherwise the backend's same-token idempotent POST reconciles incomplete delivery.
+        if payload.deliveryState == .deliveryUnknown,
+           (try? await verifyPublicGallery(at: payload.galleryURL)) != nil {
+            try pendingStore.clear(galleryToken: payload.galleryToken)
+            return GalleryUploadResult(galleryToken: payload.galleryToken, galleryURL: payload.galleryURL, status: .existingComplete)
+        }
         // Persist ambiguity before any bytes can leave. A process exit during POST must never
         // resurrect an attempted upload as conclusively not started. Storage failure blocks POST.
         try pendingStore.recordAttempt(galleryToken: payload.galleryToken)
@@ -140,17 +154,29 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         defer { Self.isQueueProcessing = false }
 
         var results: [GalleryUploadResult] = []
-        while let summary = pendingUploadSummaries().first {
+        var failures: [GalleryPendingQueueFailure] = []
+        // Snapshot once: retained failures must not loop forever or starve later galleries.
+        for summary in pendingUploadSummaries() {
+            try Task.checkCancellation()
             do {
+                // Another serialized upload may have completed this item while we waited.
+                guard try pendingStore?.load(galleryToken: summary.galleryToken) != nil else { continue }
                 let result = try await retryPendingGalleryWithBackoff(
                     galleryToken: summary.galleryToken,
                     deviceToken: deviceToken,
                     maxAttempts: maxAttemptsPerGallery
                 )
                 results.append(result)
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
-                throw GalleryPendingQueueFailure(galleryToken: summary.galleryToken, underlyingError: error)
+                failures.append(GalleryPendingQueueFailure(galleryToken: summary.galleryToken, underlyingError: error))
             }
+        }
+        if var failure = failures.first {
+            failure.successfulResults = results
+            failure.failedCount = failures.count
+            throw failure
         }
         return results
     }
@@ -182,7 +208,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
 #endif
 
     func cancel() {
-        Self.activeUploadToken = nil
+        // Durable uploads own their lock until completion; customer navigation cannot release it.
     }
 
     nonisolated static func makeRequestBody(
@@ -365,13 +391,13 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             try pendingStore?.updateDeliveryState(.deliveryUnknown, galleryToken: payload.galleryToken, lastSafeError: GalleryUploadError.deliveryUnknown.localizedDescription)
             throw GalleryUploadError.deliveryUnknown
         } catch GalleryUploadError.network(let message) {
-            try pendingStore?.updateDeliveryState(.notStarted, galleryToken: payload.galleryToken, lastSafeError: message)
+            try pendingStore?.updateDeliveryState(.deliveryUnknown, galleryToken: payload.galleryToken, lastSafeError: message)
             throw GalleryUploadError.pendingNoInternet
         } catch GalleryUploadError.timeout {
             try pendingStore?.updateDeliveryState(.deliveryUnknown, galleryToken: payload.galleryToken, lastSafeError: GalleryUploadError.timeout.localizedDescription)
             throw GalleryUploadError.deliveryUnknown
         } catch {
-            try? pendingStore?.updateDeliveryState(payload.deliveryState, galleryToken: payload.galleryToken, lastSafeError: error.localizedDescription)
+            try? pendingStore?.updateDeliveryState(.deliveryUnknown, galleryToken: payload.galleryToken, lastSafeError: error.localizedDescription)
             throw error
         }
     }
@@ -497,10 +523,12 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         return GalleryUploadResult(galleryToken: galleryToken, galleryURL: payload.galleryURL, status: GalleryUploadResultStatus(serverStatus: uploadResponse.status))
     }
 
-    private func beginUpload(galleryToken: String) throws {
-        guard Self.activeUploadToken == nil else {
-            throw GalleryUploadError.uploadAlreadyActive
+    private func beginUpload(galleryToken: String) async throws {
+        // MainActor makes acquisition atomic across foreground and recovery service instances.
+        while Self.activeUploadToken != nil {
+            try await Task.sleep(for: .milliseconds(100))
         }
+        try Task.checkCancellation()
         Self.activeUploadToken = galleryToken
     }
 
@@ -528,7 +556,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
                 lastError = error
                 if attempt < maxAttempts {
                     let delay = delays[min(attempt - 1, delays.count - 1)]
-                    try? await Task.sleep(for: delay)
+                    try await Task.sleep(for: delay)
                 }
             }
         }

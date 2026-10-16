@@ -1259,6 +1259,10 @@ struct BoothSessionView: View {
                     .font(MadeToKeepTheme.Typography.sans(size: 19, weight: .regular))
                     .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
 
+                if viewModel.state == .thankYou {
+                    Button("Start Another Session") { _ = viewModel.resetAbandonedSessionIfSafe() }
+                        .buttonStyle(MadeToKeepPrimaryButtonStyle())
+                }
                 Button("Continue Session") {
                     scheduleIdleReset()
                 }
@@ -1285,7 +1289,7 @@ struct BoothSessionView: View {
                 try await Task.sleep(for: .seconds(initialDelay))
                 guard viewModel.isCustomerResetSafe, viewModel.state == state else { return }
 
-                idleSecondsRemaining = CustomerIdleResetPolicy.warningDuration
+                idleSecondsRemaining = CustomerIdleResetPolicy.warningDuration(for: state)
                 showsIdleWarning = true
                 while idleSecondsRemaining > 0 {
                     try await Task.sleep(for: .seconds(1))

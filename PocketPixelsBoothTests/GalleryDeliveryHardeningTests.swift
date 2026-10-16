@@ -56,6 +56,88 @@ final class GalleryDeliveryHardeningTests: XCTestCase {
         }
     }
 
+    func testRetryAllContinuesAfterFailureAndReconcilesWithoutAnotherPOST() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let queue = try GalleryPendingUploadStore(directoryURL: directory)
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 80)).image { _ in }
+        let tokens = ["a", "b", "c"].map { String(repeating: $0, count: 64) }
+        for (index, token) in tokens.enumerated() {
+            let payload = try GoogleDriveGalleryUploadService.preparePayload(photos: [image], composedReceipt: image,
+                sessionID: "PP-HOTFIX-\(index)", createdAt: Date().addingTimeInterval(Double(index)),
+                galleryToken: token, customerGalleryBaseURL: URL(string: "https://delivery-fixture.example.test")!)
+            try queue.save(payload)
+        }
+        HotfixProtocol.failedToken = tokens[0]
+        HotfixProtocol.publicReady = []
+        HotfixProtocol.postTokens = []
+        HotfixProtocol.activePosts = 0
+        HotfixProtocol.maxActivePosts = 0
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [HotfixProtocol.self]
+        let service = GoogleDriveGalleryUploadService(
+            configurationProvider: { try GoogleDriveGalleryConfiguration.validate(rawValue: "https://script.google.com/macros/s/TEST/exec") },
+            urlSession: URLSession(configuration: configuration), pendingStore: queue)
+        do {
+            _ = try await service.retryPendingQueue(deviceToken: String(repeating: "x", count: 32), maxAttemptsPerGallery: 1)
+            XCTFail("Partial failure must be reported truthfully")
+        } catch let failure as GalleryPendingQueueFailure {
+            XCTAssertEqual(failure.failedCount, 1)
+            XCTAssertEqual(failure.successfulResults.map(\.galleryToken), Array(tokens.dropFirst()))
+        }
+        XCTAssertEqual(HotfixProtocol.postTokens, tokens, "Retry All must reach every gallery")
+        XCTAssertEqual(try queue.summaries().map(\.galleryToken), [tokens[0]])
+        let retained = try XCTUnwrap(queue.load(galleryToken: tokens[0]))
+        let restartedQueue = try GalleryPendingUploadStore(directoryURL: directory)
+        XCTAssertEqual(try restartedQueue.load(galleryToken: tokens[0])?.photos.map(\.data), retained.photos.map(\.data))
+        // Wi-Fi/public verification recovers after a backend-accepted but ambiguous attempt.
+        HotfixProtocol.publicReady.insert(tokens[0])
+        let result = try await service.uploadPendingGallery(galleryToken: tokens[0], deviceToken: String(repeating: "x", count: 32))
+        XCTAssertEqual(result.galleryToken, retained.galleryToken)
+        XCTAssertEqual(result.galleryURL, retained.galleryURL)
+        XCTAssertEqual(HotfixProtocol.postTokens, tokens, "Public reconciliation must avoid re-uploading files")
+        XCTAssertTrue(try restartedQueue.summaries().isEmpty)
+    }
+
+    func testSimultaneousTriggersAndCancelCannotReleaseAnotherUploadLock() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let queue = try GalleryPendingUploadStore(directoryURL: directory)
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 80)).image { _ in }
+        let tokens = ["d", "f"].map { String(repeating: $0, count: 64) }
+        for (index, token) in tokens.enumerated() {
+            try queue.save(GoogleDriveGalleryUploadService.preparePayload(photos: [image], composedReceipt: image,
+                sessionID: "PP-CONCURRENT-\(index)", createdAt: Date(), galleryToken: token,
+                customerGalleryBaseURL: URL(string: "https://delivery-fixture.example.test")!))
+        }
+        HotfixProtocol.failedToken = nil
+        HotfixProtocol.publicReady = []
+        HotfixProtocol.postTokens = []
+        HotfixProtocol.activePosts = 0
+        HotfixProtocol.maxActivePosts = 0
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [HotfixProtocol.self]
+        func makeService() -> GoogleDriveGalleryUploadService {
+            GoogleDriveGalleryUploadService(
+                configurationProvider: { try GoogleDriveGalleryConfiguration.validate(rawValue: "https://script.google.com/macros/s/TEST/exec") },
+                urlSession: URLSession(configuration: configuration), pendingStore: queue)
+        }
+        let first = makeService(), second = makeService()
+        let task = Task { try await first.retryPendingQueue(deviceToken: String(repeating: "x", count: 32), maxAttemptsPerGallery: 1) }
+        while HotfixProtocol.postTokens.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        second.cancel()
+        do {
+            _ = try await second.retryPendingQueue(deviceToken: String(repeating: "x", count: 32))
+            XCTFail("A second queue worker must not compete")
+        } catch GalleryUploadError.uploadAlreadyActive { }
+        _ = try await second.uploadPendingGallery(galleryToken: tokens[1], deviceToken: String(repeating: "x", count: 32))
+        _ = try await task.value
+        XCTAssertEqual(HotfixProtocol.maxActivePosts, 1)
+        XCTAssertEqual(Set(HotfixProtocol.postTokens), Set(tokens))
+        XCTAssertEqual(HotfixProtocol.postTokens.count, 2)
+        XCTAssertTrue(try queue.summaries().isEmpty)
+    }
+
     func testCancelAndStartAnotherSessionNeverDeleteQueuedGallery() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -110,6 +192,48 @@ private final class DeliveryProtocol: URLProtocol {
         }
         let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+private final class HotfixProtocol: URLProtocol {
+    nonisolated(unsafe) static var failedToken: String?
+    nonisolated(unsafe) static var publicReady: Set<String> = []
+    nonisolated(unsafe) static var postTokens: [String] = []
+    nonisolated(unsafe) static var activePosts = 0
+    nonisolated(unsafe) static var maxActivePosts = 0
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        if request.httpMethod == "POST" {
+            var data = request.httpBody ?? Data()
+            if data.isEmpty, let stream = request.httpBodyStream {
+                stream.open(); defer { stream.close() }
+                var buffer = [UInt8](repeating: 0, count: 4096)
+                while stream.hasBytesAvailable {
+                    let count = stream.read(&buffer, maxLength: buffer.count)
+                    if count <= 0 { break }
+                    data.append(contentsOf: buffer.prefix(count))
+                }
+            }
+            let token = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["galleryToken"] as? String ?? ""
+            Self.postTokens.append(token)
+            Self.activePosts += 1
+            Self.maxActivePosts = max(Self.maxActivePosts, Self.activePosts)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [self] in
+                Self.activePosts -= 1
+                if token != Self.failedToken { Self.publicReady.insert(token) }
+                finish(body: "{\"ok\":true,\"schemaVersion\":2,\"galleryToken\":\"\(token)\",\"galleryURL\":\"https://delivery-fixture.example.test/?g=\(token)\",\"fileCount\":4,\"status\":\"existingComplete\"}")
+            }
+        } else {
+            let token = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "g" })?.value ?? ""
+            finish(body: Self.publicReady.contains(token) ? "<main data-pocket-pixels-gallery-status=\"complete\"></main>" : "<main>pending</main>")
+        }
+    }
+    private func finish(body: String) {
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(body.utf8))
         client?.urlProtocolDidFinishLoading(self)
     }

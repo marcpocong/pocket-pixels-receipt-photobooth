@@ -1930,6 +1930,9 @@ final class BoothSessionViewModel: ObservableObject {
                 refreshPendingUploads()
             } catch {
                 if let queueFailure = error as? GalleryPendingQueueFailure {
+                    for result in queueFailure.successfulResults where isCurrentGalleryToken(result.galleryToken) {
+                        setUploadPhase(.success(result.galleryURL), message: "Your photos are ready.", for: result.galleryToken)
+                    }
                     applyUploadError(queueFailure.underlyingError, customerFacing: true, for: queueFailure.galleryToken)
                 } else if galleryToken == nil {
                     applyUploadError(error, customerFacing: false)

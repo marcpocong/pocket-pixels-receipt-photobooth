@@ -206,7 +206,19 @@ struct PendingUploadsView: View {
                     Text(upload.createdAt)
                     Text("\(upload.deliveryState.operatorTitle) · \(upload.retryAttemptCount) attempts")
                     if let last = upload.lastAttemptAt { Text("Last attempt: \(last.formatted())") }
-                    if upload.lastSafeError != nil { Text("Last attempt failed. Check network and saved gallery credentials; data is retained.") }
+                    if let error = upload.lastSafeError {
+                        Text("Needs attention: \(error)").font(.caption)
+                        Text("Photos retained on iPad.").font(.caption)
+                    }
+                    if upload.galleryURL.host() == "pocket-pixels-gallery.pocketpixels-ceb.workers.dev",
+                       let replacement = try? GalleryURLBuilder.makeGalleryURL(
+                        customerGalleryBaseURL: URL(string: "https://gallery.madetokeepstudios.workers.dev/")!,
+                        galleryToken: upload.galleryToken) {
+                        Text("Original QR uses the unavailable legacy hostname. Check this same-token replacement and confirm all photos appear before sharing. The original QR stays unchanged.")
+                            .font(.caption).foregroundStyle(.orange)
+                        Link("Check Replacement Gallery", destination: replacement)
+                        ShareLink("Share Replacement Link", item: replacement)
+                    }
                     NavigationLink("View Session") { RecentSessionsView(initialSearch: upload.sessionID) }
                 }
             }
