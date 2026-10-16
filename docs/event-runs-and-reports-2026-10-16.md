@@ -48,3 +48,29 @@ Focused persistence, financial membership, CSV, archive compatibility/cleanup, o
 Stage 2 source is `3814dc4792a0a47a730b6967d14468b25329ad0b`. Remote Production Gate: https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/38923451101 . At handoff the backend job passed and the iOS job was still running. Local equivalent checks passed, but remote success must still be confirmed before installation.
 
 Stage 2 has not been installed or physically exercised on Carlo. Its release still needs a successful remote Production Gate and separate owner approval, followed by physical operator workflow validation. No real payment or physical print was created by this work.
+
+
+## Owner-approved release — October 17, 2026 (Asia/Manila)
+
+The owner explicitly approved Stage 2 installation and all necessary backend deployments. This supersedes the pending approval state above. Both complete Production Gates passed: source `3814dc4792a0a47a730b6967d14468b25329ad0b` ([run 38923451101](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/38923451101)) and handoff `7604324cc887fe82491665548385cf24d5e43ddb` ([run 38924354602](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/38924354602)). No source changes followed the validated candidate.
+
+### Payments reporting deployment
+
+The existing authenticated Cloudflare CLI published the reporting addition to TEST first, then LIVE. Chrome was opened as requested, but its Cloudflare dashboard required sign-in and its health-page navigation was blocked by the browser. No browser login was needed because the CLI already had authorized account access.
+
+| Environment | Previous version | Released version |
+|---|---|---|
+| TEST | `252f4caa-351e-45d6-8c3f-6e78c916ce3a` | `f4eac4ea-34f6-4ea3-b729-3bad5cacafce` |
+| LIVE | `ccdc2798-96e5-46e5-b34c-c113d8534818` | `76afce7c-75b5-4d2e-ac5d-09c69918aea0` |
+
+Remote settings and source snapshots were retained privately under `/tmp/pocket-stage2-cloudflare-before` and `...-after`. Before/after checks confirmed every binding, secret name, plaintext setting, D1 database ID, compatibility date and Cron expression was preserved. The existing LIVE gate was already `true`; the release explicitly preserved it rather than applying the repository's inert `false` default. TEST remains `false`. Deployed source in both environments includes the original checkout ID and reporting capability flag. Public health returned HTTP 200 with the correct environment/activation state; unauthenticated admin listing returned HTTP 401. Authenticated account isolation and paid-unclaimed attribution passed the real Worker/D1 integration tests in CI; no remote financial transaction was created for verification.
+
+There were no D1 migrations, credential rotations, PayMongo changes, gallery Worker releases or Apps Script releases. The only backend code difference from the previous LIVE source is the read-only order-report addition.
+
+### Carlo in-place update
+
+The signed Release candidate was reverified and installed on Carlo `00008112-000D08463E8BC01E`, preserving bundle ID `com.pocketpixels.PocketPixelsBooth`, signing team `PQ26682725`, version 1.0 and build 1. Its executable SHA-256 is `403e285624e33b92cf47c7c7ac2f19549b44af1302e722eabfc7cf518fe9e8ce`. It launched successfully as PID 1427. No uninstall or container reset occurred.
+
+Fresh private safeguards retain about 412 MiB of Application Support and all 18 preference files under `/tmp/pocket-stage2-preinstall-*`. Documents had no children. Before first launch all 3,552 protected files were present at unchanged sizes; all 18 preferences and all four payment-state files were byte-identical. After launch all 58 checkout IDs and all 267 print-outbox IDs remained present; all outbox entries remained delivered. All preferences remained byte-identical and the original unresolved entitlement remained retained for legitimate recovery. No record was cleared to permit this update.
+
+The owner confirmed Welcome, authenticated operator access, Event Operations & Reports/current settings, and Return to Booth passed and Carlo was behaving normally. This is owner-observed physical validation. Repeated interaction stress, the full 75-second Thank You cycle, Wi-Fi interruption and controlled payment/physical print checks remain unperformed. No real payment, physical print or new event run was created by deployment validation.
