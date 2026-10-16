@@ -197,8 +197,14 @@ struct PendingUploadsView: View {
                 if let first = operations.pendingUploads.first { LabeledContent("Oldest waiting", value: first.createdAt) }
                 Text("Photos saved locally. Uploads wait for internet; receipt printing does not need to wait.")
                 if let error = operations.queueError { Text(error).foregroundStyle(.red) }
-                Button(operations.isUploadWorkerRunning ? "Uploading…" : "Retry All") { operations.retryPendingUploads(reason: "Operator requested retry.") }
+                Button("Retry All") { operations.retryPendingUploads(reason: "Operator requested retry.") }
                     .disabled(operations.isUploadWorkerRunning || operations.pendingUploads.isEmpty || operations.networkPathStatus != "Online")
+                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    Text(GoogleDriveGalleryUploadService.currentActivity).font(.caption)
+                }
+                if operations.isUploadWorkerRunning {
+                    Text("Automatic recovery is checking galleries. Photos remain saved; Retry All is available between passes.").font(.caption)
+                }
                 Text(operations.lastUploadWorkerMessage).font(.caption)
             }
             ForEach(operations.pendingUploads) { upload in
@@ -223,7 +229,14 @@ struct PendingUploadsView: View {
                 }
             }
         }.navigationTitle("Waiting Galleries")
-        .task { operations.refresh() }
+        .task {
+            // Refresh the operator's counts as each gallery clears, including a worker owned by
+            // the customer view model. This task observes only; it never starts another upload.
+            repeat {
+                operations.refresh()
+                do { try await Task.sleep(for: .seconds(2)) } catch { return }
+            } while !Task.isCancelled
+        }
         .refreshable { operations.refresh() }
     }
 }

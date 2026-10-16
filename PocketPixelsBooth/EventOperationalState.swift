@@ -91,6 +91,7 @@ final class EventOperationalState: ObservableObject {
     private let credentialStore = DeviceCredentialStore()
     private let recoveryStore = try? AppRecoveryStore()
     private var retryTask: Task<Void, Never>?
+    private var retryRequested = false
     private var didStart = false
 
     private init() {}
@@ -154,9 +155,14 @@ final class EventOperationalState: ObservableObject {
     }
 
     func retryPendingUploads(reason: String) {
-        guard retryTask == nil, networkPathStatus == "Online" else {
+        guard networkPathStatus == "Online" else { return }
+        guard retryTask == nil else {
+            // Retry All during the recovery backoff wakes the existing worker, never starts a rival.
+            retryRequested = true
+            lastUploadWorkerMessage = "Retry requested; continuing recovery."
             return
         }
+        retryRequested = false
 
         pendingUploads = uploadService.pendingUploadSummaries()
         guard !pendingUploads.isEmpty else {
@@ -181,7 +187,7 @@ final class EventOperationalState: ObservableObject {
 
             repeat {
                 do {
-                    let results = try await uploadService.retryPendingQueue(deviceToken: deviceToken, maxAttemptsPerGallery: 2)
+                    let results = try await uploadService.retryPendingQueue(deviceToken: deviceToken, maxAttemptsPerGallery: 1)
                     lastUploadWorkerMessage = "Ready: \(results.count). Waiting: \(uploadService.pendingUploadSummaries().count)."
                 } catch let failure as GalleryPendingQueueFailure {
                     uploadFailuresThisLaunch += failure.failedCount
@@ -193,7 +199,14 @@ final class EventOperationalState: ObservableObject {
                 guard !pendingUploads.isEmpty, networkPathStatus == "Online" else { return }
                 // Reconnection can arrive while another upload owns the worker. Keep one recovery
                 // task alive so a busy trigger or delayed public verification is not lost.
-                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+                isUploadWorkerRunning = false
+                for _ in 0..<30 {
+                    if retryRequested {
+                        retryRequested = false
+                        break
+                    }
+                    do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                }
                 guard networkPathStatus == "Online" else { return }
                 isUploadWorkerRunning = true
             } while !Task.isCancelled

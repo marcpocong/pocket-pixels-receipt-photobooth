@@ -1,8 +1,8 @@
 # October 16 live-event gallery hotfix
 
-Retry All previously stopped on its first error; cancellation could release another upload's global lock. Queue recovery now snapshots and attempts every entry, reports partial success, serializes uploads across service instances, and retries retained work every 30 seconds while online. Unknown deliveries first check their frozen public URL; completed public galleries reconcile without another POST. Remaining POSTs retain the original identity and use the existing idempotent backend. Failed attempts retain photos and uncertainty. Success requires the public completion marker.
+Retry All previously stopped on its first error; cancellation could release another upload's global lock. Queue recovery now snapshots and attempts every entry, reports partial success, serializes uploads across service instances, and retries retained work every 30 seconds while online. It first sweeps all uncertain public galleries before attempting any slow POST; each upload receives one attempt per pass so repeated backoff cannot starve later entries. Unknown deliveries first check their frozen public URL; completed public galleries reconcile without another POST. Remaining POSTs retain the original identity and use the existing idempotent backend. Failed attempts retain photos and uncertainty. Success requires the public completion marker.
 
-Waiting Galleries shows saved errors and an explicit same-token replacement link for legacy-host records. Frozen URLs and archives are unchanged. The original legacy QR is not claimed repaired. No backend deployment was needed.
+Waiting Galleries now always shows Retry All, displays the current public-check/upload/verification step, refreshes queue counts every two seconds while visible, shows saved errors, and provides an explicit same-token replacement link for legacy-host records. Retry All wakes the existing worker between passes rather than launching another one. Frozen URLs and archives are unchanged. The original legacy QR is not claimed repaired. No backend deployment was needed.
 
 The existing idle-reset task now waits 60 seconds on Thank You, then shows a 15-second countdown with Start Another Session available. Other customer states retain their previous timing. Payment/print safety guards, durable gallery tasks and recovery records are unchanged. Timer policy/reset isolation are tested; a physical 75-second thank-you cycle has not been observed during this hotfix.
 
@@ -20,3 +20,11 @@ The existing idle-reset task now waits 60 seconds on Thank You, then shows a 15-
 ## Deferred until after the event
 
 Redesign Event Mode start/stop, lifecycle explanations and event statistics as a separate task. Preserve selected event, lifecycle, payment mode, prices, authorized copies and receipt branding during this hotfix. Also defer broader background-upload architecture and restoration of the unavailable legacy hostname.
+
+## Follow-up after owner reported a stationary “Uploading…” button
+
+The first candidate could still spend multiple POST retries on an early gallery before checking later public pages; operator counts refreshed only after the full pass. Added the public-first sweep, one attempt per gallery per pass, observable activity, and live queue counts described above. A new synthetic regression covers an early unavailable page with later already-public galleries. **64 focused tests passed**, signed Release build/signature passed, and the follow-up was installed in place and launched while the owner kept Carlo idle in the operator screen.
+
+Device inventory after the follow-up confirmed **6 of the original 24 queue records reconciled, 18 retained** at the observation point. During the pre/post installation observation interval, three earlier queued records completed and were removed from the upload queue; only queue metadata otherwise changed. Archives, payment state, app recovery, print audit and all preferences remained present at unchanged sizes. Successful queue reconciliation removes its redundant upload payload only after public verification; archived sessions remain saved. No failed record was discarded.
+
+Physical Wi-Fi reconnection, camera/printer appearance and a full 75-second thank-you cycle remain operator checks; no new payment or print was issued. No backend deployment is pending. Full CI is separate from the 64-test local result.

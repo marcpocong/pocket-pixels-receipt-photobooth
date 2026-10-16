@@ -99,6 +99,37 @@ final class GalleryDeliveryHardeningTests: XCTestCase {
         XCTAssertTrue(try restartedQueue.summaries().isEmpty)
     }
 
+    func testPublicSweepRecoversLaterReadyGalleriesBeforeSlowUpload() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let queue = try GalleryPendingUploadStore(directoryURL: directory)
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 80)).image { _ in }
+        let tokens = ["a", "b", "c"].map { String(repeating: $0, count: 64) }
+        for (index, token) in tokens.enumerated() {
+            try queue.save(GoogleDriveGalleryUploadService.preparePayload(photos: [image], composedReceipt: image,
+                sessionID: "PP-SWEEP-\(index)", createdAt: Date().addingTimeInterval(Double(index)), galleryToken: token,
+                customerGalleryBaseURL: URL(string: "https://delivery-fixture.example.test")!))
+            try queue.updateDeliveryState(.deliveryUnknown, galleryToken: token)
+        }
+        HotfixProtocol.failedToken = tokens[0]
+        HotfixProtocol.publicReady = Set(tokens.dropFirst())
+        HotfixProtocol.postTokens = []
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [HotfixProtocol.self]
+        let service = GoogleDriveGalleryUploadService(
+            configurationProvider: { try GoogleDriveGalleryConfiguration.validate(rawValue: "https://script.google.com/macros/s/TEST/exec") },
+            urlSession: URLSession(configuration: configuration), pendingStore: queue)
+        do {
+            _ = try await service.retryPendingQueue(deviceToken: String(repeating: "x", count: 32))
+            XCTFail("The first pending public page must remain queued")
+        } catch let failure as GalleryPendingQueueFailure {
+            XCTAssertEqual(failure.successfulResults.map(\.galleryToken), Array(tokens.dropFirst()))
+            XCTAssertEqual(failure.failedCount, 1)
+        }
+        XCTAssertEqual(HotfixProtocol.postTokens, [tokens[0]], "Already-public galleries must never POST")
+        XCTAssertEqual(try queue.summaries().map(\.galleryToken), [tokens[0]])
+    }
+
     func testSimultaneousTriggersAndCancelCannotReleaseAnotherUploadLock() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
