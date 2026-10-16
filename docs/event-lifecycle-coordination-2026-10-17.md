@@ -60,3 +60,18 @@ See the final engineering report in the commit/PR for test counts and the Produc
 6. **Review** — View Reports: Overview, Activity, Sales (exact LIVE/TEST/cash categories), History.
 7. **Archive** — Reports → Manage: archive ended runs and unused designs; paid-event archive under History.
 8. **Reuse** — Event Setup with the same design → Start New Occurrence (fresh statistics; old history kept).
+
+## Owner-approved release — October 17, 2026 (Asia/Manila)
+
+The owner approved merging and installing. PR #4 merged to `main` as `4787e5d71eb1cb57f9f59b329b19426a148fb40e`; its PR Production Gate passed ([run 38956792013](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/38956792013)). No backend deployment was needed or performed.
+
+### Carlo in-place update
+
+- A signed Release built from `4787e5d` passed strict code-signature verification: bundle ID `com.pocketpixels.PocketPixelsBooth`, team `PQ26682725`, version 1.0 (1), executable SHA-256 `8883ab92de816d109a3b8afc337e15530ffe199f4e2a73fcaaf9a08509a3d793`.
+- Booth idle check: the last data write was at 02:43. Installation began at about 05:27, with no activity in between.
+- Pre-install private safeguards: Application Support (412 MiB) and preferences, 3,552 files, under `/tmp/pocket-stage3-preinstall-20261017-052616`.
+- Installed on Carlo `00008112-000D08463E8BC01E` without uninstalling or resetting the container. Launched as PID 875.
+- After launch, all 3,552 files were present, none missing or added, and every preference was byte-identical. The only rewritten file was `checkout-checkpoints.json`: all 58 checkout IDs remained, and the only change was the existing recovery refresh updating the `updatedAt` of the one retained unresolved entitlement.
+- State at install: guest admission open for LIVE paid event `29b114e3-036c-4144-b482-1dae2cf58a9a`. No event run existed (no guest since Stage 2), so the first guest creates the first run through the tested upgrade path.
+
+No payment, print, guest session or operator action was performed during deployment validation. Physical operator workflow validation on Carlo is still pending.
