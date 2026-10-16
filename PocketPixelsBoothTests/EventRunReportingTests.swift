@@ -45,10 +45,16 @@ import SwiftUI
         let store = makeStore()
         let first = try store.runForAdmission(context: context)
         let sameName = EventRunContext(designID: "design-b", commercialEventID: context.commercialEventID, serverBinding: context.serverBinding, name: context.name)
-        let second = try store.runForAdmission(context: sameName)
+        XCTAssertThrowsError(try store.runForAdmission(context: sameName), "A guest tap never switches or creates an occurrence")
+        XCTAssertEqual(store.current?.id, first.id)
+        XCTAssertEqual(store.occurrencePlan(for: sameName), .switchSetup(previousRunID: first.id, previousStatus: .active))
+        let second = try store.commitStart(context: sameName, expected: store.occurrencePlan(for: sameName), allowNewOccurrence: false)
         XCTAssertNotEqual(first.id, second.id)
         let live = EventRunContext(designID: sameName.designID, commercialEventID: sameName.commercialEventID, serverBinding: "live:https://synthetic.example.test", name: sameName.name)
-        XCTAssertNotEqual(try store.runForAdmission(context: live).id, second.id)
+        let third = try store.commitStart(context: live, expected: store.occurrencePlan(for: live), allowNewOccurrence: false)
+        XCTAssertNotEqual(third.id, second.id)
+        XCTAssertThrowsError(try store.runForAdmission(context: sameName), "A TEST setup can never admit into the LIVE run")
+        XCTAssertEqual(try store.runForAdmission(context: live).id, third.id)
     }
 
     func testHistoricalSessionCannotBeReassignedToNewRun() throws {

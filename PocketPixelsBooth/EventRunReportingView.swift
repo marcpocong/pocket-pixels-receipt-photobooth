@@ -33,15 +33,26 @@ nonisolated struct EventRunFinancialTotals: Equatable, Sendable {
     }
 }
 
+/// One reporting home: Overview, Activity, Sales, History and Manage share a single run picker.
+/// Operational numbers come from this iPad's exact session journal; money comes only from the
+/// authoritative server orders and is never inferred from names, dates or local guesses.
 struct EventRunReportingView: View {
-    @ObservedObject private var store = EventRunStore.shared
-    @ObservedObject private var library = EventDesignLibraryStore.shared
+    enum Tab: String, CaseIterable, Identifiable {
+        case overview = "Overview", activity = "Activity", sales = "Sales", history = "History", manage = "Manage"
+        var id: String { rawValue }
+    }
+
+    @ObservedObject private var store: EventRunStore
+    @ObservedObject private var library: EventDesignLibraryStore
+    @ObservedObject private var attributionStore: LegacyAttributionStore
     @ObservedObject private var operations = EventOperationalState.shared
+    @State private var tab: Tab
     @State private var sessions: [EventRunSession] = []
     @State private var archives: [RecentSessionArchiveSummary] = []
+    @State private var history: HistoricalActivityReport?
     @State private var localError: String?
     @State private var selectedRunID: String?
-    @State private var showsHistory = false
+    @State private var showsArchived = false
     @State private var loading = true
     @State private var message = ""
     @State private var pendingAction: String?
@@ -49,19 +60,25 @@ struct EventRunReportingView: View {
     @State private var financials: EventRunFinancialTotals?
     @State private var financialError: String?
     @State private var financialLoading = false
+    @State private var financialLoadedAt: Date?
     @State private var orders: [OperatorOrderRow] = []
+    @State private var unmatchedCommercialOrders: Int?
     @State private var offlineCash: [OfflineCashRecord] = []
     @State private var offlineCashLoaded = false
     @State private var offlineCashError: String?
     @State private var unassignedOfflineCount = 0
     @State private var exportURL: URL?
     @State private var financialRequest = UUID()
+    @State private var attributionGroup: HistoricalActivityReport.DayGroup?
     private let archiveDirectory: URL?
     private let loadsRemote: Bool
 
-    init(store: EventRunStore? = nil, library: EventDesignLibraryStore? = nil, archiveDirectory: URL? = nil, loadsRemote: Bool = true) {
+    init(store: EventRunStore? = nil, library: EventDesignLibraryStore? = nil, archiveDirectory: URL? = nil, loadsRemote: Bool = true,
+         attributions: LegacyAttributionStore? = nil, initialTab: Tab = .overview) {
         _store = ObservedObject(wrappedValue: store ?? .shared)
         _library = ObservedObject(wrappedValue: library ?? .shared)
+        _attributionStore = ObservedObject(wrappedValue: attributions ?? .shared)
+        _tab = State(initialValue: initialTab)
         self.archiveDirectory = archiveDirectory
         self.loadsRemote = loadsRemote
     }
@@ -70,148 +87,287 @@ struct EventRunReportingView: View {
     private var runSessions: [EventRunSession] { sessions.filter { $0.runID == selected?.id } }
     private var stats: EventRunStatistics { EventRunStatistics(sessions: runSessions) }
     private var blocked: String? { SessionSetupSafety.blockingReason }
+    private var pickerRuns: [EventRunRecord] { store.runs.filter { showsArchived || $0.status != .archived }.reversed() }
 
     var body: some View {
         List {
-            currentEventSection
-            operationsSection
-            activitySection
-            financialSection
-            librarySection
+            Section {
+                Picker("Section", selection: $tab) { ForEach(Tab.allCases) { Text($0.rawValue).tag($0) } }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("report-tabs")
+                if tab != .manage { runPicker }
+            }
+            switch tab {
+            case .overview: overviewTab
+            case .activity: activityTab
+            case .sales: salesTab
+            case .history: historyTab
+            case .manage: manageTab
+            }
+            if !message.isEmpty { Section { Text(message).font(.callout) } }
         }
-        .navigationTitle("Event Operations & Reports")
+        .navigationTitle("Reports & Statistics")
         .scrollContentBackground(.hidden)
         .background(MadeToKeepPaperBackground())
         .tint(MadeToKeepTheme.ColorPalette.burgundy)
         .task(id: store.revision) { await loadLocal() }
         .onChange(of: selectedRunID) { _, _ in exportURL = nil; Task { await loadFinancials() } }
-        .confirmationDialog("\(pendingAction == "new" ? "Start a fresh event run?" : "Change event-run status?")", isPresented: Binding(get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } })) {
-            Button("Confirm") { perform() }
+        .confirmationDialog(dialogTitle, isPresented: Binding(get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } }), titleVisibility: .visible) {
+            Button(pendingAction == "new" ? "Start New Event Run" : "Archive Run") { perform() }
             Button("Cancel", role: .cancel) { }
-        } message: { Text("Only this iPad's occurrence changes. Previous runs, financial records, receipt archives and galleries are retained. A fresh run reuses the current design and commercial event, with unchanged prices and guest admission. Use Session Setup to start accepting guests.") }
+        } message: { Text(dialogMessage) }
         .confirmationDialog("Delete unused design?", isPresented: Binding(get: { designCandidate != nil }, set: { if !$0 { designCandidate = nil } })) {
             Button("Delete Unused Design", role: .destructive) { deleteDesign() }
             Button("Cancel", role: .cancel) { }
         } message: { Text("Applied, commercially linked and historically referenced designs cannot be deleted. Artwork and customer records are never removed.") }
-    }
-
-
-    @ViewBuilder private var currentEventSection: some View {
-            Section("Current Event") {
-                LabeledContent("Design", value: library.design(id: library.library.appliedEventID)?.displayName ?? "Studio branding")
-                LabeledContent("Guest admission", value: (SessionAcceptanceStore.shared.state.blocked || (store.current != nil && store.current?.status != .active)) ? "Paused on this iPad" : "Uses the published payment policy")
-                LabeledContent("Printer", value: PrinterCoordinator.shared.requiresRecovery ? "Recovery required" : PrinterCoordinator.shared.state.message)
-                NavigationLink("Session Setup — event, copies and prices", value: OperatorWorkspaceRoute.sessionSetup)
-                Text("Receipt Event Mode controls branding. Event-run status controls this occurrence; commercial-event lifecycle and pricing are managed in Session Setup.").font(.footnote)
+        .sheet(item: $attributionGroup) { group in
+            LegacyAttributionSheet(group: group, store: store, attributions: attributionStore, exactSessionIDs: Set(sessions.map(\.sessionID))) { result in
+                message = result; attributionGroup = nil
+                Task { await loadLocal() }
             }
+        }
     }
 
-    @ViewBuilder private var operationsSection: some View {
-            Section("Event Operations") {
-                if let current = store.current {
-                    LabeledContent("Current run", value: current.context.name)
-                    LabeledContent("Status", value: current.status.rawValue.capitalized)
-                    Text(current.id).font(.caption).textSelection(.enabled)
-                    if current.status == .active { Button("Pause This iPad’s Run") { pendingAction = "pause" }.disabled(blocked != nil) }
-                    if current.status == .paused {
-                        NavigationLink("Resume — Review Session Setup", value: OperatorWorkspaceRoute.sessionSetup).disabled(blocked != nil)
-                        Text("Commercial payment policy must also be active before guests can start.").font(.footnote)
-                    }
-                    if [.active, .paused].contains(current.status) { Button("End This Run", role: .destructive) { pendingAction = "end" }.disabled(blocked != nil) }
+    // MARK: Shared
+
+    @ViewBuilder private var runPicker: some View {
+        Picker("Event run", selection: $selectedRunID) {
+            Text(store.current.map { "Current — \(label($0))" } ?? "Current run").tag(String?.none)
+            ForEach(pickerRuns) { run in Text(label(run)).tag(Optional(run.id)) }
+        }
+        .accessibilityIdentifier("run-picker")
+    }
+
+    private func label(_ run: EventRunRecord) -> String {
+        "\(run.context.name.isEmpty ? "Regular Sessions" : run.context.name) · \(run.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(statusText(run))"
+    }
+    private func statusText(_ run: EventRunRecord) -> String {
+        if run.isHistorical { return "earlier event" }
+        switch run.status { case .draft: return "draft"; case .active: return "active"; case .paused: return "paused"; case .completed: return "ended"; case .archived: return "archived" }
+    }
+
+    // MARK: Overview
+
+    @ViewBuilder private var overviewTab: some View {
+        if loading { Section { ProgressView("Reading saved activity…") } }
+        if let localError { Section { Label(localError, systemImage: "exclamationmark.triangle").foregroundStyle(.red) } }
+        if let run = selected {
+            Section("Event") {
+                LabeledContent("Event", value: run.context.name.isEmpty ? "Regular Sessions" : run.context.name)
+                LabeledContent("Status", value: statusText(run).capitalized)
+                LabeledContent("Design", value: library.design(id: run.context.designID)?.displayName ?? "Studio branding")
+                LabeledContent("Payment", value: run.context.commercialEventID == nil ? "No payment (prepaid / free)" : "Paid — \(run.context.serverBinding?.hasPrefix("live:") == true ? "LIVE" : "TEST")")
+                LabeledContent("Started", value: run.createdAt.formatted(date: .abbreviated, time: .shortened))
+                if let ended = run.endedAt { LabeledContent("Ended", value: ended.formatted(date: .abbreviated, time: .shortened)) }
+                if let previous = run.previousRunID, let earlier = store.runs.first(where: { $0.id == previous }) {
+                    LabeledContent("Follows", value: earlier.createdAt.formatted(date: .abbreviated, time: .shortened))
                 }
-                Button("Start New Event Run") { pendingAction = "new" }.disabled(blocked != nil)
-                if let blocked { Text(blocked).font(.footnote).foregroundStyle(.orange) }
-                if let error = store.storageError { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
-                if !message.isEmpty { Text(message).font(.footnote) }
             }
-    }
-
-    @ViewBuilder private var activitySection: some View {
-            Section("Sales & Reports — this iPad") {
-                Picker("Occurrence", selection: $selectedRunID) {
-                    Text("Current run").tag(String?.none)
-                    ForEach(store.runs.filter { showsHistory || $0.status != .archived }.reversed()) { run in
-                        Text("\(run.context.name) · \(run.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(run.status.rawValue)").tag(Optional(run.id))
-                    }
-                }
-                Toggle("Include archived runs", isOn: $showsHistory)
-                if loading { ProgressView("Reading saved activity…") }
-                if let localError { Label(localError, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
-                if !loading, localError == nil, selected != nil {
+            if !loading, localError == nil {
+                Section("At a glance") {
                     LabeledContent("Completed sessions", value: String(stats.completed))
-                    ForEach(stats.completedByFormat.keys.sorted(), id: \.self) { format in
-                        LabeledContent("  \(BoothFormat(rawValue: format)?.displayName ?? format)", value: String(stats.completedByFormat[format] ?? 0))
+                    LabeledContent("Copies delivered to printer", value: String(stats.delivered))
+                    LabeledContent("Galleries verified", value: String(stats.galleriesVerified))
+                    LabeledContent("Galleries pending", value: String(stats.galleriesAwaitingVerification))
+                    if let attributed = history?.attributedByRun[run.id], attributed > 0 {
+                        LabeledContent("Earlier sessions attributed by operator", value: String(attributed))
                     }
-                    LabeledContent("Copies transport-delivered", value: String(stats.delivered))
-                    LabeledContent("Copies uncertain / in flight", value: String(stats.uncertain))
-                    LabeledContent("Copies not started", value: String(stats.notStarted))
-                    LabeledContent("Public galleries verified", value: String(stats.galleriesVerified))
-                    LabeledContent("Galleries awaiting verification", value: String(stats.galleriesAwaitingVerification))
-                    LabeledContent("Archive reprint requests", value: String(archives.filter { $0.eventRunID == selected?.id }.reduce(0) { $0 + $1.reprintCount }))
-                    Text("Completion is recorded after the original print batch succeeds. Transport delivery is not sensor-confirmed paper output. Reprint requests are listed separately. Older archives remain in Recent Sessions without an invented run assignment.").font(.footnote)
-                    if runSessions.isEmpty { Text("No sessions recorded for this run.").foregroundStyle(.secondary) }
-                    Button("Prepare Run CSV") { export() }
-                    if let exportURL { ShareLink("Share Run CSV", item: exportURL) }
-                } else if selected == nil, !loading { Text("No event run has started. Historical archives remain in Recent Sessions.") }
-                Button("Reset Dashboard Filters") { selectedRunID = nil; showsHistory = false; exportURL = nil }
-                NavigationLink("Commercial Event Reports — all runs and iPads") { PaymentsOperatorView(salesOnly: true) }
-                NavigationLink("Recent Sessions, Receipts & Reprints", value: OperatorWorkspaceRoute.recentSessions)
-                NavigationLink("Waiting Galleries", value: OperatorWorkspaceRoute.waitingGalleries)
+                }
+                exceptionsSection
             }
+        } else if !loading {
+            Section { Text("No event run has started on this iPad. Earlier sessions are listed under History.").foregroundStyle(.secondary) }
+        }
+        Section {
+            NavigationLink("Event Setup", value: OperatorWorkspaceRoute.sessionSetup)
+        } footer: { Text("Start, pause and end the event from Current Event on the operator home screen.") }
     }
 
-    @ViewBuilder private var financialSection: some View {
-            if selected?.context.commercialEventID != nil {
-                Section("Payments for this run — server order evidence") {
-                    if financialLoading { ProgressView("Checking every order page…") }
-                    if let financialError { Label(financialError, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
-                    if let financials {
-                        money("QR Ph LIVE verified", financials.verifiedLive)
-                        money("QR Ph TEST (excluded from LIVE)", financials.verifiedTest)
-                        money("Attendant-confirmed cash", financials.operatorCash)
-                        money("Guest-declared cash (unverified)", financials.declaredCash)
-                        LabeledContent("Unresolved QR payments", value: String(financials.unresolved))
-                        LabeledContent("Held / replaced orders excluded", value: String(financials.review))
-                    }
-                    if offlineCashLoaded { money("Offline cash waiting to sync (unverified)", offlineCash.reduce(0) { $0 + $1.totalCentavos }) }
-                    else if let offlineCashError { Label(offlineCashError, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
-                    else { Text("Offline cash totals have not been loaded.").font(.footnote) }
-                    if unassignedOfflineCount > 0 { Text("\(unassignedOfflineCount) legacy cash record(s) lack an environment and are excluded from the amount above.").foregroundStyle(.orange) }
-                    let memberIDs = Set(runSessions.map(\.sessionID))
-                    let savedCheckouts = CheckoutCheckpointStore.shared?.unresolved.filter { memberIDs.contains($0.id) }.count ?? 0
-                    if savedCheckouts > 0 { Text("\(savedCheckouts) saved checkout record(s) for this run still need Payment Recovery review. Pending or unmatched records are never counted as verified revenue.").foregroundStyle(.orange) }
-                    Text("Matches saved order IDs or exact session IDs for this occurrence, never names or dates. Unmatched older orders stay in the commercial event report. Physical cash reconciliation belongs to that report and covers all its runs.").font(.footnote)
+    @ViewBuilder private var exceptionsSection: some View {
+        let memberIDs = Set(runSessions.map(\.sessionID))
+        let savedCheckouts = CheckoutCheckpointStore.shared?.unresolved.filter { memberIDs.contains($0.id) }.count ?? 0
+        if stats.uncertain + stats.notStarted > 0 || savedCheckouts > 0 || store.storageError != nil {
+            Section("Needs attention") {
+                if stats.uncertain > 0 { Label("\(stats.uncertain) copies have uncertain print output — check paper in Fix Printer.", systemImage: "printer.dotmatrix") }
+                if stats.notStarted > 0 { Label("\(stats.notStarted) copies never started printing.", systemImage: "exclamationmark.circle") }
+                if savedCheckouts > 0 { Label("\(savedCheckouts) saved checkout(s) still need Payment Recovery review.", systemImage: "creditcard.trianglebadge.exclamationmark") }
+                if let error = store.storageError { Label(error, systemImage: "externaldrive.badge.exclamationmark").foregroundStyle(.orange) }
+            }
+        }
+    }
+
+    // MARK: Activity
+
+    @ViewBuilder private var activityTab: some View {
+        Section("Activity — this iPad") {
+            if loading { ProgressView("Reading saved activity…") }
+            if let localError { Label(localError, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
+            if !loading, localError == nil, let selected {
+                LabeledContent("Completed sessions", value: String(stats.completed))
+                ForEach(stats.completedByFormat.keys.sorted(), id: \.self) { format in
+                    LabeledContent("  \(BoothFormat(rawValue: format)?.displayName ?? format)", value: String(stats.completedByFormat[format] ?? 0))
+                }
+                LabeledContent("Copies transport-delivered", value: String(stats.delivered))
+                LabeledContent("Copies uncertain / in flight", value: String(stats.uncertain))
+                LabeledContent("Copies not started", value: String(stats.notStarted))
+                LabeledContent("Public galleries verified", value: String(stats.galleriesVerified))
+                LabeledContent("Galleries awaiting verification", value: String(stats.galleriesAwaitingVerification))
+                LabeledContent("Archive reprint requests", value: String(archives.filter { $0.eventRunID == selected.id }.reduce(0) { $0 + $1.reprintCount }))
+                if let attributed = history?.attributedByRun[selected.id], attributed > 0 {
+                    LabeledContent("Operator-attributed earlier sessions (not exact)", value: String(attributed))
+                }
+                if runSessions.isEmpty { Text("No sessions recorded for this run.").foregroundStyle(.secondary) }
+                Button("Prepare Run CSV") { export() }
+                if let exportURL { ShareLink("Share Run CSV", item: exportURL) }
+            } else if selected == nil, !loading { Text("No event run has started. Earlier sessions are listed under History.") }
+        }
+        Section {
+            NavigationLink("Recent Sessions, Receipts & Reprints", value: OperatorWorkspaceRoute.recentSessions)
+            NavigationLink("Waiting Galleries (\(operations.pendingUploadCount))", value: OperatorWorkspaceRoute.waitingGalleries)
+        } footer: {
+            Text("Completion is recorded after the original print batch succeeds. Transport delivery is not sensor-confirmed paper output. Reprints are listed separately.")
+        }
+    }
+
+    // MARK: Sales
+
+    @ViewBuilder private var salesTab: some View {
+        if let run = selected, let eventID = run.context.commercialEventID {
+            Section {
+                if financialLoading { ProgressView("Checking every order page…") }
+                if let financialError { Label(financialError, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
+                if let financials {
+                    money("QR Ph verified — LIVE", financials.verifiedLive)
+                    money("QR Ph verified — TEST (not revenue)", financials.verifiedTest)
+                    money("Cash confirmed by attendant", financials.operatorCash)
+                    money("Cash declared by guest (unverified)", financials.declaredCash)
+                    LabeledContent("Unresolved QR payments", value: String(financials.unresolved))
+                    LabeledContent("Held / replaced orders excluded", value: String(financials.review))
+                }
+                if offlineCashLoaded { money("Offline cash waiting to sync (unverified)", offlineCash.reduce(0) { $0 + $1.totalCentavos }) }
+                else if let offlineCashError { Label(offlineCashError, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
+                else if !financialLoading { Text("Offline cash totals have not been loaded.").font(.footnote) }
+                if unassignedOfflineCount > 0 { Text("\(unassignedOfflineCount) legacy cash record(s) lack an environment and are excluded from the amount above.").foregroundStyle(.orange) }
+                if let financialLoadedAt { Text("Last refreshed \(financialLoadedAt.formatted(date: .omitted, time: .shortened)).").font(.footnote).foregroundStyle(.secondary) }
+                Button("Refresh Sales") { Task { await loadFinancials() } }.disabled(financialLoading)
+            } header: { Text("This run — exact order evidence") } footer: {
+                Text("Matches saved order IDs, original checkout IDs and claimed session IDs for this occurrence, never names or dates. Refunds, fees and payouts are not tracked.")
+            }
+            Section {
+                if let unmatched = unmatchedCommercialOrders {
+                    LabeledContent("Orders not linked to any run on this iPad", value: String(unmatched))
+                    if unmatched > 0 { Text("These belong to other iPads or to sessions before runs were recorded. They stay in the paid event's totals and are never guessed into a run.").font(.footnote) }
+                }
+                NavigationLink("Paid Event Report — all runs and iPads", value: OperatorWorkspaceRoute.eventReport(eventID))
+            } header: { Text("Whole paid event") } footer: {
+                Text("The paid event report includes physical cash counts, every order and the complete financial CSV.")
+            }
+            if !orders.isEmpty {
+                Section("Orders in this run") {
                     ForEach(orders) { order in
                         VStack(alignment: .leading) {
                             Text("\(PHPPriceFormatter.string(centavos: order.totalCentavos)) · \(order.copies)× \(order.boothFormat)")
-                            Text("\(order.category) · \(order.state)").font(.caption)
+                            Text("\(order.category) · \(order.state)").font(.caption).foregroundStyle(.secondary)
                         }
                     }
-                    Button("Refresh Run Payments") { Task { await loadFinancials() } }
                 }
             }
+        } else if selected != nil {
+            Section { Text("This run didn't collect payments (prepaid or free). Its sessions and prints are under Activity.").foregroundStyle(.secondary) }
+        }
+        Section {
+            NavigationLink("All Paid Events & Sales") { PaymentsOperatorView(salesOnly: true) }
+        } footer: { Text("Uses the separate operator credential for this payments connection.") }
     }
 
-    @ViewBuilder private var librarySection: some View {
-            Section("Event Library & History") {
-                NavigationLink("Commercial Event History & Archive") { PaymentsOperatorView(salesOnly: true, allowsEventMaintenance: true) }
-                if let selected, [.completed, .draft].contains(selected.status) {
-                    Button("Archive Selected Run") { pendingAction = "archive" }.disabled(blocked != nil)
-                }
-                Text("Archiving hides an occurrence from everyday selection; its sessions, receipts, galleries, entitlements and reports remain saved.").font(.footnote)
-                ForEach(library.library.events) { design in
-                    HStack {
-                        VStack(alignment: .leading) { Text(design.displayName); Text(design.archivedAt == nil ? "Saved design" : "Archived design — history retained").font(.caption) }
-                        Spacer()
-                        Menu("Manage") {
-                            if design.archivedAt == nil { Button("Archive Design") { archiveDesign(design) } }
-                            else { Button("Restore Design") { restoreDesign(design) } }
-                            Button("Delete Unused Design…", role: .destructive) { designCandidate = design }
-                        }
-                    }.frame(minHeight: 48)
+    // MARK: History
+
+    @ViewBuilder private var historyTab: some View {
+        Section {
+            Toggle("Include archived runs", isOn: $showsArchived)
+            ForEach(pickerRuns) { run in
+                Button {
+                    selectedRunID = run.id == store.currentRunID ? nil : run.id
+                    tab = .activity
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(run.context.name.isEmpty ? "Regular Sessions" : run.context.name).font(.headline).foregroundStyle(MadeToKeepTheme.ColorPalette.ink)
+                        Text("\(run.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(statusText(run)) · \(sessions.filter { $0.runID == run.id && $0.completedAt != nil }.count) sessions")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 }
             }
+            if pickerRuns.isEmpty { Text("No event runs yet.").foregroundStyle(.secondary) }
+        } header: { Text("Event runs") } footer: { Text("Tap a run to see its activity. Each new occurrence has its own run and statistics.") }
+        Section {
+            if let history {
+                LabeledContent("Earlier sessions without a run", value: String(history.unassignedCount))
+                if history.unassignedPrintCopies > 0 { LabeledContent("Print copies without a run", value: String(history.unassignedPrintCopies)) }
+                if history.corruptArchives > 0 { Label("\(history.corruptArchives) archived session(s) could not be read and are excluded.", systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
+                ForEach(history.unassigned) { group in
+                    Button { attributionGroup = group } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(group.day.formatted(date: .complete, time: .omitted)).font(.headline).foregroundStyle(MadeToKeepTheme.ColorPalette.ink)
+                            Text("\(group.archives.count) sessions · " + group.byFormat.keys.sorted().map { "\(group.byFormat[$0] ?? 0) \(BoothFormat(rawValue: $0)?.displayName ?? $0)" }.joined(separator: ", "))
+                                .font(.caption).foregroundStyle(.secondary)
+                            if !group.names.isEmpty { Text("Receipt names: \(group.names.joined(separator: ", "))").font(.caption2).foregroundStyle(.secondary) }
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    }
+                    .disabled(store.historyUnreadable)
+                }
+            } else if !loading, localError == nil { Text("Earlier sessions have not been checked.").foregroundStyle(.secondary) }
+            if let error = attributionStore.storageError { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
+        } header: { Text("Unassigned earlier activity") } footer: {
+            Text(HistoricalActivityReport.unassignedReason + " Tap a day to review it and, if you know which event it was, attribute it explicitly. Attributions are permanent, audited and shown separately. Sales are never attributed.")
+        }
+        Section {
+            NavigationLink("Paid Event History & Archive") { PaymentsOperatorView(salesOnly: true, allowsEventMaintenance: true) }
+        }
     }
+
+    // MARK: Manage
+
+    @ViewBuilder private var manageTab: some View {
+        Section {
+            if let current = store.current { LabeledContent("Current run", value: label(current)) }
+            Button("Start New Event Run…") { pendingAction = "new" }.disabled(blocked != nil || store.current == nil)
+                .frame(minHeight: 44)
+            if let selected, selected.status == .completed || selected.status == .draft {
+                Button("Archive Selected Run…") { pendingAction = "archive" }.disabled(blocked != nil).frame(minHeight: 44)
+            }
+            Picker("Selected run", selection: $selectedRunID) {
+                Text("Current run").tag(String?.none)
+                ForEach(pickerRuns) { Text(label($0)).tag(Optional($0.id)) }
+            }
+            if let blocked { Text(blocked).font(.footnote).foregroundStyle(.orange) }
+            if let error = store.storageError { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
+        } header: { Text("Event runs") } footer: {
+            Text("A new run gives fresh statistics for the same setup without deleting anything. Archiving hides an ended run from everyday lists; its sessions, receipts, galleries, entitlements and reports stay saved.")
+        }
+        Section {
+            ForEach(library.library.events) { design in
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text(design.displayName)
+                        Text(design.archivedAt == nil ? "Saved design" : "Archived design — history retained").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Menu("Manage") {
+                        if design.archivedAt == nil { Button("Archive Design") { archiveDesign(design) } }
+                        else { Button("Restore Design") { restoreDesign(design) } }
+                        Button("Delete Unused Design…", role: .destructive) { designCandidate = design }
+                    }
+                }.frame(minHeight: 48)
+            }
+            NavigationLink("Event Setup — create or reuse a design", value: OperatorWorkspaceRoute.sessionSetup)
+        } header: { Text("Reusable designs") } footer: {
+            Text("Archiving a design never archives its runs or paid events. Only designs with no run, archive or paid-event history can be deleted.")
+        }
+    }
+
+    // MARK: Loading
 
     private func money(_ title: String, _ centavos: Int) -> some View { LabeledContent(title, value: PHPPriceFormatter.string(centavos: centavos)) }
 
@@ -219,19 +375,21 @@ struct EventRunReportingView: View {
         let directory = store.directory
         loading = true
         do {
-            await store.reconcilePrintEvidence(PrintOutcomeOutbox.shared?.entries ?? [])
+            let entries = PrintOutcomeOutbox.shared?.entries ?? []
+            await store.reconcilePrintEvidence(entries)
             let loaded = try await Task.detached { try EventRunStore.loadSessions(directory: directory) }.value
             let archiveDirectory = archiveDirectory
             let saved = try await Task.detached { try RecentSessionArchiveStore(directoryURL: archiveDirectory).summaries() }.value
             guard !Task.isCancelled else { return }
             sessions = loaded; archives = saved; localError = nil; loading = false
+            history = HistoricalActivityReport(archives: saved, sessions: loaded, runs: store.runs, attributions: attributionStore.attributions, printEntries: entries)
             await loadFinancials()
-        } catch { localError = "Operational history unavailable: \(error.localizedDescription)"; loading = false }
+        } catch { localError = "Operational history unavailable: \(error.localizedDescription)"; history = nil; loading = false }
     }
 
     private func loadFinancials() async {
         let request = UUID(); financialRequest = request
-        financials = nil; financialError = nil; orders = []; offlineCash = []; financialLoading = false
+        financials = nil; financialError = nil; orders = []; offlineCash = []; financialLoading = false; unmatchedCommercialOrders = nil
         offlineCashLoaded = false; offlineCashError = nil; unassignedOfflineCount = 0
         guard let run = selected, let eventID = run.context.commercialEventID else { return }
         guard loadsRemote else { financialError = "Synthetic preview — remote reporting disabled."; return }
@@ -239,6 +397,7 @@ struct EventRunReportingView: View {
             financialError = "Use the operator credential and payments environment saved with this run. Totals are unavailable until its exact server is selected."; return
         }
         let members = runSessions
+        let everyRun = sessions
         financialLoading = true
         defer { if financialRequest == request { financialLoading = false } }
         if let ledger = OfflineCashLedger.shared {
@@ -257,24 +416,33 @@ struct EventRunReportingView: View {
             guard financialRequest == request, selected?.id == run.id, OperatorWorkspace.shared.serverBinding == run.context.serverBinding, !Task.isCancelled else { return }
             let matching = EventRunFinancialTotals.matchingOrders(rows, sessions: members)
             financials = try EventRunFinancialTotals(orders: matching); orders = matching
+            unmatchedCommercialOrders = CommercialAttribution.unmatchedOrders(rows, allSessions: everyRun).count
+            financialLoadedAt = Date()
         } catch {
             guard financialRequest == request else { return }
-            financialError = "Run payment report unavailable: \(error.localizedDescription). Check the separate operator credential in Payment Maintenance."
+            financialError = "Run sales unavailable: \(error.localizedDescription). This does not mean sales are zero. Check the separate operator credential in Payment Maintenance."
         }
+    }
+
+    // MARK: Actions
+
+    private var dialogTitle: String { pendingAction == "new" ? "Start a fresh event run?" : "Archive this run?" }
+    private var dialogMessage: String {
+        pendingAction == "new"
+            ? "Statistics start again from zero for the same setup. The current run ends and keeps all of its history. Prices, payment methods and guest admission are not changed."
+            : "The run is hidden from everyday lists. Its sessions, receipts, galleries, payments and reports are kept and stay available under History."
     }
 
     private func perform() {
         defer { pendingAction = nil }
         do {
-            if pendingAction == "new" { _ = try store.startNewRun(context: EventRunStore.currentContext()); selectedRunID = nil }
-            else if let run = pendingAction == "archive" ? selected : store.current {
-                let status: EventRunStatus = switch pendingAction { case "pause": .paused; case "resume": .active; case "end": .completed; default: .archived }
-                if status == .paused || status == .completed {
-                    try store.pauseOrEndCurrentRun(admission: .shared, status: status)
-                } else { try store.transition(id: run.id, to: status) }
-                if status == .archived { selectedRunID = nil }
+            if pendingAction == "new" {
+                _ = try store.startNewRun(context: EventRunStore.currentContext()); selectedRunID = nil
+                message = "A new event run started with fresh statistics. Earlier runs keep their history."
+            } else if let run = selected {
+                try store.transition(id: run.id, to: .archived); selectedRunID = nil
+                message = "Run archived. Its history and reports were retained."
             }
-            message = "Event-run change saved. Historical and financial records were retained."
         } catch { message = error.localizedDescription }
     }
 
@@ -298,17 +466,103 @@ struct EventRunReportingView: View {
     }
     private func export() {
         guard let selected, localError == nil else { return }
-        func cell(_ text: String) -> String { "\"" + text.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
-        let header = "run_id,session_id,created_at_utc,format,completed_at_utc,transport_delivered,uncertain,gallery_verified_at_utc\r\n"
-        let body = runSessions.map { record in
-            [selected.id, record.sessionID, record.createdAt.ISO8601Format(), record.format,
-             record.completedAt?.ISO8601Format() ?? "", String(record.printOutcomes.values.filter { $0 == "delivered" }.count),
-             String(record.printOutcomes.values.filter { $0 == "uncertain" || $0 == "inFlight" }.count), record.galleryVerifiedAt?.ISO8601Format() ?? ""].map(cell).joined(separator: ",")
-        }.joined(separator: "\r\n")
         do {
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("event-run-\(selected.id).csv")
-            try Data((header + body + "\r\n").utf8).write(to: url, options: [.atomic, .completeFileProtection])
+            try Data(EventRunCSV.make(run: selected, sessions: runSessions).utf8).write(to: url, options: [.atomic, .completeFileProtection])
             exportURL = url
         } catch { message = "CSV export failed: \(error.localizedDescription)" }
+    }
+}
+
+/// Operational CSV for one occurrence. Contains identities and outcomes only — no gallery
+/// tokens, URLs, photos, credentials or customer details.
+nonisolated enum EventRunCSV {
+    static let header = "run_id,event_name,session_id,created_at_utc,format,completed_at_utc,transport_delivered,uncertain,not_started,gallery_verified_at_utc"
+
+    static func make(run: EventRunRecord, sessions: [EventRunSession]) -> String {
+        func cell(_ text: String) -> String {
+            // Neutralize spreadsheet formulas as well as quotes.
+            let safe = ["=", "+", "-", "@"].contains(where: text.hasPrefix) ? "'" + text : text
+            return "\"" + safe.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+        }
+        let rows = sessions.filter { $0.runID == run.id }.sorted { $0.createdAt < $1.createdAt }.map { record in
+            [run.id, run.context.name, record.sessionID, record.createdAt.ISO8601Format(), record.format, record.completedAt?.ISO8601Format() ?? "",
+             String(record.printOutcomes.values.filter { $0 == "delivered" }.count),
+             String(record.printOutcomes.values.filter { $0 == "uncertain" || $0 == "inFlight" }.count),
+             String(record.printOutcomes.values.filter { $0 == "notStarted" }.count),
+             record.galleryVerifiedAt?.ISO8601Format() ?? ""].map(cell).joined(separator: ",")
+        }
+        return ([header] + rows).joined(separator: "\r\n") + "\r\n"
+    }
+}
+
+/// Explicit, audited attribution of one day's legacy sessions to an occurrence.
+private struct LegacyAttributionSheet: View {
+    let group: HistoricalActivityReport.DayGroup
+    @ObservedObject var store: EventRunStore
+    @ObservedObject var attributions: LegacyAttributionStore
+    let exactSessionIDs: Set<String>
+    let onDone: (String) -> Void
+    @State private var targetRunID: String?
+    @State private var createsRecord = true
+    @State private var name = ""
+    @State private var note = ""
+    @State private var error: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Sessions") {
+                    LabeledContent("Day", value: group.day.formatted(date: .complete, time: .omitted))
+                    LabeledContent("Sessions", value: String(group.archives.count))
+                    if let first = group.archives.first, let last = group.archives.last {
+                        LabeledContent("Between", value: "\(first.createdAt.formatted(date: .omitted, time: .shortened)) – \(last.createdAt.formatted(date: .omitted, time: .shortened))")
+                    }
+                    if !group.names.isEmpty { LabeledContent("Receipt names", value: group.names.joined(separator: ", ")) }
+                    Text(HistoricalActivityReport.unassignedReason).font(.footnote).foregroundStyle(.secondary)
+                }
+                Section("Attribute to") {
+                    Toggle("Create an earlier-event record", isOn: $createsRecord)
+                    if createsRecord {
+                        TextField("Event name", text: $name).textInputAutocapitalization(.words)
+                    } else {
+                        Picker("Existing run", selection: $targetRunID) {
+                            Text("Choose…").tag(String?.none)
+                            ForEach(store.runs.reversed()) { Text("\($0.context.name) · \($0.createdAt.formatted(date: .abbreviated, time: .omitted))").tag(Optional($0.id)) }
+                        }
+                    }
+                    TextField("Reason (required)", text: $note)
+                }
+                Section {
+                    Button("Attribute \(group.archives.count) Sessions") { attribute() }
+                        .disabled(note.trimmingCharacters(in: .whitespaces).isEmpty || (createsRecord ? name.trimmingCharacters(in: .whitespaces).isEmpty : targetRunID == nil))
+                    if let error { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
+                } footer: {
+                    Text("Permanent and audited. Counts appear separately as operator-attributed, never as exact run statistics. Receipts, galleries and payment records are not changed, and no sales are attributed.")
+                }
+            }
+            .navigationTitle("Review Earlier Sessions")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { onDone("") } } }
+            .onAppear { if name.isEmpty { name = group.names.first ?? "" } }
+        }
+    }
+
+    private func attribute() {
+        do {
+            let run: EventRunRecord
+            if createsRecord {
+                let first = group.archives.first?.createdAt ?? group.day, last = group.archives.last?.createdAt ?? group.day
+                run = try store.createHistoricalRun(name: name, designID: group.archives.compactMap(\.eventDesignID).first, startedAt: first, endedAt: last)
+            } else {
+                guard let id = targetRunID, let existing = store.runs.first(where: { $0.id == id }) else { return }
+                run = existing
+            }
+            var count = 0
+            for archive in group.archives where !attributions.attributions.contains(where: { $0.archiveID == archive.archiveID }) {
+                try attributions.attribute(archive, to: run, note: note, exact: exactSessionIDs)
+                count += 1
+            }
+            onDone("\(count) earlier session(s) attributed to \(run.context.name). They are reported separately from exact statistics.")
+        } catch { self.error = error.localizedDescription }
     }
 }

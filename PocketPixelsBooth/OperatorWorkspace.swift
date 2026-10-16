@@ -11,9 +11,10 @@ nonisolated enum OperatorWorkspaceRoute: Codable, Hashable, Sendable {
     var title: String {
         switch self {
         case .savedDrafts, .draftReview: "Saved Drafts"
-        case .manageEvent, .sales: "Sales & History"
+        case .manageEvent: "Event Library & History"
+        case .sales: "Reports & Statistics"
         case .payments: "Payment Maintenance"
-        case .charging, .sessionSetup: "Session Setup"
+        case .charging, .sessionSetup: "Event Setup"
         case .eventSetup, .branding: "Branding & Design"
         case .boothCheck: "Booth Check"
         case .receiptDesign: "Receipt Design & Branding"

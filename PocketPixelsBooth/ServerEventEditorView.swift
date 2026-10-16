@@ -498,6 +498,11 @@ struct ServerEventEditorView: View {
             }
             message = "Server confirmed: event is \(result.lifecycle)\(action == .publish || action == .activate ? " with revision \(revision?.revision ?? 0)" : "")."
             await reload(keepEdits: false)
+            // Keep this iPad's occurrence in step with the confirmed commercial lifecycle.
+            if let lifecycle = detail?.event.lifecycle, detail?.event.id == eventID,
+               let note = EventLifecycleCoordinator.syncAfterServerTransition(eventID: eventID, lifecycle: lifecycle, binding: workspace.serverBinding) {
+                message += " " + note
+            }
         } catch let error as PaymentsAPIError where error.code == "version_conflict" {
             hasVersionConflict = true
             message = "Not changed: the event was updated elsewhere. Reload and review before trying again."
@@ -610,9 +615,9 @@ struct ServerEventEditorView: View {
             guard let latest = detail?.latestRevision else { return "" }
             let methods = [latest.qrphEnabled ? "QR Ph" : nil, latest.cashEnabled ? "cash (customer declared)" : nil].compactMap { $0 }.joined(separator: " and ")
             return "Guests starting a new checkout will see revision \(latest.revision): \(priceLabel(latest)), up to \(latest.maxCopies) copies\(methods.isEmpty ? "" : ", paid by \(methods)"). Guests already checking out keep their price."
-        case .pause: return "No new checkouts can start. Paid entitlements remain usable. Offline policies are revoked when iPads reconnect."
+        case .pause: return "Pauses this paid event for every booth. No new checkouts can start. Paid entitlements remain usable. Offline policies are revoked when iPads reconnect."
         case .resume: return "Guests can start new checkouts with the published revision."
-        case .end: return "No new sessions can start. Existing paid entitlements remain recoverable."
+        case .end: return "Ends this paid event for every booth. No new sessions can start; an event that has ended cannot be restarted. Existing paid entitlements remain recoverable and every report is kept."
         case .archive: return "The event is hidden from active use. Reports remain available."
         }
     }

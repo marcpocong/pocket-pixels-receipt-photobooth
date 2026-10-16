@@ -20,29 +20,18 @@ struct OperatorDashboardView: View {
 
         ScrollView {
             VStack(spacing: 20) {
-                OperatorBoothStatusCard()
-                NavigationLink(value: OperatorWorkspaceRoute.sessionSetup) {
-                    HStack(spacing: 20) {
-                        Image(systemName: "slider.horizontal.3").font(.largeTitle)
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Session Setup").font(.title2.weight(.semibold))
-                            Text("Event, payment, receipt design — review and start.").font(.callout)
-                        }
-                        Spacer()
-                        Image(systemName: "arrow.right").font(.title3)
-                    }.padding(28).frame(maxWidth: .infinity, minHeight: 112)
-                        .background(OperatorPalette.ink, in: RoundedRectangle(cornerRadius: 22))
-                        .foregroundStyle(Color(uiColor: .systemBackground))
-                }.buttonStyle(.plain)
-                OperatorSecondaryLink(title: "Saved Drafts · \(SavedDraftCatalog.entries(workspace: workspace, library: designLibrary.library).count)", systemImage: "doc.text", route: .savedDrafts) { SavedDraftsView() }
+                CurrentEventCard()
                 if !status.attentionItems.isEmpty { OperatorAttentionCard(items: status.attentionItems) }
-                OperatorSecondaryLink(title: "Print Display Samples", systemImage: "printer.dotmatrix", route: .samplePrints) { SamplePrintStudioView() }
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
+                    OperatorSecondaryLink(title: "Event Setup", systemImage: "slider.horizontal.3", route: .sessionSetup) { SessionSetupView() }
+                    OperatorSecondaryLink(title: "Reports & Statistics", systemImage: "chart.bar", route: .sales) { EventRunReportingView() }
+                    OperatorSecondaryLink(title: "Event Library & History", systemImage: "books.vertical", route: .manageEvent) { EventRunReportingView(initialTab: .history) }
                     OperatorSecondaryLink(title: "Branding & Design", systemImage: "paintpalette", route: .branding) { OperatorBrandingView() }
-                    OperatorSecondaryLink(title: "Event Operations & Reports", systemImage: "chart.bar", route: .sales) { OperatorManageEventView() }
                     OperatorSecondaryLink(title: "Equipment", systemImage: "printer", route: .equipment) { OperatorEquipmentView() }
                     OperatorSecondaryLink(title: "Advanced", systemImage: "gearshape.2", route: .advanced) { OperatorAdvancedView() }
                 }
+                OperatorSecondaryLink(title: "Saved Drafts · \(SavedDraftCatalog.entries(workspace: workspace, library: designLibrary.library).count)", systemImage: "doc.text", route: .savedDrafts) { SavedDraftsView() }
+                OperatorSecondaryLink(title: "Print Display Samples", systemImage: "printer.dotmatrix", route: .samplePrints) { SamplePrintStudioView() }
             }
             .frame(maxWidth: 960)
             .padding(24)
@@ -486,7 +475,8 @@ private extension View {
 extension OperatorWorkspaceRoute {
     @MainActor @ViewBuilder var destination: some View {
         switch self {
-        case .manageEvent, .sales: EventRunReportingView()
+        case .sales: EventRunReportingView()
+        case .manageEvent: EventRunReportingView(initialTab: .history)
         case .savedDrafts: SavedDraftsView()
         case .draftReview(let id): SavedDraftReviewView(draftID: id)
         case .sessionSetup, .charging: SessionSetupView()

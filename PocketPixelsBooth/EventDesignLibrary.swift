@@ -78,6 +78,9 @@ nonisolated struct SavedEventDesign: Codable, Equatable, Identifiable, Sendable 
     var createdAt: Date
     var updatedAt: Date
     var archivedAt: Date? = nil
+    /// Binding → commercial events this design used for earlier, ended occurrences. Append-only:
+    /// a new paid occurrence links a fresh commercial event, and the old one's orders stay with it.
+    var retiredServerEvents: [String: [String]]? = nil
 
     static func new(name: String, venue: String, now: Date = Date()) -> SavedEventDesign {
         var profile = EventProfile.pocketPixelsDefault
@@ -100,11 +103,18 @@ nonisolated struct SavedEventDesign: Codable, Equatable, Identifiable, Sendable 
 
     func serverEventID(binding: String) -> String? { serverEvents[binding] }
 
+    /// Every commercial event this design has ever been linked to in one environment.
+    func allServerEventIDs(binding: String) -> [String] {
+        (retiredServerEvents?[binding] ?? []) + (serverEvents[binding].map { [$0] } ?? [])
+    }
+    var hasCommercialHistory: Bool { !serverEvents.isEmpty || !(retiredServerEvents ?? [:]).values.allSatisfy(\.isEmpty) }
+
     /// Same operator-editable content. Timestamps and server links (owned by the library) are ignored.
     func hasSameContent(as other: SavedEventDesign?) -> Bool {
         guard var other else { return false }
         other.updatedAt = updatedAt
         other.serverEvents = serverEvents
+        other.retiredServerEvents = retiredServerEvents
         return other == self
     }
 
@@ -132,6 +142,8 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
     var regularServerEvents: [String: String] = [:]
     /// Set once the legacy device-wide profile has been considered for import.
     var migratedLegacyProfile = false
+    /// Binding → regular-session commercial events replaced after they ended. Append-only.
+    var retiredRegularServerEvents: [String: [String]]? = nil
 
     func design(id: String?) -> SavedEventDesign? {
         guard let id else { return nil }
@@ -140,6 +152,14 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
 
     func design(linkedTo serverEventID: String, binding: String) -> SavedEventDesign? {
         events.first { $0.serverEvents[binding] == serverEventID }
+    }
+
+    /// Commercial events already owned by a design or by regular sessions, current or retired.
+    func knownServerEventIDs(binding: String) -> Set<String> {
+        var ids = Set(events.flatMap { $0.allServerEventIDs(binding: binding) })
+        if let regular = regularServerEvents[binding] { ids.insert(regular) }
+        ids.formUnion(retiredRegularServerEvents?[binding] ?? [])
+        return ids
     }
 
     /// An existing install's device-wide profile becomes its first saved event, unchanged.
@@ -222,7 +242,9 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
         if let index = next.events.firstIndex(where: { $0.id == design.id }) {
             // Server links are recorded by `link`; a design draft never removes one.
             value.archivedAt = next.events[index].archivedAt
-            value.serverEvents = next.events[index].serverEvents.merging(design.serverEvents) { _, draft in draft }
+            value.retiredServerEvents = next.events[index].retiredServerEvents
+            // The library owns links: a stale draft can add a missing link but never replace one.
+            value.serverEvents = next.events[index].serverEvents.merging(design.serverEvents) { stored, _ in stored }
             next.events[index] = value
         } else { next.events.append(value) }
         try commit(next)
@@ -254,6 +276,31 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
         design.serverEvents[binding] = serverEventID
         try save(design)
         return design
+    }
+
+    /// Starts a new paid occurrence of a design whose commercial event has ended: the ended
+    /// event moves to the design's append-only history and the fresh one becomes current.
+    /// `expectedCurrent` guards against a concurrent relink. Old orders are never reassigned.
+    func linkNewCommercialOccurrence(designID: String?, binding: String, expectedCurrent: String, newServerEventID: String) throws {
+        guard expectedCurrent != newServerEventID else { throw SetupFailure("A new occurrence needs a new commercial event.") }
+        var next = library
+        guard !next.knownServerEventIDs(binding: binding).contains(newServerEventID) else { throw SetupFailure("That commercial event already belongs to another occurrence.") }
+        if let designID {
+            guard let index = next.events.firstIndex(where: { $0.id == designID }) else { throw SetupFailure("That event is no longer saved.") }
+            guard next.events[index].serverEvents[binding] == expectedCurrent else { throw SetupFailure("This design's paid event changed. Check Current Status.") }
+            var retired = next.events[index].retiredServerEvents ?? [:]
+            retired[binding, default: []].append(expectedCurrent)
+            next.events[index].retiredServerEvents = retired
+            next.events[index].serverEvents[binding] = newServerEventID
+            next.events[index].updatedAt = Date()
+        } else {
+            guard next.regularServerEvents[binding] == expectedCurrent else { throw SetupFailure("Regular sessions' paid event changed. Check Current Status.") }
+            var retired = next.retiredRegularServerEvents ?? [:]
+            retired[binding, default: []].append(expectedCurrent)
+            next.retiredRegularServerEvents = retired
+            next.regularServerEvents[binding] = newServerEventID
+        }
+        try commit(next)
     }
 
     func setRegularServerEvent(_ serverEventID: String, binding: String) throws {
@@ -295,7 +342,7 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
         if let reason = operationBlockingReason() { throw SetupFailure(reason) }
         guard historyAvailable, !archives.contains(where: { $0.rasterFingerprint == "CORRUPT" }) else { throw SetupFailure("Recover unreadable event history before deleting a design. Archiving retains all dependencies.") }
         guard let design = design(id: id) else { throw SetupFailure("Design not found.") }
-        guard library.appliedEventID != id, design.serverEvents.isEmpty,
+        guard library.appliedEventID != id, !design.hasCommercialHistory,
               !runs.contains(where: { $0.context.designID == id }),
               !archives.contains(where: { $0.eventDesignID == id || ($0.eventDesignID == nil && $0.createdAt >= design.createdAt) }) else {
             throw SetupFailure("This design is applied or may have protected history. Archive it instead; photos, artwork and payment records are retained.")

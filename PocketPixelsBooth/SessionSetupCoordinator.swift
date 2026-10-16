@@ -83,6 +83,11 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     static var blockingReason: String? {
         let operations = EventOperationalState.shared
         if operations.customerSessionActive || PrinterCoordinator.shared.isWorking { return "Finish the guest session and printing before changing session operation." }
+        return recoveryReason
+    }
+    /// Preserved financial or print obligations, excluding a guest who is simply mid-session.
+    static var recoveryReason: String? {
+        let operations = EventOperationalState.shared
         if operations.hasUnresolvedPrint || PrinterCoordinator.shared.requiresRecovery || operations.recoverableSession != nil { return "Resolve the preserved guest session in Fix Printer or Payment Recovery before switching modes." }
         guard let checkpoints = CheckoutCheckpointStore.shared, let outbox = PrintOutcomeOutbox.shared else { return "Recovery storage is unavailable. Open Advanced before changing operation." }
         if checkpoints.integrityFault != nil || !checkpoints.unresolved.isEmpty { return "Resolve interrupted checkouts in Payment Recovery before changing operation." }
@@ -116,6 +121,8 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     @Published private(set) var busy = false
     @Published private(set) var conflict = false
     @Published private(set) var needsRefresh = false
+    /// The operator's explicit choice to follow an ended occurrence with a fresh one.
+    @Published var startsNewOccurrence = false
     private var baseVersion: Int?
     private let draftTarget: SavedDraftID?
     private var loading = false
@@ -124,6 +131,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     private var pendingServerEventID: String?
     private let workspace: OperatorWorkspace
     private let acceptance: SessionAcceptanceStore
+    let eventRuns: EventRunStore
     let library: EventDesignLibraryStore
     private let api: @MainActor () throws -> any SessionSetupAPI
     private let authorized: @MainActor () -> Bool
@@ -137,6 +145,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     private let artworkAvailable: @MainActor (String?) -> Bool
 
     init(eventID: String? = nil, draftTarget: SavedDraftID? = nil, workspace: OperatorWorkspace? = nil, acceptance: SessionAcceptanceStore? = nil, library: EventDesignLibraryStore? = nil,
+         eventRuns: EventRunStore? = nil,
          api: @escaping @MainActor () throws -> any SessionSetupAPI = {
              guard let c = PaymentsConfiguration.current() else { throw SetupFailure("Set up this iPad in Advanced → Payment Maintenance first.") }
              return PaymentsAPIClient(configuration: c)
@@ -154,7 +163,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         let workspace = workspace ?? .shared
         let library = library ?? .shared
         self.draftTarget = draftTarget
-        self.workspace = workspace; self.acceptance = acceptance ?? .shared; self.library = library
+        self.workspace = workspace; self.acceptance = acceptance ?? .shared; self.library = library; self.eventRuns = eventRuns ?? .shared
         self.api = api; self.authorized = authorized; self.blockingReason = blockingReason
         self.loadLocal = loadLocal; self.saveLocal = saveLocal; self.source = source; self.saveSource = saveSource
         self.currentProfile = currentProfile; self.applyProfile = applyProfile; self.artworkAvailable = artworkAvailable
@@ -235,9 +244,8 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     /// Server events not yet linked to a saved event in this environment.
     var unlinkedServerEvents: [OperatorEventSummary] {
         let binding = workspace.serverBinding
-        let linked = Set(library.library.events.compactMap { $0.serverEvents[binding] })
-        let regular = library.library.regularServerEvents[binding]
-        return events.filter { !linked.contains($0.id) && $0.id != regular && !["ENDED", "ARCHIVED"].contains($0.lifecycle) }
+        let known = library.library.knownServerEventIDs(binding: binding)
+        return events.filter { !known.contains($0.id) && !["ENDED", "ARCHIVED"].contains($0.lifecycle) }
     }
 
     var designDirty: Bool {
@@ -351,8 +359,40 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         let baseline = PaymentDraftBaseline(name: detail.event.name, venue: detail.event.venue, policy: ServerPolicyDraft(revision: latest))
         return !SavedDraftDiff.payment(draft, baseline).isEmpty
     }
+    /// The occurrence identity this setup would run under once started.
+    var runContext: EventRunContext {
+        let paid = mode == .serverManaged
+        return EventRunContext(designID: eventModeEnabled ? designID : nil, commercialEventID: paid ? selectedID : nil,
+                               serverBinding: paid ? workspace.serverBinding : nil,
+                               name: eventModeEnabled ? (design?.displayName ?? name) : (paid ? (name.isEmpty ? Self.regularEventName : name) : "Regular Sessions"))
+    }
+    var occurrencePlan: EventOccurrencePlan { eventRuns.occurrencePlan(for: runContext) }
+
+    /// Plain-language statement of what Start does to event-run statistics.
+    var occurrenceSummary: String {
+        switch occurrencePlan {
+        case .createFirst: "Starts this iPad's first event run with fresh statistics."
+        case .continueActive: "Continues the event run already in progress. Statistics keep counting."
+        case .resumePaused: "Resumes the paused event run with the same statistics."
+        case .requiresNewOccurrence: startsNewOccurrence
+            ? "Starts a new occurrence with fresh statistics. The ended run keeps its history and reports."
+            : "This event's run has ended. Turn on Start New Occurrence to begin fresh statistics; the ended run keeps its history."
+        case .switchSetup(_, let status): [.active, .paused].contains(status)
+            ? "Starts a new event run for this setup and completes the current run. Its history and reports are kept."
+            : "Starts a new event run for this setup. Earlier runs keep their history."
+        }
+    }
+
+    /// The selected paid event has ended, so reuse needs a fresh commercial event.
+    var canStartNewPaidOccurrence: Bool {
+        guard mode == .serverManaged, let detail, detail.event.id == targetServerEventID else { return false }
+        return [.ended, .archived].contains(detail.event.lifecycle)
+    }
+
     var validation: String? {
         if let reason = blockingReason() { return reason }
+        if eventRuns.historyUnreadable { return eventRuns.storageError ?? "Event-run history could not be read." }
+        if eventRuns.pendingTransition != nil { return "An earlier event change was interrupted. Check its status in Current Event first." }
         if needsRefresh { return "Check Current Status before reviewing again. The previous action may have reached the server." }
         if eventModeEnabled {
             guard let design else { return "Choose or create an event, or turn off Event Mode." }
@@ -371,7 +411,9 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         }
         if loadedBinding != workspace.serverBinding { return "Check Current Status for this payments connection." }
         guard let detail, detail.event.id == selectedID else { return "Loading paid settings… Check Current Status if this persists." }
-        if [.ended, .archived].contains(detail.event.lifecycle) { return "This event is closed. Choose or create another event." }
+        if [.ended, .archived].contains(detail.event.lifecycle) {
+            return "This paid event has ended. Use Start New Paid Occurrence to reuse this design with a fresh paid event; the ended event keeps its sales."
+        }
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Enter an event name." }
         if policy.commercialMode != .payPerPrint { return "This saved event is prepaid. Choose a pay-per-print event." }
         return policy.validationMessage()
@@ -557,6 +599,37 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         }
     }
 
+    /// Reuses this design (or regular sessions) after its paid event ended: creates a fresh
+    /// commercial event, moves the ended one to append-only history, and carries the reviewed
+    /// price and methods into an unpublished draft. Nothing reaches guests until Start.
+    func startNewPaidOccurrence() async {
+        guard !busy, authorized(), !needsRefresh, canStartNewPaidOccurrence, let ended = detail else { return }
+        if let reason = blockingReason() { message = reason; return }
+        busy = true; defer { busy = false }
+        let binding = workspace.serverBinding
+        let carried = policy
+        do {
+            let eventName = eventModeEnabled ? (design?.displayName ?? name) : Self.regularEventName
+            if eventModeEnabled, let design, library.design(id: design.id) == nil { try library.save(design) }
+            let created = try await api().createEvent(name: eventName, venue: eventModeEnabled ? (design?.venue ?? "") : "")
+            try library.linkNewCommercialOccurrence(designID: eventModeEnabled ? designID : nil, binding: binding,
+                                                    expectedCurrent: ended.event.id, newServerEventID: created.id)
+            if eventModeEnabled, let stored = library.design(id: designID) {
+                design?.serverEvents = stored.serverEvents
+                design?.retiredServerEvents = stored.retiredServerEvents
+            }
+            selectedID = created.id; detail = nil; baseVersion = nil; persistSelection()
+            try await loadPaid(created.id)
+            policy = carried
+            if policy.offlineValidUntil < Date() { policy.offlineCashEnabled = false }
+            events = try await api().listEvents()
+            message = "New paid occurrence prepared as a draft. The ended event keeps its orders and reports. Review the price, then start."
+        } catch {
+            needsRefresh = true
+            message = "The new paid occurrence was not confirmed. Check Current Status before trying again; an unconfirmed draft would be listed for explicit selection. \(error.localizedDescription)"
+        }
+    }
+
     private func loadPaid(_ id: String) async throws {
         let binding = workspace.serverBinding
         let fetched = try await api().eventDetail(id: id)
@@ -645,6 +718,13 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         do {
             try checkPermit()
             if eventModeEnabled, library.design(id: designID)?.archivedAt != nil { throw SetupFailure("The selected design was archived. Choose an active design before applying this setup.") }
+            // Decide the occurrence before any change, so an ended run can't be silently reopened.
+            let plannedContext = runContext
+            let plan = eventRuns.occurrencePlan(for: plannedContext)
+            if case .requiresNewOccurrence = plan, !startsNewOccurrence {
+                message = "This event's run has ended. Choose Start New Occurrence to begin fresh statistics; the ended run keeps its history."
+                return false
+            }
             // The reviewed design is saved first; saving never changes what guests receive.
             if eventModeEnabled, let design, designDirty {
                 try library.save(design)
@@ -701,19 +781,17 @@ extension PaymentsAPIClient: SessionSetupAPI {}
             }
             // Applied identity now anchors durable run reports. Commit it before opening admission.
             try library.recordApplied(eventModeEnabled: eventModeEnabled, eventID: designID)
-            let context = EventRunContext(designID: eventModeEnabled ? designID : nil,
-                commercialEventID: mode == .serverManaged ? selectedID : nil,
-                serverBinding: mode == .serverManaged ? workspace.serverBinding : nil,
-                name: design?.displayName ?? name)
-            if let current = EventRunStore.shared.current, current.status == .paused, current.context.matches(context) {
-                try EventRunStore.shared.transition(id: current.id, to: .active)
-            }
+            guard runContext.matches(plannedContext) else { throw SetupFailure("The selected event changed while starting. Review setup again.") }
+            // The occurrence is committed before admission opens; the first guest never creates it.
+            try eventRuns.commitStart(context: plannedContext, expected: plan, allowNewOccurrence: startsNewOccurrence)
             try acceptance.save(nextAcceptance)
-            requestedMethods = nil
+            requestedMethods = nil; startsNewOccurrence = false
             workspace.saveSessionSetup(nil); message = "Accepting guests. The next session will use the reviewed setup."
             return true
         } catch { await handleFailure(error); return false }
     }
+    /// Pause This Booth: closes admission on this iPad only. A server-managed event stays open
+    /// for other booths; pausing the commercial event is a separate, explicit action.
     func pause() async {
         guard !busy else { return }
         busy = true; defer { busy = false }
@@ -722,18 +800,15 @@ extension PaymentsAPIClient: SessionSetupAPI {}
             try acceptance.save(.init(blocked: true, eventID: acceptance.state.eventID, serverBinding: acceptance.state.serverBinding, mode: source()))
             if source() == .localPrepaid {
                 var run = loadLocal(); run.lifecycle = .paused; run.updatedAt = Date(); try saveLocal(run)
-            } else {
-                let current = try await api().activeEvent()
-                if let active = current.event {
-                    if let expected = acceptance.state.eventID, active.id != expected { throw SetupFailure("The active paid event differs from this booth's setup. This iPad is paused; review the current event before pausing it remotely.") }
-                    let event = try await api().eventDetail(id: active.id)
-                    let result = try await transition(event, action: "pause")
-                    guard result.event.lifecycle == .paused else { throw SetupFailure("Server pause was not confirmed.") }
-                    if selectedID == active.id { self.detail = result; baseVersion = result.event.version; persistPaid() }
-                }
             }
-            message = "New sessions paused. Previously authorized purchases remain recoverable."
-        } catch { await handleFailure(error) }
+            if let current = eventRuns.current, current.status == .active { try eventRuns.pauseCurrentRunForAdmission() }
+            message = source() == .serverManaged
+                ? "This booth is paused. The paid event stays open for other booths. Previously authorized purchases remain recoverable."
+                : "New sessions paused. Previously authorized purchases remain recoverable."
+        } catch {
+            message = "This booth's pause was not fully saved: \(error.localizedDescription)"
+            if acceptance.state.blocked { message += " New sessions on this iPad remain paused." }
+        }
     }
     private func handleFailure(_ error: Error) async {
         needsRefresh = true
