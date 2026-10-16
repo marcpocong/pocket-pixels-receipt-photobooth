@@ -28,3 +28,9 @@ The first candidate could still spend multiple POST retries on an early gallery 
 Device inventory after the follow-up confirmed **6 of the original 24 queue records reconciled, 18 retained** at the observation point. During the pre/post installation observation interval, three earlier queued records completed and were removed from the upload queue; only queue metadata otherwise changed. Archives, payment state, app recovery, print audit and all preferences remained present at unchanged sizes. Successful queue reconciliation removes its redundant upload payload only after public verification; archived sessions remain saved. No failed record was discarded.
 
 Physical Wi-Fi reconnection, camera/printer appearance and a full 75-second thank-you cycle remain operator checks; no new payment or print was issued. No backend deployment is pending. Full CI is separate from the 64-test local result.
+
+## Slow public verification follow-up
+
+When Carlo reached five remaining, all five original public pages returned HTTP 200 with the completion marker, correct photo counts and both receipts. Four cold responses took 10–15 seconds, exceeding the app's 8-second verification limit. All 27 embedded photo/receipt assets matched the original queued bytes exactly. Public checks warmed the cache and Carlo progressed from five to three without another installation.
+
+Raised public verification request timeout to 30 seconds and total resource bound to 45 seconds. Upload request limits, backend contracts, identities and the public-success requirement are unchanged. **24 focused gallery tests passed**, including a synthetic nine-second public response that reconciles without any POST. Signed Release build and strict signature verification passed. Installation awaits a new safe-idle confirmation because the booth has been released for customer use since the earlier installation. No backend change is required.

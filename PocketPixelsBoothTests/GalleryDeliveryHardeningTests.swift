@@ -45,7 +45,7 @@ final class GalleryDeliveryHardeningTests: XCTestCase {
                 XCTAssertEqual(DeliveryProtocol.requests.map(\.httpMethod), ["POST", "GET"])
                 XCTAssertEqual(DeliveryProtocol.requests.last?.url, payload.galleryURL)
                 XCTAssertNil(DeliveryProtocol.requests.last?.value(forHTTPHeaderField: "Authorization"))
-                XCTAssertEqual(DeliveryProtocol.requests.last?.timeoutInterval, 8)
+                XCTAssertEqual(DeliveryProtocol.requests.last?.timeoutInterval, 30)
             }
             // Network restoration retries exactly the persisted identity and clears only after
             // both backend acceptance and the frozen public page's completion marker.
@@ -97,6 +97,32 @@ final class GalleryDeliveryHardeningTests: XCTestCase {
         XCTAssertEqual(result.galleryURL, retained.galleryURL)
         XCTAssertEqual(HotfixProtocol.postTokens, tokens, "Public reconciliation must avoid re-uploading files")
         XCTAssertTrue(try restartedQueue.summaries().isEmpty)
+    }
+
+    func testColdPublicPageTakingLongerThanEightSecondsReconcilesWithoutPOST() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let queue = try GalleryPendingUploadStore(directoryURL: directory)
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 80)).image { _ in }
+        let token = String(repeating: "b", count: 64)
+        let payload = try GoogleDriveGalleryUploadService.preparePayload(photos: [image], composedReceipt: image,
+            sessionID: "PP-COLD-PUBLIC", createdAt: Date(), galleryToken: token,
+            customerGalleryBaseURL: URL(string: "https://delivery-fixture.example.test")!)
+        try queue.save(payload)
+        try queue.updateDeliveryState(.deliveryUnknown, galleryToken: token)
+        HotfixProtocol.publicReady = [token]
+        HotfixProtocol.postTokens = []
+        HotfixProtocol.publicDelay = 9
+        defer { HotfixProtocol.publicDelay = 0 }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [HotfixProtocol.self]
+        let service = GoogleDriveGalleryUploadService(
+            configurationProvider: { try GoogleDriveGalleryConfiguration.validate(rawValue: "https://script.google.com/macros/s/TEST/exec") },
+            urlSession: URLSession(configuration: configuration), pendingStore: queue)
+        let result = try await service.uploadPendingGallery(galleryToken: token, deviceToken: String(repeating: "x", count: 32))
+        XCTAssertEqual(result.galleryURL, payload.galleryURL)
+        XCTAssertTrue(HotfixProtocol.postTokens.isEmpty, "A slow completed page must not trigger another upload")
+        XCTAssertNil(try queue.load(galleryToken: token))
     }
 
     func testPublicSweepRecoversLaterReadyGalleriesBeforeSlowUpload() async throws {
@@ -230,6 +256,7 @@ private final class DeliveryProtocol: URLProtocol {
 }
 
 private final class HotfixProtocol: URLProtocol {
+    nonisolated(unsafe) static var publicDelay: TimeInterval = 0
     nonisolated(unsafe) static var failedToken: String?
     nonisolated(unsafe) static var publicReady: Set<String> = []
     nonisolated(unsafe) static var postTokens: [String] = []
@@ -260,7 +287,12 @@ private final class HotfixProtocol: URLProtocol {
             }
         } else {
             let token = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "g" })?.value ?? ""
-            finish(body: Self.publicReady.contains(token) ? "<main data-pocket-pixels-gallery-status=\"complete\"></main>" : "<main>pending</main>")
+            let body = Self.publicReady.contains(token) ? "<main data-pocket-pixels-gallery-status=\"complete\"></main>" : "<main>pending</main>"
+            if Self.publicDelay > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.publicDelay) { [self] in finish(body: body) }
+            } else {
+                finish(body: body)
+            }
         }
     }
     private func finish(body: String) {

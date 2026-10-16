@@ -41,8 +41,10 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         self.urlSession = urlSession
         let verificationConfiguration = urlSession.configuration
         verificationConfiguration.waitsForConnectivity = false
-        verificationConfiguration.timeoutIntervalForRequest = 8
-        verificationConfiguration.timeoutIntervalForResource = 8
+        // Cold public pages embed the gallery assets and measured 10–15 seconds at the event.
+        // Keep verification bounded without timing out a completed gallery after only 8 seconds.
+        verificationConfiguration.timeoutIntervalForRequest = 30
+        verificationConfiguration.timeoutIntervalForResource = 45
         self.verificationSession = URLSession(configuration: verificationConfiguration, delegate: GoogleGalleryURLSessionDelegate(), delegateQueue: nil)
         self.connectivityTester = connectivityTester
         self.pendingStore = pendingStore ?? (try? GalleryPendingUploadStore())
@@ -437,7 +439,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
     }
 
     private func verifyPublicGallery(at url: URL) async throws {
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 8)
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
         request.setValue("text/html", forHTTPHeaderField: "Accept")
         do {
             let (data, response) = try await verificationSession.data(for: request)
