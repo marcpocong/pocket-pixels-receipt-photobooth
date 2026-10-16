@@ -119,7 +119,7 @@ nonisolated enum SavedDraftDiff {
             normalized.profile = comparisonProfile(value.profile)
             return normalized
         }
-        return compare(values(draft, ignoring: ["id", "createdAt", "updatedAt", "serverEvents"]), baseline.map { values($0, ignoring: ["id", "createdAt", "updatedAt", "serverEvents"]) })
+        return compare(values(draft, ignoring: ["id", "createdAt", "updatedAt", "serverEvents", "retiredServerEvents"]), baseline.map { values($0, ignoring: ["id", "createdAt", "updatedAt", "serverEvents", "retiredServerEvents"]) })
     }
     static func profile(_ draft: EventProfile, _ baseline: EventProfile) -> [SavedDraftChange] {
         compare(values(comparisonProfile(draft)), values(comparisonProfile(baseline)))

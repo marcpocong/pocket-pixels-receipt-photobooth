@@ -345,11 +345,9 @@ final class BoothSessionViewModel: ObservableObject {
         clearCustomerData()
         if environment.recordsCustomerSessionMetrics, let eventRunStore {
             do {
-                let library = EventDesignLibraryStore.shared.library
                 let managed = authority != .localPrepaid
-                let context = EventRunContext(designID: library.appliedEventID, commercialEventID: managed ? run.id : nil,
-                    serverBinding: managed ? OperatorWorkspace.shared.serverBinding : nil,
-                    name: library.design(id: library.appliedEventID)?.displayName ?? run.name)
+                let context = EventRunContext.admission(library: EventDesignLibraryStore.shared.library, commercialEventID: managed ? run.id : nil,
+                    serverBinding: managed ? OperatorWorkspace.shared.serverBinding : nil, fallbackName: run.name)
                 sessionRunID = try eventRunStore.runForAdmission(context: context).id
             } catch { isTransitionActive = false; state = .error(error.localizedDescription); return }
         }

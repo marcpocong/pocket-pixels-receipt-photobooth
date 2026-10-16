@@ -77,6 +77,7 @@ import UIKit
     var profile = EventProfile.pocketPixelsDefault
     var applied: [EventProfile] = []
     var usable: Set<String> = []
+    lazy var runs = EventRunStore(directory: directory.appendingPathComponent("runs"), authorized: { true }, blockingReason: { nil })
     lazy var model = makeModel()
 
     init() {
@@ -85,7 +86,7 @@ import UIKit
         library = EventDesignLibraryStore(directory: directory, legacyProfile: { .pocketPixelsDefault }, legacyName: { "" })
     }
     func makeModel() -> SessionSetupCoordinator {
-        .init(workspace: workspace, acceptance: acceptance, library: library, api: { self.api }, authorized: { true }, blockingReason: { nil },
+        .init(workspace: workspace, acceptance: acceptance, library: library, eventRuns: runs, api: { self.api }, authorized: { true }, blockingReason: { nil },
               loadLocal: { self.local }, saveLocal: { self.local = $0 }, source: { self.source }, saveSource: { self.source = $0 },
               currentProfile: { self.profile }, applyProfile: { self.profile = $0; self.applied.append($0) },
               artworkAvailable: { $0.map(self.usable.contains) ?? false })

@@ -15,6 +15,12 @@ nonisolated struct EventRunContext: Codable, Equatable, Sendable {
     func matches(_ other: Self) -> Bool {
         designID == other.designID && commercialEventID == other.commercialEventID && serverBinding == other.serverBinding
     }
+
+    /// The identity a guest's tap is admitted under: the applied design and the policy authority.
+    static func admission(library: EventDesignLibrary, commercialEventID: String?, serverBinding: String?, fallbackName: String) -> EventRunContext {
+        EventRunContext(designID: library.appliedEventID, commercialEventID: commercialEventID, serverBinding: serverBinding,
+                        name: library.design(id: library.appliedEventID)?.displayName ?? fallbackName)
+    }
 }
 
 nonisolated struct EventRunRecord: Codable, Identifiable, Equatable, Sendable {
@@ -22,6 +28,47 @@ nonisolated struct EventRunRecord: Codable, Identifiable, Equatable, Sendable {
     let context: EventRunContext
     let createdAt: Date
     var status: EventRunStatus
+    /// Additive, optional fields: older builds ignore them and older manifests decode without them.
+    var endedAt: Date? = nil
+    var archivedAt: Date? = nil
+    /// A completed record the operator created to hold pre-run (legacy) activity. Never current.
+    var historical: Bool? = nil
+    /// The occurrence this one followed when it was explicitly started from the same design.
+    var previousRunID: String? = nil
+
+    var isHistorical: Bool { historical == true }
+}
+
+/// What Start would do with the occurrence for a given setup. Computed before any server change
+/// and re-checked at commit, so a concurrent change can't silently reopen or replace a run.
+nonisolated enum EventOccurrencePlan: Equatable, Sendable {
+    /// No occurrence exists on this iPad yet.
+    case createFirst
+    /// The same setup is already running; Start only (re)confirms admission.
+    case continueActive(runID: String)
+    /// The same setup was paused on this iPad; it resumes with the same run ID.
+    case resumePaused(runID: String)
+    /// The same setup's occurrence has ended. Only an explicit new occurrence may follow it.
+    case requiresNewOccurrence(previousRunID: String)
+    /// A different design or commercial event: a new run starts and the previous one completes.
+    case switchSetup(previousRunID: String, previousStatus: EventRunStatus)
+
+    var createsRun: Bool {
+        switch self { case .createFirst, .requiresNewOccurrence, .switchSetup: true; case .continueActive, .resumePaused: false }
+    }
+}
+
+/// A durable record of a multi-step lifecycle change that spans the server and this iPad.
+/// Local JSON and the server database cannot commit atomically, so an interrupted change is
+/// resolved by reading authoritative state back, never by blindly repeating the mutation.
+nonisolated struct EventTransitionIntent: Codable, Equatable, Sendable {
+    nonisolated enum Kind: String, Codable, Sendable { case endCommercialEvent, pauseCommercialEvent }
+    let id: String
+    let kind: Kind
+    let runID: String?
+    let commercialEventID: String
+    let serverBinding: String
+    let createdAt: Date
 }
 
 /// Small, private operational journal. It contains no images, QR links, tokens or credentials.
@@ -50,7 +97,11 @@ nonisolated struct EventRunSession: Codable, Identifiable, Equatable, Sendable {
     private var unreadable = false
     private let authorized: @MainActor () -> Bool
     private let blockingReason: @MainActor () -> String?
-    private struct Manifest: Codable { var schemaVersion = 1; var runs: [EventRunRecord]; var currentRunID: String? }
+    @Published private(set) var pendingTransition: EventTransitionIntent?
+    private struct Manifest: Codable {
+        var schemaVersion = 1; var runs: [EventRunRecord]; var currentRunID: String?
+        var pendingTransition: EventTransitionIntent? = nil
+    }
 
     init(directory: URL? = nil, writer: @escaping (Data, URL) throws -> Void = { try DurableFileWriter.write($0, to: $1) },
          authorized: @escaping @MainActor () -> Bool = { OperatorAccessPermit.shared.isAuthorized },
@@ -65,7 +116,7 @@ nonisolated struct EventRunSession: Codable, Identifiable, Equatable, Sendable {
                 let manifest = try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: file))
                 guard manifest.schemaVersion == 1, Set(manifest.runs.map(\.id)).count == manifest.runs.count,
                       manifest.currentRunID == nil || manifest.runs.contains(where: { $0.id == manifest.currentRunID }) else { throw CocoaError(.fileReadCorruptFile) }
-                runs = manifest.runs; currentRunID = manifest.currentRunID
+                runs = manifest.runs; currentRunID = manifest.currentRunID; pendingTransition = manifest.pendingTransition
             } catch {
                 unreadable = true
                 storageError = "Event-run history could not be read. The original file is preserved; recover it before changing runs."
@@ -74,6 +125,7 @@ nonisolated struct EventRunSession: Codable, Identifiable, Equatable, Sendable {
     }
 
     var current: EventRunRecord? { runs.first { $0.id == currentRunID } }
+    var historyUnreadable: Bool { unreadable }
 
     static func currentContext() -> EventRunContext {
         let library = EventDesignLibraryStore.shared.library
@@ -85,15 +137,53 @@ nonisolated struct EventRunSession: Codable, Identifiable, Equatable, Sendable {
                                name: library.design(id: library.appliedEventID)?.displayName ?? commercial.name)
     }
 
-    /// First use of a setup creates a stable run. Returning to a completed occurrence needs an
-    /// explicit operator action; old archives are never assigned by their event name.
+    /// Guest admission only uses the occurrence Start committed. It never creates, reopens or
+    /// switches a run on a guest's tap, so the first customer cannot change report identity.
+    /// The one exception is an install upgraded from a build without event runs (no run exists
+    /// yet): its first admission creates the first run so a live booth keeps working.
     func runForAdmission(context: EventRunContext) throws -> EventRunRecord {
-        if let current, current.context.matches(context) {
+        if let current {
+            guard current.context.matches(context) else {
+                throw SetupFailure("This booth's event changed after it was started. Ask the attendant to review Current Event.")
+            }
             guard current.status == .active else { throw SetupFailure("This event run is \(current.status.rawValue). Ask the attendant to resume or start a new run.") }
             return current
         }
-        if current != nil, let reason = blockingReason() { throw SetupFailure(reason) }
+        if pendingTransition != nil { throw SetupFailure("An event change needs review. Ask the attendant to open Current Event.") }
         return try createRun(context: context, now: Date())
+    }
+
+    func occurrencePlan(for context: EventRunContext) -> EventOccurrencePlan {
+        guard let current else { return .createFirst }
+        guard current.context.matches(context) else { return .switchSetup(previousRunID: current.id, previousStatus: current.status) }
+        switch current.status {
+        case .active: return .continueActive(runID: current.id)
+        case .paused: return .resumePaused(runID: current.id)
+        case .draft: return .resumePaused(runID: current.id)
+        case .completed, .archived: return .requiresNewOccurrence(previousRunID: current.id)
+        }
+    }
+
+    /// Commits the occurrence for a reviewed Start. Call only after every server step is
+    /// confirmed and before admission opens. `expected` must still describe the current state.
+    @discardableResult func commitStart(context: EventRunContext, expected: EventOccurrencePlan, allowNewOccurrence: Bool, now: Date = Date()) throws -> EventRunRecord {
+        try checkOperatorTransition()
+        if pendingTransition != nil { throw SetupFailure("Finish reviewing the interrupted event change in Current Event first.") }
+        let plan = occurrencePlan(for: context)
+        guard plan == expected else { throw SetupFailure("The event run changed while starting. Review Current Event and try again.") }
+        switch plan {
+        case .continueActive(let id): return try record(id)
+        case .resumePaused(let id): try transition(id: id, to: .active); return try record(id)
+        case .requiresNewOccurrence(let previous):
+            guard allowNewOccurrence else { throw SetupFailure("This event run has ended. Choose Start New Occurrence to begin fresh statistics; the ended run keeps its history.") }
+            return try createRun(context: context, now: now, previousRunID: previous)
+        case .createFirst, .switchSetup: return try createRun(context: context, now: now)
+        }
+    }
+
+    private func record(_ id: String) throws -> EventRunRecord {
+        guard let run = runs.first(where: { $0.id == id }) else { throw SetupFailure("Event run not found.") }
+        return run
     }
 
     @discardableResult func startNewRun(context: EventRunContext, now: Date = Date()) throws -> EventRunRecord {
@@ -106,13 +196,38 @@ nonisolated struct EventRunSession: Codable, Identifiable, Equatable, Sendable {
         if let reason = blockingReason() { throw SetupFailure(reason) }
     }
 
-    private func createRun(context: EventRunContext, now: Date) throws -> EventRunRecord {
-        let run = EventRunRecord(id: UUID().uuidString.lowercased(), context: context, createdAt: now, status: .active)
+    private func createRun(context: EventRunContext, now: Date, previousRunID: String? = nil) throws -> EventRunRecord {
+        let run = EventRunRecord(id: UUID().uuidString.lowercased(), context: context, createdAt: now, status: .active, previousRunID: previousRunID)
         var next = runs
-        if let index = next.firstIndex(where: { $0.id == currentRunID }), [.active, .paused].contains(next[index].status) { next[index].status = .completed }
+        if let index = next.firstIndex(where: { $0.id == currentRunID }), [.active, .paused].contains(next[index].status) {
+            next[index].status = .completed; next[index].endedAt = now
+        }
         next.append(run)
         try commitManifest(next, currentID: run.id)
         return run
+    }
+
+    /// A completed, never-current occurrence that holds operator-attributed legacy activity
+    /// from before event runs were recorded. It has no commercial link, so it can never claim sales.
+    @discardableResult func createHistoricalRun(name: String, designID: String?, startedAt: Date, endedAt: Date) throws -> EventRunRecord {
+        try checkOperatorTransition()
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, startedAt <= endedAt else { throw SetupFailure("Enter a name and a valid date range for the earlier event.") }
+        let run = EventRunRecord(id: UUID().uuidString.lowercased(), context: EventRunContext(designID: designID, commercialEventID: nil, serverBinding: nil, name: trimmed),
+                                 createdAt: startedAt, status: .completed, endedAt: endedAt, historical: true)
+        try commitManifest(runs + [run], currentID: currentRunID)
+        return run
+    }
+
+    /// Records intent before a server lifecycle mutation. Only one may be outstanding.
+    func beginTransition(_ intent: EventTransitionIntent) throws {
+        if let pendingTransition, pendingTransition.id != intent.id { throw SetupFailure("Another event change still needs review in Current Event.") }
+        try commitManifest(runs, currentID: currentRunID, pending: .some(intent))
+    }
+
+    func clearTransition(id: String) throws {
+        guard pendingTransition?.id == id else { return }
+        try commitManifest(runs, currentID: currentRunID, pending: .some(nil))
     }
 
     /// The existing durable admission barrier also protects a rollback to a pre-run app.
@@ -128,8 +243,19 @@ nonisolated struct EventRunSession: Codable, Identifiable, Equatable, Sendable {
         try transition(id: current.id, to: status)
     }
 
+    /// Pausing only closes admission, so it is allowed while a guest or print is still finishing.
+    func pauseCurrentRunForAdmission() throws {
+        guard authorized() else { throw PaymentsAPIError.unauthorized }
+        guard let current, current.status == .active else { return }
+        try applyTransition(id: current.id, to: .paused)
+    }
+
     func transition(id: String, to status: EventRunStatus) throws {
         try checkOperatorTransition()
+        try applyTransition(id: id, to: status)
+    }
+
+    private func applyTransition(id: String, to status: EventRunStatus) throws {
         guard let index = runs.firstIndex(where: { $0.id == id }) else { throw SetupFailure("Event run not found.") }
         let old = runs[index].status
         let permitted: Bool = switch (old, status) {
@@ -138,15 +264,18 @@ nonisolated struct EventRunSession: Codable, Identifiable, Equatable, Sendable {
         }
         guard permitted else { throw SetupFailure("That run transition is not allowed. History is retained.") }
         var next = runs; next[index].status = status
+        if status == .completed { next[index].endedAt = next[index].endedAt ?? Date() }
+        if status == .archived { next[index].archivedAt = Date() }
         try commitManifest(next, currentID: currentRunID)
     }
 
-    private func commitManifest(_ next: [EventRunRecord], currentID: String?) throws {
+    private func commitManifest(_ next: [EventRunRecord], currentID: String?, pending: EventTransitionIntent?? = nil) throws {
         do {
             guard !unreadable else { throw SetupFailure(storageError ?? "Event history is unreadable.") }
+            let nextPending = pending ?? pendingTransition
             try prepareDirectory(directory)
-            try writer(try JSONEncoder().encode(Manifest(runs: next, currentRunID: currentID)), directory.appendingPathComponent("runs.json"))
-            runs = next; currentRunID = currentID; storageError = nil; revision += 1
+            try writer(try JSONEncoder().encode(Manifest(runs: next, currentRunID: currentID, pendingTransition: nextPending)), directory.appendingPathComponent("runs.json"))
+            runs = next; currentRunID = currentID; pendingTransition = nextPending; storageError = nil; revision += 1
         } catch { storageError = error.localizedDescription; throw error }
     }
 
