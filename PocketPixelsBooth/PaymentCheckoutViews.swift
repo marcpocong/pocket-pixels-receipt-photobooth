@@ -278,6 +278,7 @@ struct CashAttestationView: View {
 
 struct QRPhPaymentView: View {
     @ObservedObject var viewModel: BoothSessionViewModel
+    var onGetHelp: () -> Void = { }
     @Environment(\.openURL) private var openURL
     @State private var isShowingTestSimulatorConfirmation = false
 
@@ -294,6 +295,12 @@ struct QRPhPaymentView: View {
                 isShowingTestSimulatorConfirmation = true
             }
         )
+        .safeAreaInset(edge: .bottom) {
+            Button("Call Attendant / Get Help", action: onGetHelp)
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .padding(.bottom, 8)
+        }
         .confirmationDialog(
             "Open PayMongo TEST simulator?",
             isPresented: $isShowingTestSimulatorConfirmation,
@@ -453,6 +460,7 @@ struct QRPhPaymentContent: View {
 
 struct PaymentReconciliationView: View {
     @ObservedObject var viewModel: BoothSessionViewModel
+    var onGetHelp: () -> Void = { }
 
     private var message: String { viewModel.statusMessage }
 
@@ -466,6 +474,17 @@ struct PaymentReconciliationView: View {
                     .accessibilityAddTraits(.isHeader)
                 Text(message)
                     .font(.title3)
+                    .multilineTextAlignment(.center)
+                Button("Call Attendant / Get Help", action: onGetHelp)
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .accessibilityIdentifier("payment.getHelp")
+                Button("Check Original Payment Again") { viewModel.recheckPayment() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .disabled(viewModel.isCheckoutTransitionActive)
+                Text("Your original checkout stays saved. An attendant can review it securely; please do not pay again.")
+                    .font(.callout)
                     .multilineTextAlignment(.center)
                 if viewModel.canStartNewCheckout {
                     Button("Start a New Checkout") {

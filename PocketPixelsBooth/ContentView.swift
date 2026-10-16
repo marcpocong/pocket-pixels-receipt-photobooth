@@ -40,6 +40,7 @@ struct ContentView: View {
     @ViewBuilder
     private var customerExperience: some View {
         BoothSessionView(onAdminAccessRequested: {
+            guard !isShowingAdmin else { return }
             debugLog("[Admin] presentation state = true")
             workspace.open()
             isShowingAdmin = true
@@ -103,7 +104,8 @@ private struct PocketPixelsAdminView: View {
             dismiss()
         }
         .onReceive(NotificationCenter.default.publisher(for: OperatorWorkspace.didResumeCheckout)) { _ in
-            guard PaymentRecoveryCoordinator.shared.armedResume != nil else { return }
+            // The waiting guest may already have consumed the arm from this same notification.
+            // The notification is posted only after the authenticated operator successfully arms it.
             workspace.finish(keepingDrafts: true)
             dismiss()
         }

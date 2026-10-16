@@ -83,7 +83,8 @@ final class BoothSessionViewModel: ObservableObject {
     private var archiveCommitPayload: RecentSessionArchivePayload?
     private let operationalState = EventOperationalState.shared
     /// Resolved per use so pairing changes take effect without relaunching.
-    private var paymentsClient: PaymentsAPIClient? { PaymentsConfiguration.current().map { PaymentsAPIClient(configuration: $0) } }
+    private var paymentsClient: PaymentsAPIClient? { injectedPaymentsClient ?? PaymentsConfiguration.current().map { PaymentsAPIClient(configuration: $0) } }
+    private let injectedPaymentsClient: PaymentsAPIClient?
     private let offlineCashLedger = OfflineCashLedger.shared
     private var serverEventPolicy: ServerEventPolicy?
     private var offlinePolicyPayload: OfflinePolicyPayload?
@@ -91,9 +92,28 @@ final class BoothSessionViewModel: ObservableObject {
     private var checkoutAttempt = 0
     /// One stable print batch per paid entitlement so a retry continues the same receipt.
     private var paidPrintBatchID: UUID?
-    private let checkpointStore = CheckoutCheckpointStore.shared
+    private let checkpointStore: CheckoutCheckpointStore?
     private let printOutbox = PrintOutcomeOutbox.shared
     private var activeTask: Task<Void, Never>?
+    private var paymentPollTask: Task<Void, Never>?
+    private var paymentPollOwner: UUID?
+    private static let interactionLogger = Logger(subsystem: "com.pocketpixels.PocketPixelsBooth", category: "GuestInteraction")
+
+    func logGuestAction(_ action: String, result: String) {
+        Self.interactionLogger.notice("action=\(action, privacy: .public) result=\(result, privacy: .public) state=\(self.state.title, privacy: .public) transition=\(self.isTransitionActive) guidedAccess=\(UIAccessibility.isGuidedAccessEnabled)")
+    }
+
+    private func stopPaymentPolling() {
+        paymentPollOwner = nil
+        paymentPollTask?.cancel()
+        paymentPollTask = nil
+    }
+
+    private func ownsPaymentPolling(_ owner: UUID, generation: Int) -> Bool {
+        paymentPollOwner == owner && isCurrentCustomerSession(generation)
+            && checkoutEntitlement == nil
+            && (state == .awaitingQRPayment || state == .paymentReconciliation)
+    }
     private var printBatchTask: Task<Void, Never>?
     private var cameraWatchdogTask: Task<Void, Never>?
     private var galleryUploadTasks: [String: Task<Void, Never>] = [:]
@@ -230,10 +250,14 @@ final class BoothSessionViewModel: ObservableObject {
     /// - Parameter captureConfirmationPause: nil waits `capturedPhotoDisplayDuration` (production).
     init(
         environment: BoothSessionEnvironment? = nil,
+        paymentsClient: PaymentsAPIClient? = nil,
+        checkpointStore: CheckoutCheckpointStore? = .shared,
         captureConfirmationPause: (@MainActor () async -> Void)? = nil
     ) {
         let environment = environment ?? .customer
         self.environment = environment
+        self.injectedPaymentsClient = paymentsClient
+        self.checkpointStore = checkpointStore
         self.recoveryStore = try? AppRecoveryStore(directoryURL: environment.recoveryDirectory)
         self.captureConfirmationPause = captureConfirmationPause ?? {
             try? await Task.sleep(for: .seconds(BoothConfiguration.capturedPhotoDisplayDuration))
@@ -253,14 +277,18 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     func startSession() {
+        logGuestAction("start_tap", result: "recognized")
         guard state == .welcome, !isTransitionActive else {
+            logGuestAction("start_tap", result: "rejected_state_or_transition")
             return
         }
+        logGuestAction("start_tap", result: "accepted")
 
         operationalState.refresh()
         refreshCustomerExperience()
         commercialEvent = CommercialEventRunStore.load()
         guard !printerCoordinator.requiresRecovery, !operationalState.hasUnresolvedPrint else {
+            logGuestAction("start_tap", result: "rejected_print_recovery")
             state = .recoveryRequired("Printer needs operator attention.")
             return
         }
@@ -272,6 +300,7 @@ final class BoothSessionViewModel: ObservableObject {
         }
 
         guard !SessionAcceptanceStore.shared.state.blocked else {
+            logGuestAction("start_tap", result: "rejected_admission_paused")
             state = .error("New sessions are paused. Please see the attendant.")
             return
         }
@@ -280,6 +309,7 @@ final class BoothSessionViewModel: ObservableObject {
             // Private / Prepaid booths never need the Payments Worker and never charge guests.
             let local = CommercialEventRunStore.load()
             guard SessionAdmission.localConfigurationIsReady(source: .localPrepaid, local: local) else {
+                logGuestAction("start_tap", result: "rejected_event_configuration")
                 state = .error("This event is paused or needs operator setup.")
                 return
             }
@@ -289,15 +319,18 @@ final class BoothSessionViewModel: ObservableObject {
 
         isTransitionActive = true
         statusMessage = "Checking today's event…"
+        let generation = customerSessionGeneration
         activeTask = Task { [weak self] in
             guard let self else { return }
             let resolution = await resolveServerPolicy()
+            guard isCurrentCustomerSession(generation), !Task.isCancelled else { return }
             isTransitionActive = false
             guard state == .welcome, !Task.isCancelled else { return }
             switch resolution {
             case .success(let resolved):
                 beginChoosingFormat(run: resolved.run, authority: resolved.authority, serverPolicy: resolved.serverPolicy, offlinePolicy: resolved.offlinePolicy)
             case .failure(let failure):
+                logGuestAction("start_tap", result: "rejected_server_policy")
                 state = .error(failure.message)
             }
         }
@@ -585,9 +618,9 @@ final class BoothSessionViewModel: ObservableObject {
                         ? response.attempt?.isOperatorConfirmedCash == true
                         : response.attempt?.method == "CASH_DECLARED" && response.attempt?.state == "SELF_REPORTED"
                     guard correctProvenance, let entitlement = response.entitlement else { throw PaymentsAPIError.invalidResponse }
-                    paymentAttempt = response.attempt
                     checkpointStore?.update(id: sessionIdentifier) { $0.phase = .entitled; $0.entitlementID = entitlement.id }
-                    guard isCurrentCustomerSession(generation) else { return }
+                    guard isCurrentCustomerSession(generation), !Task.isCancelled else { return }
+                    paymentAttempt = response.attempt
                     try await claimAndPrepareCamera(entitlement, client: client, sessionID: sessionIdentifier, generation: generation)
                 case .signedOffline:
                     // Offline cash is never a fallback for a session that already reached the server.
@@ -642,6 +675,7 @@ final class BoothSessionViewModel: ObservableObject {
             do {
                 checkoutGuard.serverCheckoutStarted = true
                 let order = try await createCheckoutOrder(client: client, event: event, format: format, copies: copies, sessionID: sessionIdentifier, method: "QRPH")
+                guard isCurrentCustomerSession(generation), !Task.isCancelled else { return }
                 checkoutGuard.qrAttemptUnresolved = true
                 checkpointStore?.update(id: sessionIdentifier) { $0.phase = .paymentRequested }
                 let attempt = try await retryingUnknownOutcome { try await client.createQR(orderID: order.id) }
@@ -662,6 +696,7 @@ final class BoothSessionViewModel: ObservableObject {
     /// A deliberate new checkout after the server confirmed the previous QR cannot be paid.
     func startNewCheckout() {
         guard canStartNewCheckout, let order = paymentOrder else { return }
+        stopPaymentPolling()
         activeTask?.cancel()
         activeTask = nil
         prepareSupersedingCheckout(of: order.id, notice: "The previous QR code was not paid. Please choose how to pay.")
@@ -683,10 +718,12 @@ final class BoothSessionViewModel: ObservableObject {
                             copies: copies, format: format, method: method, environment: client.environment)
         let key = "order-\(sessionID)-\(checkoutAttempt)"
         let supersedes = supersedeOrderID
+        let generation = customerSessionGeneration
         let order = try await retryingUnknownOutcome {
             try await client.createOrder(event: event, format: format, copies: copies, checkoutSessionID: sessionID, supersedesOrderID: supersedes, idempotencyKey: key)
         }
         checkpointStore?.update(id: sessionID) { $0.orderID = order.id; $0.lastServerState = order.state }
+        guard isCurrentCustomerSession(generation), !Task.isCancelled else { throw CancellationError() }
         paymentOrder = order
         supersedeOrderID = nil
         return order
@@ -717,6 +754,7 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     private func claimAndPrepareCamera(_ entitlement: CheckoutEntitlement, client: PaymentsAPIClient, sessionID: String, generation: Int) async throws {
+        guard isCurrentCustomerSession(generation), !Task.isCancelled else { return }
         var claimed = entitlement
         if entitlement.requiresServerClaim {
             claimed = try await retryingUnknownOutcome {
@@ -724,7 +762,7 @@ final class BoothSessionViewModel: ObservableObject {
             }
         }
         checkpointStore?.update(id: sessionID) { $0.phase = .claimed; $0.entitlementID = claimed.id; $0.lastServerState = claimed.serverState }
-        guard isCurrentCustomerSession(generation) else { return }
+        guard isCurrentCustomerSession(generation), !Task.isCancelled else { return }
         guard claimed.permitsCapture, claimed.sessionID == sessionID else {
             state = .paymentReconciliation
             statusMessage = "This payment needs attendant review before the session can start."
@@ -786,28 +824,73 @@ final class BoothSessionViewModel: ObservableObject {
         }
     }
 
+    func recheckPayment() {
+        guard state == .paymentReconciliation, !isTransitionActive else {
+            logGuestAction("payment_recheck", result: "rejected_state_or_transition")
+            return
+        }
+        logGuestAction("payment_recheck", result: "original_checkout_only")
+        pollQRStatus(orderID: paymentOrder?.id, generation: customerSessionGeneration)
+    }
+
     private func enterReconciliation(_ message: String) {
         state = .paymentReconciliation
         statusMessage = message
-        if let order = paymentOrder {
-            pollQRStatus(orderID: order.id, generation: customerSessionGeneration)
-        }
+        pollQRStatus(orderID: paymentOrder?.id, generation: customerSessionGeneration)
     }
 
     /// Polls the server until the QR is verified paid (claim and start), conclusively unpaid (a
     /// deliberate new checkout becomes available), or the session is reset. Never falls back to cash.
-    private func pollQRStatus(orderID: String, generation: Int) {
-        guard let client = paymentsClient else { return }
-        activeTask = Task { [weak self] in
+    private func pollQRStatus(orderID: String?, generation: Int) {
+        stopPaymentPolling()
+        guard let client = paymentsClient else {
+            statusMessage = "Payments cannot be reached on this iPad. Please call the attendant. Do not pay again."
+            return
+        }
+        let owner = UUID()
+        paymentPollOwner = owner
+        let checkoutSessionID = sessionIdentifier
+        paymentPollTask = Task { [weak self] in
             guard let self else { return }
             var iteration = 0
-            while !Task.isCancelled, isCurrentCustomerSession(generation) {
+            var recoveredOrderID = orderID
+            defer {
+                if paymentPollOwner == owner {
+                    paymentPollOwner = nil
+                    paymentPollTask = nil
+                }
+            }
+            while !Task.isCancelled, ownsPaymentPolling(owner, generation: generation) {
                 iteration += 1
                 do {
-                    let response = try await client.status(orderID: orderID)
-                    guard isCurrentCustomerSession(generation), !Task.isCancelled else { return }
+                    if recoveredOrderID == nil, let checkoutSessionID {
+                        let recovery = try await client.checkoutRecovery(checkoutSessionID: checkoutSessionID)
+                        guard ownsPaymentPolling(owner, generation: generation), !Task.isCancelled else { return }
+                        guard recovery.checkoutSessionId == checkoutSessionID else { throw PaymentsAPIError.invalidResponse }
+                        // An empty response cannot establish that an interrupted mutation never arrived.
+                        recoveredOrderID = recovery.openOrderId
+                        if recoveredOrderID == nil {
+                            statusMessage = "The original request still needs attendant review. Do not pay again."
+                            return
+                        }
+                    }
+                    guard let recoveredOrderID else { return }
+                    let response = try await client.status(orderID: recoveredOrderID)
+                    guard ownsPaymentPolling(owner, generation: generation), !Task.isCancelled else { return }
+                    guard response.order.id == recoveredOrderID,
+                          response.order.checkoutSessionID == nil || response.order.checkoutSessionID == checkoutSessionID else {
+                        throw PaymentsAPIError.invalidResponse
+                    }
                     paymentOrder = response.order
                     paymentAttempt = response.attempt
+                    checkoutGuard.newCheckoutAllowed = response.attempt?.isConclusivelyUnpaid == true && response.newCheckout?.allowed == true
+                    checkoutGuard.qrAttemptUnresolved = response.attempt?.isConclusivelyUnpaid != true
+                    if let checkoutSessionID {
+                        checkpointStore?.update(id: checkoutSessionID) {
+                            $0.orderID = response.order.id
+                            $0.lastServerState = response.entitlement?.serverState ?? response.attempt?.state ?? response.order.state
+                        }
+                    }
                     if let entitlement = response.entitlement {
                         if let sessionIdentifier {
                             checkpointStore?.update(id: sessionIdentifier) { $0.phase = .entitled; $0.entitlementID = entitlement.id; $0.lastServerState = entitlement.serverState }
@@ -836,7 +919,9 @@ final class BoothSessionViewModel: ObservableObject {
                         statusMessage = "Payment status is being confirmed. Please do not pay again."
                     }
                 } catch {
-                    guard isCurrentCustomerSession(generation), !Task.isCancelled else { return }
+                    guard ownsPaymentPolling(owner, generation: generation), !Task.isCancelled else { return }
+                    checkoutGuard.newCheckoutAllowed = false
+                    checkoutGuard.qrAttemptUnresolved = true
                     state = .paymentReconciliation
                     statusMessage = "Payment status is unknown. Reconnecting — please do not pay again."
                 }
@@ -910,6 +995,19 @@ final class BoothSessionViewModel: ObservableObject {
         Task { await PaymentRecoveryCoordinator.shared.syncOutbox() }
     }
 
+    /// An authenticated operator can resume the paying guest already waiting on this iPad.
+    /// Never replace a different guest or interrupt capture/printing with an armed checkout.
+    func resumeArmedCheckoutForCurrentGuest() {
+        let recovery = PaymentRecoveryCoordinator.shared
+        guard state == .paymentReconciliation, !isTransitionActive,
+              checkoutEntitlement == nil,
+              recovery.armedResume?.item.id == sessionIdentifier,
+              !printerCoordinator.requiresRecovery, !operationalState.hasUnresolvedPrint,
+              let item = recovery.takeArmedResume() else { return }
+        logGuestAction("operator_resume", result: "original_checkout")
+        beginRecoveredCheckout(item)
+    }
+
     /// Continues an operator-armed interrupted paid checkout: same checkout session, same paid
     /// quantity and format, fresh photos. Never charges, never rebinds to another session.
     private func beginRecoveredCheckout(_ item: CheckoutRecoveryItem) {
@@ -928,7 +1026,7 @@ final class BoothSessionViewModel: ObservableObject {
         activeTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let entitlement = try await recoveredEntitlement(for: checkpoint)
+                let entitlement = try await recoveredEntitlement(for: checkpoint, generation: generation)
                 guard isCurrentCustomerSession(generation) else { return }
                 commercialEvent = CommercialEventRun(
                     id: checkpoint.eventID, name: commercialEvent.name, venue: "", lifecycle: .active,
@@ -954,7 +1052,7 @@ final class BoothSessionViewModel: ObservableObject {
         }
     }
 
-    private func recoveredEntitlement(for checkpoint: CheckoutCheckpoint) async throws -> CheckoutEntitlement {
+    private func recoveredEntitlement(for checkpoint: CheckoutCheckpoint, generation: Int) async throws -> CheckoutEntitlement {
         // Paper may already exist for this checkout: only the operator's paper inspection decides.
         guard printOutbox?.copiesThatMayHavePrinted(sessionID: checkpoint.id).isEmpty ?? false else {
             throw PaymentsAPIError.configuration("Printing had already started for this checkout.")
@@ -964,16 +1062,16 @@ final class BoothSessionViewModel: ObservableObject {
                   let record = await ledger.allRecords().first(where: { $0.sessionID == checkpoint.id }) else {
                 throw OfflineCashLedger.LedgerError.invalidPolicy
             }
+            guard isCurrentCustomerSession(generation), !Task.isCancelled else { throw CancellationError() }
             policyAuthority = .signedOffline(snapshotID: record.snapshotID ?? "", expiresAt: record.declaredAt)
             return CheckoutEntitlement(id: "offline-cash-\(record.id)", orderID: nil, eventID: record.eventID, policyRevisionID: record.policyRevisionID,
                                        sessionID: checkpoint.id, selectedFormatRawValue: record.format, purchasedCopies: record.copies,
                                        unitPriceCentavos: record.unitPriceCentavos, totalCentavos: record.totalCentavos,
                                        authorizationSource: .localUnsyncedCashDeclared, authorizedAt: record.declaredAt, receiptFingerprint: nil)
         }
-        guard let configuration = PaymentsConfiguration.current(), configuration.environment == checkpoint.environment else {
+        guard let client = paymentsClient, client.environment == checkpoint.environment else {
             throw PaymentsAPIError.configuration("Payments are not set up for this checkout's environment.")
         }
-        let client = PaymentsAPIClient(configuration: configuration)
         let server = try await client.checkoutRecovery(checkoutSessionID: checkpoint.id)
         let classification = CheckoutRecoveryClassifier.classify(checkpoint: checkpoint, server: server, localPrintStarted: false, offlineRecordExists: false)
         guard classification.isResumable,
@@ -986,6 +1084,7 @@ final class BoothSessionViewModel: ObservableObject {
             try await client.claim(entitlementID: entitlement.id, sessionID: checkpoint.id, idempotencyKey: "claim-\(entitlement.id)", recovery: true)
         }
         guard claimed.sessionID == checkpoint.id, claimed.permitsCapture else { throw PaymentsAPIError.invalidResponse }
+        guard isCurrentCustomerSession(generation), !Task.isCancelled else { throw CancellationError() }
         policyAuthority = .serverConfirmed(fetchedAt: Date())
         paymentOrder = open.order
         return claimed
@@ -1042,6 +1141,7 @@ final class BoothSessionViewModel: ObservableObject {
     func releaseAuthorizationTaskForCamera(generation: Int) -> Bool {
         guard isCurrentCustomerSession(generation) else { return false }
         activeTask = nil
+        stopPaymentPolling()
         return true
     }
 
@@ -1090,9 +1190,17 @@ final class BoothSessionViewModel: ObservableObject {
         checkoutGuard = CheckoutGuard(serverCheckoutStarted: true, qrAttemptUnresolved: qrAttemptUnresolved, newCheckoutAllowed: false)
     }
 
+    var paymentPollTaskForTesting: Task<Void, Never>? { paymentPollTask }
+
+    func beginPaymentReconciliationForTesting() {
+        checkoutGuard = CheckoutGuard(serverCheckoutStarted: true, qrAttemptUnresolved: true, newCheckoutAllowed: false)
+        enterReconciliation("Checking the original payment. Do not pay again.")
+    }
+
     var activeTaskForTesting: Task<Void, Never>? { activeTask }
 
     func cancelActiveTaskForTesting() {
+        stopPaymentPolling()
         activeTask?.cancel()
         activeTask = nil
         isTransitionActive = false
@@ -1121,6 +1229,10 @@ final class BoothSessionViewModel: ObservableObject {
         if checkoutEntitlement == nil && (checkoutGuard.serverCheckoutStarted || checkoutGuard.qrAttemptUnresolved || paymentOrder != nil || paymentAttempt != nil) {
             statusMessage = "Please ask the attendant to check this payment. Do not pay again."
             state = .paymentReconciliation
+            if !isTransitionActive, paymentPollTask == nil {
+                pollQRStatus(orderID: paymentOrder?.id, generation: customerSessionGeneration)
+            }
+            logGuestAction("cancel", result: "retained_unresolved_checkout")
             return
         }
         guard !printerState.isWorking, !isPrintBatchActive,
@@ -1863,6 +1975,9 @@ final class BoothSessionViewModel: ObservableObject {
         case .active:
             operationalState.handleScenePhaseActive()
             refreshPendingUploads()
+            if (state == .paymentReconciliation || state == .awaitingQRPayment), !isTransitionActive {
+                pollQRStatus(orderID: paymentOrder?.id, generation: customerSessionGeneration)
+            }
             if state == .preparingCamera || state == .cameraReady {
                 restartCameraForOperator()
             }
@@ -2264,6 +2379,7 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     private func cancelTasks() {
+        stopPaymentPolling()
         activeTask?.cancel()
         activeTask = nil
         captureConfirmationTask?.cancel()

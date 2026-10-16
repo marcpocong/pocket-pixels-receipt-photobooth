@@ -65,6 +65,28 @@ struct BoothSessionView: View {
                     .id(customerScreenTransitionKey)
                     .transition(customerScreenTransition)
 
+                if let _ = onAdminAccessRequested {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Button { openAdminAccess() } label: {
+                                Image(systemName: "ellipsis")
+                                    .font(.body)
+                                    .frame(width: 48, height: 48)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(MadeToKeepTheme.ColorPalette.taupe)
+                            .accessibilityLabel("Attendant access")
+                            .accessibilityHint("Requires operator authentication")
+                            .accessibilityIdentifier("booth.attendant.access")
+                        }
+                        Spacer()
+                    }
+                    .padding(8)
+                    .zIndex(20)
+                }
+
                 if showsIdleWarning {
                     idleWarningOverlay
                         .transition(.opacity)
@@ -126,6 +148,9 @@ struct BoothSessionView: View {
             .onChange(of: viewModel.passportDraft) { _, _ in
                 // Typing or signing counts as activity for the abandoned-session timer.
                 scheduleIdleReset()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: OperatorWorkspace.didResumeCheckout)) { _ in
+                viewModel.resumeArmedCheckoutForCurrentGuest()
             }
             .onReceive(NotificationCenter.default.publisher(for: EventProfileStore.didChangeNotification)) { _ in
                 viewModel.refreshCustomerExperience()
@@ -234,11 +259,11 @@ struct BoothSessionView: View {
         case .choosingPayment:
             CheckoutPaymentMethodView(viewModel: viewModel)
         case .awaitingQRPayment:
-            QRPhPaymentView(viewModel: viewModel)
+            QRPhPaymentView(viewModel: viewModel, onGetHelp: { openAdminAccess() })
         case .cashAttestation:
             CashAttestationView(viewModel: viewModel)
         case .paymentReconciliation:
-            PaymentReconciliationView(viewModel: viewModel)
+            PaymentReconciliationView(viewModel: viewModel, onGetHelp: { openAdminAccess() })
         case .preparingCamera, .cameraReady, .countdown, .capturing, .betweenPhotos, .retaking:
             cameraScreen
         case .review:
@@ -306,7 +331,15 @@ struct BoothSessionView: View {
             onStart: { viewModel.startSession() },
             onAdminLongPress: onAdminAccessRequested == nil ? nil : { openAdminAccess() }
         )
-        .overlay(alignment: .top) { attendantResumeNotice }
+        .overlay(alignment: .top) {
+            VStack {
+                attendantResumeNotice
+                if viewModel.isCheckoutTransitionActive {
+                    noticeText("Checking event readiness. Please wait; use attendant access if you need help.")
+                }
+            }
+            .allowsHitTesting(false)
+        }
 #if DEBUG
         .overlay(alignment: .bottom) {
             if onAdminAccessRequested != nil {
@@ -1687,7 +1720,8 @@ struct BoothSessionView: View {
             return
         }
 
-        adminDebugLog("long press recognized")
+        viewModel.logGuestAction("operator_entry", result: "authentication_requested")
+        cancelIdleReset()
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         onAdminAccessRequested()
     }

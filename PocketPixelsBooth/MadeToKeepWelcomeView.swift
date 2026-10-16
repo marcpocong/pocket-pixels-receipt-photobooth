@@ -66,9 +66,11 @@ struct MadeToKeepWelcomeView: View {
             callToAction(scale: s)
 
             helper(scale: s)
+                .allowsHitTesting(false)
 
             if showsPrinterWarning {
                 printerWarning(scale: s)
+                    .allowsHitTesting(false)
             }
         }
         .frame(width: MadeToKeepPosterLayout.referenceSize.width * s, height: MadeToKeepPosterLayout.referenceSize.height * s, alignment: .topLeading)
@@ -287,7 +289,7 @@ struct MadeToKeepWelcomeView: View {
         Color.clear
             .contentShape(Rectangle())
             .simultaneousGesture(
-                LongPressGesture(minimumDuration: 4, maximumDistance: 24)
+                LongPressGesture(minimumDuration: 2.5, maximumDistance: 44)
                     .onEnded { _ in action() }
             )
             .accessibilityHidden(true)
@@ -349,6 +351,7 @@ private extension View {
     /// grow the poster's bounds and every alignment is exact.
     func posterBaseline(x: CGFloat, baseline: CGFloat, scale: CGFloat, canvas: CGSize = MadeToKeepPosterLayout.referenceSize) -> some View {
         Color.clear
+            .allowsHitTesting(false)
             .frame(width: canvas.width * scale, height: canvas.height * scale)
             .overlay(alignment: .topLeading) {
                 alignmentGuide(.leading) { $0[HorizontalAlignment.center] }
@@ -357,9 +360,10 @@ private extension View {
             }
     }
 
-    /// Places a view so its centre is at (`x`, `y`) reference pixels, as a full-canvas layer.
+    /// Position the view's own bounds, without a full-poster hit-testing surface.
     func posterCenter(x: CGFloat, y: CGFloat, scale: CGFloat, canvas: CGSize = MadeToKeepPosterLayout.referenceSize) -> some View {
         Color.clear
+            .allowsHitTesting(false)
             .frame(width: canvas.width * scale, height: canvas.height * scale)
             .overlay(alignment: .topLeading) {
                 alignmentGuide(.leading) { $0[HorizontalAlignment.center] }
