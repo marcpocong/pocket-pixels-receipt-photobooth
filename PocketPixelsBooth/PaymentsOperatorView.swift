@@ -3,11 +3,16 @@ import SwiftUI
 /// Specialized payment maintenance and read-only sales. Everyday setup lives in Session Setup.
 struct PaymentsOperatorView: View {
     var salesOnly = false
+    var allowsEventMaintenance = false
     @State private var configuration = PaymentsConfiguration.current()
     @State private var events: [OperatorEventSummary] = []
     @State private var diagnostics: OperatorDiagnostics?
     @State private var status = ""
     @State private var isLoading = false
+    @State private var eventsError: String?
+    @State private var refreshRequest = UUID()
+    @State private var eventsLoaded = false
+    @State private var showsHistory = false
     @State private var pairingURL = PaymentsConfiguration.current()?.baseURL.absoluteString ?? ""
     @State private var pairingToken = ""
     @State private var operatorToken = ""
@@ -85,11 +90,16 @@ struct PaymentsOperatorView: View {
                 NavigationLink("Open Session Setup", value: OperatorWorkspaceRoute.sessionSetup)
                 Text("Everyday event settings and starting or pausing sessions are managed in Session Setup.")
             } }
-            Section("Server Events") {
-                if events.isEmpty {
-                    Text(client == nil ? "Pair this iPad to load events." : "No events yet.").foregroundStyle(.secondary)
-                }
-                ForEach(events) { event in
+            Section("Commercial Events — all runs") {
+                Toggle("Include completed and archived events", isOn: $showsHistory)
+                if isLoading { ProgressView("Loading events…") }
+                if let eventsError { Label(eventsError, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
+                if client == nil { Text("Pair this iPad in Advanced → Payment Maintenance.") }
+                if eventsLoaded, events.isEmpty { Text("No commercial events were returned by this server.").foregroundStyle(.secondary) }
+                LabeledContent("Environment", value: configuration?.environment.uppercased() ?? "NOT CONFIGURED")
+                Button("Refresh Event List") { Task { await refresh() } }.disabled(isLoading)
+                if salesOnly { NavigationLink("Operator API Credentials", value: OperatorWorkspaceRoute.payments) }
+                ForEach(events.filter { showsHistory || !["ENDED", "ARCHIVED"].contains($0.lifecycle) }) { event in
                     NavigationLink(value: OperatorWorkspaceRoute.eventReport(event.id)) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(event.name).font(.headline)
@@ -98,7 +108,7 @@ struct PaymentsOperatorView: View {
                         .frame(minHeight: 44, alignment: .leading)
                     }
                     .accessibilityLabel("\(event.name), \(event.lifecycle)")
-                    if !salesOnly {
+                    if !salesOnly || allowsEventMaintenance {
                         NavigationLink("Close or Archive \(event.name)", value: OperatorWorkspaceRoute.eventMaintenance(event.id))
                             .font(.callout)
                     }
@@ -280,18 +290,29 @@ struct PaymentsOperatorView: View {
     }
 
     private func refresh() async {
+        let request = UUID(); refreshRequest = request
+        let binding = OperatorWorkspace.shared.serverBinding
+        events = []; eventsLoaded = false; diagnostics = nil; pairedDevice = nil
         configuration = PaymentsConfiguration.current()
         await loadLedger()
         await recovery.refresh()
-        guard let client else { status = "Payments API is not configured."; return }
+        guard refreshRequest == request, OperatorWorkspace.shared.serverBinding == binding, !Task.isCancelled else { return }
+        guard let client else { eventsError = "Payments API is not configured."; return }
         isLoading = true
-        defer { isLoading = false }
+        defer { if refreshRequest == request { isLoading = false } }
         do {
-            pairedDevice = try await client.device().device
-            events = try await client.listEvents()
-            diagnostics = try? await client.diagnostics()
+            let device = try await client.device().device
+            let loadedEvents = try await client.listEvents()
+            let loadedDiagnostics = salesOnly ? nil : try? await client.diagnostics()
+            guard refreshRequest == request, OperatorWorkspace.shared.serverBinding == binding, !Task.isCancelled else { return }
+            pairedDevice = device; events = loadedEvents
+            eventsLoaded = true; eventsError = nil
+            diagnostics = loadedDiagnostics
             status = "Loaded \(events.count) server events at \(Date().formatted(date: .omitted, time: .shortened))."
         } catch {
+            guard refreshRequest == request, OperatorWorkspace.shared.serverBinding == binding else { return }
+            eventsError = "Event reports unavailable: \(error.localizedDescription). LIVE requires a separate operator credential for the selected server. This does not mean sales are zero."
+            eventsLoaded = false
             status = "Not refreshed: \(error.localizedDescription)"
         }
     }

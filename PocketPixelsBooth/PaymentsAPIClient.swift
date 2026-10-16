@@ -343,8 +343,22 @@ actor PaymentsAPIClient {
     // MARK: Operator
 
     func listEvents() async throws -> [OperatorEventSummary] {
-        let response: OperatorEventListResponse = try await send("v1/admin/events?limit=100", method: "GET", body: Optional<EmptyBody>.none)
-        return response.events
+        var events: [OperatorEventSummary] = []
+        var cursor: String?
+        var seen = Set<String>()
+        repeat {
+            try Task.checkCancellation()
+            let suffix = cursor.map { "&cursor=" + ($0.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "") } ?? ""
+            let response: OperatorEventListResponse = try await send("v1/admin/events?limit=100" + suffix, method: "GET", body: Optional<EmptyBody>.none)
+            events.append(contentsOf: response.events)
+            cursor = response.nextCursor
+            if let cursor, !seen.insert(cursor).inserted || seen.count > 1000 {
+                throw PaymentsAPIError.configuration("Event history pagination did not complete. Refresh before using this list.")
+            }
+        } while cursor != nil
+        return events.reduce(into: [OperatorEventSummary]()) { result, event in
+            if !result.contains(where: { $0.id == event.id }) { result.append(event) }
+        }
     }
 
     func createEvent(name: String, venue: String) async throws -> OperatorCreatedEvent {
@@ -397,6 +411,43 @@ actor PaymentsAPIClient {
         let (data, http) = try await perform(path, method: "GET", bodyData: nil, idempotencyKey: nil, ifMatch: nil)
         guard (200..<300).contains(http.statusCode) else { throw mapError(status: http.statusCode, data: data) }
         return (data, http.value(forHTTPHeaderField: "x-export-complete") == "true", http.value(forHTTPHeaderField: "x-export-next-cursor"))
+    }
+
+    /// Completes every page or throws; never offers a truncated file as a complete export.
+    func completeEventCSV(eventID: String) async throws -> Data {
+        var combined = Data()
+        var cursor: String?
+        var seen = Set<String>()
+        var pages = 0
+        repeat {
+            try Task.checkCancellation()
+            let page = try await exportCSV(eventID: eventID, cursor: cursor)
+            guard let text = String(data: page.data, encoding: .utf8), let newline = text.range(of: "\r\n") else { throw PaymentsAPIError.invalidResponse }
+            combined.append(pages == 0 ? page.data : Data(text[newline.upperBound...].utf8))
+            pages += 1
+            if page.complete { return combined }
+            guard let next = page.nextCursor, !next.isEmpty, seen.insert(next).inserted, pages < 1000 else {
+                throw PaymentsAPIError.configuration("The export could not be completed. No partial CSV was prepared.")
+            }
+            cursor = next
+        } while true
+    }
+
+    func allEventOrders(id: String, requireCheckoutIdentity: Bool = false) async throws -> [OperatorOrderRow] {
+        var rows: [OperatorOrderRow] = []
+        var cursor: String?
+        var seen = Set<String>()
+        repeat {
+            try Task.checkCancellation()
+            let page = try await eventOrders(id: id, filter: "all", cursor: cursor)
+            if requireCheckoutIdentity, page.checkoutSessionIdentityIncluded != true {
+                throw PaymentsAPIError.configuration("Exact run payment totals need the approved Payments Worker reporting update. Commercial-event totals remain available; no missing links are treated as unpaid.")
+            }
+            rows.append(contentsOf: page.orders)
+            cursor = page.nextCursor
+            if let cursor, !seen.insert(cursor).inserted || seen.count > 1000 { throw PaymentsAPIError.invalidResponse }
+        } while cursor != nil
+        return rows
     }
 
     // MARK: Transport
@@ -537,7 +588,7 @@ nonisolated struct OperatorEventDetail: Codable, Sendable {
 
 nonisolated struct OperatorEventUpdate: Codable, Sendable { let eventId: String; let version: Int; let draftRevision: OperatorPolicyRevision? }
 nonisolated struct OperatorVersionConflict: Decodable, Sendable { let currentVersion: Int? }
-nonisolated struct OperatorPrintUtilization: Codable, Sendable { let purchased: Int; let confirmed: Int; let uncertain: Int; let failed: Int; var notStarted: Int? = nil }
+nonisolated struct OperatorPrintUtilization: Codable, Sendable { let purchased: Int; let confirmed: Int; let uncertain: Int; let failed: Int; var notStarted: Int? = nil; var delivered: Int? = nil }
 nonisolated struct OperatorCashReconciliation: Codable, Sendable { let countedCentavos: Int; let provisional: Bool; let createdAt: Date; let varianceCentavos: Int }
 nonisolated struct OperatorSalesSummary: Codable, Sendable {
     let eventId: String; let currency: String; let verifiedQRPhLiveCentavos: Int; let verifiedQRPhTestCentavos: Int
@@ -556,8 +607,14 @@ nonisolated struct OperatorOrderRow: Codable, Identifiable, Sendable {
     let id: String; let createdAt: Date; let boothFormat: String; let copies: Int; let totalCentavos: Int; let state: String
     let method: String?; let paymentState: String?; let category: String; let entitlementState: String?
     let confirmedPrints: Int; let uncertainPrints: Int; let lastReconcileError: String?
+    var sessionId: String? = nil
+    var checkoutSessionId: String? = nil
+    var supersededByOrderId: String? = nil
 }
-nonisolated struct OperatorOrderPage: Codable, Sendable { let orders: [OperatorOrderRow]; let nextCursor: String? }
+nonisolated struct OperatorOrderPage: Codable, Sendable {
+    let orders: [OperatorOrderRow]; let nextCursor: String?
+    var checkoutSessionIdentityIncluded: Bool? = nil
+}
 nonisolated struct OperatorOfflineConflict: Codable, Identifiable, Sendable {
     let localEventId: String; let localSequence: Int?; let deviceId: String; let sessionId: String?; let copies: Int?
     let unitPriceCentavos: Int?; let declaredAt: Date?; let reason: String; let receivedAt: Date

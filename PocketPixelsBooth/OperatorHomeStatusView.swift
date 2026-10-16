@@ -6,10 +6,12 @@ struct OperatorBoothStatusCard: View {
     @ObservedObject private var printer = PrinterCoordinator.shared
     @State private var server: ServerBoothStatus?
     @State private var source = CommercialPolicySource.load()
+    @ObservedObject private var eventRuns = EventRunStore.shared
     @State private var local = CommercialEventRunStore.load()
     @State private var preparedEvent: OperatorEventDetail?
 
     private var accepting: Bool {
+        guard eventRuns.current == nil || eventRuns.current?.status == .active else { return false }
         guard !acceptance.state.blocked, SessionSetupSafety.blockingReason == nil else { return false }
         if source == .localPrepaid { return local.acceptsNewSessions && local.activePolicy.validationMessage == nil }
         guard let event = server?.event else { return false }
@@ -36,6 +38,9 @@ struct OperatorBoothStatusCard: View {
                 Text("Pay Per Print").font(.headline)
                 Text(server?.inactiveDescription ?? "No active paid event").foregroundStyle(.secondary)
                 Text("Choose an event in Session Setup to review its price and copies.").font(.callout).foregroundStyle(.secondary)
+            }
+            if let run = eventRuns.current {
+                LabeledContent("Current event run", value: "\(run.context.name) · \(run.status.rawValue.capitalized)")
             }
             Divider()
             Label(accepting ? "Accepting guests" : "Not accepting guests", systemImage: accepting ? "checkmark.circle.fill" : "pause.circle.fill")

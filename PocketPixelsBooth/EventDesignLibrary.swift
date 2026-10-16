@@ -77,6 +77,7 @@ nonisolated struct SavedEventDesign: Codable, Equatable, Identifiable, Sendable 
     var serverEvents: [String: String]
     var createdAt: Date
     var updatedAt: Date
+    var archivedAt: Date? = nil
 
     static func new(name: String, venue: String, now: Date = Date()) -> SavedEventDesign {
         var profile = EventProfile.pocketPixelsDefault
@@ -178,11 +179,17 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
     private let file: URL
     private let write: (Data, URL) throws -> Void
     private var unreadableOriginal = false
+    private let operationAuthorized: @MainActor () -> Bool
+    private let operationBlockingReason: @MainActor () -> String?
 
     init(directory: URL? = nil,
          write: @escaping (Data, URL) throws -> Void = { try DurableFileWriter.write($0, to: $1) },
          legacyProfile: () -> EventProfile = { EventProfileStore.load() },
-         legacyName: () -> String = { CommercialEventRunStore.load().name }) {
+         legacyName: () -> String = { CommercialEventRunStore.load().name },
+         operationAuthorized: @escaping @MainActor () -> Bool = { OperatorAccessPermit.shared.isAuthorized },
+         operationBlockingReason: @escaping @MainActor () -> String? = { SessionSetupSafety.blockingReason }) {
+        self.operationAuthorized = operationAuthorized
+        self.operationBlockingReason = operationBlockingReason
         let root = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         file = root.appendingPathComponent("EventDesignLibraryV1", isDirectory: true).appendingPathComponent("library.json")
         self.write = write
@@ -214,6 +221,7 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
         value.updatedAt = Date()
         if let index = next.events.firstIndex(where: { $0.id == design.id }) {
             // Server links are recorded by `link`; a design draft never removes one.
+            value.archivedAt = next.events[index].archivedAt
             value.serverEvents = next.events[index].serverEvents.merging(design.serverEvents) { _, draft in draft }
             next.events[index] = value
         } else { next.events.append(value) }
@@ -255,9 +263,44 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
     }
 
     func recordApplied(eventModeEnabled: Bool, eventID: String?) throws {
+        if eventModeEnabled {
+            guard let design = design(id: eventID), design.archivedAt == nil else { throw SetupFailure("Choose an active saved design before applying Event Mode.") }
+        }
         var next = library
         next.appliedEventModeEnabled = eventModeEnabled
         next.appliedEventID = eventModeEnabled ? eventID : nil
+        try commit(next)
+    }
+
+    func archiveDesign(id: String, now: Date = Date()) throws {
+        guard operationAuthorized() else { throw PaymentsAPIError.unauthorized }
+        if let reason = operationBlockingReason() { throw SetupFailure(reason) }
+        guard id != library.appliedEventID else { throw SetupFailure("Choose a different design in Session Setup before archiving the applied design.") }
+        guard let index = library.events.firstIndex(where: { $0.id == id }) else { throw SetupFailure("Design not found.") }
+        var next = library
+        next.events[index].archivedAt = now
+        try commit(next)
+    }
+
+    func restoreDesign(id: String) throws {
+        guard operationAuthorized() else { throw PaymentsAPIError.unauthorized }
+        if let reason = operationBlockingReason() { throw SetupFailure(reason) }
+        guard let index = library.events.firstIndex(where: { $0.id == id }) else { throw SetupFailure("Design not found.") }
+        var next = library; next.events[index].archivedAt = nil
+        try commit(next)
+    }
+
+    func deleteUnusedDesign(id: String, runs: [EventRunRecord], archives: [RecentSessionArchiveSummary], historyAvailable: Bool) throws {
+        guard operationAuthorized() else { throw PaymentsAPIError.unauthorized }
+        if let reason = operationBlockingReason() { throw SetupFailure(reason) }
+        guard historyAvailable, !archives.contains(where: { $0.rasterFingerprint == "CORRUPT" }) else { throw SetupFailure("Recover unreadable event history before deleting a design. Archiving retains all dependencies.") }
+        guard let design = design(id: id) else { throw SetupFailure("Design not found.") }
+        guard library.appliedEventID != id, design.serverEvents.isEmpty,
+              !runs.contains(where: { $0.context.designID == id }),
+              !archives.contains(where: { $0.eventDesignID == id || ($0.eventDesignID == nil && $0.createdAt >= design.createdAt) }) else {
+            throw SetupFailure("This design is applied or may have protected history. Archive it instead; photos, artwork and payment records are retained.")
+        }
+        var next = library; next.events.removeAll { $0.id == id }
         try commit(next)
     }
 

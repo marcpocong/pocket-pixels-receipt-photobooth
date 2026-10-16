@@ -89,6 +89,8 @@ nonisolated struct OfflineCashRecord: Codable, Equatable, Identifiable, Sendable
     var failureMessage: String?
     /// Server review flag such as `DECLARED_AFTER_SERVER_REVOCATION`.
     var reviewFlag: String? = nil
+    /// Nil on legacy journals; reports keep those amounts explicitly unassigned.
+    var environment: String? = nil
 }
 
 /// Result of one record in `POST /v1/sync/offline-cash`.
@@ -224,7 +226,8 @@ actor OfflineCashLedger {
             unitPriceCentavos: policy.unitPriceCentavos,
             totalCentavos: total,
             declaredAt: date,
-            syncState: .pending
+            syncState: .pending,
+            environment: policy.env
         )
         var candidate = payload
         candidate.nextSequence += 1

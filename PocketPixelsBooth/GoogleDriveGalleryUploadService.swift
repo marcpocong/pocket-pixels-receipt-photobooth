@@ -25,6 +25,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
     private let verificationSession: URLSession
     private let connectivityTester: GalleryBackendConnectivityTester
     private let pendingStore: GalleryPendingUploadStore?
+    private let onPublicGalleryVerified: @MainActor (String) -> Void
     private static var activeUploadToken: String?
     private static var isQueueProcessing = false
     private(set) static var currentActivity = "Waiting for gallery recovery."
@@ -34,8 +35,12 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         customerGalleryConfigurationProvider: @escaping () throws -> CustomerGalleryConfiguration = { try CustomerGalleryConfiguration.load() },
         urlSession: URLSession = GoogleDriveGalleryUploadService.makeUploadSession(),
         connectivityTester: GalleryBackendConnectivityTester = GalleryBackendConnectivityTester(),
-        pendingStore: GalleryPendingUploadStore? = nil
+        pendingStore: GalleryPendingUploadStore? = nil,
+        onPublicGalleryVerified: @escaping @MainActor (String) -> Void = { sessionID in
+            EventRunStore.shared.updateSession(id: sessionID) { if $0.galleryVerifiedAt == nil { $0.galleryVerifiedAt = Date() } }
+        }
     ) {
+        self.onPublicGalleryVerified = onPublicGalleryVerified
         self.configurationProvider = configurationProvider
         self.customerGalleryConfigurationProvider = customerGalleryConfigurationProvider
         self.urlSession = urlSession
@@ -120,12 +125,14 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         guard let payload = try pendingStore.load(galleryToken: payload.galleryToken) else {
             // A preceding owner cleared it only after verifying this exact public URL.
             try await verifyPublicGallery(at: payload.galleryURL)
+            recordVerifiedDelivery(sessionID: payload.sessionID)
             return GalleryUploadResult(galleryToken: payload.galleryToken, galleryURL: payload.galleryURL, status: .existingComplete)
         }
         // A previous POST may already have completed. Reconcile the frozen public QR first;
         // otherwise the backend's same-token idempotent POST reconciles incomplete delivery.
         if payload.deliveryState == .deliveryUnknown,
            (try? await verifyPublicGallery(at: payload.galleryURL)) != nil {
+            recordVerifiedDelivery(sessionID: payload.sessionID)
             try pendingStore.clear(galleryToken: payload.galleryToken)
             return GalleryUploadResult(galleryToken: payload.galleryToken, galleryURL: payload.galleryURL, status: .existingComplete)
         }
@@ -212,6 +219,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             try Task.checkCancellation()
             return nil // Public delay/offline is not permission to discard the payload.
         }
+        recordVerifiedDelivery(sessionID: payload.sessionID)
         try pendingStore?.clear(galleryToken: galleryToken)
         return GalleryUploadResult(galleryToken: galleryToken, galleryURL: payload.galleryURL, status: .existingComplete)
     }
@@ -421,6 +429,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             // read runs in the gallery task and never gates physical receipt printing.
             Self.currentActivity = "Verifying public delivery · \(payload.sessionID)"
             try await verifyPublicGallery(at: payload.galleryURL)
+            recordVerifiedDelivery(sessionID: payload.sessionID)
             try pendingStore?.clear(galleryToken: payload.galleryToken)
             return result
         } catch GalleryUploadError.deliveryUnknown {
@@ -436,6 +445,10 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             try? pendingStore?.updateDeliveryState(.deliveryUnknown, galleryToken: payload.galleryToken, lastSafeError: error.localizedDescription)
             throw error
         }
+    }
+
+    private func recordVerifiedDelivery(sessionID: String) {
+        onPublicGalleryVerified(sessionID)
     }
 
     private func verifyPublicGallery(at url: URL) async throws {

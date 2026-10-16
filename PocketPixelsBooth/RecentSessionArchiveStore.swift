@@ -24,6 +24,8 @@ struct RecentSessionArchiveSummary: Identifiable, Equatable, Sendable {
     let lastReprintedAt: Date?
     let reprintCount: Int
     let payloadSizeBytes: Int
+    var eventRunID: String? = nil
+    var eventDesignID: String? = nil
 }
 
 struct RecentSessionArchive: Sendable {
@@ -46,6 +48,8 @@ struct RecentSessionArchivePayload: Sendable {
     let thermalPreviewPNGData: Data
     let rasterizedImage: ThermalRasterizedImage
     let photoThumbnailData: [Data]
+    var eventRunID: String? = nil
+    var eventDesignID: String? = nil
 }
 
 enum RecentSessionArchiveError: Error, LocalizedError, Equatable {
@@ -166,7 +170,9 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
                     thumbnailFilenames: metadata.thumbnailFilenames,
                     lastReprintedAt: metadata.lastReprintedAt,
                     reprintCount: metadata.reprintCount,
-                    payloadSizeBytes: payloadSize(at: directory)
+                    payloadSizeBytes: payloadSize(at: directory),
+                    eventRunID: metadata.eventRunID,
+                    eventDesignID: metadata.eventDesignID
                 )
             } catch {
                 return RecentSessionArchiveSummary(
@@ -248,7 +254,9 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
             thumbnailFilenames: metadata.thumbnailFilenames,
             lastReprintedAt: metadata.lastReprintedAt,
             reprintCount: metadata.reprintCount,
-            payloadSizeBytes: payloadSize(at: directory)
+            payloadSizeBytes: payloadSize(at: directory),
+            eventRunID: metadata.eventRunID,
+            eventDesignID: metadata.eventDesignID
         )
 
         return RecentSessionArchive(
@@ -393,7 +401,9 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
             thumbnailFilenames: payload.photoThumbnailData.indices.map { Self.thumbnailFilename(index: $0) },
             lastReprintedAt: nil,
             reprintCount: 0,
-            passport: payload.committedSession.passport
+            passport: payload.committedSession.passport,
+            eventRunID: payload.eventRunID,
+            eventDesignID: payload.eventDesignID
         )
     }
 
@@ -558,6 +568,8 @@ nonisolated private struct RecentSessionArchiveMetadata: Codable, Equatable {
     var lastReprintedAt: Date?
     var reprintCount: Int
     var passport: PassportSessionData? = nil
+    var eventRunID: String? = nil
+    var eventDesignID: String? = nil
 }
 
 private extension JSONEncoder {

@@ -85,6 +85,8 @@ final class BoothSessionViewModel: ObservableObject {
     /// Resolved per use so pairing changes take effect without relaunching.
     private var paymentsClient: PaymentsAPIClient? { injectedPaymentsClient ?? PaymentsConfiguration.current().map { PaymentsAPIClient(configuration: $0) } }
     private let injectedPaymentsClient: PaymentsAPIClient?
+    private let eventRunStore: EventRunStore?
+    private var sessionRunID: String?
     private let offlineCashLedger = OfflineCashLedger.shared
     private var serverEventPolicy: ServerEventPolicy?
     private var offlinePolicyPayload: OfflinePolicyPayload?
@@ -251,12 +253,14 @@ final class BoothSessionViewModel: ObservableObject {
     init(
         environment: BoothSessionEnvironment? = nil,
         paymentsClient: PaymentsAPIClient? = nil,
+        eventRunStore: EventRunStore? = .shared,
         checkpointStore: CheckoutCheckpointStore? = .shared,
         captureConfirmationPause: (@MainActor () async -> Void)? = nil
     ) {
         let environment = environment ?? .customer
         self.environment = environment
         self.injectedPaymentsClient = paymentsClient
+        self.eventRunStore = eventRunStore
         self.checkpointStore = checkpointStore
         self.recoveryStore = try? AppRecoveryStore(directoryURL: environment.recoveryDirectory)
         self.captureConfirmationPause = captureConfirmationPause ?? {
@@ -339,6 +343,16 @@ final class BoothSessionViewModel: ObservableObject {
     private func beginChoosingFormat(run: CommercialEventRun, authority: PolicyAuthority, serverPolicy: ServerEventPolicy?, offlinePolicy: OfflinePolicyPayload?) {
         cancelTasks()
         clearCustomerData()
+        if environment.recordsCustomerSessionMetrics, let eventRunStore {
+            do {
+                let library = EventDesignLibraryStore.shared.library
+                let managed = authority != .localPrepaid
+                let context = EventRunContext(designID: library.appliedEventID, commercialEventID: managed ? run.id : nil,
+                    serverBinding: managed ? OperatorWorkspace.shared.serverBinding : nil,
+                    name: library.design(id: library.appliedEventID)?.displayName ?? run.name)
+                sessionRunID = try eventRunStore.runForAdmission(context: context).id
+            } catch { isTransitionActive = false; state = .error(error.localizedDescription); return }
+        }
         commercialEvent = run
         policyAuthority = authority
         serverEventPolicy = serverPolicy
@@ -436,7 +450,7 @@ final class BoothSessionViewModel: ObservableObject {
             return
         }
         let sessionDate = sessionCreatedAt ?? Date()
-        prepareSessionContext(format: format, sessionIdentifier: sessionIdentifier ?? environment.makeSessionIdentifier(sessionDate), createdAt: sessionDate)
+        guard prepareSessionContext(format: format, sessionIdentifier: sessionIdentifier ?? environment.makeSessionIdentifier(sessionDate), createdAt: sessionDate) else { return }
         if commercialEvent.activePolicy.commercialMode == .payPerPrint {
             selectedCheckoutCopies = min(commercialEvent.activePolicy.defaultCopies, commercialEvent.activePolicy.maxCopies)
             selectedPrintCopies = selectedCheckoutCopies
@@ -451,7 +465,12 @@ final class BoothSessionViewModel: ObservableObject {
 
     /// Session-scoped context shared by new sessions and recovered paid checkouts. Never loads a
     /// previous guest's photos; galleries always get a fresh token.
-    private func prepareSessionContext(format: BoothFormat, sessionIdentifier identifier: String, createdAt sessionDate: Date) {
+    @discardableResult
+    private func prepareSessionContext(format: BoothFormat, sessionIdentifier identifier: String, createdAt sessionDate: Date) -> Bool {
+        if environment.recordsCustomerSessionMetrics, let sessionRunID, let eventRunStore {
+            do { try eventRunStore.beginSession(id: identifier, runID: sessionRunID, format: format.rawValue, now: sessionDate) }
+            catch { state = .error(error.localizedDescription); return false }
+        }
         selectedBoothFormat = format
         sessionCreatedAt = sessionDate
         sessionIdentifier = identifier
@@ -478,6 +497,7 @@ final class BoothSessionViewModel: ObservableObject {
             uploadPhase = .failed(error.localizedDescription)
             uploadStatusMessage = "Gallery setup needs operator attention."
         }
+        return true
     }
 
     /// Navigation is permitted only before any checkout request or paid authorization exists.
@@ -724,6 +744,9 @@ final class BoothSessionViewModel: ObservableObject {
         }
         checkpointStore?.update(id: sessionID) { $0.orderID = order.id; $0.lastServerState = order.state }
         guard isCurrentCustomerSession(generation), !Task.isCancelled else { throw CancellationError() }
+        if environment.recordsCustomerSessionMetrics {
+            eventRunStore?.updateSession(id: sessionID) { if !$0.orderIDs.contains(order.id) { $0.orderIDs.append(order.id) } }
+        }
         paymentOrder = order
         supersedeOrderID = nil
         return order
@@ -881,6 +904,9 @@ final class BoothSessionViewModel: ObservableObject {
                           response.order.checkoutSessionID == nil || response.order.checkoutSessionID == checkoutSessionID else {
                         throw PaymentsAPIError.invalidResponse
                     }
+                    if environment.recordsCustomerSessionMetrics, let checkoutSessionID {
+                        eventRunStore?.updateSession(id: checkoutSessionID) { if !$0.orderIDs.contains(response.order.id) { $0.orderIDs.append(response.order.id) } }
+                    }
                     paymentOrder = response.order
                     paymentAttempt = response.attempt
                     checkoutGuard.newCheckoutAllowed = response.attempt?.isConclusivelyUnpaid == true && response.newCheckout?.allowed == true
@@ -960,6 +986,11 @@ final class BoothSessionViewModel: ObservableObject {
             guard isPaidSession else { return }
             throw PrintCheckpointError.persistenceFailed(error.localizedDescription)
         }
+        if environment.recordsCustomerSessionMetrics {
+            eventRunStore?.updateSession(id: envelope.sessionIdentifier) {
+                $0.printOutcomes[envelope.batchID.uuidString.lowercased() + "/" + String(envelope.copyIndex)] = PrintCopyLocalState.inFlight.rawValue
+            }
+        }
         if let sessionIdentifier, isPaidSession {
             checkpointStore?.update(id: sessionIdentifier) { $0.phase = .printing }
         }
@@ -976,6 +1007,11 @@ final class BoothSessionViewModel: ObservableObject {
         case .failure(let error):
             // Unknown failures are treated as possibly printed.
             state = ((error as? PrintTransportFailure)?.bytesStarted ?? true) ? .uncertain : .notStarted
+        }
+        if environment.recordsCustomerSessionMetrics, let sessionIdentifier {
+            eventRunStore?.updateSession(id: sessionIdentifier) {
+                $0.printOutcomes[batchID.uuidString.lowercased() + "/" + String(copy)] = state.rawValue
+            }
         }
         printOutbox?.finishCopy(batchID: batchID.uuidString.lowercased(), copyIndex: copy, state: state)
         syncPrintOutboxInBackground()
@@ -1035,7 +1071,8 @@ final class BoothSessionViewModel: ObservableObject {
                                                         cashEnabled: false, qrPhEnabled: false, prepaidGuestCopyChoice: false,
                                                         supportedFormatRawValues: [checkpoint.format], offlineValidUntil: nil),
                     startsAt: nil, endsAt: nil, updatedAt: Date())
-                prepareSessionContext(format: format, sessionIdentifier: checkpoint.id, createdAt: Date())
+                sessionRunID = try eventRunStore?.session(id: checkpoint.id)?.runID
+                guard prepareSessionContext(format: format, sessionIdentifier: checkpoint.id, createdAt: Date()) else { return }
                 checkoutGuard = CheckoutGuard(serverCheckoutStarted: true, qrAttemptUnresolved: false, newCheckoutAllowed: false)
                 checkoutEntitlement = entitlement
                 selectedCheckoutCopies = entitlement.purchasedCopies
@@ -1189,6 +1226,8 @@ final class BoothSessionViewModel: ObservableObject {
     func configureUnresolvedCheckoutForTesting(qrAttemptUnresolved: Bool = true) {
         checkoutGuard = CheckoutGuard(serverCheckoutStarted: true, qrAttemptUnresolved: qrAttemptUnresolved, newCheckoutAllowed: false)
     }
+
+    func completeSessionForReportingTest() { showThankYou() }
 
     var paymentPollTaskForTesting: Task<Void, Never>? { paymentPollTask }
 
@@ -2314,7 +2353,11 @@ final class BoothSessionViewModel: ObservableObject {
         statusMessage = "Scan the QR to view and save your photos."
         recoveryStore?.clear(sessionIdentifier: sessionIdentifier)
         if environment.recordsCustomerSessionMetrics {
-            operationalState.recordSessionCompleted()
+            if let sessionIdentifier {
+                let wasCompleted = (try? eventRunStore?.session(id: sessionIdentifier))?.completedAt != nil
+                eventRunStore?.updateSession(id: sessionIdentifier) { if $0.completedAt == nil { $0.completedAt = Date() } }
+                if !wasCompleted { operationalState.recordSessionCompleted() }
+            }
         }
         debugLog("[Session] session completed")
         debugLog("Session \(sessionIdentifier ?? "unknown") printed successfully.")
@@ -2348,6 +2391,7 @@ final class BoothSessionViewModel: ObservableObject {
         sessionIdentifier = nil
         sessionCreatedAt = nil
         sessionEventProfile = nil
+        sessionRunID = nil
         galleryToken = nil
         galleryURL = nil
         galleryQRCodeImage = nil
@@ -2710,7 +2754,9 @@ final class BoothSessionViewModel: ObservableObject {
             receiptPreviewPNGData: receiptPreviewPNGData,
             thermalPreviewPNGData: thermalPreviewPNGData,
             rasterizedImage: rasterizedImage,
-            photoThumbnailData: []
+            photoThumbnailData: [],
+            eventRunID: sessionRunID,
+            eventDesignID: environment.recordsCustomerSessionMetrics ? EventDesignLibraryStore.shared.library.appliedEventID : nil
         )
         archiveCommitPayload = payload
         let archiveDirectory = environment.archiveDirectory
@@ -2787,6 +2833,9 @@ final class BoothSessionViewModel: ObservableObject {
             newGalleryToken: committedSession.galleryToken
         ) else {
             return
+        }
+        if environment.recordsCustomerSessionMetrics {
+            eventRunStore?.updateSession(id: committedSession.sessionIdentifier) { if $0.galleryPreparedAt == nil { $0.galleryPreparedAt = Date() } }
         }
         setUploadPhase(.preparing, message: "Preparing your gallery...", for: committedSession.galleryToken)
         galleryUploadTasks[committedSession.galleryToken] = Task {

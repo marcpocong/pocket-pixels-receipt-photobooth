@@ -953,7 +953,7 @@ async function eventOrders(request, env, principal, eventId) {
     const filter = ORDER_FILTERS[url.searchParams.get("filter") || "all"];
     if (!filter) throw http(422, "Unknown filter.", "invalid_filter");
     const cursor = decodeCursor(url.searchParams.get("cursor")) || { timestamp: "9999-12-31T23:59:59.999Z", id: "￿" };
-    const rows = await env.DB.prepare(`SELECT o.id,o.created_at,o.booth_format,o.copies,o.unit_price_centavos,o.total_centavos,o.currency,o.state,o.superseded_by_order_id,o.supersedes_order_id,
+    const rows = await env.DB.prepare(`SELECT o.id,o.checkout_session_id,o.created_at,o.booth_format,o.copies,o.unit_price_centavos,o.total_centavos,o.currency,o.state,o.superseded_by_order_id,o.supersedes_order_id,
       a.method,a.state payment_state,a.livemode,a.last_reconcile_error,a.reconcile_count,en.session_id,en.authorization_source,en.state entitlement_state,
       (SELECT COUNT(*) FROM print_copy_outcomes po JOIN print_batches pb ON pb.id=po.batch_id WHERE pb.entitlement_id=en.id AND po.outcome='CONFIRMED') confirmed_prints,
       (SELECT COUNT(*) FROM print_copy_outcomes po JOIN print_batches pb ON pb.id=po.batch_id WHERE pb.entitlement_id=en.id AND po.outcome='UNCERTAIN') uncertain_prints
@@ -961,7 +961,7 @@ async function eventOrders(request, env, principal, eventId) {
       WHERE o.event_id=? AND (o.created_at<? OR (o.created_at=? AND o.id<?)) AND ${filter} ORDER BY o.created_at DESC, o.id DESC LIMIT ?`)
         .bind(eventId, cursor.timestamp, cursor.timestamp, cursor.id, limit + 1).all();
     const values = rows.results || [], page = values.slice(0, limit).map(row => ({ ...row, category: reportCategory(row), last_reconcile_error: row.last_reconcile_error ? "provider_lookup_failed" : null }));
-    return json({ orders: page, nextCursor: values.length > limit ? encodeCursor(page.at(-1).created_at, page.at(-1).id) : null });
+    return json({ checkoutSessionIdentityIncluded: true, orders: page, nextCursor: values.length > limit ? encodeCursor(page.at(-1).created_at, page.at(-1).id) : null });
 }
 
 async function offlineConflicts(request, env, principal, eventId) {

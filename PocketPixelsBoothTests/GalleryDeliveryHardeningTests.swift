@@ -22,9 +22,10 @@ final class GalleryDeliveryHardeningTests: XCTestCase {
             DeliveryProtocol.metadataBeforePOST = nil
             let configuration = URLSessionConfiguration.ephemeral
             configuration.protocolClasses = [DeliveryProtocol.self]
+            var verifiedSessions: [String] = []
             let service = GoogleDriveGalleryUploadService(
                 configurationProvider: { try GoogleDriveGalleryConfiguration.validate(rawValue: "https://script.google.com/macros/s/TEST/exec") },
-                urlSession: URLSession(configuration: configuration), pendingStore: queue)
+                urlSession: URLSession(configuration: configuration), pendingStore: queue, onPublicGalleryVerified: { verifiedSessions.append($0) })
             do {
                 _ = try await service.uploadPendingGallery(galleryToken: token, deviceToken: String(repeating: "x", count: 32))
                 XCTFail("\(scenario) must not report delivery")
@@ -47,12 +48,14 @@ final class GalleryDeliveryHardeningTests: XCTestCase {
                 XCTAssertNil(DeliveryProtocol.requests.last?.value(forHTTPHeaderField: "Authorization"))
                 XCTAssertEqual(DeliveryProtocol.requests.last?.timeoutInterval, 30)
             }
+            XCTAssertTrue(verifiedSessions.isEmpty, "Unknown delivery must never become a verified report")
             // Network restoration retries exactly the persisted identity and clears only after
             // both backend acceptance and the frozen public page's completion marker.
             DeliveryProtocol.scenario = .complete
             let result = try await service.uploadPendingGallery(galleryToken: token, deviceToken: String(repeating: "x", count: 32))
             XCTAssertEqual(result.galleryURL, payload.galleryURL)
             XCTAssertNil(try reopened.load(galleryToken: token))
+            XCTAssertEqual(verifiedSessions, [payload.sessionID])
         }
     }
 

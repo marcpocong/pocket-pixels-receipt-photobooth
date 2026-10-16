@@ -39,7 +39,7 @@ struct OperatorDashboardView: View {
                 OperatorSecondaryLink(title: "Print Display Samples", systemImage: "printer.dotmatrix", route: .samplePrints) { SamplePrintStudioView() }
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
                     OperatorSecondaryLink(title: "Branding & Design", systemImage: "paintpalette", route: .branding) { OperatorBrandingView() }
-                    OperatorSecondaryLink(title: "Sales & History", systemImage: "chart.bar", route: .sales) { OperatorManageEventView() }
+                    OperatorSecondaryLink(title: "Event Operations & Reports", systemImage: "chart.bar", route: .sales) { OperatorManageEventView() }
                     OperatorSecondaryLink(title: "Equipment", systemImage: "printer", route: .equipment) { OperatorEquipmentView() }
                     OperatorSecondaryLink(title: "Advanced", systemImage: "gearshape.2", route: .advanced) { OperatorAdvancedView() }
                 }
@@ -486,7 +486,7 @@ private extension View {
 extension OperatorWorkspaceRoute {
     @MainActor @ViewBuilder var destination: some View {
         switch self {
-        case .manageEvent, .sales: OperatorManageEventView()
+        case .manageEvent, .sales: EventRunReportingView()
         case .savedDrafts: SavedDraftsView()
         case .draftReview(let id): SavedDraftReviewView(draftID: id)
         case .sessionSetup, .charging: SessionSetupView()

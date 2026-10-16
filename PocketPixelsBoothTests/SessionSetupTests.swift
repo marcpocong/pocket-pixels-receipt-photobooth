@@ -273,6 +273,23 @@ import SwiftUI
         try await snapshot("paid-setup", view: NavigationStack { SessionSetupView(coordinator: f.model) })
         try await snapshot("paid-review", view: SessionSetupReviewView(setup: f.model, onBack: {}, onFinished: { _ in }))
     }
+    func testAppliedDesignIdentityFailureKeepsAdmissionClosed() async {
+        let f = SetupFixture(); defer { f.cleanup() }
+        var fail = false
+        let library = EventDesignLibraryStore(directory: f.directory.appendingPathComponent("identity-fault"), write: { data, url in
+            if fail { throw CocoaError(.fileWriteOutOfSpace) }
+            try DurableFileWriter.write(data, to: url)
+        }, legacyProfile: { .pocketPixelsDefault }, legacyName: { "" })
+        let model = SessionSetupCoordinator(workspace: f.workspace, acceptance: f.acceptance, library: library,
+            api: { f.api }, authorized: { true }, blockingReason: { nil }, loadLocal: { f.local }, saveLocal: { f.local = $0 },
+            source: { f.source }, saveSource: { f.source = $0 }, currentProfile: { f.profile }, applyProfile: { f.profile = $0 })
+        fail = true
+        let started = await model.startAccepting()
+        XCTAssertFalse(started)
+        XCTAssertTrue(f.acceptance.state.blocked)
+        XCTAssertTrue(model.message.contains("not confirmed"))
+    }
+
     private func snapshot<V: View>(_ name: String, view: V) async throws {
         let host = UIHostingController(rootView: view)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)

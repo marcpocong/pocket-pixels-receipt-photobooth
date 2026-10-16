@@ -19,6 +19,16 @@ struct ServerEventEditorView: View {
     @State private var hasVersionConflict = false
     @State private var pendingAction: LifecycleAction?
     @State private var summary: OperatorSalesSummary?
+    @State private var reportError: String?
+    @State private var reportRequest = UUID()
+    @State private var conflictsError: String?
+    @State private var ordersError: String?
+    @State private var ordersLoading = false
+    @State private var ordersRequest = UUID()
+    @State private var localOfflineCount = 0
+    @State private var localOfflineCentavos = 0
+    @State private var legacyOfflineCount = 0
+    @State private var localOfflineError: String? = "Local offline cash has not been loaded."
     @State private var countText = ""
     @State private var countReason = "End-of-event physical count"
     @State private var orderFilter = "all"
@@ -278,11 +288,23 @@ struct ServerEventEditorView: View {
     // MARK: Sales
 
     @ViewBuilder private var salesSections: some View {
+        Section("Report Status") {
+            LabeledContent("Environment", value: PaymentsConfiguration.current()?.environment.uppercased() ?? "NOT CONFIGURED")
+            Text("Financial totals cover this commercial event across all runs and iPads. Event-run statistics are available in Sales & Reports.").font(.footnote)
+            if let reportError { Label(reportError, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
+            if let conflictsError { Label(conflictsError, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
+            if summary == nil, reportError == nil { Text("Loading financial report…") }
+            Button("Refresh Financial Report") { Task { await reload(keepEdits: true) } }
+            NavigationLink("Operator API Credentials", value: OperatorWorkspaceRoute.payments)
+            if legacyOfflineCount > 0 { Text("\(legacyOfflineCount) legacy offline cash record(s) have no saved environment. Review in Payment Maintenance; their amounts are excluded here.").foregroundStyle(.orange) }
+            if let localOfflineError { Label(localOfflineError, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
+            else { LabeledContent("Offline cash waiting on this iPad", value: "\(localOfflineCount) · \(PHPPriceFormatter.string(centavos: localOfflineCentavos))") }
+        }
         if let summary {
-            Section("Sales Provenance") {
+            Section("Sales Provenance — server authoritative") {
                 LabeledContent("QR Ph verified (LIVE)", value: PHPPriceFormatter.string(centavos: summary.verifiedQRPhLiveCentavos))
                 LabeledContent("QR Ph verified (TEST, excluded)", value: PHPPriceFormatter.string(centavos: summary.verifiedQRPhTestCentavos))
-                LabeledContent("Cash confirmed by attendant", value: PHPPriceFormatter.string(centavos: summary.cashOperatorConfirmedCentavos ?? 0))
+                LabeledContent("Cash confirmed by attendant", value: summary.cashOperatorConfirmedCentavos.map { PHPPriceFormatter.string(centavos: $0) } ?? "Not reported by server")
                 LabeledContent("Cash guest-declared (unverified)", value: PHPPriceFormatter.string(centavos: summary.cashSelfReportedCentavos))
                 if let offline = summary.cashSelfReportedOfflineSyncedCentavos, offline > 0 {
                     LabeledContent("  of which synced from offline", value: PHPPriceFormatter.string(centavos: offline))
@@ -290,13 +312,14 @@ struct ServerEventEditorView: View {
                 if let physical = summary.physicalCashCount {
                     LabeledContent("Cash physically counted", value: PHPPriceFormatter.string(centavos: physical.countedCentavos))
                     LabeledContent("Variance (counted − all cash orders)", value: PHPPriceFormatter.string(centavos: physical.varianceCentavos))
-                    if physical.provisional { Label("Provisional: offline cash is still unsynced or in conflict", systemImage: "exclamationmark.triangle") }
+                    if physical.provisional || localOfflineError != nil { Label("Provisional: offline cash is still unsynced or in conflict", systemImage: "exclamationmark.triangle") }
                 } else {
                     Text("Cash reconciliation: NOT RECONCILED").foregroundStyle(.secondary)
                 }
                 if let unresolved = summary.unresolvedQRCount, unresolved > 0 {
                     Label("\(unresolved) QR Ph payment(s) unresolved", systemImage: "clock.badge.questionmark")
                 }
+                LabeledContent("Offline conflicts — server total", value: summary.offlineConflictCount.map(String.init) ?? "Not reported by server")
                 if let late = summary.lateQRPaidReviewCentavos, late > 0 {
                     Label("\(PHPPriceFormatter.string(centavos: late)) paid late on replaced checkouts — review for refund", systemImage: "exclamationmark.bubble")
                 }
@@ -305,7 +328,9 @@ struct ServerEventEditorView: View {
             }
             Section("Print Copies") {
                 LabeledContent("Purchased", value: "\(summary.printUtilization.purchased)")
-                LabeledContent("Confirmed", value: "\(summary.printUtilization.confirmed)")
+                LabeledContent("Transport delivered", value: summary.printUtilization.delivered.map(String.init) ?? "Not reported by server")
+                LabeledContent("Legacy confirmed", value: "\(summary.printUtilization.confirmed)")
+                Text("Transport delivery does not verify paper output with a sensor.").font(.footnote)
                 LabeledContent("Uncertain (inspect paper)", value: "\(summary.printUtilization.uncertain)")
                 LabeledContent("Failed", value: "\(summary.printUtilization.failed)")
             }
@@ -331,6 +356,9 @@ struct ServerEventEditorView: View {
                 Text("Cash").tag("cash"); Text("QR Ph").tag("qr")
             }
             .onChange(of: orderFilter) { _, _ in Task { await loadOrders(reset: true) } }
+            if let ordersError { Label(ordersError, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
+            if ordersLoading { ProgressView("Loading orders…") }
+            if orders.isEmpty, !ordersLoading, ordersError == nil { Text("No orders match this filter.").foregroundStyle(.secondary) }
             ForEach(orders) { order in
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\(PHPPriceFormatter.string(centavos: order.totalCentavos)) · \(order.copies)× \(order.boothFormat)")
@@ -340,11 +368,11 @@ struct ServerEventEditorView: View {
                 }
             }
             if nextOrderCursor != nil {
-                Button("Load More") { Task { await loadOrders(reset: false) } }
+                Button("Load More") { Task { await loadOrders(reset: false) } }.disabled(ordersLoading)
             }
         }
         if !conflicts.isEmpty {
-            Section("Offline Cash Conflicts (server)") {
+            Section("Recent Offline Cash Conflicts — up to 50") {
                 ForEach(conflicts) { conflict in
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(conflict.reason.replacingOccurrences(of: "_", with: " ")) · seq \(conflict.localSequence.map(String.init) ?? "?")")
@@ -365,11 +393,17 @@ struct ServerEventEditorView: View {
     // MARK: Actions
 
     private func reload(keepEdits: Bool) async {
-        guard let client else { message = "This iPad is not paired with the payments server."; return }
+        guard let client else { summary = nil; reportError = "This iPad is not paired with the payments server."; return }
+        let request = UUID(); reportRequest = request
+        let binding = workspace.serverBinding
+        summary = nil; reportError = nil
         isBusy = true
-        defer { isBusy = false }
+        defer { if reportRequest == request { isBusy = false } }
+        await loadLocalCash(environment: client.environment, request: request, binding: binding)
+        guard ownsReport(request, binding: binding) else { return }
         do {
             let loaded = try await client.eventDetail(id: eventID)
+            guard ownsReport(request, binding: binding) else { return }
             detail = loaded
             maintenanceNeedsRefresh = false
             let source = loaded.latestRevision ?? loaded.activePolicy
@@ -389,12 +423,43 @@ struct ServerEventEditorView: View {
                     ? "The server changed while you were away. Your local edits are preserved; review the differences below."
                     : "Local setup restored. These edits are not saved on the server or published."
             }
-            summary = try? await client.eventSummary(id: eventID, pendingLocalCount: await OfflineCashLedger.shared?.pendingRecords().count ?? 0)
-            conflicts = (try? await client.offlineConflicts(eventID: eventID)) ?? []
+            do {
+                let refreshed = try await client.eventSummary(id: eventID, pendingLocalCount: localOfflineCount + legacyOfflineCount)
+                guard ownsReport(request, binding: binding) else { return }
+                summary = refreshed; reportError = nil
+            }
+            catch { guard ownsReport(request, binding: binding) else { return }; summary = nil; reportError = "Financial totals unavailable: \(error.localizedDescription). Check operator authorization for this environment; unavailable does not mean zero." }
+            do {
+                let refreshed = try await client.offlineConflicts(eventID: eventID)
+                guard ownsReport(request, binding: binding) else { return }
+                conflicts = refreshed; conflictsError = nil
+            }
+            catch { guard ownsReport(request, binding: binding) else { return }; conflicts = []; conflictsError = "Offline conflict report unavailable: \(error.localizedDescription)" }
             await loadOrders(reset: true)
         } catch {
+            guard ownsReport(request, binding: binding) else { return }
+            summary = nil
+            reportError = "Financial report unavailable: \(error.localizedDescription). Check the operator credential in Advanced → Payment Maintenance."
             message = "Could not load the event: \(error.localizedDescription)"
         }
+    }
+
+    private func loadLocalCash(environment: String, request: UUID, binding: String) async {
+        localOfflineError = "Local offline cash has not been loaded."
+        localOfflineCount = 0; localOfflineCentavos = 0; legacyOfflineCount = 0
+        guard let ledger = OfflineCashLedger.shared else { localOfflineError = "Local offline-cash storage is unavailable; reconciliation remains provisional."; return }
+        if let fault = await ledger.integrityFault { localOfflineError = fault; return }
+        let records = await ledger.pendingRecords()
+        guard ownsReport(request, binding: binding) else { return }
+        do {
+            let local = try OfflineCashReportingSnapshot(records: records, eventID: eventID, environment: environment)
+            localOfflineCount = local.pending.count; localOfflineCentavos = local.centavos
+            legacyOfflineCount = local.unassigned.count; localOfflineError = nil
+        } catch { localOfflineError = "Local cash totals unavailable: \(error.localizedDescription)" }
+    }
+
+    private func ownsReport(_ request: UUID, binding: String) -> Bool {
+        reportRequest == request && workspace.serverBinding == binding && !Task.isCancelled
     }
 
     private func saveDraft(_ current: OperatorEventDetail) async {
@@ -417,6 +482,7 @@ struct ServerEventEditorView: View {
     private func perform(_ action: LifecycleAction) async {
         if [.activate, .publish].contains(action), hasUnsavedChanges || hasVersionConflict { return }
         guard let client, let current = detail else { return }
+        if let reason = SessionSetupSafety.blockingReason { message = reason; return }
         isBusy = true
         defer { isBusy = false }
         let revision = current.latestRevision
@@ -452,45 +518,56 @@ struct ServerEventEditorView: View {
 
     private func saveCount() async {
         guard let client, let centavos = PesoAmount.centavos(fromPesoText: countText) else { return }
+        let binding = workspace.serverBinding
         do {
-            let pending = await OfflineCashLedger.shared?.pendingRecords().count ?? 0
+            guard let ledger = OfflineCashLedger.shared, await ledger.integrityFault == nil else {
+                message = "Cash count not saved: recover the local offline journal first."; return
+            }
+            let pending = await ledger.pendingRecords().filter { $0.eventID == eventID }.count
+            guard workspace.serverBinding == binding, !Task.isCancelled else { return }
             let saved = try await client.recordCashCount(eventID: eventID, countedCentavos: centavos, reason: countReason, pendingLocalCount: pending)
+            guard workspace.serverBinding == binding else { return }
             message = "Count of \(PHPPriceFormatter.string(centavos: saved.countedCentavos)) recorded\(saved.provisional ? " (provisional)" : "")."
             countText = ""
-            summary = try? await client.eventSummary(id: eventID, pendingLocalCount: pending)
+            do {
+                let refreshed = try await client.eventSummary(id: eventID, pendingLocalCount: pending)
+                guard workspace.serverBinding == binding, !Task.isCancelled else { return }
+                summary = refreshed; reportError = nil
+            }
+            catch { guard workspace.serverBinding == binding else { return }; summary = nil; reportError = "Count was saved, but updated totals are unavailable: \(error.localizedDescription)" }
         } catch {
             message = "Count not saved: \(error.localizedDescription)"
         }
     }
 
     private func loadOrders(reset: Bool) async {
-        guard let client else { return }
+        guard let client, reset || !ordersLoading else { return }
+        let request = UUID(); ordersRequest = request
+        let filter = orderFilter
+        let binding = workspace.serverBinding
+        ordersLoading = true; ordersError = nil
+        if reset { orders = []; nextOrderCursor = nil }
+        defer { if ordersRequest == request { ordersLoading = false } }
         do {
-            let page = try await client.eventOrders(id: eventID, filter: orderFilter, cursor: reset ? nil : nextOrderCursor)
-            orders = reset ? page.orders : orders + page.orders
+            let page = try await client.eventOrders(id: eventID, filter: filter, cursor: reset ? nil : nextOrderCursor)
+            guard ordersRequest == request, orderFilter == filter, workspace.serverBinding == binding, !Task.isCancelled else { return }
+            let existing = Set(orders.map(\.id))
+            orders = reset ? page.orders : orders + page.orders.filter { !existing.contains($0.id) }
             nextOrderCursor = page.nextCursor
         } catch {
-            message = "Orders not loaded: \(error.localizedDescription)"
+            guard ordersRequest == request, workspace.serverBinding == binding else { return }
+            ordersError = "Orders unavailable: \(error.localizedDescription)"
         }
     }
 
     private func export() async {
         guard let client else { return }
+        let binding = workspace.serverBinding
         do {
-            var combined = Data()
-            var cursor: String?
-            var pages = 0
-            repeat {
-                let page = try await client.exportCSV(eventID: eventID, cursor: cursor)
-                // Later pages repeat the header row; keep only the first.
-                if pages == 0 { combined.append(page.data) } else if let text = String(data: page.data, encoding: .utf8), let newline = text.range(of: "\r\n") {
-                    combined.append(Data(text[newline.upperBound...].utf8))
-                }
-                pages += 1
-                cursor = page.complete ? nil : page.nextCursor
-            } while cursor != nil && pages < 40
-            exportComplete = pages == 1
-            if cursor != nil { message = "Export stopped after \(pages) pages; the file is incomplete." }
+            exportURL = nil
+            let combined = try await client.completeEventCSV(eventID: eventID)
+            guard workspace.serverBinding == binding, !Task.isCancelled else { return }
+            exportComplete = true
             let url = FileManager.default.temporaryDirectory.appending(path: "\(eventID)-sales.csv")
             try combined.write(to: url, options: [.atomic, .completeFileProtection])
             exportURL = url

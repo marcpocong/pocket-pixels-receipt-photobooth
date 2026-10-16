@@ -69,6 +69,20 @@ test("orders drill-down filters, categories and composite pagination", () => wit
     assert.doesNotMatch(JSON.stringify(all), /qr_image|data:image|pi_\d|test\.paymongo/);
 }));
 
+test("order reports preserve original checkout membership before entitlement claim without widening access", () => withHarness(async h => {
+    const { event, qr, pending } = await sales(h);
+    const path = `/v1/admin/events/${event.eventId}/orders`;
+    const report = await op(h, "GET", path);
+    assert.equal(report.status, 200);
+    assert.equal(report.json.checkoutSessionIdentityIncluded, true);
+    const paid = report.json.orders.find(row => row.id === qr.order.id);
+    assert.equal(paid.checkout_session_id, qr.session);
+    assert.equal(paid.session_id, null, "provider-verified payment remains attributable before claim");
+    assert.equal(report.json.orders.find(row => row.id === pending.order.id).checkout_session_id, pending.session);
+    assert.equal((await h.request("GET", path, { token: TOKENS.boothOnly })).status, 403);
+    assert.equal((await h.request("GET", path, { token: TOKENS.otherAccount })).status, 404);
+}));
+
 test("CSV export: deterministic, escaped, no provider or media data, paginated with completion headers", () => withHarness(async h => {
     const { event } = await sales(h);
     const first = await op(h, "GET", `/v1/admin/events/${event.eventId}/export.csv`);

@@ -230,7 +230,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         return eventModeEnabled ? design?.serverEventID(binding: binding) : library.library.regularServerEvents[binding]
     }
 
-    var savedEvents: [SavedEventDesign] { library.library.events.sorted { $0.updatedAt > $1.updatedAt } }
+    var savedEvents: [SavedEventDesign] { library.library.events.filter { $0.archivedAt == nil }.sorted { $0.updatedAt > $1.updatedAt } }
 
     /// Server events not yet linked to a saved event in this environment.
     var unlinkedServerEvents: [OperatorEventSummary] {
@@ -356,6 +356,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         if needsRefresh { return "Check Current Status before reviewing again. The previous action may have reached the server." }
         if eventModeEnabled {
             guard let design else { return "Choose or create an event, or turn off Event Mode." }
+            if design.archivedAt != nil { return "This design is archived. Choose an active design." }
             if design.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Enter an event name." }
             if design.personalizeReceipt && !artworkAvailable(design.logoIdentifier) {
                 return design.logoIdentifier == nil
@@ -643,6 +644,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         defer { busy = false; operationBinding = nil }
         do {
             try checkPermit()
+            if eventModeEnabled, library.design(id: designID)?.archivedAt != nil { throw SetupFailure("The selected design was archived. Choose an active design before applying this setup.") }
             // The reviewed design is saved first; saving never changes what guests receive.
             if eventModeEnabled, let design, designDirty {
                 try library.save(design)
@@ -651,6 +653,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
             }
             let profile = effectiveProfile
             try acceptance.save(.init(blocked: true, eventID: acceptance.state.eventID, serverBinding: acceptance.state.serverBinding, mode: source()))
+            let nextAcceptance: SessionAcceptanceStore.State
             if mode == .localPrepaid {
                 // A paid → prepaid switch also pauses the current remote event; provider recovery stays live.
                 if source() == .serverManaged {
@@ -671,7 +674,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
                 run.lifecycle = .active; run.updatedAt = Date()
                 try saveLocal(run); try applyProfile(profile)
                 try checkPermit(); saveSource(.localPrepaid)
-                try acceptance.save(.init(mode: .localPrepaid))
+                nextAcceptance = .init(mode: .localPrepaid)
                 prepaid = run; workspace.savePrepaidDraft(nil)
             } else {
                 guard let id = selectedID, id == targetServerEventID, let expectedVersion = baseVersion else { throw SetupFailure("Choose an event.") }
@@ -693,11 +696,19 @@ extension PaymentsAPIClient: SessionSetupAPI {}
                 guard event.event.lifecycle == .active, event.activePolicy?.id == revision.id,
                       confirmed.event?.id == id, confirmed.event?.policyRevisionId == revision.id else { throw SetupFailure("Starting this event was not confirmed. Check Current Status.") }
                 try checkPermit(); try applyProfile(profile); saveSource(.serverManaged)
-                try acceptance.save(.init(blocked: false, eventID: id, serverBinding: workspace.serverBinding, mode: .serverManaged))
+                nextAcceptance = .init(blocked: false, eventID: id, serverBinding: workspace.serverBinding, mode: .serverManaged)
                 baseVersion = event.event.version; workspace.removeServerDraft(eventID: id)
             }
-            // Informational only: which event the library shows as applied.
-            try? library.recordApplied(eventModeEnabled: eventModeEnabled, eventID: designID)
+            // Applied identity now anchors durable run reports. Commit it before opening admission.
+            try library.recordApplied(eventModeEnabled: eventModeEnabled, eventID: designID)
+            let context = EventRunContext(designID: eventModeEnabled ? designID : nil,
+                commercialEventID: mode == .serverManaged ? selectedID : nil,
+                serverBinding: mode == .serverManaged ? workspace.serverBinding : nil,
+                name: design?.displayName ?? name)
+            if let current = EventRunStore.shared.current, current.status == .paused, current.context.matches(context) {
+                try EventRunStore.shared.transition(id: current.id, to: .active)
+            }
+            try acceptance.save(nextAcceptance)
             requestedMethods = nil
             workspace.saveSessionSetup(nil); message = "Accepting guests. The next session will use the reviewed setup."
             return true

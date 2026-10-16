@@ -23,6 +23,7 @@ struct ContentView: View {
                 operationalState.start()
                 // Settles any print left in flight by a crash and reconciles interrupted checkouts.
                 PaymentRecoveryCoordinator.shared.launch()
+                Task { await EventRunStore.shared.reconcilePrintEvidence(PrintOutcomeOutbox.shared?.entries ?? []) }
             }
             .onDisappear {
                 setIdleTimerDisabled(false)
