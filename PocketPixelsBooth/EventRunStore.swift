@@ -35,6 +35,9 @@ nonisolated struct EventRunRecord: Codable, Identifiable, Equatable, Sendable {
     var historical: Bool? = nil
     /// The occurrence this one followed when it was explicitly started from the same design.
     var previousRunID: String? = nil
+    /// The first run of an install upgraded from a build without event runs. Its occurrence began
+    /// before `createdAt`; statistics count only from `createdAt`.
+    var recordedAfterUpgrade: Bool? = nil
 
     var isHistorical: Bool { historical == true }
 }
@@ -150,7 +153,22 @@ nonisolated struct EventRunSession: Codable, Identifiable, Equatable, Sendable {
             return current
         }
         if pendingTransition != nil { throw SetupFailure("An event change needs review. Ask the attendant to open Current Event.") }
-        return try createRun(context: context, now: Date())
+        return try createRun(context: context, now: Date(), upgrade: true)
+    }
+
+    /// Durable, idempotent upgrade step for an install that is already running an occurrence
+    /// with no run recorded. One atomic manifest write; a repeat returns the same run, and a
+    /// different identity is refused rather than replacing it. No session is reassigned.
+    @discardableResult func recordUpgradedRun(context: EventRunContext, paused: Bool, now: Date = Date()) throws -> EventRunRecord {
+        guard authorized() else { throw PaymentsAPIError.unauthorized }
+        if pendingTransition != nil { throw SetupFailure("Finish reviewing the interrupted event change in Current Event first.") }
+        if let current {
+            guard current.context.matches(context), [.active, .paused].contains(current.status) else {
+                throw SetupFailure("This iPad already has a different event run. Nothing was changed.")
+            }
+            return current
+        }
+        return try createRun(context: context, now: now, status: paused ? .paused : .active, upgrade: true)
     }
 
     func occurrencePlan(for context: EventRunContext) -> EventOccurrencePlan {
@@ -196,8 +214,9 @@ nonisolated struct EventRunSession: Codable, Identifiable, Equatable, Sendable {
         if let reason = blockingReason() { throw SetupFailure(reason) }
     }
 
-    private func createRun(context: EventRunContext, now: Date, previousRunID: String? = nil) throws -> EventRunRecord {
-        let run = EventRunRecord(id: UUID().uuidString.lowercased(), context: context, createdAt: now, status: .active, previousRunID: previousRunID)
+    private func createRun(context: EventRunContext, now: Date, previousRunID: String? = nil, status: EventRunStatus = .active, upgrade: Bool = false) throws -> EventRunRecord {
+        let run = EventRunRecord(id: UUID().uuidString.lowercased(), context: context, createdAt: now, status: status, previousRunID: previousRunID,
+                                 recordedAfterUpgrade: upgrade && runs.isEmpty ? true : nil)
         var next = runs
         if let index = next.firstIndex(where: { $0.id == currentRunID }), [.active, .paused].contains(next[index].status) {
             next[index].status = .completed; next[index].endedAt = now

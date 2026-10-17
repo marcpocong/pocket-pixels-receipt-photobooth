@@ -832,4 +832,8 @@ nonisolated enum SessionAdmission {
     static func localConfigurationIsReady(source: CommercialPolicySource, local: CommercialEventRun) -> Bool {
         source == .serverManaged || (local.acceptsNewSessions && local.activePolicy.commercialMode == .privatePrepaid && local.activePolicy.validationMessage == nil)
     }
+    /// A valid prepaid setup that was paused on this iPad.
+    static func localConfigurationIsPaused(_ local: CommercialEventRun) -> Bool {
+        local.lifecycle == .paused && local.activePolicy.commercialMode == .privatePrepaid && local.activePolicy.validationMessage == nil
+    }
 }

@@ -4,7 +4,7 @@ import SwiftUI
 
 /// A synthetic Payments Worker with the real lifecycle rules: one active event per account,
 /// version-checked transitions, ENDED is terminal, and injectable lost responses.
-@MainActor private final class LifecycleServerStub: SessionSetupAPI {
+@MainActor final class LifecycleServerStub: SessionSetupAPI {
     struct Event { var name: String; var venue: String; var lifecycle: CommercialEventLifecycle; var version: Int; var latest: OperatorPolicyRevision?; var active: OperatorPolicyRevision? }
     var events: [String: Event] = [:]
     var calls: [String] = []
@@ -79,7 +79,7 @@ import SwiftUI
 }
 
 /// One iPad's durable state in an isolated directory. `relaunch()` rebuilds every store from disk.
-@MainActor private final class Booth {
+@MainActor final class Booth {
     let directory: URL
     let server: LifecycleServerStub
     var workspace: OperatorWorkspace
@@ -623,7 +623,10 @@ import SwiftUI
         XCTAssertEqual(status(run: completed), .completed)
         var archived = run; archived.status = .archived
         XCTAssertEqual(status(run: archived), .archived)
-        XCTAssertEqual(status(run: nil, blocked: true), .noEvent)
+        // Event Integrity release: a paused booth whose admission was committed for a confirmed paid
+        // event is paused, not "No Event Configured" (an upgraded install with no run yet).
+        XCTAssertEqual(status(run: nil, blocked: true), .pausedOnBooth)
+        XCTAssertEqual(status(run: nil, blocked: true, acceptanceEvent: nil), .noEvent, "Nothing committed and nothing open: unconfigured")
         XCTAssertEqual(EventStatusModel.derive(.init(run: nil, appliedContext: context, barrierBlocked: true, acceptanceEventID: nil, acceptanceBinding: nil, binding: "b",
             source: .localPrepaid, localPrepaidReady: true, commercial: .notNeeded, recoveryReason: nil, storageErrors: [], pendingTransition: nil, hasUnsavedSetup: true, operation: nil)), .draft)
         XCTAssertEqual(EventStatusModel.derive(.init(run: run, appliedContext: context, barrierBlocked: false, acceptanceEventID: "e", acceptanceBinding: "b", binding: "b",
