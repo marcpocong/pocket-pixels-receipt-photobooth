@@ -23,9 +23,7 @@ struct SavedDraftsView: View {
             }
             ForEach(Array(Set(entries.map(\.eventName))).sorted(), id: \.self) { name in
                 SwiftUI.Section {
-                    ForEach(entries.filter { $0.eventName == name }) { entry in
-                        draftRow(entry)
-                    }
+                    ForEach(entries.filter { $0.eventName == name }, content: draftRow)
                 } header: { Text(name) }
             }
             if !message.isEmpty { Section { Text(message).foregroundStyle(.red) } }

@@ -407,9 +407,7 @@ struct RecentSessionsView: View {
             } else {
                 ForEach(viewModel.groupedSummaries, id: \.0) { sectionTitle, summaries in
                     SwiftUI.Section {
-                        ForEach(summaries) { summary in
-                            archivedSessionLink(summary)
-                        }
+                        ForEach(summaries, content: archivedSessionLink)
                     } header: { Text(sectionTitle) }
                 }
             }
