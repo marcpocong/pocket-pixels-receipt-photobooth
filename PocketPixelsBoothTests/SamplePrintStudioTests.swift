@@ -133,12 +133,13 @@ final class SamplePrintStudioTests: XCTestCase {
 
             let guest = try ReceiptComposer.compose(
                 photos: photos, sessionIdentifier: "PP-20260907-161400", date: fixedDate, galleryURL: nil, format: format,
-                passport: format == .passport ? SamplePhotoPassDetails().sessionData(configuration: .default) : nil
+                passport: format == .passport ? SamplePhotoPassDetails().sessionData(configuration: .default) : nil,
+                sampleGalleryPlaceholder: true
             )
             XCTAssertEqual(sample.receipt.height, guest.height, "\(format.rawValue): sample must be exactly as long as a guest receipt")
 
             // Where a guest receipt prints its session identifier, the sample prints nothing.
-            let plan = try ReceiptComposer.makeLayoutPlan(format: format, includesGalleryQRCode: false, passport: format == .passport ? SamplePhotoPassDetails().sessionData(configuration: .default) : nil, date: fixedDate)
+            let plan = try ReceiptComposer.makeLayoutPlan(format: format, includesGalleryQRCode: true, passport: format == .passport ? SamplePhotoPassDetails().sessionData(configuration: .default) : nil, date: fixedDate)
             let identifierBand = CGRect(x: 0, y: plan.sessionIdentifierFrame.minY, width: CGFloat(plan.width), height: plan.sessionIdentifierFrame.height)
             let sampleImage = try XCTUnwrap(UIImage(data: sample.receipt.imagePNGData)?.cgImage)
             let guestImage = try XCTUnwrap(UIImage(data: guest.imagePNGData)?.cgImage)

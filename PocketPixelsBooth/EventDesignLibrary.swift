@@ -337,9 +337,20 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
         try commit(next)
     }
 
+    func deletionIneligibility(id: String, runs: [EventRunRecord], archives: [RecentSessionArchiveSummary], historyAvailable: Bool) -> String? {
+        guard historyAvailable, storageError == nil, !archives.contains(where: { $0.rasterFingerprint == "CORRUPT" }) else { return "Dependency inspection is incomplete. Recover history before deleting." }
+        guard let design = design(id: id) else { return "Design not found." }
+        if library.appliedEventID == id || design.hasCommercialHistory || runs.contains(where: { $0.context.designID == id })
+            || archives.contains(where: { $0.eventDesignID == id || ($0.eventDesignID == nil && $0.createdAt >= design.createdAt) }) {
+            return "This design has applied, commercial or historical dependencies. Archive it instead."
+        }
+        return nil
+    }
+
     func deleteUnusedDesign(id: String, runs: [EventRunRecord], archives: [RecentSessionArchiveSummary], historyAvailable: Bool) throws {
         guard operationAuthorized() else { throw PaymentsAPIError.unauthorized }
         if let reason = operationBlockingReason() { throw SetupFailure(reason) }
+        if let reason = deletionIneligibility(id: id, runs: runs, archives: archives, historyAvailable: historyAvailable) { throw SetupFailure(reason) }
         guard historyAvailable, !archives.contains(where: { $0.rasterFingerprint == "CORRUPT" }) else { throw SetupFailure("Recover unreadable event history before deleting a design. Archiving retains all dependencies.") }
         guard let design = design(id: id) else { throw SetupFailure("Design not found.") }
         guard library.appliedEventID != id, !design.hasCommercialHistory,

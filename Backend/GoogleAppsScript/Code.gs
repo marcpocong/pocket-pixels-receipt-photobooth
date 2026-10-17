@@ -21,7 +21,8 @@ const MAX_IMAGE_DECODED_BYTES = 6 * 1024 * 1024;
 
 const GALLERY_TOKEN_PATTERN = /^[a-f0-9]{64}$/;
 
-const SAFE_SESSION_ID_PATTERN = /^PP-[0-9]{8}-[0-9]{6}$/;
+// Legacy receipts stay valid; new customer ownership adds a UUID for safe checkout handoff.
+const SAFE_SESSION_ID_PATTERN = /^PP-[0-9]{8}-[0-9]{6}(?:-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/;
 
 const RFC3339_UTC_SECONDS_PATTERN = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/;
 

@@ -199,7 +199,7 @@ test("Cron reconciles with bounded batches, backoff on provider failure, and no 
     assert.equal(await entitlementCount(h, orders[4].order.id), 1);
 }));
 
-test("Cron settles a QR still unpaid well after its expiry, and an interrupted creation with no intent", () => withHarness(async h => {
+test("Cron preserves unknown QR after timer expiry, and settles interrupted creation with no intent", () => withHarness(async h => {
     const event = await activePaidEvent(h);
     const { order } = await qrOrder(h, event);
     await h.db.prepare("UPDATE payment_attempts SET expires_at=? WHERE order_id=?").bind(new Date(Date.now() - 11 * 60_000).toISOString(), order.id).run();
@@ -210,7 +210,7 @@ test("Cron settles a QR still unpaid well after its expiry, and an interrupted c
         h.db.prepare("INSERT INTO payment_attempts(id,order_id,method,livemode,state,created_at,updated_at) VALUES('stuck',?,'QRPH',0,'CREATING',?,?)").bind(stuck.order.id, old, old)
     ]);
     await h.scheduled();
-    assert.equal((await h.one("SELECT state FROM payment_attempts WHERE order_id=?", order.id)).state, "QR_EXPIRED_CONFIRMED");
+    assert.equal((await h.one("SELECT state FROM payment_attempts WHERE order_id=?", order.id)).state, "UNKNOWN_RECONCILIATION");
     assert.equal((await h.one("SELECT state FROM payment_attempts WHERE id='stuck'")).state, "CREATE_FAILED_NO_QR");
     assert.equal((await h.request("GET", `/v1/orders/${stuck.order.id}/status`)).json.newCheckout.allowed, true);
 }));

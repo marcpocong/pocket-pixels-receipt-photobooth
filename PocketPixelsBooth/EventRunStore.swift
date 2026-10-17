@@ -65,13 +65,15 @@ nonisolated enum EventOccurrencePlan: Equatable, Sendable {
 /// Local JSON and the server database cannot commit atomically, so an interrupted change is
 /// resolved by reading authoritative state back, never by blindly repeating the mutation.
 nonisolated struct EventTransitionIntent: Codable, Equatable, Sendable {
-    nonisolated enum Kind: String, Codable, Sendable { case endCommercialEvent, pauseCommercialEvent }
+    nonisolated enum Kind: String, Codable, Sendable { case endCommercialEvent, pauseCommercialEvent, returnToRegular }
     let id: String
     let kind: Kind
     let runID: String?
     let commercialEventID: String
     let serverBinding: String
     let createdAt: Date
+    var returnsToRegular: Bool? = nil
+    var serverConfirmed: Bool? = nil
 }
 
 /// Small, private operational journal. It contains no images, QR links, tokens or credentials.
@@ -129,6 +131,22 @@ nonisolated struct EventRunSession: Codable, Identifiable, Equatable, Sendable {
 
     var current: EventRunRecord? { runs.first { $0.id == currentRunID } }
     var historyUnreadable: Bool { unreadable }
+    /// Completed records are history, even when an older build retained their pointer.
+    var operational: EventRunRecord? { current.flatMap { [.active, .paused].contains($0.status) ? $0 : nil } }
+
+    /// One atomic manifest commit completes and detaches the occurrence. The transition remains
+    /// journaled until regular configuration and the admission barrier have also committed.
+    func completeAndDetachForRegular(intentID: String) throws {
+        guard let intent = pendingTransition, intent.id == intentID, intent.returnsToRegular == true,
+              intent.serverConfirmed == true else { throw SetupFailure("Return to Regular Booth has not been verified.") }
+        guard currentRunID == nil || currentRunID == intent.runID else { throw SetupFailure("The current event changed. Review Booth Status.") }
+        var next = runs
+        if let index = next.firstIndex(where: { $0.id == intent.runID }) {
+            guard [.active, .paused, .completed, .archived].contains(next[index].status) else { throw SetupFailure("The event cannot be completed.") }
+            if [.active, .paused].contains(next[index].status) { next[index].status = .completed; next[index].endedAt = Date() }
+        }
+        try commitManifest(next, currentID: nil)
+    }
 
     static func currentContext() -> EventRunContext {
         let library = EventDesignLibraryStore.shared.library
@@ -172,7 +190,12 @@ nonisolated struct EventRunSession: Codable, Identifiable, Equatable, Sendable {
     }
 
     func occurrencePlan(for context: EventRunContext) -> EventOccurrencePlan {
-        guard let current else { return .createFirst }
+        guard let current else {
+            if let previous = runs.last(where: { !$0.isHistorical && $0.context.matches(context) && [.completed, .archived].contains($0.status) }) {
+                return .requiresNewOccurrence(previousRunID: previous.id)
+            }
+            return .createFirst
+        }
         guard current.context.matches(context) else { return .switchSetup(previousRunID: current.id, previousStatus: current.status) }
         switch current.status {
         case .active: return .continueActive(runID: current.id)
@@ -288,6 +311,26 @@ nonisolated struct EventRunSession: Codable, Identifiable, Equatable, Sendable {
         if status == .completed { next[index].endedAt = next[index].endedAt ?? Date() }
         if status == .archived { next[index].archivedAt = Date() }
         try commitManifest(next, currentID: currentRunID)
+    }
+
+    func unusedRunDeletionReason(id: String, archives: [RecentSessionArchiveSummary], inspectionComplete: Bool) -> String? {
+        guard inspectionComplete, !historyUnreadable, pendingTransition == nil, storageError == nil else { return "Dependency inspection is incomplete." }
+        guard let run = runs.first(where: { $0.id == id }) else { return "Run not found." }
+        guard id != currentRunID, [.draft, .completed, .archived].contains(run.status), run.context.commercialEventID == nil else { return "Current and commercially linked runs are protected. Archive completed runs instead." }
+        guard !runs.contains(where: { $0.previousRunID == id }) else { return "Another occurrence references this run." }
+        do {
+            guard try !Self.loadSessions(directory: directory).contains(where: { $0.runID == id }),
+                  !archives.contains(where: { $0.eventRunID == id || $0.rasterFingerprint == "CORRUPT" || ($0.eventRunID == nil && $0.createdAt >= run.createdAt) }) else { return "This run has session or receipt history. Archive it instead." }
+        } catch { return "Session dependencies could not be read." }
+        return nil
+    }
+
+    func deleteUnusedRun(id: String, archives: [RecentSessionArchiveSummary], inspectionComplete: Bool) throws {
+        try checkOperatorTransition()
+        // Idempotent after a successful removal; no other record is ever removed by a replay.
+        guard runs.contains(where: { $0.id == id }) else { return }
+        if let reason = unusedRunDeletionReason(id: id, archives: archives, inspectionComplete: inspectionComplete) { throw SetupFailure(reason) }
+        try commitManifest(runs.filter { $0.id != id }, currentID: currentRunID)
     }
 
     private func commitManifest(_ next: [EventRunRecord], currentID: String?, pending: EventTransitionIntent?? = nil) throws {

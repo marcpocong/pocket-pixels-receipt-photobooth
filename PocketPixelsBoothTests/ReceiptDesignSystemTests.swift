@@ -19,7 +19,7 @@ final class ReceiptDesignSystemTests: XCTestCase {
         return components.date!
     }()
     private static let galleryURL = URL(string: "https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/?g=\(String(repeating: "d", count: 64))")!
-    private static let artifactDirectory = URL(fileURLWithPath: "/Users/marc/Desktop/PocketPixelsBooth/BuildArtifacts/ReceiptRedesign", isDirectory: true)
+    private static let artifactDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("BuildArtifacts/ReceiptRedesign", isDirectory: true)
 
     // MARK: Visual artifacts
 
@@ -108,7 +108,8 @@ final class ReceiptDesignSystemTests: XCTestCase {
                     format: format,
                     includesGalleryQRCode: qr,
                     passport: format == .passport ? .photoPassDebugFixture : nil,
-                    date: sessionDate
+                    date: sessionDate,
+                    footerStyle: .classicBarcodeAndGalleryQR
                 )
                 let footer = plan.footer
                 XCTAssertEqual(footer.dateTexts.map(\.text), ["OCT 13 2026", "2:50 AM"], "\(format)")
@@ -152,7 +153,8 @@ final class ReceiptDesignSystemTests: XCTestCase {
             format: .grid,
             includesGalleryQRCode: true,
             eventProfile: eventProfile(mode: .studioFirst, artwork: nil, caption: "Anna & Mark\nForever starts today"),
-            date: Self.date
+            date: Self.date,
+            footerStyle: .classicBarcodeAndGalleryQR
         )
         XCTAssertEqual(plan.captionLines, ["ANNA & MARK", "FOREVER STARTS TODAY"])
         XCTAssertTrue(plan.captionFrames.allSatisfy { $0.minY >= CGFloat(plan.footer.bottom) })

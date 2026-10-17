@@ -22,6 +22,15 @@ struct EventReceiptDesignPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
+            Picker("Event Gallery Code Style", selection: $design.profile.receiptDesign.footerStyleOverride) {
+                Text("Inherit Device Default").tag(Optional<ReceiptFooterStyle>.none)
+                ForEach(ReceiptFooterStyle.allCases) { style in Text(style.displayName).tag(Optional(style)) }
+            }
+            Button("Restore Default — Inherit Device") { design.profile.receiptDesign.footerStyleOverride = nil }
+            if design.profile.receiptDesign.footerStyleOverride == .decorativeBarcodeOnly {
+                Label("Decorative barcode only: no printed gallery access. The iPad gallery QR remains available.", systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(.orange)
+            }
+
             Toggle(isOn: personalizeBinding) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Personalize Receipt with Event Logo").font(.headline)

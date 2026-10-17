@@ -300,6 +300,14 @@ actor PaymentsAPIClient {
         return try await send("v1/admin/orders/\(orderID)/cash-confirmation", method: "POST", body: Body(expectedTotalCentavos: expectedTotalCentavos))
     }
 
+    func reconcileOriginal(orderID: String) async throws -> PaymentStatusResponse {
+        try await send("v1/orders/\(orderID)/reconcile", method: "POST", body: EmptyBody())
+    }
+
+    func reconcileOriginalIfNeeded(orderID: String) async {
+        _ = try? await reconcileOriginal(orderID: orderID)
+    }
+
     func status(orderID: String) async throws -> PaymentStatusResponse {
         try await send("v1/orders/\(orderID)/status", method: "GET", body: Optional<EmptyBody>.none)
     }

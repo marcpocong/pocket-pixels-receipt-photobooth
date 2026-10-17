@@ -219,7 +219,8 @@ nonisolated struct QualificationPlan: Codable, Equatable, Sendable {
             format: format,
             includesGalleryQRCode: ReceiptPrintSettingsStore.load().includesPrintedGalleryQR,
             eventProfile: profile,
-            passport: format == .passport ? PassportSessionData(configuration: PassportConfiguration.effective(for: profile)) : nil
+            passport: format == .passport ? PassportSessionData(configuration: PassportConfiguration.effective(for: profile)) : nil,
+            footerStyle: ReceiptPrintSettingsStore.load().resolved(for: profile).footerStyle
         ) else { return nil }
         return Double(plan.height) / 8.0 + feedAndCutAllowanceMillimeters
     }

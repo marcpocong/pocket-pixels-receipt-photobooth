@@ -236,25 +236,65 @@ nonisolated enum ReceiptEditorialCaption {
 
 /// Physical-print options frozen with each customer session. These never affect the gallery
 /// token, gallery URL or the QR shown on the iPad.
-nonisolated struct ReceiptPrintOptions: Codable, Equatable, Sendable {
-    /// Prints the gallery QR section on the physical receipt.
-    var includesPrintedGalleryQR: Bool
-
-    static let `default` = ReceiptPrintOptions(includesPrintedGalleryQR: true)
+nonisolated enum ReceiptFooterStyle: String, Codable, CaseIterable, Identifiable, Sendable {
+    case integratedGalleryQR, classicBarcodeAndGalleryQR, decorativeBarcodeOnly
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .integratedGalleryQR: "Integrated Gallery QR"
+        case .classicBarcodeAndGalleryQR: "Classic Barcode + Gallery QR"
+        case .decorativeBarcodeOnly: "Decorative Barcode Only"
+        }
+    }
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .integratedGalleryQR
+    }
 }
 
-/// Device-wide physical printing preferences. Independent of Event Mode.
+nonisolated struct ReceiptPrintOptions: Codable, Equatable, Sendable {
+    var footerStyle: ReceiptFooterStyle
+    // Compatibility API for existing callers; the enum is the only stored choice.
+    var includesPrintedGalleryQR: Bool {
+        get { footerStyle != .decorativeBarcodeOnly }
+        set { footerStyle = newValue ? .integratedGalleryQR : .decorativeBarcodeOnly }
+    }
+    init(footerStyle: ReceiptFooterStyle) { self.footerStyle = footerStyle }
+    init(includesPrintedGalleryQR: Bool) {
+        footerStyle = includesPrintedGalleryQR ? .integratedGalleryQR : .decorativeBarcodeOnly
+    }
+    static let `default` = ReceiptPrintOptions(footerStyle: .integratedGalleryQR)
+    private enum CodingKeys: String, CodingKey { case footerStyle, includesPrintedGalleryQR }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        if let style = try values.decodeIfPresent(ReceiptFooterStyle.self, forKey: .footerStyle) {
+            footerStyle = style
+        } else {
+            // Serialized choices belong to historical sessions: preserve the old geometry.
+            footerStyle = (try values.decodeIfPresent(Bool.self, forKey: .includesPrintedGalleryQR) ?? true)
+                ? .classicBarcodeAndGalleryQR : .decorativeBarcodeOnly
+        }
+    }
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(footerStyle, forKey: .footerStyle)
+    }
+    func resolved(for profile: EventProfile?) -> Self {
+        Self(footerStyle: profile?.receiptDesign.footerStyleOverride ?? footerStyle)
+    }
+}
+
 nonisolated enum ReceiptPrintSettingsStore {
     static let printsGalleryQRKey = "madeToKeep.receipt.printsGalleryQR"
+    static let footerStyleKey = "madeToKeep.receipt.footerStyle"
     static let didChangeNotification = Notification.Name("madeToKeep.receipt.printSettings.didChange")
-
     static func load(defaults: UserDefaults = .standard) -> ReceiptPrintOptions {
-        // Missing means an existing or new installation that never changed the setting: ON.
-        ReceiptPrintOptions(includesPrintedGalleryQR: defaults.object(forKey: printsGalleryQRKey) as? Bool ?? true)
+        if let raw = defaults.string(forKey: footerStyleKey) {
+            return ReceiptPrintOptions(footerStyle: ReceiptFooterStyle(rawValue: raw) ?? .integratedGalleryQR)
+        }
+        return ReceiptPrintOptions(includesPrintedGalleryQR: defaults.object(forKey: printsGalleryQRKey) as? Bool ?? true)
     }
-
     static func save(_ options: ReceiptPrintOptions, defaults: UserDefaults = .standard) {
-        defaults.set(options.includesPrintedGalleryQR, forKey: printsGalleryQRKey)
+        defaults.set(options.footerStyle.rawValue, forKey: footerStyleKey)
         NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
 }

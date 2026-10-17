@@ -3,7 +3,7 @@
 //  PocketPixelsBooth
 //
 //  Composes the Made to Keep Studios receipt: masthead (or event artwork), photographs, the
-//  three-part footer (decorative barcode | MTK monogram | session date and time), an optional
+//  QR or classic barcode footer, an optional
 //  supplementary area (event caption, artwork signature, event details, studio credit) and an
 //  optional, visually separate gallery QR section. Photo Pass sits under the same masthead;
 //  Passport / Photo Pass keep their own cards and share everything from the footer down.
@@ -99,9 +99,11 @@ private struct ReceiptHeaderLayout: Sendable {
     var coBrandSeparator: CGRect? = nil
 }
 
-/// The reference footer: decorative barcode | MTK monogram | session date and time, divided by
-/// two vertical rules and centred on the paper.
+/// Footer geometry for either the integrated gallery code or the historical barcode columns.
+/// QR frames include the white quiet zone.
 nonisolated struct ReceiptFooterLayout: Sendable {
+    var integratedQRFrame: CGRect? = nil
+    var integratedQRLabel: ReceiptTextFrame? = nil
     let barcodeFrame: CGRect
     let barcodeBars: [CGRect]
     let separatorFrames: [CGRect]
@@ -112,7 +114,8 @@ nonisolated struct ReceiptFooterLayout: Sendable {
 
     /// Every printed footer element, left to right.
     var elementFrames: [CGRect] {
-        [barcodeFrame, separatorFrames[0], monogramFrame, separatorFrames[1]] + dateTexts.map(\.rect)
+        [integratedQRFrame ?? barcodeFrame] + separatorFrames + [monogramFrame]
+            + dateTexts.map(\.rect) + [integratedQRLabel?.rect].compactMap { $0 }
     }
 }
 
@@ -297,7 +300,8 @@ enum ReceiptComposer {
         photoQualityProfile: PocketPixelsThermalPhotoProfile = .customerPrintDefault,
         printOptions: ReceiptPrintOptions = .default,
         stickers: [FrozenStickerDecoration] = [],
-        printsSessionIdentifier: Bool = true
+        printsSessionIdentifier: Bool = true,
+        sampleGalleryPlaceholder: Bool = false
     ) throws -> ComposedReceipt {
         try Task.checkCancellation()
         guard photos.count == format.photoCount else {
@@ -314,9 +318,19 @@ enum ReceiptComposer {
             headerSourceSize: headerArtwork?.size,
             headerContentBounds: headerArtwork?.contentBounds
         )
+        let style = printOptions.footerStyle
+        let hasQRLayout = printOptions.includesPrintedGalleryQR && (galleryURL != nil || sampleGalleryPlaceholder)
+        let qrDots: Int
+        if let galleryURL, hasQRLayout {
+            qrDots = max(receiptQRCodeSize, try GalleryQRCodeGenerator.moduleAlignedPixelSize(for: galleryURL, moduleScale: 4))
+            let maximum = style == .integratedGalleryQR ? 288 : BoothConfiguration.receiptWidth - Metrics.photoMargin * 2
+            guard qrDots <= maximum else {
+                throw ReceiptComposerError.invalidLayout("Gallery URL requires a QR wider than the safe footer allocation.")
+            }
+        } else { qrDots = receiptQRCodeSize }
         let qrImage: UIImage? = try {
             guard let galleryURL, printOptions.includesPrintedGalleryQR else { return nil }
-            return try GalleryQRCodeGenerator.makeQRCodeImage(for: galleryURL, pixelSize: receiptQRCodeSize)
+            return try GalleryQRCodeGenerator.makeQRCodeImage(for: galleryURL, pixelSize: qrDots)
         }()
         let passportContent = makePassportContent(
             format: format,
@@ -328,7 +342,9 @@ enum ReceiptComposer {
         let plan = try makeLayoutPlan(
             format: format,
             textSnapshot: textSnapshot,
-            includesPrintedQR: qrImage != nil,
+            includesPrintedQR: hasQRLayout,
+            footerStyle: style,
+            qrDots: qrDots,
             passportContent: passportContent
         )
         try validateLayoutPlan(plan)
@@ -437,7 +453,7 @@ enum ReceiptComposer {
             createdAt: date,
             format: format,
             photoQualityProfile: photoQualityProfile,
-            includesPrintedGalleryQR: plan.includesPrintedGalleryQR,
+            includesPrintedGalleryQR: qrImage != nil,
             stickerLayout: stickerLayout,
             drawnStickerPlacementIDs: drawnStickerIDs
         )
@@ -490,7 +506,9 @@ enum ReceiptComposer {
         includesGalleryQRCode: Bool = true,
         eventProfile: EventProfile? = nil,
         passport: PassportSessionData? = nil,
-        date: Date = Date(timeIntervalSince1970: 1_788_692_040)
+        date: Date = Date(timeIntervalSince1970: 1_788_692_040),
+        footerStyle: ReceiptFooterStyle = .integratedGalleryQR,
+        qrDots: Int = receiptQRCodeSize
     ) throws -> ReceiptLayoutPlan {
         let eventSnapshot = eventProfile?.activeReceiptSnapshot
         let artwork = loadEffectiveHeaderArtwork(for: eventSnapshot)
@@ -509,7 +527,7 @@ enum ReceiptComposer {
             textSnapshot: textSnapshot,
             date: date
         )
-        return try makeLayoutPlan(format: format, textSnapshot: textSnapshot, includesPrintedQR: includesGalleryQRCode, passportContent: passportContent)
+        return try makeLayoutPlan(format: format, textSnapshot: textSnapshot, includesPrintedQR: includesGalleryQRCode && footerStyle != .decorativeBarcodeOnly, footerStyle: footerStyle, qrDots: qrDots, passportContent: passportContent)
     }
 
     /// Effective branding for the operator UI, using the same resolution as the printer.
@@ -550,6 +568,8 @@ enum ReceiptComposer {
         format: BoothFormat,
         textSnapshot: ReceiptTextSnapshot,
         includesPrintedQR: Bool,
+        footerStyle: ReceiptFooterStyle,
+        qrDots: Int,
         passportContent: PassportDesignContent? = nil
     ) throws -> ReceiptLayoutPlan {
         let width = BoothConfiguration.receiptWidth
@@ -624,6 +644,8 @@ enum ReceiptComposer {
             contentBottom: contentBottom,
             textSnapshot: textSnapshot,
             includesPrintedQR: includesPrintedQR,
+            footerStyle: footerStyle,
+            qrDots: qrDots,
             isLegacyPassport: passportLayout != nil,
             width: width
         )
@@ -941,13 +963,18 @@ enum ReceiptComposer {
         contentBottom: Int,
         textSnapshot: ReceiptTextSnapshot,
         includesPrintedQR: Bool,
+        footerStyle: ReceiptFooterStyle,
+        qrDots: Int,
         isLegacyPassport: Bool,
         width: Int
     ) -> ReceiptEditorialLayout {
         let center = CGFloat(width) / 2
 
         // A. The reference footer, clear of the photographs.
-        let footer = makeFooterLayout(top: contentBottom + Metrics.photoFooterGap, dateLines: textSnapshot.footerDateLines, width: width)
+        let integrated = includesPrintedQR && footerStyle == .integratedGalleryQR
+        let footer = integrated
+            ? makeIntegratedFooterLayout(top: contentBottom + Metrics.photoFooterGap, dateLines: textSnapshot.footerDateLines, width: width, qrDots: qrDots)
+            : makeFooterLayout(top: contentBottom + Metrics.photoFooterGap, dateLines: textSnapshot.footerDateLines, width: width)
         var y = footer.bottom
 
         // B. Supplementary area: event caption, event signature, event details, studio credit.
@@ -1020,16 +1047,16 @@ enum ReceiptComposer {
 
         // C. Optional gallery QR, separated from the keepsake by a dashed tear line.
         var qrSeparator: CGRect?
-        var qrRect: CGRect?
-        var qrLabel: ReceiptTextFrame?
-        if includesPrintedQR {
+        var qrRect: CGRect? = footer.integratedQRFrame
+        var qrLabel: ReceiptTextFrame? = footer.integratedQRLabel
+        if includesPrintedQR && !integrated {
             y += Metrics.qrSectionGap
             let separator = CGRect(x: CGFloat(Metrics.photoMargin), y: CGFloat(y), width: CGFloat(width - Metrics.photoMargin * 2), height: CGFloat(Metrics.qrSeparatorThickness))
             qrSeparator = separator
             y += Metrics.qrSeparatorThickness + Metrics.qrSeparatorGap
-            let rect = CGRect(x: (width - receiptQRCodeSize) / 2, y: y, width: receiptQRCodeSize, height: receiptQRCodeSize)
+            let rect = CGRect(x: (width - qrDots) / 2, y: y, width: qrDots, height: qrDots)
             qrRect = rect
-            y += receiptQRCodeSize + Metrics.qrLabelGap
+            y += qrDots + Metrics.qrLabelGap
             let label = makeTextFrame(textSnapshot.qrLabel, style: .qrLabel, size: Metrics.qrLabelSize, tracking: Metrics.qrLabelTracking, anchor: .center(center), y: y)
             qrLabel = label
             y = Int(ceil(label.rect.maxY))
@@ -1097,6 +1124,26 @@ enum ReceiptComposer {
             top: top,
             bottom: top + Metrics.footerMonogramHeight
         )
+    }
+
+    /// A full production URL cannot fit the old barcode column at four printer dots per
+    /// module. Keep its quiet zone intact and stack the studio signature beside it.
+    nonisolated private static func makeIntegratedFooterLayout(top: Int, dateLines: [String], width: Int, qrDots: Int) -> ReceiptFooterLayout {
+        let left = Metrics.photoMargin
+        let qr = CGRect(x: left, y: top, width: qrDots, height: qrDots)
+        let label = makeTextFrame("scan for gallery", style: .qrLabel, size: 12, tracking: 1, anchor: .center(qr.midX), y: top + qrDots + 4)
+        let dividerX = left + qrDots + 16
+        let rightCenter = CGFloat(dividerX + width - Metrics.photoMargin) / 2
+        let monogramHeight = 92
+        let monogramWidth = Int((CGFloat(monogramHeight) * ReceiptMonogramArtwork.aspectRatio).rounded())
+        let monogram = CGRect(x: Int(rightCenter) - monogramWidth / 2, y: top + 12, width: monogramWidth, height: monogramHeight)
+        let texts = dateLines.enumerated().map { index, line in
+            makeTextFrame(line, style: .footer, size: 14, tracking: 1.5, anchor: .center(rightCenter), y: top + 128 + index * 26)
+        }
+        return ReceiptFooterLayout(integratedQRFrame: qr, integratedQRLabel: label,
+            barcodeFrame: .zero, barcodeBars: [],
+            separatorFrames: [CGRect(x: dividerX, y: top + 20, width: 1, height: qrDots - 40)],
+            monogramFrame: monogram, dateTexts: texts, top: top, bottom: Int(ceil(label.rect.maxY)))
     }
 
     /// Largest caption size at which every line fits the supplementary measure.
@@ -1285,8 +1332,8 @@ enum ReceiptComposer {
         blocks.append(contentsOf: layout.eventTextFrames.map { ("secondary.event.\($0.role.rawValue)", $0.rect) })
         blocks.append(contentsOf: layout.creditTexts.map { ("credit.\($0.style.rawValue)", $0.rect) })
         if let qrSeparator = layout.qrSeparator { blocks.append(("qr.separator", qrSeparator)) }
-        if let qrRect = layout.qrRect { blocks.append(("qr", qrRect)) }
-        if let qrLabel = layout.qrLabel { blocks.append(("qr.label", qrLabel.rect)) }
+        if layout.footer.integratedQRFrame == nil, let qrRect = layout.qrRect { blocks.append(("qr", qrRect)) }
+        if layout.footer.integratedQRFrame == nil, let qrLabel = layout.qrLabel { blocks.append(("qr.label", qrLabel.rect)) }
         blocks.append(("session", layout.sessionText.rect))
 
         var previousBottom = CGFloat(contentBottom)
@@ -1304,9 +1351,9 @@ enum ReceiptComposer {
                 throw ReceiptComposerError.invalidLayout("\(text.style.rawValue) text leaves the printable width")
             }
         }
-        guard (layout.qrRect == nil) == (layout.qrSeparator == nil),
+        guard (layout.qrRect == nil) == (layout.qrSeparator == nil && layout.footer.integratedQRFrame == nil),
               (layout.qrRect == nil) == (layout.qrLabel == nil),
-              layout.qrRect.map({ Int($0.width) == receiptQRCodeSize && Int($0.height) == receiptQRCodeSize }) ?? true,
+              layout.qrRect.map({ Int($0.width) >= receiptQRCodeSize && $0.height == $0.width }) ?? true,
               Int(ceil(previousBottom)) + Metrics.bottomPadding <= height,
               layout.bottom == height else {
             throw ReceiptComposerError.invalidLayout("editorial section dimensions do not match the plan")
@@ -1316,7 +1363,7 @@ enum ReceiptComposer {
     /// Barcode, rule, monogram, rule and date read left to right with clear space between each,
     /// the monogram is centred on the paper, and everything stays inside the footer band.
     nonisolated private static func validateFooterLayout(_ footer: ReceiptFooterLayout, contentBottom: Int, canvas: CGRect) throws {
-        guard footer.top > contentBottom, footer.separatorFrames.count == 2, !footer.dateTexts.isEmpty else {
+        guard footer.top > contentBottom, footer.separatorFrames.count == (footer.integratedQRFrame == nil ? 2 : 1), !footer.dateTexts.isEmpty else {
             throw ReceiptComposerError.invalidLayout("footer is missing elements or overlaps the photographs")
         }
         let band = CGRect(x: CGFloat(BoothConfiguration.receiptHorizontalMargin), y: CGFloat(footer.top),
@@ -1329,6 +1376,14 @@ enum ReceiptComposer {
         }
         guard footer.barcodeBars.allSatisfy({ footer.barcodeFrame.contains($0) }) else {
             throw ReceiptComposerError.invalidLayout("decorative barcode leaves its column")
+        }
+        if footer.integratedQRFrame != nil {
+            for (index, frame) in footer.elementFrames.enumerated() {
+                for other in footer.elementFrames.dropFirst(index + 1) where frame.intersects(other) {
+                    throw ReceiptComposerError.invalidLayout("Integrated footer elements overlap")
+                }
+            }
+            return
         }
         let dateMinX = footer.dateTexts.map(\.rect.minX).min() ?? canvas.maxX
         let clearance = CGFloat(Metrics.footerColumnClearance)
@@ -1654,14 +1709,20 @@ enum ReceiptComposer {
         EventTextBlockLayout.draw(layout.eventTextFrames)
         layout.creditTexts.forEach(drawText)
 
-        if let separator = layout.qrSeparator, let qrRect = layout.qrRect, let qrImage {
-            drawDashedRule(separator, context: context)
+        if let separator = layout.qrSeparator { drawDashedRule(separator, context: context) }
+        if let qrRect = layout.qrRect, let qrImage {
             context.interpolationQuality = .none
             qrImage.draw(in: qrRect)
         }
-        if let qrLabel = layout.qrLabel {
-            drawText(qrLabel)
+        if let qrRect = layout.qrRect, qrImage == nil {
+            // Deliberately non-scannable sample state; never invent a gallery token.
+            UIColor.black.setStroke()
+            context.setLineWidth(1)
+            context.stroke(qrRect.insetBy(dx: 12, dy: 12))
+            let attrs: [NSAttributedString.Key: Any] = [.font: UIFont.monospacedSystemFont(ofSize: 14, weight: .regular), .foregroundColor: UIColor.black]
+            NSString(string: "SAMPLE\nNO LIVE GALLERY").draw(in: qrRect.insetBy(dx: 28, dy: qrRect.height / 2 - 20), withAttributes: attrs)
         }
+        if let qrLabel = layout.qrLabel { drawText(qrLabel) }
         drawText(layout.sessionText)
     }
 

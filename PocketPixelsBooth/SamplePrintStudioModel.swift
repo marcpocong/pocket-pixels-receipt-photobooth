@@ -65,6 +65,7 @@ nonisolated struct SamplePrintRequest: Equatable, Sendable {
     let branding: SamplePrintBranding
     let eventProfile: EventProfile?
     let photoPass: SamplePhotoPassDetails?
+    var printOptions: ReceiptPrintOptions = .default
 
     var isComplete: Bool {
         slotPhotoIDs.count == format.photoCount && slotPhotoIDs.allSatisfy { $0 != nil }
@@ -110,7 +111,8 @@ nonisolated enum SamplePrintComposer {
         eventProfile: EventProfile?,
         photoPass: SamplePhotoPassDetails?,
         date: Date,
-        photoQualityProfile: PocketPixelsThermalPhotoProfile
+        photoQualityProfile: PocketPixelsThermalPhotoProfile,
+        printOptions: ReceiptPrintOptions = .default
     ) throws -> ComposedReceipt {
         try ReceiptComposer.compose(
             photos: photos,
@@ -124,7 +126,9 @@ nonisolated enum SamplePrintComposer {
                 ? (photoPass ?? SamplePhotoPassDetails()).sessionData(configuration: PassportConfiguration.effective(for: eventProfile))
                 : nil,
             photoQualityProfile: photoQualityProfile,
-            printsSessionIdentifier: false
+            printOptions: printOptions,
+            printsSessionIdentifier: false,
+            sampleGalleryPlaceholder: true
         )
     }
 
@@ -141,7 +145,8 @@ nonisolated enum SamplePrintComposer {
             eventProfile: request.branding == .savedEvent ? request.eventProfile : nil,
             photoPass: request.photoPass,
             date: date,
-            photoQualityProfile: photoQualityProfile
+            photoQualityProfile: photoQualityProfile,
+            printOptions: request.printOptions
         )
         try Task.checkCancellation()
         guard let image = UIImage(data: receipt.imagePNGData) else { throw ReceiptComposerError.renderFailed }
@@ -208,6 +213,7 @@ final class SamplePrintStudioModel: ObservableObject {
     @Published private(set) var format: BoothFormat = .duo
     @Published private(set) var slots: [UUID?] = Array(repeating: nil, count: BoothFormat.duo.photoCount)
     @Published private(set) var library: [SamplePrintPhoto] = []
+    @Published var footerStyle: ReceiptFooterStyle = ReceiptPrintSettingsStore.load().footerStyle { didSet { if footerStyle != oldValue { invalidate() } } }
     @Published var branding: SamplePrintBranding = .standard { didSet { if branding != oldValue { invalidate() } } }
     @Published var photoPass = SamplePhotoPassDetails() { didSet { if photoPass != oldValue { invalidate() } } }
     @Published var copies = 1 { didSet { if copies != SamplePrintPolicy.clampedCopies(copies) { copies = SamplePrintPolicy.clampedCopies(copies) } } }
@@ -236,6 +242,7 @@ final class SamplePrintStudioModel: ObservableObject {
         self.photoQualityProfile = photoQualityProfile
         reloadSavedBranding()
         branding = savedEventProfile == nil ? .standard : .savedEvent
+        footerStyle = ReceiptPrintSettingsStore.load().resolved(for: savedEventProfile).footerStyle
     }
 
     deinit { renderTask?.cancel() }
@@ -248,7 +255,8 @@ final class SamplePrintStudioModel: ObservableObject {
             slotPhotoIDs: slots,
             branding: branding,
             eventProfile: branding == .savedEvent ? savedEventProfile : nil,
-            photoPass: format == .passport ? photoPass : nil
+            photoPass: format == .passport ? photoPass : nil,
+            printOptions: ReceiptPrintOptions(footerStyle: footerStyle)
         )
     }
 
@@ -350,7 +358,7 @@ final class SamplePrintStudioModel: ObservableObject {
 
     func reloadSavedBranding() {
         let profile = loadProfile().normalized()
-        let saved = profile.activeReceiptSnapshot == nil ? nil : profile
+        let saved = profile.activeReceiptSnapshot == nil && profile.receiptDesign.footerStyleOverride == nil ? nil : profile
         guard saved != savedEventProfile else { return }
         savedEventProfile = saved
         if saved == nil, branding == .savedEvent { branding = .standard }

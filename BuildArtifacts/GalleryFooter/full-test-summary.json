@@ -1,0 +1,9 @@
+{
+  "result": "Passed",
+  "passedTests": 570,
+  "failedTests": 0,
+  "skippedTests": 0,
+  "evidence": "Complete individual XCTest results extracted from the xcodebuild console log in full-test-results.txt",
+  "resultBundleLimitation": "Xcode reported that it could not save the full run xcresult activity log (mkstemp: No such file or directory). The 570 executed tests passed. The final focused run has an intact xcresult summary.",
+  "durationSeconds": 979.187
+}

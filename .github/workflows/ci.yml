@@ -129,6 +129,7 @@ jobs:
             echo "Payment test runtime unavailable; retrying the clean dependency install once."
           done
           npm test
+          npm run test:monitoring
       - name: Gallery Worker tests
         working-directory: Backend/CloudflareGalleryProxy
         run: npm test

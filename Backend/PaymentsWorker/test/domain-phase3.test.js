@@ -8,7 +8,8 @@ const iso = offsetMs => new Date(NOW + offsetMs).toISOString();
 for (const [name, current, evidence, expiresAt, expected] of [
     ["live QR still pending stays awaiting", "AWAITING_PAYMENT", "pending", iso(60_000), "AWAITING_PAYMENT"],
     ["pending just after expiry is unknown", "AWAITING_PAYMENT", "pending", iso(-60_000), "UNKNOWN_RECONCILIATION"],
-    ["pending well after expiry settles as expired", "UNKNOWN_RECONCILIATION", "pending", iso(-11 * 60_000), "QR_EXPIRED_CONFIRMED"],
+    ["pending well after expiry remains unknown", "UNKNOWN_RECONCILIATION", "pending", iso(-11 * 60_000), "UNKNOWN_RECONCILIATION"],
+    ["manual review cannot be cleared automatically", "MANUAL_REVIEW", "paid", iso(-11 * 60_000), "MANUAL_REVIEW"],
     ["paid after time-based expiry still wins", "QR_EXPIRED_CONFIRMED", "paid", iso(-11 * 60_000), "PAID_VERIFIED"],
     ["paid is final even against expiry", "PAID_VERIFIED", "pending", iso(-11 * 60_000), "PAID_VERIFIED"]
 ]) test(`provider state: ${name}`, () => assert.equal(nextProviderState(current, evidence, { expiresAt, nowMs: NOW }), expected));

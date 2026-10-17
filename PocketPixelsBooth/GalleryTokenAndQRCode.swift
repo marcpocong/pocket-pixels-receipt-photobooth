@@ -164,7 +164,10 @@ enum GalleryQRCodeGenerator {
         let extent = outputImage.extent.integral
         let matrixModules = Int(max(extent.width, extent.height))
         let totalModules = matrixModules + quietZoneModules * 2
-        let moduleScale = max(1, Int(floor(CGFloat(pixelSize) / CGFloat(totalModules))))
+        guard pixelSize >= totalModules else {
+            throw GalleryUploadError.qrGeneration("The QR allocation cannot contain the matrix and its white quiet zone.")
+        }
+        let moduleScale = Int(floor(CGFloat(pixelSize) / CGFloat(totalModules)))
         return QRCodeRenderMetrics(
             matrixModules: matrixModules,
             quietZoneModules: quietZoneModules,
@@ -200,7 +203,10 @@ enum GalleryQRCodeGenerator {
 
         let extent = coloredImage.extent.integral
         let modulesWithQuietZone = max(extent.width, extent.height) + CGFloat(quietZoneModules * 2)
-        let scale = max(1, floor(CGFloat(pixelSize) / modulesWithQuietZone))
+        guard CGFloat(pixelSize) >= modulesWithQuietZone else {
+            throw GalleryUploadError.qrGeneration("The QR allocation cannot contain the matrix and its white quiet zone.")
+        }
+        let scale = floor(CGFloat(pixelSize) / modulesWithQuietZone)
         let transformedImage = coloredImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         let context = CIContext(options: [.workingColorSpace: CGColorSpaceCreateDeviceRGB()])
 
@@ -244,6 +250,14 @@ enum GalleryQRCodeGenerator {
             throw GalleryUploadError.qrGeneration("QR output image could not be created.")
         }
 
+        // Core Image currently includes one white module around its QR matrix (e.g. a
+        // 49-module symbol has a 51-pixel extent). Remove that native border before adding
+        // our explicit four-module quiet zone, so metrics describe the actual QR matrix.
+        // QR symbol edges are 21 + 4n; retain already-unbordered output on other OS versions.
+        let extent = outputImage.extent.integral
+        if Int(extent.width) >= 23, Int(extent.width) % 4 == 3, extent.width == extent.height {
+            return outputImage.cropped(to: extent.insetBy(dx: 1, dy: 1))
+        }
         return outputImage
     }
 }

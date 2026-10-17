@@ -1,0 +1,21 @@
+# Independent, read-only monitoring. No PayMongo keys or financial database bindings.
+name = "made-to-keep-monitor"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+preview_urls = false
+
+[vars]
+DEVICE_ALIAS = "Carlo"
+STALE_SECONDS = "900"
+# Set to the verified LIVE Worker URL before deployment.
+PAYMENTS_HEALTH_URL = "https://pocket-pixels-payments-live.madetokeepstudios.workers.dev/v1/monitor-health"
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "made-to-keep-monitor"
+database_id = "562d5551-c884-43a2-8743-4562f1ed33d1"
+migrations_dir = "migrations"

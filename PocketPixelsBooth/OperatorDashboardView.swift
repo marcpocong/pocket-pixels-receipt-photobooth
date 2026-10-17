@@ -21,13 +21,15 @@ struct OperatorDashboardView: View {
         ScrollView {
             VStack(spacing: 20) {
                 CurrentEventCard()
+                NavigationLink { RegularBoothSettingsView() } label: { Label("Regular Booth Defaults", systemImage: "camera.fill").frame(maxWidth: .infinity, minHeight: 48) }.buttonStyle(.bordered)
+                NavigationLink { BoothMonitoringView() } label: { Label("Remote Monitoring", systemImage: "antenna.radiowaves.left.and.right").frame(maxWidth: .infinity, minHeight: 48) }.buttonStyle(.bordered)
                 if !status.attentionItems.isEmpty { OperatorAttentionCard(items: status.attentionItems) }
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
-                    OperatorSecondaryLink(title: "Event Setup", systemImage: "slider.horizontal.3", route: .sessionSetup) { SessionSetupView() }
-                    OperatorSecondaryLink(title: "Reports & Statistics", systemImage: "chart.bar", route: .sales) { EventRunReportingView() }
+                    OperatorSecondaryLink(title: "Start / Manage Event", systemImage: "slider.horizontal.3", route: .sessionSetup) { SessionSetupView() }
+                    OperatorSecondaryLink(title: "Payments & Reports", systemImage: "chart.bar", route: .sales) { EventRunReportingView() }
                     OperatorSecondaryLink(title: "Event Library & History", systemImage: "books.vertical", route: .manageEvent) { EventRunReportingView(initialTab: .history) }
                     OperatorSecondaryLink(title: "Branding & Design", systemImage: "paintpalette", route: .branding) { OperatorBrandingView() }
-                    OperatorSecondaryLink(title: "Equipment", systemImage: "printer", route: .equipment) { OperatorEquipmentView() }
+                    OperatorSecondaryLink(title: "Equipment & Recovery", systemImage: "printer", route: .equipment) { OperatorEquipmentView() }
                     OperatorSecondaryLink(title: "Advanced", systemImage: "gearshape.2", route: .advanced) { OperatorAdvancedView() }
                 }
                 OperatorSecondaryLink(title: "Saved Drafts · \(SavedDraftCatalog.entries(workspace: workspace, library: designLibrary.library).count)", systemImage: "doc.text", route: .savedDrafts) { SavedDraftsView() }
