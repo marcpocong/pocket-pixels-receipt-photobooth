@@ -26,7 +26,7 @@ struct OperatorRunMetricsView: View {
     let statistics: EventRunStatistics?
     @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
-        OperatorMetricLayout(minimumCardWidth: typeSize.isAccessibilitySize ? 260 : 150) {
+        OperatorMetricLayout(minimumCardWidth: typeSize.isAccessibilitySize ? 260 : 210) {
             metric("Completed sessions", value: statistics?.completed, symbol: "person.crop.square")
             metric("Copies sent to printer", value: statistics?.delivered, symbol: "printer")
             metric("Verified galleries", value: statistics?.galleriesVerified, symbol: "checkmark.icloud")

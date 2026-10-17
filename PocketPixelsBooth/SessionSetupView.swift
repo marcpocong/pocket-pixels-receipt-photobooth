@@ -380,6 +380,13 @@ struct SessionSetupView: View {
     @ViewBuilder private var receiptSection: some View {
         SetupCard {
             LabeledContent("Default gallery code", value: devicePrintOptions.footerStyle.displayName).font(.callout)
+            NavigationLink(value: OperatorWorkspaceRoute.branding) {
+                Label("Edit Device Gallery Code", systemImage: "qrcode")
+                    .frame(minHeight: 44)
+            }
+            .accessibilityIdentifier("setup-edit-gallery-code")
+            Text("Device defaults apply to future sessions immediately. Saved events can override them below.")
+                .font(.footnote).foregroundStyle(OperatorPalette.secondaryText)
             Text("Event-specific gallery code, branding and welcome screens stay staged until Review & Start.").font(.footnote).foregroundStyle(OperatorPalette.secondaryText)
             Divider()
             if setup.eventModeEnabled, let design = Binding($setup.design) {
