@@ -32,7 +32,7 @@ export default {
             if (path === '/v1/overview' && request.method === 'GET') {
                 const device = await env.DB.prepare('SELECT last_seen,state_json FROM devices WHERE id=?').bind('carlo').first();
                 const incidents = (await env.DB.prepare('SELECT code,active,changed_at FROM incidents WHERE active=1').all()).results;
-                const delivery = await env.DB.prepare('SELECT COUNT(*) pending,SUM(CASE WHEN attempts>=5 THEN 1 ELSE 0 END) failed FROM notifications WHERE delivered_at IS NULL').first();
+                const delivery = await env.DB.prepare('SELECT COUNT(*) pending,COALESCE(SUM(CASE WHEN attempts>=5 THEN 1 ELSE 0 END),0) failed FROM notifications WHERE delivered_at IS NULL AND superseded_at IS NULL').first();
                 return response({device:'Carlo',online:!!device && Date.now()-device.last_seen<Number(env.STALE_SECONDS || 900)*1000,lastHeartbeat:device?.last_seen || null,state:device?JSON.parse(device.state_json):null,incidents,delivery});
             }
             if (path === '/v1/test-notification' && request.method === 'POST') {
@@ -101,19 +101,21 @@ export async function check(env,time=Date.now()) {
         } catch { await syncIncidents(env,{backend:true},time); }
     }
     await deliver(env,time);
-    // Bound delivery history while preserving every active incident and failed notification.
-    await env.DB.prepare('DELETE FROM notifications WHERE delivered_at IS NOT NULL AND created_at<?').bind(time-30*86400000).run();
+    // Bound completed delivery history; current incidents and exhausted retries stay visible.
+    await env.DB.prepare('DELETE FROM notifications WHERE (delivered_at IS NOT NULL OR superseded_at IS NOT NULL) AND created_at<?').bind(time-30*86400000).run();
 }
 
 export async function deliver(env,time=Date.now()) {
     if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return;
-    const due = (await env.DB.prepare('SELECT * FROM notifications WHERE delivered_at IS NULL AND attempts<5 AND next_at<=? AND (lease_until IS NULL OR lease_until<=?) ORDER BY created_at LIMIT 3').bind(time,time).all()).results || [];
+    const due = (await env.DB.prepare('SELECT * FROM notifications WHERE delivered_at IS NULL AND superseded_at IS NULL AND attempts<5 AND next_at<=? AND (lease_until IS NULL OR lease_until<=?) ORDER BY created_at LIMIT 3').bind(time,time).all()).results || [];
     for (const item of due) {
         if (item.code!=='owner_test') {
             const latest = await env.DB.prepare('SELECT active FROM incidents WHERE code=?').bind(item.code).first();
             const sent = await env.DB.prepare('SELECT active,delivered_at FROM notifications WHERE code=? AND delivered_at IS NOT NULL AND attempts>0 ORDER BY delivered_at DESC LIMIT 1').bind(item.code).first();
             if (latest?.active!==item.active || (!item.active && !sent)) {
-                await env.DB.prepare('UPDATE notifications SET delivered_at=? WHERE id=? AND attempts=0').bind(time,item.id).run();
+                // Retried alerts can become obsolete too. Leaving them due would repeatedly
+                // occupy the bounded queue and starve newer incidents after an outage.
+                await env.DB.prepare('UPDATE notifications SET superseded_at=? WHERE id=? AND delivered_at IS NULL AND (lease_until IS NULL OR lease_until<=?)').bind(time,item.id,time).run();
                 continue;
             }
             if (sent && time-sent.delivered_at<15*60_000) {
@@ -122,7 +124,7 @@ export async function deliver(env,time=Date.now()) {
             }
         }
         const lease = time+30_000;
-        const claim = await env.DB.prepare('UPDATE notifications SET lease_until=?,attempts=attempts+1 WHERE id=? AND delivered_at IS NULL AND attempts=? AND (lease_until IS NULL OR lease_until<=?)').bind(lease,item.id,item.attempts,time).run();
+        const claim = await env.DB.prepare('UPDATE notifications SET lease_until=?,attempts=attempts+1 WHERE id=? AND delivered_at IS NULL AND superseded_at IS NULL AND attempts=? AND (lease_until IS NULL OR lease_until<=?)').bind(lease,item.id,item.attempts,time).run();
         if (claim.meta.changes!==1) continue;
         const text = item.code==='owner_test' ? 'Made to Keep Studios · monitoring test. Owner alerts are connected. No payment or printing was performed.'
             : `Made to Keep Studios · Carlo\n${item.active?'ATTENTION':'RECOVERED'}: ${CODES[item.code]}\nCheck Booth Status and Equipment & Recovery on Carlo. No customer or payment details are included.`;

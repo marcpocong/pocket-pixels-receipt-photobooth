@@ -85,3 +85,13 @@ The PayMongo dashboard independently shows the existing LIVE endpoint enabled fo
 Signed Release verification passed with bundle `com.pocketpixels.PocketPixelsBooth`, team `PQ26682725`, Carlo included in provisioning, and executable SHA-256 `3f87f1b683356c55bba0ddf31112ab8c1d9af01039d9f15930ace9c6b54550fc`. The current development profile expires **October 19, 2026 at 4:10:21 PM Asia/Manila** and needs renewal before continued operation beyond that time.
 
 Release candidate branch: `regular-booth-reliability`; PR [#7](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/pull/7). Full release integration/CI status and actual monitoring outage results are recorded in the final release report. This is not a claim of complete physical production acceptance: the VOZY G80 is unavailable, so physical receipt delivery, scan quality, reconnect/recovery and a complete real capture-to-paper-to-gallery flow remain owner acceptance steps.
+
+## Resumed independent audit — October 18, 2026
+
+The restart audit independently confirms Carlo is paired/reachable with build 1.0 (2), remote main remains `8ade190`, and TEST/LIVE health reports the correct environment, the intended payment gate and fresh reconciliation. No reinstall is necessary for the monitoring-only follow-up.
+
+A new regression reproduced a monitoring queue defect: retried notifications for recovered incidents could remain due indefinitely and occupy all three delivery slots. The fix retains obsolete notifications with a distinct `superseded_at` timestamp instead of marking them successfully delivered. It preserves current incidents and exhausted retries. Nine monitoring tests now pass, including backend failure/recovery, incorrect environment/gate, stale reconciliation and the reproduced queue starvation. Payments independently passed all 223 tests again; the simulator test build succeeded and the full fresh suite was started.
+
+The monitoring database was privately exported before additive migration `0002_notification_supersession.sql`. Both migrations passed the local D1 runner, and the Worker dry run passed. The production migration preserved the existing rows, bindings and credentials. Monitoring version `fb17170b-267b-41b0-98bc-18a8ad7cf9c3` is deployed; previous version `7cbf7596-d59d-4871-9cdb-660c2f7f818f` remains a compatible code rollback. Payment Workers were unchanged by this follow-up.
+
+The controlled missing-heartbeat test uses Carlo's actual stopped app and normal production thresholds, without editing telemetry timestamps or manufacturing device health. Final notification delivery and integration results are recorded in the PR acceptance evidence and the owner's final engineering report once observed. Use the PR's current checks for final CI status.
