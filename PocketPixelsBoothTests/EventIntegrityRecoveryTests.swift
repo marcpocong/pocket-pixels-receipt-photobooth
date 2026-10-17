@@ -288,6 +288,17 @@ import XCTest
         XCTAssertEqual(designCount(booth), 1, "The saved design is kept")
     }
 
+    func testUnpairedIPadSendsNothingAndRecordsNoCreation() async throws {
+        let booth = Booth(); defer { booth.cleanup() }
+        let setup = SessionSetupCoordinator(workspace: booth.workspace, acceptance: booth.acceptance, library: booth.library, eventRuns: booth.runs, creations: booth.creations,
+            api: { throw SetupFailure("Pair this iPad first.") }, authorized: { true }, blockingReason: { nil }, loadLocal: { booth.local }, saveLocal: { booth.local = $0 },
+            source: { booth.source }, saveSource: { booth.source = $0 }, currentProfile: { booth.profile }, applyProfile: { booth.profile = $0 }, artworkAvailable: { _ in false })
+        await setup.choosePayment(.qrOnly)
+        await setup.createEvent(name: "Gala Night", venue: "Ballroom")
+        XCTAssertTrue(booth.creations.intents.isEmpty, "Nothing was sent, so nothing needs confirmation")
+        XCTAssertNil(setup.pendingCreation)
+    }
+
     func testDefinitiveRejectionClosesTheRequestAndAllowsARetry() async throws {
         let booth = Booth(); defer { booth.cleanup() }
         let setup = await paidSetup(booth)

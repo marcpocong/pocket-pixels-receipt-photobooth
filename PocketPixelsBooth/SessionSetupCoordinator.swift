@@ -653,10 +653,11 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         let binding = workspace.serverBinding
         let intent = CommercialEventCreationIntent(id: UUID().uuidString.lowercased(), serverBinding: binding, purpose: purpose,
                                                    name: name, venue: venue, createdAt: Date(), state: .requested)
+        let client = try api()   // a configuration failure sends nothing, so it records nothing
         try creations.begin(intent)
         let created: OperatorCreatedEvent
         do {
-            created = try await api().createEvent(name: name, venue: venue, operationID: intent.id)
+            created = try await client.createEvent(name: name, venue: venue, operationID: intent.id)
         } catch let error as PaymentsAPIError where error.provesNoMutation {
             try? creations.markNotCreated(id: intent.id, reason: "rejected: \(error.code ?? "request refused")")
             throw error
