@@ -11,6 +11,9 @@ nonisolated struct LegacySessionAttribution: Codable, Equatable, Identifiable, S
     let runID: String
     let attributedAt: Date
     let note: String
+    /// One operator confirmation; every entry of a batch shares it. Absent on single entries
+    /// written by earlier builds.
+    var batchID: String? = nil
 }
 
 @MainActor final class LegacyAttributionStore: ObservableObject {
@@ -41,22 +44,70 @@ nonisolated struct LegacySessionAttribution: Codable, Equatable, Identifiable, S
 
     /// Records one attribution. A legacy archive can be attributed once; it cannot be moved.
     func attribute(_ archive: RecentSessionArchiveSummary, to run: EventRunRecord, note: String, exact: Set<String>, now: Date = Date()) throws {
-        guard authorized() else { throw PaymentsAPIError.unauthorized }
-        guard !unreadable else { throw SetupFailure(storageError ?? "Attributions are unavailable.") }
-        guard archive.eventRunID == nil, !exact.contains(archive.sessionIdentifier) else { throw SetupFailure("This session already has an exact event-run identity.") }
-        guard !attributions.contains(where: { $0.archiveID == archive.archiveID }) else { throw SetupFailure("This session was already attributed. Attributions are permanent and audited.") }
-        guard run.context.commercialEventID == nil || run.isHistorical || archive.createdAt >= run.createdAt else {
-            throw SetupFailure("A session from before this run started can only be attributed to an earlier-event record.")
-        }
-        let entry = LegacySessionAttribution(id: UUID().uuidString.lowercased(), archiveID: archive.archiveID, sessionID: archive.sessionIdentifier,
-                                             runID: run.id, attributedAt: now, note: String(note.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200)))
-        let next = attributions + [entry]
+        _ = try attribute([archive], to: run, knownRuns: [run], note: note, exact: exact, now: now)
+    }
+
+    /// Validates every selected session first, then appends the whole batch in one durable write.
+    /// Any invalid item fails the batch and nothing is written. Receipts, galleries and orders are
+    /// never touched, and attributions stay separate from exact run identities.
+    @discardableResult
+    func attribute(_ archives: [RecentSessionArchiveSummary], to run: EventRunRecord, knownRuns: [EventRunRecord], note: String,
+                   exact: Set<String>, now: Date = Date()) throws -> [LegacySessionAttribution] {
+        let entries = try validatedBatch(archives, to: run, knownRuns: knownRuns, note: note, exact: exact, now: now)
+        let next = attributions + entries
         do {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true,
                 attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication, .posixPermissions: 0o700])
             try writer(JSONEncoder().encode(Journal(attributions: next)), file)
             attributions = next; storageError = nil
-        } catch { storageError = "Attribution not saved: \(error.localizedDescription)"; throw error }
+        } catch { storageError = "Attribution not saved: \(error.localizedDescription). Nothing was attributed."; throw error }
+        return entries
+    }
+
+    /// The same checks as `attribute`, without writing. Use before creating an earlier-event
+    /// record so a doomed batch doesn't leave an empty record behind.
+    func validate(_ archives: [RecentSessionArchiveSummary], to run: EventRunRecord, knownRuns: [EventRunRecord], note: String,
+                  exact: Set<String>, now: Date = Date()) throws {
+        _ = try validatedBatch(archives, to: run, knownRuns: knownRuns, note: note, exact: exact, now: now)
+    }
+
+    private func validatedBatch(_ archives: [RecentSessionArchiveSummary], to run: EventRunRecord, knownRuns: [EventRunRecord], note: String,
+                                exact: Set<String>, now: Date) throws -> [LegacySessionAttribution] {
+        guard authorized() else { throw PaymentsAPIError.unauthorized }
+        guard !unreadable else { throw SetupFailure(storageError ?? "Attributions are unavailable.") }
+        let reason = String(note.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
+        guard !reason.isEmpty else { throw SetupFailure("Enter the reason for this attribution. It is kept with the record.") }
+        guard !archives.isEmpty else { throw SetupFailure("Select at least one session.") }
+        guard knownRuns.contains(where: { $0.id == run.id }) else { throw SetupFailure("The chosen event run no longer exists. Nothing was attributed.") }
+        guard Set(archives.map(\.archiveID)).count == archives.count, Set(archives.map(\.sessionIdentifier)).count == archives.count else {
+            throw SetupFailure("The selection lists a session twice. Nothing was attributed.")
+        }
+        let attributed = Set(attributions.map(\.archiveID))
+        for archive in archives {
+            let when = archive.createdAt.formatted(date: .abbreviated, time: .shortened)
+            guard archive.rasterFingerprint != "CORRUPT" else { throw SetupFailure("The session from \(when) can't be read. Nothing was attributed.") }
+            guard archive.eventRunID == nil, !exact.contains(archive.sessionIdentifier) else {
+                throw SetupFailure("The session from \(when) already has an exact event-run identity. Nothing was attributed.")
+            }
+            guard !attributed.contains(archive.archiveID) else {
+                throw SetupFailure("The session from \(when) was already attributed. Attributions are permanent; nothing was attributed.")
+            }
+            guard archive.createdAt <= now.addingTimeInterval(300) else { throw SetupFailure("The session from \(when) has an impossible future time. Nothing was attributed.") }
+            // An earlier-event record is the operator's own statement; a real run has real bounds.
+            if !run.isHistorical {
+                if run.context.commercialEventID != nil, archive.createdAt < run.createdAt {
+                    throw SetupFailure("The session from \(when) is earlier than this run started. Choose an earlier-event record. Nothing was attributed.")
+                }
+                if let ended = run.endedAt, archive.createdAt > ended.addingTimeInterval(60) {
+                    throw SetupFailure("The session from \(when) is later than this run ended. Nothing was attributed.")
+                }
+            }
+        }
+        let batch = UUID().uuidString.lowercased()
+        return archives.map {
+            LegacySessionAttribution(id: UUID().uuidString.lowercased(), archiveID: $0.archiveID, sessionID: $0.sessionIdentifier,
+                                     runID: run.id, attributedAt: now, note: reason, batchID: batch)
+        }
     }
 }
 

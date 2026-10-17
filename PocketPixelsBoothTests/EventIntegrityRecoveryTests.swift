@@ -530,3 +530,119 @@ import XCTest
         XCTAssertEqual(booth.runs.runs.count, 1)
     }
 }
+
+/// P1: precise, atomic, audited historical attribution.
+@MainActor final class HistoricalAttributionBatchTests: XCTestCase {
+    private var root: URL!
+    override func setUp() { root = FileManager.default.temporaryDirectory.appendingPathComponent("attribution-\(UUID())") }
+    override func tearDown() { try? FileManager.default.removeItem(at: root) }
+    private let day = Date(timeIntervalSince1970: 1_750_000_000)
+
+    private func archive(_ id: String, minutes: Double, name: String? = nil, run: String? = nil) -> RecentSessionArchiveSummary {
+        RecentSessionArchiveSummary(archiveID: id, sessionIdentifier: "session-\(id)", createdAt: day.addingTimeInterval(minutes * 60), format: .solo, eventName: name,
+            eventLocation: nil, photoCount: 1, receiptWidth: 576, receiptHeight: 900, estimatedLengthMillimeters: 100, rasterFingerprint: String(repeating: "a", count: 64),
+            thumbnailFilenames: [], lastReprintedAt: nil, reprintCount: 0, payloadSizeBytes: 1, eventRunID: run)
+    }
+    private func runs() -> EventRunStore { EventRunStore(directory: root.appendingPathComponent("runs"), authorized: { true }, blockingReason: { nil }) }
+    private func journal(fails: @escaping () -> Bool = { false }) -> LegacyAttributionStore {
+        LegacyAttributionStore(directory: root.appendingPathComponent("runs"), writer: { data, url in
+            if fails() { throw CocoaError(.fileWriteOutOfSpace) }
+            try DurableFileWriter.write(data, to: url)
+        }, authorized: { true })
+    }
+
+    func testTwoEventsOnTheSameDayAreAttributedSeparatelyBySelection() throws {
+        let store = runs(), attributions = journal()
+        let morning = [archive("m1", minutes: 600, name: "Wedding"), archive("m2", minutes: 640, name: "Wedding")]
+        let evening = [archive("e1", minutes: 1100, name: "Debut"), archive("e2", minutes: 1150, name: "Debut")]
+        let all = morning + evening
+        let before = HistoricalActivityReport(archives: all, sessions: [], runs: store.runs, attributions: [], printEntries: [])
+        XCTAssertEqual(before.unassigned.count, 1, "One calendar day")
+        XCTAssertEqual(before.unassigned.first?.archives.count, 4)
+
+        let wedding = try store.createHistoricalRun(name: "Wedding", designID: nil, startedAt: morning[0].createdAt, endedAt: morning[1].createdAt)
+        try attributions.attribute(morning, to: wedding, knownRuns: store.runs, note: "Guest list", exact: [])
+        var report = HistoricalActivityReport(archives: all, sessions: [], runs: store.runs, attributions: attributions.attributions, printEntries: [])
+        XCTAssertEqual(report.attributedByRun[wedding.id], 2)
+        XCTAssertEqual(report.unassigned.flatMap(\.archives).map(\.archiveID).sorted(), ["e1", "e2"], "Unselected sessions on the same day stay unassigned")
+
+        let debut = try store.createHistoricalRun(name: "Debut", designID: nil, startedAt: evening[0].createdAt, endedAt: evening[1].createdAt)
+        try attributions.attribute([evening[0]], to: debut, knownRuns: store.runs, note: "Photographer's notes", exact: [])
+        report = HistoricalActivityReport(archives: all, sessions: [], runs: store.runs, attributions: attributions.attributions, printEntries: [])
+        XCTAssertEqual(report.attributedByRun[debut.id], 1, "Partial selection")
+        XCTAssertEqual(report.unassignedCount, 1)
+        XCTAssertTrue(report.exactByRun.isEmpty, "Operator attribution never becomes an exact identity")
+    }
+
+    func testFailedBatchWriteAttributesNothing() throws {
+        let store = runs()
+        var failing = true
+        let attributions = journal { failing }
+        let run = try store.createHistoricalRun(name: "Gala", designID: nil, startedAt: day, endedAt: day.addingTimeInterval(7200))
+        XCTAssertThrowsError(try attributions.attribute([archive("a", minutes: 1), archive("b", minutes: 2)], to: run, knownRuns: store.runs, note: "Owner", exact: []))
+        XCTAssertTrue(attributions.attributions.isEmpty)
+        XCTAssertTrue(journal().attributions.isEmpty, "Nothing on disk after relaunch")
+        failing = false
+        try attributions.attribute([archive("a", minutes: 1), archive("b", minutes: 2)], to: run, knownRuns: store.runs, note: "Owner", exact: [])
+        XCTAssertEqual(journal().attributions.count, 2)
+    }
+
+    func testOneInvalidItemRejectsTheWholeBatch() throws {
+        let store = runs(), attributions = journal()
+        let run = try store.createHistoricalRun(name: "Gala", designID: nil, startedAt: day, endedAt: day.addingTimeInterval(7200))
+        try attributions.attribute([archive("done", minutes: 5)], to: run, knownRuns: store.runs, note: "First pass", exact: [])
+        let snapshot = attributions.attributions
+        let cases: [(String, [RecentSessionArchiveSummary], Set<String>)] = [
+            ("already attributed", [archive("new-1", minutes: 6), archive("done", minutes: 5)], []),
+            ("exact archive identity", [archive("new-1", minutes: 6), archive("exact", minutes: 7, run: "some-run")], []),
+            ("exact journal identity", [archive("new-1", minutes: 6), archive("journal", minutes: 7)], ["session-journal"]),
+            ("duplicate archive in batch", [archive("new-1", minutes: 6), archive("new-1", minutes: 6)], []),
+            ("impossible future time", [archive("new-1", minutes: 6), archive("future", minutes: 60 * 24 * 365 * 50)], []),
+        ]
+        for (label, batch, exact) in cases {
+            XCTAssertThrowsError(try attributions.attribute(batch, to: run, knownRuns: store.runs, note: "Retry", exact: exact), label)
+            XCTAssertEqual(attributions.attributions, snapshot, "\(label): nothing partially applied")
+        }
+        XCTAssertThrowsError(try attributions.attribute([archive("new-1", minutes: 6)], to: run, knownRuns: store.runs, note: "   ", exact: []), "Reason required")
+        let missing = EventRunRecord(id: "gone", context: run.context, createdAt: day, status: .completed, historical: true)
+        XCTAssertThrowsError(try attributions.attribute([archive("new-1", minutes: 6)], to: missing, knownRuns: store.runs, note: "x", exact: []), "Unknown run identity")
+        XCTAssertEqual(journal().attributions, snapshot, "Append-only journal unchanged on disk")
+    }
+
+    func testRealRunBoundsAreEnforcedButEarlierEventRecordsAreOperatorDefined() throws {
+        let store = runs(), attributions = journal()
+        let paid = EventRunRecord(id: "paid", context: EventRunContext(designID: nil, commercialEventID: "evt", serverBinding: "b", name: "Paid"),
+                                  createdAt: day.addingTimeInterval(3600), status: .completed, endedAt: day.addingTimeInterval(7200))
+        XCTAssertThrowsError(try attributions.validate([archive("before", minutes: 10)], to: paid, knownRuns: [paid], note: "x", exact: []), "Before a paid run started")
+        XCTAssertThrowsError(try attributions.validate([archive("after", minutes: 200)], to: paid, knownRuns: [paid], note: "x", exact: []), "After the run ended")
+        XCTAssertNoThrow(try attributions.validate([archive("inside", minutes: 90)], to: paid, knownRuns: [paid], note: "x", exact: []))
+        let record = try store.createHistoricalRun(name: "Earlier", designID: nil, startedAt: day.addingTimeInterval(600), endedAt: day.addingTimeInterval(900))
+        XCTAssertNoThrow(try attributions.validate([archive("outside-range", minutes: 1)], to: record, knownRuns: store.runs, note: "x", exact: []))
+    }
+
+    func testRepeatedSubmissionAndRelaunchKeepOneAuditedBatch() throws {
+        let store = runs(), attributions = journal()
+        let run = try store.createHistoricalRun(name: "Gala", designID: nil, startedAt: day, endedAt: day.addingTimeInterval(7200))
+        let batch = [archive("a", minutes: 1), archive("b", minutes: 2), archive("c", minutes: 3)]
+        let saved = try attributions.attribute(batch, to: run, knownRuns: store.runs, note: "Owner confirmed", exact: [])
+        XCTAssertThrowsError(try attributions.attribute(batch, to: run, knownRuns: store.runs, note: "Owner confirmed", exact: []), "A double tap can't duplicate")
+        let reloaded = journal()
+        XCTAssertEqual(reloaded.attributions, saved)
+        XCTAssertEqual(Set(reloaded.attributions.compactMap(\.batchID)).count, 1, "One confirmation for the whole batch")
+        XCTAssertTrue(reloaded.attributions.allSatisfy { $0.note == "Owner confirmed" && $0.runID == run.id })
+        let later = try attributions.attribute([archive("d", minutes: 4)], to: run, knownRuns: store.runs, note: "Second pass", exact: [])
+        XCTAssertEqual(Array(journal().attributions.prefix(3)), saved, "Earlier entries are never rewritten")
+        XCTAssertEqual(journal().attributions.last, later.first)
+    }
+
+    func testEarlierBuildJournalEntriesWithoutBatchIDStillDecode() throws {
+        let directory = root.appendingPathComponent("runs")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let legacy = #"{"schemaVersion":1,"attributions":[{"id":"x","archiveID":"a","sessionID":"s","runID":"r","attributedAt":0,"note":"old"}]}"#
+        try Data(legacy.utf8).write(to: directory.appendingPathComponent("legacy-attributions.json"))
+        let store = journal()
+        XCTAssertNil(store.storageError)
+        XCTAssertEqual(store.attributions.first?.note, "old")
+        XCTAssertNil(store.attributions.first?.batchID)
+    }
+}
