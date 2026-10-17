@@ -85,7 +85,9 @@ struct EventRunReportingView: View {
         let workspace = workspace ?? .shared
         let selectedStore = store ?? .shared
         _workspace = ObservedObject(wrappedValue: workspace)
-        _selectedRunID = State(initialValue: workspace.snapshot.reportRunID.flatMap { id in selectedStore.runs.contains { $0.id == id } ? id : nil })
+        let restoredRun = selectedStore.runs.first { $0.id == workspace.snapshot.reportRunID }
+        _selectedRunID = State(initialValue: restoredRun?.id)
+        _showsArchived = State(initialValue: restoredRun?.status == .archived)
         _store = ObservedObject(wrappedValue: store ?? .shared)
         _library = ObservedObject(wrappedValue: library ?? .shared)
         _attributionStore = ObservedObject(wrappedValue: attributions ?? .shared)
@@ -156,6 +158,9 @@ struct EventRunReportingView: View {
         }
         .onChange(of: tab) { _, value in
             if Tab.reportSections.contains(value) { workspace.saveReportSelection(tab: value.rawValue, runID: selectedRunID) }
+        }
+        .onChange(of: showsArchived) { _, includesArchived in
+            if !includesArchived, selected?.status == .archived { selectedRunID = nil }
         }
         .onChange(of: selectedRunID) { _, _ in
             workspace.saveReportSelection(tab: tab.rawValue, runID: selectedRunID)

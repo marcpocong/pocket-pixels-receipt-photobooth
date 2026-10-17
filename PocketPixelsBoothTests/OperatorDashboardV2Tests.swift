@@ -199,6 +199,15 @@ import SwiftUI
         // Rendering and navigation never changes the run or opens the admission barrier.
         XCTAssertEqual(runs.current?.id, run.id)
         XCTAssertEqual(runs.current?.status, .active)
+        let archived = try runs.createHistoricalRun(name: "Earlier Studio Event", designID: nil,
+            startedAt: Date().addingTimeInterval(-86_400), endedAt: Date().addingTimeInterval(-82_800))
+        try runs.transition(id: archived.id, to: .archived)
+        workspace.saveReportSelection(tab: "Overview", runID: archived.id)
+        try await render(AnyView(NavigationStack { EventRunReportingView(store: runs, library: library,
+            archiveDirectory: root.appendingPathComponent("archives"), loadsRemote: false, workspace: workspace) }),
+            name: "reports-archived-scope", size: CGSize(width: 834, height: 1_194), scene: scene)
+        XCTAssertEqual(workspace.snapshot.reportRunID, archived.id)
+        XCTAssertEqual(runs.current?.id, run.id, "Restoring historical scope cannot change the accepting run")
     }
 
     private func render(_ view: AnyView, name: String, size: CGSize, scene: UIWindowScene) async throws {

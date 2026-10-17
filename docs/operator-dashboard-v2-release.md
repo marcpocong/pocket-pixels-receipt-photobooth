@@ -6,7 +6,7 @@ PR [#9](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/pull/9) m
 
 ## Native operator experience
 
-Exactly four primary destinations: Home, Events, Reports, System. One authenticated NavigationStack survives adaptive layout changes; landscape uses a persistent sidebar and portrait uses four accessible navigation buttons. Optional additions to the existing schema preserve old routes and drafts. Each section restores its detail route; informational navigation never publishes setup or activates events.
+Exactly four primary destinations: Home, Events, Reports, System. One authenticated NavigationStack survives adaptive layout changes; landscape uses a persistent sidebar and portrait uses four accessible navigation buttons. Optional additions to the existing schema preserve old routes and drafts. Each section restores its detail route; informational navigation never publishes setup or activates events. Restoring an archived report also enables its archive filter so the selected scope remains visible in the picker; explicitly excluding archives returns the scope to the current run.
 
 Home uses the existing authoritative lifecycle coordinator and preserves active-session, printer, recovery, and remote-transition barriers. Local pause and server pause have distinct labels. End Event remains in a separate confirmed control. Equipment states distinguish unchecked from verified. Four journal metrics are scoped to the current run and report unavailable/incomplete data explicitly; delivered printer bytes never imply sensor-confirmed paper output.
 
@@ -20,7 +20,7 @@ The dashboard does not modify camera capture, printer transport/raster, receipt 
 
 ## SDK compatibility
 
-The first PR build exposed an older Swift compiler overload ambiguity after adding Apple Charts: two existing dynamically titled SwiftUI list sections were inferred through ChartContentBuilder. Recent Sessions and Saved Drafts now use explicit SwiftUI section content and Text headers, with opaque SwiftUI View row helpers that constrain the collection builder before overload resolution. Layout and behavior are unchanged. The rebuilt source passed focused dashboard/draft/archive tests; all mandatory production checks must pass on the corrected head.
+The first PR build exposed an older Swift compiler overload ambiguity after adding Apple Charts: two existing dynamically titled SwiftUI list sections were inferred through ChartContentBuilder. Recent Sessions and Saved Drafts now use explicit SwiftUI section content and Text headers, with opaque SwiftUI View row functions passed directly as collection content, avoiding the older compiler's trailing-closure builder ambiguity. Layout and behavior are unchanged. The rebuilt source passed focused dashboard/draft/archive tests; all mandatory production checks must pass on the corrected head.
 
 ## Regression repair
 
