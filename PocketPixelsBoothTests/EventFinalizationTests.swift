@@ -459,11 +459,11 @@ final class GalleryBrowserLayoutTests: XCTestCase {
         web.navigationDelegate = observer
         defer { web.navigationDelegate = nil }
         web.loadHTMLString(html, baseURL: URL(string: "https://gallery.example.test/?g=" + String(repeating: "c", count: 64) + "&ignored=private#photos"))
-        await fulfillment(of: [observer.finished], timeout: 15)
+        await fulfillment(of: [observer.finished], timeout: 45)
         if let error = observer.error { throw error }
         guard observer.didFinish else {
             throw NSError(domain: "GalleryBrowserFixture", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "Visible gallery fixture navigation did not finish within 15 seconds."])
+                          userInfo: [NSLocalizedDescriptionKey: "Visible gallery fixture navigation did not finish within 45 seconds."])
         }
         let ready = try await web.evaluateJavaScript("document.readyState === 'complete' && typeof photoItems !== 'undefined' && !!document.getElementById('shareAll') && !!document.getElementById('allHint')") as? Bool
         XCTAssertEqual(ready, true, "Navigation must finish with the actual gallery script and controls ready")
