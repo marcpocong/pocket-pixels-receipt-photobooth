@@ -308,6 +308,13 @@ enum PrintReportSyncState: Equatable {
     case retryScheduled(Int)
 }
 
+/// Read-only server view used by recovery. `PaymentsAPIClient` in production; a stub in tests.
+nonisolated protocol CheckoutRecoveryReading: Sendable {
+    var environment: String { get }
+    func checkoutRecovery(checkoutSessionID: String) async throws -> CheckoutRecoveryResponse
+}
+extension PaymentsAPIClient: CheckoutRecoveryReading {}
+
 /// Reconciles interrupted checkouts and replays print reports. Resuming is never automatic: an
 /// operator arms a single-use, short-lived resume and the guest continues the original checkout.
 @MainActor
@@ -321,12 +328,27 @@ final class PaymentRecoveryCoordinator: ObservableObject {
     @Published private(set) var outboxSummary = (pending: 0, conflicts: 0, uncertain: 0, awaiting: 0)
     @Published private(set) var printReportSyncState = PrintReportSyncState.idle
 
+    @Published private(set) var lastRefreshCompletedAt: Date?
     private var launched = false
+    /// Refreshes are single-flight: one pass at a time, and requests made during a pass are
+    /// coalesced into exactly one follow-up pass. An older pass can never publish over a newer one.
+    private var refreshTask: Task<Void, Never>?
+    private var refreshRequestedDuringPass = false
+    private(set) var completedRefreshPasses = 0
+    private let checkpointStore: @MainActor () -> CheckoutCheckpointStore?
+    private let reader: @MainActor () -> (any CheckoutRecoveryReading)?
+    private let outboxClient: @MainActor () -> PaymentsAPIClient?
+
+    init(checkpointStore: @escaping @MainActor () -> CheckoutCheckpointStore? = { CheckoutCheckpointStore.shared },
+         reader: @escaping @MainActor () -> (any CheckoutRecoveryReading)? = { PaymentsConfiguration.current().map { PaymentsAPIClient(configuration: $0) } },
+         outboxClient: @escaping @MainActor () -> PaymentsAPIClient? = { PaymentsConfiguration.current().map { PaymentsAPIClient(configuration: $0) } }) {
+        self.checkpointStore = checkpointStore; self.reader = reader; self.outboxClient = outboxClient
+    }
 
     /// Items an attendant should look at (never shown with any detail on guest screens).
     var needsAttention: Bool {
         items.contains { !$0.classification.isTerminal } || outboxSummary.conflicts > 0
-            || CheckoutCheckpointStore.shared?.integrityFault != nil || PrintOutcomeOutbox.shared?.integrityFault != nil
+            || checkpointStore()?.integrityFault != nil || PrintOutcomeOutbox.shared?.integrityFault != nil
     }
 
     func launch() {
@@ -336,23 +358,48 @@ final class PaymentRecoveryCoordinator: ObservableObject {
         Task { await refresh() }
     }
 
+    /// Startup, foregrounding and operator actions may all ask at once. Callers wait for a pass
+    /// that started after their request, so what they see is never older than their request.
     func refresh() async {
+        if let running = refreshTask {
+            refreshRequestedDuringPass = true
+            await running.value
+            return
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            repeat {
+                self.refreshRequestedDuringPass = false
+                await self.performRefreshPass()
+                self.completedRefreshPasses += 1
+            } while self.refreshRequestedDuringPass
+            self.refreshTask = nil
+        }
+        refreshTask = task
+        await task.value
+    }
+
+    private func performRefreshPass() async {
         refreshOutboxSummary()
-        guard let store = CheckoutCheckpointStore.shared else {
+        guard let store = checkpointStore() else {
             lastRefreshMessage = "Checkout records are unavailable on this iPad."
             return
         }
-        let configuration = PaymentsConfiguration.current()
-        let client = configuration.map { PaymentsAPIClient(configuration: $0) }
+        let client = reader()
         var refreshed: [CheckoutRecoveryItem] = []
         var unreachable = false
+        // Read-only server checks run one at a time: bounded load on the payments server.
         for checkpoint in store.unresolved {
             let printStarted = PrintOutcomeOutbox.shared.map { !$0.copiesThatMayHavePrinted(sessionID: checkpoint.id).isEmpty } ?? true
             var server: CheckoutRecoveryResponse?
-            if checkpoint.method != "OFFLINE_CASH", let client, configuration?.environment == checkpoint.environment {
+            if checkpoint.method != "OFFLINE_CASH", let client, client.environment == checkpoint.environment {
+                // A failed, timed-out or cancelled read proves nothing: the checkout stays pending.
                 do { server = try await client.checkoutRecovery(checkoutSessionID: checkpoint.id) } catch { unreachable = true }
             }
             let offlineExists = await offlineRecordExists(checkpoint)
+            // The operator may have resolved it while this pass was waiting; their decision stands.
+            // No suspension point follows until this checkpoint is classified and recorded.
+            guard store.checkpoint(id: checkpoint.id)?.isResolved == false else { continue }
             let classification: CheckoutRecoveryClassification = (server == nil && checkpoint.method != "OFFLINE_CASH")
                 ? .paymentPending
                 : CheckoutRecoveryClassifier.classify(checkpoint: checkpoint, server: server, localPrintStarted: printStarted, offlineRecordExists: offlineExists)
@@ -368,9 +415,14 @@ final class PaymentRecoveryCoordinator: ObservableObject {
                 refreshed.append(CheckoutRecoveryItem(checkpoint: checkpoint, classification: classification))
             }
         }
-        items = refreshed
+        items = refreshed.filter { store.checkpoint(id: $0.id)?.isResolved == false }
+        // An armed resume follows the newest classification; it is dropped if no longer resumable.
+        if let armed = armedResume {
+            if let fresh = items.first(where: { $0.id == armed.item.id }), fresh.classification.isResumable { armedResume = (fresh, armed.expiresAt) } else { armedResume = nil }
+        }
         lastRefreshMessage = unreachable ? "Some checkouts could not be checked: the payments server is unreachable." : "Checked \(Date().formatted(date: .omitted, time: .shortened))."
-        if let client { await syncOutbox(client: client) }
+        if !unreachable { lastRefreshCompletedAt = Date() }
+        if let outbox = outboxClient() { await syncOutbox(client: outbox) }
     }
 
     func syncOutbox(
@@ -437,7 +489,7 @@ final class PaymentRecoveryCoordinator: ObservableObject {
     /// Hides an item on this iPad. Server entitlements are untouched and stay listed as
     /// outstanding in the server's order list; the reason is kept in the local record.
     func dismiss(_ item: CheckoutRecoveryItem, reason: String) {
-        CheckoutCheckpointStore.shared?.resolve(id: item.id, reason: "operator:\(reason)")
+        checkpointStore()?.resolve(id: item.id, reason: "operator:\(reason)")
         items.removeAll { $0.id == item.id }
         if armedResume?.item.id == item.id { armedResume = nil }
     }
@@ -451,7 +503,7 @@ final class PaymentRecoveryCoordinator: ObservableObject {
         let copies = outbox.copiesThatMayHavePrinted(sessionID: checkpoint.id)
         guard Self.allPaidCopiesDelivered(copies, paidCopies: checkpoint.copies), let batchID = copies.first?.batchID else { return false }
         outbox.enqueueCompletion(batchID: batchID, sessionID: checkpoint.id, entitlementID: entitlementID)
-        CheckoutCheckpointStore.shared?.resolve(id: checkpoint.id, reason: "auto:all paid copies delivered before interruption")
+        checkpointStore()?.resolve(id: checkpoint.id, reason: "auto:all paid copies delivered before interruption")
         return true
     }
 

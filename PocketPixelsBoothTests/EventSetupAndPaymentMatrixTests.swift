@@ -24,7 +24,10 @@ import UIKit
                      activePolicy: event.active, latestRevision: event.latest, hasUnpublishedRevision: event.latest?.id != event.active?.id,
                      outstandingEntitlements: 0, serverTime: Date())
     }
-    @MainActor func createEvent(name: String, venue: String) async throws -> OperatorCreatedEvent {
+    @MainActor func eventCreation(operationID: String) async throws -> OperatorEventCreationLookup {
+        throw PaymentsAPIError.rejected(code: "not_found", message: "missing", status: 404, details: Data())
+    }
+    @MainActor func createEvent(name: String, venue: String, operationID: String) async throws -> OperatorCreatedEvent {
         counter += 1
         let id = "srv-\(counter)"
         calls.append("create:\(name)")
@@ -86,7 +89,7 @@ import UIKit
         library = EventDesignLibraryStore(directory: directory, legacyProfile: { .pocketPixelsDefault }, legacyName: { "" })
     }
     func makeModel() -> SessionSetupCoordinator {
-        .init(workspace: workspace, acceptance: acceptance, library: library, eventRuns: runs, api: { self.api }, authorized: { true }, blockingReason: { nil },
+        .init(workspace: workspace, acceptance: acceptance, library: library, eventRuns: runs, creations: CommercialEventCreationStore(directory: directory), api: { self.api }, authorized: { true }, blockingReason: { nil },
               loadLocal: { self.local }, saveLocal: { self.local = $0 }, source: { self.source }, saveSource: { self.source = $0 },
               currentProfile: { self.profile }, applyProfile: { self.profile = $0; self.applied.append($0) },
               artworkAvailable: { $0.map(self.usable.contains) ?? false })
@@ -207,7 +210,7 @@ import UIKit
     func testExistingRegularSessionsNamesAreReusedWithoutChangingServerPolicy() async throws {
         for name in ["Regular Sessions", "Made to Keep Studios — Regular Sessions"] {
             let f = MatrixFixture(); defer { f.cleanup() }
-            let original = try await f.api.createEvent(name: name, venue: "Existing venue")
+            let original = try await f.api.createEvent(name: name, venue: "Existing venue", operationID: UUID().uuidString)
             var policy = ServerPolicyDraft()
             policy.priceText = "25"; policy.maxCopies = 3; policy.defaultCopies = 1
             _ = try await f.api.saveDraft(eventID: original.id, expectedVersion: 1, name: name, venue: "Existing venue", policy: XCTUnwrap(policy.requestBody()))
@@ -225,8 +228,8 @@ import UIKit
 
     func testAmbiguousRegularSessionsDoNotCreateOrChooseAnotherEvent() async throws {
         let f = MatrixFixture(); defer { f.cleanup() }
-        _ = try await f.api.createEvent(name: "Regular Sessions", venue: "")
-        _ = try await f.api.createEvent(name: "Made to Keep Studios — Regular Sessions", venue: "")
+        _ = try await f.api.createEvent(name: "Regular Sessions", venue: "", operationID: UUID().uuidString)
+        _ = try await f.api.createEvent(name: "Made to Keep Studios — Regular Sessions", venue: "", operationID: UUID().uuidString)
         f.api.calls.removeAll()
         await f.model.choosePayment(.qrOnly)
         await f.model.connectPaidCheckout()
@@ -385,7 +388,7 @@ import UIKit
 
     func testExistingInstallsKeepTheirCommittedPaidEventWithoutRelinking() async throws {
         let f = MatrixFixture(); defer { f.cleanup() }
-        _ = try await f.api.createEvent(name: "Legacy Paid", venue: "")
+        _ = try await f.api.createEvent(name: "Legacy Paid", venue: "", operationID: UUID().uuidString)
         try f.acceptance.save(.init(blocked: false, eventID: "srv-1", serverBinding: f.workspace.serverBinding, mode: .serverManaged))
         f.source = .serverManaged
         await f.model.refresh()

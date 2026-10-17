@@ -16,6 +16,8 @@ nonisolated enum CommercialCheckState: Equatable, Sendable {
     case notNeeded
     case checking
     case confirmed(CommercialEventCheck)
+    /// The payments server answered that the event doesn't exist for this account.
+    case notFound(eventID: String)
     case unavailable(String)
 }
 
@@ -105,6 +107,8 @@ nonisolated struct EventStatusInputs: Sendable {
     var pendingTransition: EventTransitionIntent?
     var hasUnsavedSetup: Bool
     var operation: EventLifecycleCoordinator.Operation?
+    /// The local prepaid policy is valid but paused (Pause This Booth before runs existed).
+    var localPrepaidPaused = false
 }
 
 nonisolated enum EventStatusModel {
@@ -119,17 +123,15 @@ nonisolated enum EventStatusModel {
             let action = pending.kind == .endCommercialEvent ? "Ending the paid event" : "Pausing the paid event"
             return .recoveryRequired("\(action) was interrupted before it was confirmed. Check Status to finish it; nothing will be repeated automatically.")
         }
-        guard let run = input.run else {
-            // Upgrade path: a booth that accepted guests before event runs keeps accepting; the
-            // first guest starts the first run.
-            if !input.barrierBlocked, input.source == .localPrepaid, input.localPrepaidReady { return .accepting }
-            return input.hasUnsavedSetup ? .draft : .noEvent
-        }
+        guard let run = input.run else { return withoutRun(input) }
         switch run.status {
         case .archived: return .archived
         case .completed: return .completed
         case .draft: return .ready
         case .active, .paused: break
+        }
+        if case .notFound(let id) = input.commercial, id == run.context.commercialEventID {
+            return .needsReview(notFoundReason)
         }
         if !run.context.matches(input.appliedContext) {
             return .needsReview("The applied setup no longer matches the running event. Review and start it in Event Setup.")
@@ -155,12 +157,52 @@ nonisolated enum EventStatusModel {
         switch input.commercial {
         case .notNeeded, .checking: return .unconfirmed("checking now")
         case .unavailable(let reason): return .unconfirmed(reason)
+        case .notFound: return .needsReview(notFoundReason)
         case .confirmed(let check):
             guard check.eventID == eventID else { return .unconfirmed("the checked event differs") }
             switch check.lifecycle {
             case .active?: return check.isAccountActiveEvent ? .accepting : .needsReview("Another paid event is active for this account.")
             case .paused?: return .serverPaused
             case .ended?, .archived?: return .needsReview("The paid event was ended for every booth. Finish ending this iPad's run.")
+            case .draft?: return .needsReview("The paid event has not been started. Review and start it in Event Setup.")
+            case nil: return .unconfirmed("lifecycle not reported")
+            }
+        }
+    }
+
+    static let notFoundReason = "The paid event this iPad was started for was not found on this payments connection (wrong environment or account?). Review Event Setup."
+
+    /// An install upgraded from a build without event runs can be running an event with no run
+    /// recorded yet. The committed admission barrier is the evidence of what this iPad was started
+    /// for; the server confirms its lifecycle. A legitimate running event is never "unconfigured",
+    /// and an identity that can't be established is shown as needing review, never as success.
+    private static func withoutRun(_ input: EventStatusInputs) -> EventOperatorStatus {
+        if input.source == .localPrepaid {
+            if !input.barrierBlocked, input.localPrepaidReady { return .accepting }
+            if input.barrierBlocked, input.localPrepaidPaused { return .pausedOnBooth }
+            return input.hasUnsavedSetup ? .draft : .noEvent
+        }
+        guard let eventID = input.acceptanceEventID else {
+            // Admission open with no committed paid event: guests would be admitted for whatever
+            // event is active on the account. That identity is not proven for this iPad.
+            if input.barrierBlocked { return input.hasUnsavedSetup ? .draft : .noEvent }
+            return .needsReview("Guests can start paid sessions, but this iPad has no record of which paid event it was started for. Review and start the event in Event Setup.")
+        }
+        guard input.acceptanceBinding == input.binding else {
+            return .needsReview("This iPad was started for a paid event on a different payments connection. Review Event Setup.")
+        }
+        switch input.commercial {
+        case .notNeeded, .checking: return input.barrierBlocked ? .pausedOnBooth : .unconfirmed("checking now")
+        case .unavailable(let reason): return input.barrierBlocked ? .pausedOnBooth : .unconfirmed(reason)
+        case .notFound: return .needsReview(notFoundReason)
+        case .confirmed(let check):
+            guard check.eventID == eventID else { return .unconfirmed("the checked event differs") }
+            switch check.lifecycle {
+            case .active?:
+                if input.barrierBlocked { return .pausedOnBooth }
+                return check.isAccountActiveEvent ? .accepting : .needsReview("Another paid event is active for this account.")
+            case .paused?: return .serverPaused
+            case .ended?, .archived?: return .needsReview("The paid event this iPad was started for has ended. Set up the next event in Event Setup; its sales are kept.")
             case .draft?: return .needsReview("The paid event has not been started. Review and start it in Event Setup.")
             case nil: return .unconfirmed("lifecycle not reported")
             }
@@ -231,13 +273,25 @@ nonisolated enum EventStatusModel {
             acceptanceEventID: acceptance.state.eventID, acceptanceBinding: acceptance.state.serverBinding, binding: binding(), source: source(),
             localPrepaidReady: SessionAdmission.localConfigurationIsReady(source: .localPrepaid, local: local),
             commercial: commercial, recoveryReason: recoveryReason(), storageErrors: errors,
-            pendingTransition: runs.pendingTransition, hasUnsavedSetup: hasUnsavedSetup(), operation: operation))
+            pendingTransition: runs.pendingTransition, hasUnsavedSetup: hasUnsavedSetup(), operation: operation,
+            localPrepaidPaused: SessionAdmission.localConfigurationIsPaused(local)))
     }
 
-    /// The paid event linked to the current occurrence, when it belongs to this connection.
+    /// The paid event linked to the current occurrence, when it belongs to this connection. With
+    /// no run yet (an upgraded install), the paid event this iPad's admission was committed for.
     var linkedCommercialEventID: String? {
-        guard let run = runs.current, let id = run.context.commercialEventID, run.context.serverBinding == binding() else { return nil }
+        if let run = runs.current {
+            guard let id = run.context.commercialEventID, run.context.serverBinding == binding() else { return nil }
+            return id
+        }
+        guard source() == .serverManaged, let id = acceptance.state.eventID, acceptance.state.serverBinding == binding() else { return nil }
         return id
+    }
+
+    /// An upgraded install that is running (or paused in) an event with no run recorded yet.
+    var canRecordUpgradedRun: Bool {
+        guard runs.current == nil, runs.pendingTransition == nil, !runs.historyUnreadable else { return false }
+        switch status { case .accepting, .unconfirmed, .pausedOnBooth, .serverPaused: return true; default: return false }
     }
 
     /// The commercial lifecycle as last confirmed by the server, if it was checked.
@@ -271,7 +325,8 @@ nonisolated enum EventStatusModel {
             commercial = .confirmed(check); lastCheckedAt = check.checkedAt
             reconcilePending(with: check)
         } catch {
-            guard checkRequest == request else { return }
+            guard checkRequest == request, binding() == expectedBinding else { return }
+            if case .rejected(_, _, 404, _) = error as? PaymentsAPIError { commercial = .notFound(eventID: eventID); lastCheckedAt = Date(); return }
             commercial = .unavailable(error.localizedDescription)
         }
     }
@@ -331,9 +386,9 @@ nonisolated enum EventStatusModel {
     func pauseCommercialEvent() async {
         guard operation == nil else { return }
         guard authorized() else { message = "Unlock Operator again before continuing."; return }
-        guard let eventID = linkedCommercialEventID, let run = runs.current else { message = "This run has no paid event to pause."; return }
+        guard let eventID = linkedCommercialEventID else { message = "This run has no paid event to pause."; return }
         operation = .pausing; defer { operation = nil }
-        let intent = EventTransitionIntent(id: UUID().uuidString.lowercased(), kind: .pauseCommercialEvent, runID: run.id,
+        let intent = EventTransitionIntent(id: UUID().uuidString.lowercased(), kind: .pauseCommercialEvent, runID: runs.current?.id,
                                            commercialEventID: eventID, serverBinding: binding(), createdAt: Date())
         do {
             try closeAdmission()
@@ -431,15 +486,39 @@ nonisolated enum EventStatusModel {
         } catch { message = "Not completed: \(error.localizedDescription)" }
     }
 
-    /// Fresh statistics for the same setup. Admission state and prices are unchanged.
-    func startNewRun() -> Bool {
+    // MARK: Upgrade bootstrap
+
+    /// Records the first event run for an occurrence that was already running when this iPad was
+    /// upgraded to a build with event runs. Protected and explicit; it verifies the committed
+    /// identity against the server first, never creates or changes a paid event, never changes
+    /// admission, prices or payment policy, and never assigns earlier sessions to the run.
+    /// Repeating it (or relaunching mid-way) can't create a second run.
+    func recordUpgradedRun() async -> Bool {
+        guard operation == nil else { return false }
+        guard authorized() else { message = "Unlock Operator again before continuing."; return false }
+        if runs.current != nil { message = "This iPad already has an event run. Nothing was changed."; return false }
+        guard runs.pendingTransition == nil, !runs.historyUnreadable else { message = "Resolve the event-history warning in Current Event first."; return false }
+        operation = .checking; defer { operation = nil }
+        let context = appliedContext()
+        if source() == .serverManaged {
+            await refresh()
+            guard let eventID = linkedCommercialEventID, context.commercialEventID == eventID, context.serverBinding == binding() else {
+                message = "This iPad's paid event identity doesn't match its setup. Review and start the event in Event Setup instead."; return false
+            }
+            guard case .confirmed(let check) = commercial, check.eventID == eventID, [.active, .paused].contains(check.lifecycle) else {
+                message = "The paid event couldn't be confirmed as running, so no run was recorded. Check Status, then try again."; return false
+            }
+        } else {
+            let local = loadLocal()
+            guard context.commercialEventID == nil, SessionAdmission.localConfigurationIsReady(source: .localPrepaid, local: local) || SessionAdmission.localConfigurationIsPaused(local) else {
+                message = "The prepaid setup needs review in Event Setup before a run can be recorded."; return false
+            }
+        }
         do {
-            _ = try runs.startNewRun(context: appliedContext())
-            message = acceptance.state.blocked
-                ? "A new event run started with fresh statistics. This iPad is still paused; resume when ready."
-                : "A new event run started with fresh statistics. Earlier runs keep their history."
+            let run = try runs.recordUpgradedRun(context: context, paused: acceptance.state.blocked)
+            message = "Event run recorded for \(run.context.name.isEmpty ? "this event" : run.context.name). Statistics count from now; earlier sessions stay under History. Admission and prices are unchanged."
             return true
-        } catch { message = error.localizedDescription; return false }
+        } catch { message = "No run was recorded: \(error.localizedDescription)"; return false }
     }
 
     /// Keeps the local occurrence consistent after a commercial lifecycle change confirmed by the

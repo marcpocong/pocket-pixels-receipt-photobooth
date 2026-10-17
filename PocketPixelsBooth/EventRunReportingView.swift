@@ -69,7 +69,8 @@ struct EventRunReportingView: View {
     @State private var unassignedOfflineCount = 0
     @State private var exportURL: URL?
     @State private var financialRequest = UUID()
-    @State private var attributionGroup: HistoricalActivityReport.DayGroup?
+    @State private var selectedArchiveIDs: Set<String> = []
+    @State private var attributionSelection: AttributionSelection?
     private let archiveDirectory: URL?
     private let loadsRemote: Bool
 
@@ -110,19 +111,28 @@ struct EventRunReportingView: View {
         .scrollContentBackground(.hidden)
         .background(MadeToKeepPaperBackground())
         .tint(MadeToKeepTheme.ColorPalette.burgundy)
-        .task(id: store.revision) { await loadLocal() }
+        .task(id: store.revision) {
+            // A burst of journal writes (gallery verification, print reconciliation) bumps the
+            // revision repeatedly; each bump cancels this task, so the burst costs one reload of
+            // every session file, archive and order page instead of one per write.
+            if sessions.isEmpty && archives.isEmpty && loading { await loadLocal(); return }
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            await loadLocal()
+        }
         .onChange(of: selectedRunID) { _, _ in exportURL = nil; Task { await loadFinancials() } }
         .confirmationDialog(dialogTitle, isPresented: Binding(get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } }), titleVisibility: .visible) {
-            Button(pendingAction == "new" ? "Start New Event Run" : "Archive Run") { perform() }
+            Button("Archive Run") { perform() }
             Button("Cancel", role: .cancel) { }
         } message: { Text(dialogMessage) }
         .confirmationDialog("Delete unused design?", isPresented: Binding(get: { designCandidate != nil }, set: { if !$0 { designCandidate = nil } })) {
             Button("Delete Unused Design", role: .destructive) { deleteDesign() }
             Button("Cancel", role: .cancel) { }
         } message: { Text("Applied, commercially linked and historically referenced designs cannot be deleted. Artwork and customer records are never removed.") }
-        .sheet(item: $attributionGroup) { group in
-            LegacyAttributionSheet(group: group, store: store, attributions: attributionStore, exactSessionIDs: Set(sessions.map(\.sessionID))) { result in
-                message = result; attributionGroup = nil
+        .sheet(item: $attributionSelection) { selection in
+            LegacyAttributionSheet(archives: selection.archives, store: store, attributions: attributionStore, exactSessionIDs: Set(sessions.map(\.sessionID))) { result in
+                if let result { message = result; selectedArchiveIDs = [] }
+                attributionSelection = nil
                 Task { await loadLocal() }
             }
         }
@@ -306,21 +316,47 @@ struct EventRunReportingView: View {
                 if history.unassignedPrintCopies > 0 { LabeledContent("Print copies without a run", value: String(history.unassignedPrintCopies)) }
                 if history.corruptArchives > 0 { Label("\(history.corruptArchives) archived session(s) could not be read and are excluded.", systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
                 ForEach(history.unassigned) { group in
-                    Button { attributionGroup = group } label: {
+                    DisclosureGroup {
+                        ForEach(group.archives) { archive in
+                            Button { toggle(archive) } label: {
+                                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                                    Image(systemName: selectedArchiveIDs.contains(archive.archiveID) ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("\(archive.createdAt.formatted(date: .omitted, time: .shortened)) · \(archive.format.displayName)")
+                                            .foregroundStyle(MadeToKeepTheme.ColorPalette.ink)
+                                        Text(archive.eventName.flatMap { $0.isEmpty ? nil : "Receipt: \($0)" } ?? "No receipt event name").font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            }
+                            .disabled(store.historyUnreadable)
+                            .accessibilityAddTraits(selectedArchiveIDs.contains(archive.archiveID) ? .isSelected : [])
+                        }
+                    } label: {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(group.day.formatted(date: .complete, time: .omitted)).font(.headline).foregroundStyle(MadeToKeepTheme.ColorPalette.ink)
                             Text("\(group.archives.count) sessions · " + group.byFormat.keys.sorted().map { "\(group.byFormat[$0] ?? 0) \(BoothFormat(rawValue: $0)?.displayName ?? $0)" }.joined(separator: ", "))
                                 .font(.caption).foregroundStyle(.secondary)
                             if !group.names.isEmpty { Text("Receipt names: \(group.names.joined(separator: ", "))").font(.caption2).foregroundStyle(.secondary) }
                         }
-                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .frame(minHeight: 44, alignment: .leading)
                     }
-                    .disabled(store.historyUnreadable)
+                }
+                if !history.unassigned.isEmpty {
+                    Button("Review & Attribute Selected (\(selectedArchiveIDs.count))…") {
+                        let chosen = history.unassigned.flatMap(\.archives).filter { selectedArchiveIDs.contains($0.archiveID) }
+                        attributionSelection = AttributionSelection(archives: chosen)
+                    }
+                    .disabled(selectedArchiveIDs.isEmpty || store.historyUnreadable)
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("review-attribution")
+                    if !selectedArchiveIDs.isEmpty { Button("Clear Selection") { selectedArchiveIDs = [] }.frame(minHeight: 44) }
                 }
             } else if !loading, localError == nil { Text("Earlier sessions have not been checked.").foregroundStyle(.secondary) }
             if let error = attributionStore.storageError { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
         } header: { Text("Unassigned earlier activity") } footer: {
-            Text(HistoricalActivityReport.unassignedReason + " Tap a day to review it and, if you know which event it was, attribute it explicitly. Attributions are permanent, audited and shown separately. Sales are never attributed.")
+            Text(HistoricalActivityReport.unassignedReason + " Open a day and select the individual sessions you know belong to one event, then review and attribute them. Two events on the same day stay separate. Attributions are permanent, audited and shown separately. Sales are never attributed.")
         }
         Section {
             NavigationLink("Paid Event History & Archive") { PaymentsOperatorView(salesOnly: true, allowsEventMaintenance: true) }
@@ -332,8 +368,10 @@ struct EventRunReportingView: View {
     @ViewBuilder private var manageTab: some View {
         Section {
             if let current = store.current { LabeledContent("Current run", value: label(current)) }
-            Button("Start New Event Run…") { pendingAction = "new" }.disabled(blocked != nil || store.current == nil)
-                .frame(minHeight: 44)
+            NavigationLink(value: OperatorWorkspaceRoute.sessionSetup) {
+                Label("Start a New Occurrence in Event Setup", systemImage: "calendar.badge.plus").frame(minHeight: 44)
+            }
+            .accessibilityIdentifier("manage-new-occurrence")
             if let selected, selected.status == .completed || selected.status == .draft {
                 Button("Archive Selected Run…") { pendingAction = "archive" }.disabled(blocked != nil).frame(minHeight: 44)
             }
@@ -344,7 +382,7 @@ struct EventRunReportingView: View {
             if let blocked { Text(blocked).font(.footnote).foregroundStyle(.orange) }
             if let error = store.storageError { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
         } header: { Text("Event runs") } footer: {
-            Text("A new run gives fresh statistics for the same setup without deleting anything. Archiving hides an ended run from everyday lists; its sessions, receipts, galleries, entitlements and reports stay saved.")
+            Text("Reports never change the running event. For fresh statistics, end the event from Current Event, then use Start New Occurrence in Event Setup: it reviews the design and payment setup and keeps the ended run's history. Archiving hides an ended run from everyday lists; its sessions, receipts, galleries, entitlements and reports stay saved.")
         }
         Section {
             ForEach(library.library.events) { design in
@@ -426,24 +464,23 @@ struct EventRunReportingView: View {
 
     // MARK: Actions
 
-    private var dialogTitle: String { pendingAction == "new" ? "Start a fresh event run?" : "Archive this run?" }
+    private var dialogTitle: String { "Archive this run?" }
     private var dialogMessage: String {
-        pendingAction == "new"
-            ? "Statistics start again from zero for the same setup. The current run ends and keeps all of its history. Prices, payment methods and guest admission are not changed."
-            : "The run is hidden from everyday lists. Its sessions, receipts, galleries, payments and reports are kept and stay available under History."
+        "The run is hidden from everyday lists. Its sessions, receipts, galleries, payments and reports are kept and stay available under History."
     }
 
     private func perform() {
         defer { pendingAction = nil }
         do {
-            if pendingAction == "new" {
-                _ = try store.startNewRun(context: EventRunStore.currentContext()); selectedRunID = nil
-                message = "A new event run started with fresh statistics. Earlier runs keep their history."
-            } else if let run = selected {
+            if pendingAction == "archive", let run = selected {
                 try store.transition(id: run.id, to: .archived); selectedRunID = nil
                 message = "Run archived. Its history and reports were retained."
             }
         } catch { message = error.localizedDescription }
+    }
+
+    private func toggle(_ archive: RecentSessionArchiveSummary) {
+        if selectedArchiveIDs.contains(archive.archiveID) { selectedArchiveIDs.remove(archive.archiveID) } else { selectedArchiveIDs.insert(archive.archiveID) }
     }
 
     private func restoreDesign(_ design: SavedEventDesign) {
@@ -496,73 +533,104 @@ nonisolated enum EventRunCSV {
     }
 }
 
-/// Explicit, audited attribution of one day's legacy sessions to an occurrence.
+private struct AttributionSelection: Identifiable {
+    let id = UUID()
+    let archives: [RecentSessionArchiveSummary]
+}
+
+/// Explicit, audited attribution of individually selected legacy sessions to one occurrence.
+/// The exact selection is reviewed, a reason is required, the batch is validated in full before
+/// anything is written, and the result lists exactly what was saved.
 private struct LegacyAttributionSheet: View {
-    let group: HistoricalActivityReport.DayGroup
+    let archives: [RecentSessionArchiveSummary]
     @ObservedObject var store: EventRunStore
     @ObservedObject var attributions: LegacyAttributionStore
     let exactSessionIDs: Set<String>
-    let onDone: (String) -> Void
+    let onDone: (String?) -> Void
     @State private var targetRunID: String?
     @State private var createsRecord = true
     @State private var name = ""
     @State private var note = ""
     @State private var error: String?
+    @State private var saved: (run: EventRunRecord, entries: [LegacySessionAttribution])?
+
+    private var sorted: [RecentSessionArchiveSummary] { archives.sorted { $0.createdAt < $1.createdAt } }
+    private var names: [String] { Array(Set(archives.compactMap(\.eventName).filter { !$0.isEmpty })).sorted() }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Sessions") {
-                    LabeledContent("Day", value: group.day.formatted(date: .complete, time: .omitted))
-                    LabeledContent("Sessions", value: String(group.archives.count))
-                    if let first = group.archives.first, let last = group.archives.last {
-                        LabeledContent("Between", value: "\(first.createdAt.formatted(date: .omitted, time: .shortened)) – \(last.createdAt.formatted(date: .omitted, time: .shortened))")
-                    }
-                    if !group.names.isEmpty { LabeledContent("Receipt names", value: group.names.joined(separator: ", ")) }
-                    Text(HistoricalActivityReport.unassignedReason).font(.footnote).foregroundStyle(.secondary)
-                }
-                Section("Attribute to") {
-                    Toggle("Create an earlier-event record", isOn: $createsRecord)
-                    if createsRecord {
-                        TextField("Event name", text: $name).textInputAutocapitalization(.words)
-                    } else {
-                        Picker("Existing run", selection: $targetRunID) {
-                            Text("Choose…").tag(String?.none)
-                            ForEach(store.runs.reversed()) { Text("\($0.context.name) · \($0.createdAt.formatted(date: .abbreviated, time: .omitted))").tag(Optional($0.id)) }
+                if let saved {
+                    Section("Saved") {
+                        Label("\(saved.entries.count) session(s) attributed to \(saved.run.context.name)", systemImage: "checkmark.seal")
+                        ForEach(sorted) { archive in
+                            Text("\(archive.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(archive.format.displayName)").font(.callout)
                         }
+                        LabeledContent("Reason", value: saved.entries.first?.note ?? "")
+                        LabeledContent("Confirmation", value: String((saved.entries.first?.batchID ?? "").prefix(8)))
+                        Text("Shown as operator-attributed, never as exact run statistics. Receipts, galleries and payment records were not changed, and no sales were attributed.").font(.footnote)
                     }
-                    TextField("Reason (required)", text: $note)
-                }
-                Section {
-                    Button("Attribute \(group.archives.count) Sessions") { attribute() }
-                        .disabled(note.trimmingCharacters(in: .whitespaces).isEmpty || (createsRecord ? name.trimmingCharacters(in: .whitespaces).isEmpty : targetRunID == nil))
-                    if let error { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
-                } footer: {
-                    Text("Permanent and audited. Counts appear separately as operator-attributed, never as exact run statistics. Receipts, galleries and payment records are not changed, and no sales are attributed.")
+                } else {
+                    Section("Selected sessions (\(archives.count))") {
+                        ForEach(sorted) { archive in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(archive.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(archive.format.displayName)")
+                                Text(archive.eventName.flatMap { $0.isEmpty ? nil : "Receipt: \($0)" } ?? "No receipt event name").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        Text(HistoricalActivityReport.unassignedReason).font(.footnote).foregroundStyle(.secondary)
+                    }
+                    Section("Attribute to") {
+                        Toggle("Create an earlier-event record", isOn: $createsRecord)
+                        if createsRecord {
+                            TextField("Event name", text: $name).textInputAutocapitalization(.words)
+                        } else {
+                            Picker("Existing run", selection: $targetRunID) {
+                                Text("Choose…").tag(String?.none)
+                                ForEach(store.runs.reversed()) { Text("\($0.context.name) · \($0.createdAt.formatted(date: .abbreviated, time: .shortened))\($0.isHistorical ? " · earlier event" : "")").tag(Optional($0.id)) }
+                            }
+                        }
+                        TextField("Reason (required)", text: $note)
+                    }
+                    Section {
+                        Button("Attribute \(archives.count) Session\(archives.count == 1 ? "" : "s")") { attribute() }
+                            .disabled(note.trimmingCharacters(in: .whitespaces).isEmpty || (createsRecord ? name.trimmingCharacters(in: .whitespaces).isEmpty : targetRunID == nil))
+                            .accessibilityIdentifier("confirm-attribution")
+                        if let error { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
+                    } footer: {
+                        Text("All selected sessions are saved together or not at all. Permanent and audited; counts appear separately as operator-attributed. Receipts, galleries and payment records are not changed, and no sales are attributed.")
+                    }
                 }
             }
-            .navigationTitle("Review Earlier Sessions")
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { onDone("") } } }
-            .onAppear { if name.isEmpty { name = group.names.first ?? "" } }
+            .navigationTitle(saved == nil ? "Review Earlier Sessions" : "Attribution Saved")
+            .toolbar {
+                ToolbarItem(placement: saved == nil ? .cancellationAction : .confirmationAction) {
+                    Button(saved == nil ? "Cancel" : "Done") {
+                        onDone(saved.map { "\($0.entries.count) earlier session(s) attributed to \($0.run.context.name). They are reported separately from exact statistics." })
+                    }
+                }
+            }
+            .onAppear { if name.isEmpty { name = names.first ?? "" } }
         }
     }
 
     private func attribute() {
+        error = nil
         do {
             let run: EventRunRecord
             if createsRecord {
-                let first = group.archives.first?.createdAt ?? group.day, last = group.archives.last?.createdAt ?? group.day
-                run = try store.createHistoricalRun(name: name, designID: group.archives.compactMap(\.eventDesignID).first, startedAt: first, endedAt: last)
+                let first = sorted.first?.createdAt ?? Date(), last = sorted.last?.createdAt ?? Date()
+                // Validate the whole batch against the record it would create, before creating it.
+                let provisional = EventRunRecord(id: "provisional", context: EventRunContext(designID: nil, commercialEventID: nil, serverBinding: nil, name: name),
+                                                 createdAt: first, status: .completed, endedAt: last, historical: true)
+                try attributions.validate(archives, to: provisional, knownRuns: [provisional], note: note, exact: exactSessionIDs)
+                run = try store.createHistoricalRun(name: name, designID: archives.compactMap(\.eventDesignID).first, startedAt: first, endedAt: last)
             } else {
                 guard let id = targetRunID, let existing = store.runs.first(where: { $0.id == id }) else { return }
                 run = existing
             }
-            var count = 0
-            for archive in group.archives where !attributions.attributions.contains(where: { $0.archiveID == archive.archiveID }) {
-                try attributions.attribute(archive, to: run, note: note, exact: exactSessionIDs)
-                count += 1
-            }
-            onDone("\(count) earlier session(s) attributed to \(run.context.name). They are reported separately from exact statistics.")
+            let entries = try attributions.attribute(archives, to: run, knownRuns: store.runs, note: note, exact: exactSessionIDs)
+            saved = (run, entries)
         } catch { self.error = error.localizedDescription }
     }
 }

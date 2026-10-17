@@ -1,4 +1,57 @@
 import SwiftUI
+
+/// How long an uncertain guest has been waiting for payment confirmation. Interface state only:
+/// it never marks a payment failed or paid, never ends polling, and never offers another payment.
+nonisolated enum PaymentVerificationStage: Equatable, Sendable {
+    case checking, delayed, attendantRequired
+
+    var title: String {
+        switch self {
+        case .checking: "Checking Payment"
+        case .delayed: "Taking Longer Than Expected"
+        case .attendantRequired: "Attendant Assistance Required"
+        }
+    }
+    var guidance: String {
+        switch self {
+        case .checking: "We're confirming your payment with the payment provider."
+        case .delayed: "The payment provider or network is slow. We're still checking — please keep this screen open and do not pay again."
+        case .attendantRequired: "Please ask the attendant for help. Your payment record is saved and they can check it securely. Do not pay again."
+        }
+    }
+}
+
+/// Escalation clock for one checkout. Restarting polling for the same order (foregrounding,
+/// Check Again) keeps the original start; a different order or session starts a new clock.
+nonisolated struct PaymentVerificationClock: Equatable, Sendable {
+    static let delayedAfter: TimeInterval = 45
+    static let attendantAfter: TimeInterval = 180
+    static let delayedAfterFailures = 3
+    static let attendantAfterFailures = 15
+
+    private(set) var key: String?
+    private(set) var startedAt: Date?
+    private(set) var consecutiveFailures = 0
+    private(set) var reviewHeld = false
+
+    mutating func begin(key: String, now: Date) {
+        guard key != self.key else { return }
+        self = PaymentVerificationClock(key: key, startedAt: now)
+    }
+    mutating func recordFailure() { consecutiveFailures += 1 }
+    mutating func recordResponse(reviewHeld: Bool) { consecutiveFailures = 0; self.reviewHeld = reviewHeld }
+
+    /// A QR can legitimately be paid until it expires, so waiting is measured from the later of
+    /// the start and the QR's expiry.
+    func stage(now: Date, qrExpiresAt: Date?) -> PaymentVerificationStage {
+        guard let startedAt else { return .checking }
+        if reviewHeld { return .attendantRequired }
+        let waited = now.timeIntervalSince(max(startedAt, qrExpiresAt ?? startedAt))
+        if waited >= Self.attendantAfter || consecutiveFailures >= Self.attendantAfterFailures { return .attendantRequired }
+        if waited >= Self.delayedAfter || consecutiveFailures >= Self.delayedAfterFailures { return .delayed }
+        return .checking
+    }
+}
 import UIKit
 
 struct CheckoutCopySelectionView: View {
@@ -289,6 +342,7 @@ struct QRPhPaymentView: View {
             image: qrImage,
             hasImagePayload: viewModel.paymentAttempt?.qrImageDataURL != nil,
             expiresAt: viewModel.paymentAttempt?.expiresAt,
+            verificationStage: viewModel.paymentVerificationStage,
             onTitleLongPress: {
                 guard testSimulatorURL != nil else { return }
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -340,6 +394,7 @@ struct QRPhPaymentContent: View {
     let image: UIImage?
     let hasImagePayload: Bool
     let expiresAt: Date?
+    var verificationStage: PaymentVerificationStage = .checking
     var onTitleLongPress: () -> Void = { }
 
     @ScaledMetric(relativeTo: .largeTitle) private var headingSize = 56.0
@@ -385,8 +440,13 @@ struct QRPhPaymentContent: View {
                             ProgressView()
                                 .tint(ink)
                                 .accessibilityHidden(true)
-                            Text("Waiting for payment confirmation")
+                            Text(verificationStage == .checking ? "Waiting for payment confirmation" : verificationStage.title)
                                 .font(MadeToKeepTheme.Typography.body(.callout))
+                                .accessibilityIdentifier("payment.verificationStage")
+                        }
+                        if verificationStage != .checking {
+                            Text(verificationStage.guidance)
+                                .font(MadeToKeepTheme.Typography.body(.callout).weight(.semibold))
                         }
                         Text("Keep this screen open. Your camera opens after automatic payment verification. Screenshots or payment-app callbacks cannot start your session.")
                             .font(MadeToKeepTheme.Typography.body(.footnote))
@@ -463,22 +523,41 @@ struct PaymentReconciliationView: View {
     var onGetHelp: () -> Void = { }
 
     private var message: String { viewModel.statusMessage }
+    private var stage: PaymentVerificationStage { viewModel.paymentVerificationStage }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                ProgressView()
-                    .controlSize(.large)
-                Text("Checking payment")
+                if stage == .attendantRequired {
+                    Image(systemName: "person.fill.questionmark").font(.system(size: 44)).accessibilityHidden(true)
+                } else {
+                    ProgressView()
+                        .controlSize(.large)
+                }
+                Text(stage.title)
                     .font(.largeTitle.bold())
+                    .multilineTextAlignment(.center)
                     .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("payment.verificationStage")
                 Text(message)
                     .font(.title3)
                     .multilineTextAlignment(.center)
-                Button("Call Attendant / Get Help", action: onGetHelp)
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .accessibilityIdentifier("payment.getHelp")
+                if stage != .checking {
+                    Text(stage.guidance)
+                        .font(.title3.weight(.semibold))
+                        .multilineTextAlignment(.center)
+                }
+                if stage == .attendantRequired {
+                    Button("Call Attendant / Get Help", action: onGetHelp)
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .accessibilityIdentifier("payment.getHelp")
+                } else {
+                    Button("Call Attendant / Get Help", action: onGetHelp)
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                        .accessibilityIdentifier("payment.getHelp")
+                }
                 Button("Check Original Payment Again") { viewModel.recheckPayment() }
                     .buttonStyle(.bordered)
                     .controlSize(.large)

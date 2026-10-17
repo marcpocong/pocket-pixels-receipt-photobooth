@@ -4,7 +4,7 @@ import SwiftUI
 
 /// A synthetic Payments Worker with the real lifecycle rules: one active event per account,
 /// version-checked transitions, ENDED is terminal, and injectable lost responses.
-@MainActor private final class LifecycleServerStub: SessionSetupAPI {
+@MainActor final class LifecycleServerStub: SessionSetupAPI {
     struct Event { var name: String; var venue: String; var lifecycle: CommercialEventLifecycle; var version: Int; var latest: OperatorPolicyRevision?; var active: OperatorPolicyRevision? }
     var events: [String: Event] = [:]
     var calls: [String] = []
@@ -14,6 +14,13 @@ import SwiftUI
     var unreachableBefore: String?
     /// Another operator changes the event just before this request.
     var concurrentEditBefore: String?
+    /// Creation idempotency as in Worker migration 0006: operation ID → (event, payload).
+    var creationsByOperation: [String: (id: String, name: String, venue: String)] = [:]
+    /// Simulates a Worker without migration 0006 / the lookup route.
+    var supportsCreationIdempotency = true
+    /// The create commits, then the response is lost (or the server answers 5xx after the insert).
+    var loseCreateResponse = false
+    var createFailsBeforeCommit: PaymentsAPIError?
     private var counter = 0
 
     @MainActor func listEvents() async throws -> [OperatorEventSummary] {
@@ -21,18 +28,36 @@ import SwiftUI
         return events.sorted { $0.key < $1.key }.map { .init(id: $0.key, name: $0.value.name, venue: $0.value.venue, lifecycle: $0.value.lifecycle.rawValue,
                                                              activePolicyRevisionId: $0.value.active?.id, version: $0.value.version, updatedAt: Date()) }
     }
+    /// The next event read fails in transit (e.g. the network drops right after a create).
+    var detailUnreachableOnce = false
     @MainActor func eventDetail(id: String) async throws -> OperatorEventDetail {
         calls.append("detail:\(id)")
+        if detailUnreachableOnce { detailUnreachableOnce = false; throw PaymentsAPIError.unavailable }
         guard let event = events[id] else { throw PaymentsAPIError.rejected(code: "not_found", message: "missing", status: 404, details: Data()) }
         return .init(event: .init(id: id, name: event.name, venue: event.venue, lifecycle: event.lifecycle, version: event.version, updatedAt: Date(), activePolicyRevisionId: event.active?.id),
                      activePolicy: event.active, latestRevision: event.latest, hasUnpublishedRevision: event.latest?.id != event.active?.id, outstandingEntitlements: 0, serverTime: Date())
     }
-    @MainActor func createEvent(name: String, venue: String) async throws -> OperatorCreatedEvent {
+    @MainActor func createEvent(name: String, venue: String, operationID: String) async throws -> OperatorCreatedEvent {
+        calls.append("create:\(name)")
+        if let failure = createFailsBeforeCommit { createFailsBeforeCommit = nil; throw failure }
+        if supportsCreationIdempotency, let prior = creationsByOperation[operationID] {
+            guard prior.name == name, prior.venue == venue else { throw PaymentsAPIError.rejected(code: "idempotency_mismatch", message: "mismatch", status: 422, details: Data()) }
+            return .init(id: prior.id, lifecycle: events[prior.id]?.lifecycle.rawValue ?? "DRAFT", version: events[prior.id]?.version, operationId: operationID, replayed: true)
+        }
         counter += 1
         let id = "srv-\(counter)"
-        calls.append("create:\(name)")
         events[id] = Event(name: name, venue: venue, lifecycle: .draft, version: 1, latest: nil, active: nil)
-        return .init(id: id, lifecycle: "DRAFT", version: 1)
+        if supportsCreationIdempotency { creationsByOperation[operationID] = (id, name, venue) }
+        if loseCreateResponse { loseCreateResponse = false; throw PaymentsAPIError.outcomeUnknown }
+        return .init(id: id, lifecycle: "DRAFT", version: 1, operationId: supportsCreationIdempotency ? operationID : nil, replayed: supportsCreationIdempotency ? false : nil)
+    }
+    @MainActor func eventCreation(operationID: String) async throws -> OperatorEventCreationLookup {
+        calls.append("lookup:\(operationID)")
+        guard supportsCreationIdempotency else { throw PaymentsAPIError.rejected(code: "not_found", message: "no route", status: 404, details: Data()) }
+        guard let prior = creationsByOperation[operationID], let event = events[prior.id] else {
+            throw PaymentsAPIError.rejected(code: "creation_not_found", message: "none", status: 404, details: Data())
+        }
+        return .init(operationId: operationID, event: .init(id: prior.id, name: event.name, venue: event.venue, lifecycle: event.lifecycle.rawValue, version: event.version))
     }
     @MainActor func saveDraft(eventID: String, expectedVersion: Int, name: String, venue: String, policy: ServerPolicyDraft.RequestBody) async throws -> OperatorEventUpdate {
         calls.append("save:\(eventID)")
@@ -79,13 +104,15 @@ import SwiftUI
 }
 
 /// One iPad's durable state in an isolated directory. `relaunch()` rebuilds every store from disk.
-@MainActor private final class Booth {
+@MainActor final class Booth {
     let directory: URL
     let server: LifecycleServerStub
     var workspace: OperatorWorkspace
     var acceptance: SessionAcceptanceStore
     var library: EventDesignLibraryStore
     var runs: EventRunStore
+    var creations: CommercialEventCreationStore
+    var creationWriteFails = false
     var source = CommercialPolicySource.localPrepaid
     var local = CommercialEventRun.legacy
     var profile = EventProfile.pocketPixelsDefault
@@ -100,7 +127,15 @@ import SwiftUI
         acceptance = SessionAcceptanceStore(directory: directory)
         library = Self.makeLibrary(directory)
         runs = EventRunStore(directory: directory.appendingPathComponent("runs"))
+        creations = CommercialEventCreationStore(directory: directory)
         runs = makeRuns()
+        creations = makeCreations()
+    }
+    private func makeCreations() -> CommercialEventCreationStore {
+        CommercialEventCreationStore(directory: directory, writer: { [unowned self] data, url in
+            if self.creationWriteFails { throw CocoaError(.fileWriteOutOfSpace) }
+            try DurableFileWriter.write(data, to: url)
+        })
     }
     private static func makeLibrary(_ directory: URL) -> EventDesignLibraryStore {
         EventDesignLibraryStore(directory: directory, legacyProfile: { .pocketPixelsDefault }, legacyName: { "" }, operationAuthorized: { true }, operationBlockingReason: { nil })
@@ -116,9 +151,10 @@ import SwiftUI
         acceptance = SessionAcceptanceStore(directory: directory)
         library = Self.makeLibrary(directory)
         runs = makeRuns()
+        creations = makeCreations()
     }
     func setup() -> SessionSetupCoordinator {
-        SessionSetupCoordinator(workspace: workspace, acceptance: acceptance, library: library, eventRuns: runs, api: { [unowned self] in self.server },
+        SessionSetupCoordinator(workspace: workspace, acceptance: acceptance, library: library, eventRuns: runs, creations: creations, api: { [unowned self] in self.server },
             authorized: { [unowned self] in self.permitted }, blockingReason: { [unowned self] in self.busyReason },
             loadLocal: { [unowned self] in self.local }, saveLocal: { [unowned self] in self.local = $0 },
             source: { [unowned self] in self.source }, saveSource: { [unowned self] in self.source = $0 },
@@ -623,7 +659,10 @@ import SwiftUI
         XCTAssertEqual(status(run: completed), .completed)
         var archived = run; archived.status = .archived
         XCTAssertEqual(status(run: archived), .archived)
-        XCTAssertEqual(status(run: nil, blocked: true), .noEvent)
+        // Event Integrity release: a paused booth whose admission was committed for a confirmed paid
+        // event is paused, not "No Event Configured" (an upgraded install with no run yet).
+        XCTAssertEqual(status(run: nil, blocked: true), .pausedOnBooth)
+        XCTAssertEqual(status(run: nil, blocked: true, acceptanceEvent: nil), .noEvent, "Nothing committed and nothing open: unconfigured")
         XCTAssertEqual(EventStatusModel.derive(.init(run: nil, appliedContext: context, barrierBlocked: true, acceptanceEventID: nil, acceptanceBinding: nil, binding: "b",
             source: .localPrepaid, localPrepaidReady: true, commercial: .notNeeded, recoveryReason: nil, storageErrors: [], pendingTransition: nil, hasUnsavedSetup: true, operation: nil)), .draft)
         XCTAssertEqual(EventStatusModel.derive(.init(run: run, appliedContext: context, barrierBlocked: false, acceptanceEventID: "e", acceptanceBinding: "b", binding: "b",
