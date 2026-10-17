@@ -57,6 +57,7 @@ export async function route(request, env) {
     requireScope(principal, "operator");
     if (request.method === "GET" && path === "/v1/admin/events") return listEvents(request, env, principal);
     if (request.method === "POST" && path === "/v1/admin/events") return createEvent(request, env, principal);
+    if (request.method === "GET" && /^\/v1\/admin\/event-creations\/[^/]+$/.test(path)) return eventCreation(env, principal, segment(path, 4));
     if (request.method === "GET" && /^\/v1\/admin\/events\/[^/]+$/.test(path)) return getEvent(env, principal, segment(path, 4));
     if (request.method === "PATCH" && /^\/v1\/admin\/events\/[^/]+$/.test(path)) return updateEvent(request, env, principal, segment(path, 4));
     if (request.method === "POST" && /^\/v1\/admin\/events\/[^/]+\/(activate|publish|pause|resume|end|archive)$/.test(path)) {
@@ -149,14 +150,61 @@ async function getEvent(env, principal, eventId) {
     });
 }
 
+/// Creates a DRAFT commercial event. With an `Idempotency-Key` (the booth's durable creation
+/// operation ID) the creation is exactly-once per account: a repeat returns the original event,
+/// a different name/venue under the same ID is refused, and a lost response is recoverable by
+/// exact lookup. Without a key (older clients) behaviour is unchanged.
 async function createEvent(request, env, principal) {
     const body = await bodyJSON(request);
+    const name = clean(body.name, 80), venue = cleanOptional(body.venue, 120);
+    const operationId = request.headers.get("idempotency-key");
+    if (operationId !== null && !ID_PATTERN.test(operationId)) throw http(422, "Invalid creation operation ID.", "invalid_idempotency_key");
+    const fingerprint = operationId ? await sha256Hex(JSON.stringify([name, venue])) : null;
+    if (operationId) {
+        const existing = await creationByOperation(env, principal, operationId);
+        if (existing) return creationReplay(existing, fingerprint, operationId);
+    }
     const id = crypto.randomUUID();
     const timestamp = now();
-    await env.DB.prepare("INSERT INTO events(id,name,venue,lifecycle,account_id,version,created_at,updated_at) VALUES(?,?,?,'DRAFT',?,1,?,?)")
-        .bind(id, clean(body.name, 80), cleanOptional(body.venue, 120), principal.accountId, timestamp, timestamp).run();
-    await audit(env, principal.id, id, null, "EVENT_CREATED", { name: clean(body.name, 80) });
-    return json({ id, lifecycle: "DRAFT", version: 1 }, 201);
+    try {
+        // One transaction: the event and its audit entry commit together.
+        await env.DB.batch([
+            // Keyless requests use the original columns, so they also work before migration 0006.
+            operationId
+                ? env.DB.prepare("INSERT INTO events(id,name,venue,lifecycle,account_id,version,created_at,updated_at,creation_operation_id,creation_fingerprint) VALUES(?,?,?,'DRAFT',?,1,?,?,?,?)")
+                    .bind(id, name, venue, principal.accountId, timestamp, timestamp, operationId, fingerprint)
+                : env.DB.prepare("INSERT INTO events(id,name,venue,lifecycle,account_id,version,created_at,updated_at) VALUES(?,?,?,'DRAFT',?,1,?,?)")
+                    .bind(id, name, venue, principal.accountId, timestamp, timestamp),
+            env.DB.prepare("INSERT INTO operator_audit_log(id,actor_device_id,event_id,order_id,action,safe_summary_json,created_at) VALUES(?,?,?,?,?,?,?)")
+                .bind(crypto.randomUUID(), principal.id, id, null, "EVENT_CREATED", JSON.stringify(operationId ? { name, operationId } : { name }), timestamp)
+        ]);
+    } catch (error) {
+        // A concurrent request with the same operation ID won the unique index: replay it.
+        const raced = operationId ? await creationByOperation(env, principal, operationId) : null;
+        if (raced) return creationReplay(raced, fingerprint, operationId);
+        throw error;
+    }
+    return json({ id, lifecycle: "DRAFT", version: 1, ...(operationId ? { operationId, replayed: false } : {}) }, 201);
+}
+
+async function creationByOperation(env, principal, operationId) {
+    return env.DB.prepare("SELECT id,name,venue,lifecycle,version,created_at,creation_fingerprint FROM events WHERE account_id=? AND creation_operation_id=?")
+        .bind(principal.accountId, operationId).first();
+}
+
+function creationReplay(existing, fingerprint, operationId) {
+    if (existing.creation_fingerprint !== fingerprint) {
+        throw http(422, "This creation operation ID was already used for a different event.", "idempotency_mismatch");
+    }
+    return json({ id: existing.id, lifecycle: existing.lifecycle, version: existing.version, operationId, replayed: true }, 200);
+}
+
+/// Read-only, account-scoped: which event (if any) a creation operation produced. A
+/// `creation_not_found` answer is definitive for this account; it never matches by name or date.
+async function eventCreation(env, principal, operationId) {
+    const row = await creationByOperation(env, principal, operationId);
+    if (!row) throw http(404, "No event was created with this operation ID.", "creation_not_found");
+    return json({ operationId, event: { id: row.id, name: row.name, venue: row.venue, lifecycle: row.lifecycle, version: row.version, createdAt: row.created_at }, serverTime: now() });
 }
 
 /// Saves name/venue and, optionally, a new *draft* policy revision. Never changes the active policy.
