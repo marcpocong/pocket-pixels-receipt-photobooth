@@ -111,7 +111,15 @@ struct EventRunReportingView: View {
         .scrollContentBackground(.hidden)
         .background(MadeToKeepPaperBackground())
         .tint(MadeToKeepTheme.ColorPalette.burgundy)
-        .task(id: store.revision) { await loadLocal() }
+        .task(id: store.revision) {
+            // A burst of journal writes (gallery verification, print reconciliation) bumps the
+            // revision repeatedly; each bump cancels this task, so the burst costs one reload of
+            // every session file, archive and order page instead of one per write.
+            if sessions.isEmpty && archives.isEmpty && loading { await loadLocal(); return }
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            await loadLocal()
+        }
         .onChange(of: selectedRunID) { _, _ in exportURL = nil; Task { await loadFinancials() } }
         .confirmationDialog(dialogTitle, isPresented: Binding(get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } }), titleVisibility: .visible) {
             Button("Archive Run") { perform() }

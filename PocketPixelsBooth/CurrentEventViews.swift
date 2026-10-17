@@ -14,6 +14,7 @@ struct CurrentEventCard: View {
     @State private var server: ServerBoothStatus?
     @State private var confirm: Confirmation?
     @State private var showsEnd = false
+    @State private var showsHealth = false
     private let loadsRemote: Bool
 
     enum Confirmation: String, Identifiable { case pauseBooth, pauseCommercial, resume, finishEnding, recordRun; var id: String { rawValue } }
@@ -55,6 +56,7 @@ struct CurrentEventCard: View {
             Button("Cancel", role: .cancel) {}
         } message: { item in Text(confirmMessage(item)) }
         .sheet(isPresented: $showsEnd) { EndEventSheet(lifecycle: lifecycle, isPresented: $showsEnd) }
+        .sheet(isPresented: $showsHealth) { ProductionHealthSheet(lifecycle: lifecycle, isPresented: $showsHealth, loadsRemote: loadsRemote) }
     }
 
     // MARK: Sections
@@ -127,6 +129,8 @@ struct CurrentEventCard: View {
             if paid || runs.pendingTransition != nil {
                 actionButton("Check Status", systemImage: "arrow.clockwise") { Task { await refresh() } }
             }
+            actionButton("Booth Health", systemImage: "stethoscope") { showsHealth = true }
+                .accessibilityIdentifier("booth-health")
         }
         .controlSize(.large)
         .tint(Brand.burgundy)
