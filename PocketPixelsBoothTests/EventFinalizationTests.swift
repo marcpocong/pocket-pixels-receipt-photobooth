@@ -266,6 +266,50 @@ final class EventFinalizationTests: XCTestCase {
 
 @MainActor
 final class GalleryBrowserLayoutTests: XCTestCase {
+    func testSlowImageDecodeKeepsPlaceholdersAndTouchTargetsUntilLoad() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("DerivedData/gallery-fixtures")
+        let configuration = WKWebViewConfiguration()
+        configuration.userContentController.addUserScript(WKUserScript(source: """
+        window.heldPreviews = [];
+        const originalSource = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+        Object.defineProperty(HTMLImageElement.prototype, 'src', {
+            get: originalSource.get,
+            set: function(value) {
+                if (this.id.startsWith('image-')) { heldPreviews.push({image:this, source:value}); }
+                else { originalSource.set.call(this, value); }
+            }
+        });
+        window.releasePreviews = function() {
+            window.releasedPreviews = heldPreviews.slice();
+            heldPreviews.forEach(item => originalSource.set.call(item.image, item.source));
+        };
+        """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        let (web, window) = hostedBrowser(configuration: configuration)
+        defer { web.stopLoading(); window.isHidden = true }
+        try await loadFixture(String(contentsOf: root.appendingPathComponent("gallery-2.html"), encoding: .utf8), in: web)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        var prepared = false
+        repeat {
+            prepared = try await web.evaluateJavaScript("heldPreviews.length === 4") as? Bool == true
+            if !prepared { try await Task.sleep(for: .milliseconds(20)) }
+        } while !prepared && ContinuousClock.now < deadline
+        XCTAssertTrue(prepared, "All previews must reach the deliberately delayed image loader")
+        let retained = try await web.evaluateJavaScript("""
+        heldPreviews.every(item => item.image.hidden
+            && document.getElementById(item.image.id.replace('image-', 'placeholder-'))
+            && item.image.closest('button').getBoundingClientRect().height >= 44)
+        """) as? Bool
+        XCTAssertEqual(retained, true, "Loading photos and receipts keep their placeholder and usable target")
+        _ = try await web.evaluateJavaScript("releasePreviews(); true")
+        var displayed = false
+        let loadedDeadline = ContinuousClock.now.advanced(by: .seconds(5))
+        repeat {
+            displayed = try await web.evaluateJavaScript("releasedPreviews.every(item => !item.image.hidden && item.image.complete && item.image.naturalWidth > 0 && !document.getElementById(item.image.id.replace('image-', 'placeholder-')))") as? Bool == true
+            if !displayed { try await Task.sleep(for: .milliseconds(20)) }
+        } while !displayed && ContinuousClock.now < loadedDeadline
+        XCTAssertTrue(displayed, "Actual load events reveal every preview and remove its placeholder")
+    }
+
     func testMobileShareAndDownloadFallbackPreserveFilesAndAccurateGuidance() async throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("DerivedData/gallery-fixtures")
         let html = try String(contentsOf: root.appendingPathComponent("gallery-2.html"), encoding: .utf8)
@@ -325,18 +369,11 @@ final class GalleryBrowserLayoutTests: XCTestCase {
                 window.layoutIfNeeded()
                 web.layoutIfNeeded()
                 try await waitForViewport(width, height: height, in: web)
-                // Measure after layout settles: slower CI simulators can report the previous width's
-                // reflow for a frame or two. A persistent overflow still fails after the window.
-                var checks: [String: Any] = [:]
-                let settleDeadline = ContinuousClock.now.advanced(by: .seconds(3))
-                repeat {
-                    checks = try await web.callAsyncJavaScript("""
-                    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-                    const buttons=[...document.querySelectorAll('button')].filter(b=>b.getBoundingClientRect().width>0);return {overflow:document.documentElement.scrollWidth>innerWidth, photos:document.querySelectorAll('.shot').length, gif:document.querySelectorAll('[data-open="session.gif"]').length, small:buttons.filter(b=>b.getBoundingClientRect().height<43).length, save:!document.getElementById('shareAll').hidden};
-                    """, contentWorld: .page) as! [String: Any]
-                    if checks["overflow"] as? Bool == false && checks["small"] as? Int == 0 { break }
-                    try await Task.sleep(for: .milliseconds(100))
-                } while ContinuousClock.now < settleDeadline
+                // Viewport synchronization is independent of the measured outcome.
+                // A real overflow or collapsed target fails on this first settled measurement.
+                let checks = try await web.evaluateJavaScript("""
+                (()=>{const buttons=[...document.querySelectorAll('button')].filter(b=>b.getBoundingClientRect().width>0);return {overflow:document.documentElement.scrollWidth>innerWidth, photos:document.querySelectorAll('.shot').length, gif:document.querySelectorAll('[data-open="session.gif"]').length, small:buttons.filter(b=>b.getBoundingClientRect().height<43).length, save:!document.getElementById('shareAll').hidden, viewport:[innerWidth,innerHeight,document.documentElement.clientWidth], smallControls:buttons.filter(b=>b.getBoundingClientRect().height<43).map(b=>({id:b.id,label:b.getAttribute('aria-label'),height:b.getBoundingClientRect().height})), overflowElements:[...document.querySelectorAll('body *')].filter(e=>{const r=e.getBoundingClientRect();return r.width>0&&(r.right>innerWidth+1||r.left< -1);}).map(e=>({tag:e.tagName,id:e.id,class:e.getAttribute('class'),rect:[e.getBoundingClientRect().left,e.getBoundingClientRect().right]}))}})()
+                """) as! [String: Any]
                 XCTAssertEqual(checks["overflow"] as? Bool, false, "\(count) photos at \(width): \(checks)")
                 XCTAssertEqual(checks["photos"] as? Int, count)
                 XCTAssertEqual(checks["gif"] as? Int, 0)

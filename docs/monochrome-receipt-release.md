@@ -52,3 +52,13 @@ The diff does not touch `ThermalImageRasterizer`, ESC/POS generation, calibratio
 The Cloudflare `gallery` Worker needs no change and was not redeployed. Completed pages are cached for at most one hour under the existing namespace, so they refresh to the new HTML within that window.
 
 Deployment results are recorded below.
+
+## Integrated release gate follow-up
+
+The initial PR #9 gate (`39062432125`, head `e006d43`) eliminated PR #8's navigation timeouts, but failed five assertions in the synthetic viewport matrix (one test): transient overflow at 3 photos / 1440px and 6 photos / 375px, and undersized image targets during asynchronous preview loading. All other 688 tests passed. Independent local validation at that head passed all 689 tests on iOS 26.5, with all six gallery browser tests also passing on iOS 27.
+
+The loader previously removed a preview's placeholder immediately on assigning its data/blob URL. Actual decoding is asynchronous, so the image target could collapse before its intrinsic dimensions arrived. Previews now retain the placeholder until the image's load event; deliberately revealed images use eager loading to avoid a hidden/lazy loading deadlock. Image buttons also retain a 44px minimum target. Original photo/download bytes and thermal printing are unchanged. A new WebKit regression deliberately holds every image source, checks retained placeholders and targets, then releases the loads and checks their replacement.
+
+Viewport measurement waits for two rendered frames and verifies both viewport dimensions, the document client width and the matching media query. It then asserts layout once; it does not retry a failed size/overflow assertion until it passes. The existing zero-overflow, target-size, download, privacy and gallery-content assertions remain enforced. Failure diagnostics now include offending elements and their rectangles.
+
+Production was independently inspected before changes: Apps Script Web App version **26**, saved editor source matching `709e335` after whitespace normalization, backend `made-to-keep-gallery-v5-fit-20261018`; Cloudflare Worker version **`2d21941f-e3a5-4d34-84be-c2d9371e6414`**. No production service was redeployed during this investigation. The dashboard itself requires no backend deployment.
