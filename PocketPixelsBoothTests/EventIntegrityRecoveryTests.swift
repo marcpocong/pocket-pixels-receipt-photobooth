@@ -417,3 +417,116 @@ import XCTest
         XCTAssertEqual(booth.server.events[oldEvent]?.lifecycle, .ended)
     }
 }
+
+/// P1: a new occurrence goes through the reviewed lifecycle; statistics are never reset in place.
+@MainActor final class OccurrenceBoundaryTests: XCTestCase {
+    private func startPaid(_ booth: Booth) async throws -> SessionSetupCoordinator {
+        let setup = booth.setup()
+        await setup.choosePayment(.qrOnly)
+        await setup.createEvent(name: "Gala Night", venue: "Ballroom")
+        setup.policy.priceText = "50"
+        let started = await setup.startAccepting()
+        XCTAssertTrue(started, setup.message)
+        return setup
+    }
+    private func order(_ id: String, session: String, centavos: Int) -> OperatorOrderRow {
+        OperatorOrderRow(id: id, createdAt: Date(), boothFormat: "solo", copies: 1, totalCentavos: centavos, state: "COMPLETED", method: "QRPH", paymentState: "PAID_VERIFIED",
+                         category: "QRPH_VERIFIED_LIVE", entitlementState: "CONSUMED", confirmedPrints: 1, uncertainPrints: 0, lastReconcileError: nil, checkoutSessionId: session)
+    }
+
+    func testRunningEventCannotBeResetFromSetupWithoutEndingIt() async throws {
+        let booth = Booth(); defer { booth.cleanup() }
+        let setup = try await startPaid(booth)
+        let run = try XCTUnwrap(booth.runs.current)
+        XCTAssertEqual(setup.occurrencePlan, .continueActive(runID: run.id))
+        setup.startsNewOccurrence = true   // ignored for a running occurrence
+        let again = await setup.startAccepting()
+        XCTAssertTrue(again, setup.message)
+        XCTAssertEqual(booth.runs.runs.map(\.id), [run.id], "Restarting the same setup never creates fresh statistics")
+    }
+
+    func testNewOccurrenceSharingACommercialEventKeepsRevenueSeparatePerRun() async throws {
+        let booth = Booth(); defer { booth.cleanup() }
+        _ = try await startPaid(booth)
+        let runA = try XCTUnwrap(booth.runs.current)
+        let eventID = try XCTUnwrap(runA.context.commercialEventID)
+        _ = try await booth.admitGuest(session: "morning-1")
+        booth.runs.updateSession(id: "morning-1") { $0.orderIDs = ["order-1"] }
+        // End on this iPad only: the paid event stays open (e.g. for other booths or an evening shift).
+        let ended = await booth.lifecycle().end(scope: .thisBooth)
+        XCTAssertTrue(ended)
+        XCTAssertEqual(booth.server.events[eventID]?.lifecycle, .active, "This-iPad end never changes the paid event")
+
+        let next = booth.setup()
+        await next.refresh()
+        XCTAssertEqual(next.occurrencePlan, .requiresNewOccurrence(previousRunID: runA.id))
+        next.startsNewOccurrence = true
+        let started = await next.startAccepting()
+        XCTAssertTrue(started, next.message)
+        let runB = try XCTUnwrap(booth.runs.current)
+        XCTAssertEqual(runB.previousRunID, runA.id)
+        XCTAssertEqual(runB.context.commercialEventID, eventID, "The same commercial event, deliberately shared")
+        _ = try await booth.admitGuest(session: "evening-1")
+        booth.runs.updateSession(id: "evening-1") { $0.orderIDs = ["order-2"] }
+
+        let all = try EventRunStore.loadSessions(directory: booth.runs.directory)
+        let rows = [order("order-1", session: "morning-1", centavos: 5000), order("order-2", session: "evening-1", centavos: 7500), order("order-x", session: "other-ipad", centavos: 9900)]
+        let totalsA = try EventRunFinancialTotals(orders: EventRunFinancialTotals.matchingOrders(rows, sessions: all.filter { $0.runID == runA.id }))
+        let totalsB = try EventRunFinancialTotals(orders: EventRunFinancialTotals.matchingOrders(rows, sessions: all.filter { $0.runID == runB.id }))
+        XCTAssertEqual(totalsA.verifiedLive, 5000)
+        XCTAssertEqual(totalsB.verifiedLive, 7500)
+        XCTAssertEqual(CommercialAttribution.unmatchedOrders(rows, allSessions: all).map(\.id), ["order-x"], "Shown, never allocated")
+        XCTAssertEqual(all.first { $0.sessionID == "morning-1" }?.runID, runA.id, "Sessions never move between runs")
+    }
+
+    func testSwitchingPaidEventsCompletesThePreviousRunAndKeepsItsIdentity() async throws {
+        let booth = Booth(); defer { booth.cleanup() }
+        _ = try await startPaid(booth)
+        let runA = try XCTUnwrap(booth.runs.current)
+        _ = await booth.lifecycle().end(scope: .thisBoothAndCommercialEvent)
+        let second = booth.setup()
+        await second.createEvent(name: "Second Event", venue: "Garden")
+        second.policy.priceText = "60"
+        let started = await second.startAccepting()
+        XCTAssertTrue(started, second.message)
+        let runB = try XCTUnwrap(booth.runs.current)
+        XCTAssertNotEqual(runB.context.commercialEventID, runA.context.commercialEventID)
+        XCTAssertNil(runB.previousRunID, "A different design is a different event, not a follow-on occurrence")
+        XCTAssertEqual(booth.runs.runs.first { $0.id == runA.id }?.status, .completed)
+        XCTAssertEqual(booth.runs.runs.first { $0.id == runA.id }?.context, runA.context)
+    }
+
+    func testCrashBetweenAdmissionClosureAndRunTransitionStaysClosedAndRecovers() async throws {
+        let booth = Booth(); defer { booth.cleanup() }
+        _ = try await startPaid(booth)
+        let run = try XCTUnwrap(booth.runs.current)
+        booth.runWriteFails = true
+        let ended = await booth.lifecycle().end(scope: .thisBooth)
+        XCTAssertFalse(ended)
+        XCTAssertTrue(booth.acceptance.state.blocked, "Admission closed first and stays closed")
+        booth.runWriteFails = false
+        booth.relaunch()
+        XCTAssertEqual(booth.runs.current?.status, .active, "The run write never happened")
+        let lifecycle = booth.lifecycle()
+        await lifecycle.refresh()
+        XCTAssertEqual(lifecycle.status, .pausedOnBooth, "Guests can't start; the status says so")
+        do { _ = try await booth.admitGuest(); XCTFail("admission must stay closed") } catch {}
+        let retried = await lifecycle.end(scope: .thisBooth)
+        XCTAssertTrue(retried, lifecycle.message)
+        XCTAssertEqual(booth.runs.current?.id, run.id)
+        XCTAssertEqual(booth.runs.current?.status, .completed)
+    }
+
+    func testPausedOccurrenceResumesWithTheSameRun() async throws {
+        let booth = Booth(); defer { booth.cleanup() }
+        _ = try await startPaid(booth)
+        let run = try XCTUnwrap(booth.runs.current)
+        let lifecycle = booth.lifecycle()
+        await lifecycle.pauseBooth()
+        XCTAssertEqual(booth.runs.current?.status, .paused)
+        let resumed = await lifecycle.resume()
+        XCTAssertTrue(resumed, lifecycle.message)
+        XCTAssertEqual(booth.runs.current?.id, run.id)
+        XCTAssertEqual(booth.runs.runs.count, 1)
+    }
+}

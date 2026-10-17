@@ -113,7 +113,7 @@ struct EventRunReportingView: View {
         .task(id: store.revision) { await loadLocal() }
         .onChange(of: selectedRunID) { _, _ in exportURL = nil; Task { await loadFinancials() } }
         .confirmationDialog(dialogTitle, isPresented: Binding(get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } }), titleVisibility: .visible) {
-            Button(pendingAction == "new" ? "Start New Event Run" : "Archive Run") { perform() }
+            Button("Archive Run") { perform() }
             Button("Cancel", role: .cancel) { }
         } message: { Text(dialogMessage) }
         .confirmationDialog("Delete unused design?", isPresented: Binding(get: { designCandidate != nil }, set: { if !$0 { designCandidate = nil } })) {
@@ -332,8 +332,10 @@ struct EventRunReportingView: View {
     @ViewBuilder private var manageTab: some View {
         Section {
             if let current = store.current { LabeledContent("Current run", value: label(current)) }
-            Button("Start New Event Run…") { pendingAction = "new" }.disabled(blocked != nil || store.current == nil)
-                .frame(minHeight: 44)
+            NavigationLink(value: OperatorWorkspaceRoute.sessionSetup) {
+                Label("Start a New Occurrence in Event Setup", systemImage: "calendar.badge.plus").frame(minHeight: 44)
+            }
+            .accessibilityIdentifier("manage-new-occurrence")
             if let selected, selected.status == .completed || selected.status == .draft {
                 Button("Archive Selected Run…") { pendingAction = "archive" }.disabled(blocked != nil).frame(minHeight: 44)
             }
@@ -344,7 +346,7 @@ struct EventRunReportingView: View {
             if let blocked { Text(blocked).font(.footnote).foregroundStyle(.orange) }
             if let error = store.storageError { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
         } header: { Text("Event runs") } footer: {
-            Text("A new run gives fresh statistics for the same setup without deleting anything. Archiving hides an ended run from everyday lists; its sessions, receipts, galleries, entitlements and reports stay saved.")
+            Text("Reports never change the running event. For fresh statistics, end the event from Current Event, then use Start New Occurrence in Event Setup: it reviews the design and payment setup and keeps the ended run's history. Archiving hides an ended run from everyday lists; its sessions, receipts, galleries, entitlements and reports stay saved.")
         }
         Section {
             ForEach(library.library.events) { design in
@@ -426,20 +428,15 @@ struct EventRunReportingView: View {
 
     // MARK: Actions
 
-    private var dialogTitle: String { pendingAction == "new" ? "Start a fresh event run?" : "Archive this run?" }
+    private var dialogTitle: String { "Archive this run?" }
     private var dialogMessage: String {
-        pendingAction == "new"
-            ? "Statistics start again from zero for the same setup. The current run ends and keeps all of its history. Prices, payment methods and guest admission are not changed."
-            : "The run is hidden from everyday lists. Its sessions, receipts, galleries, payments and reports are kept and stay available under History."
+        "The run is hidden from everyday lists. Its sessions, receipts, galleries, payments and reports are kept and stay available under History."
     }
 
     private func perform() {
         defer { pendingAction = nil }
         do {
-            if pendingAction == "new" {
-                _ = try store.startNewRun(context: EventRunStore.currentContext()); selectedRunID = nil
-                message = "A new event run started with fresh statistics. Earlier runs keep their history."
-            } else if let run = selected {
+            if pendingAction == "archive", let run = selected {
                 try store.transition(id: run.id, to: .archived); selectedRunID = nil
                 message = "Run archived. Its history and reports were retained."
             }

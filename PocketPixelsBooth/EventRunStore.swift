@@ -204,6 +204,8 @@ nonisolated struct EventRunSession: Codable, Identifiable, Equatable, Sendable {
         return run
     }
 
+    /// Low-level run creation for fixtures and migrations. Production occurrences are created only
+    /// through the reviewed Start (`commitStart`), the upgrade step, or a historical record.
     @discardableResult func startNewRun(context: EventRunContext, now: Date = Date()) throws -> EventRunRecord {
         try checkOperatorTransition()
         return try createRun(context: context, now: now)
