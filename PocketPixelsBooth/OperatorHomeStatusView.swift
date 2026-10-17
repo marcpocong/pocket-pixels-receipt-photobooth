@@ -18,6 +18,8 @@ struct OperatorBrandingView: View {
                 Picker("Gallery Code Style", selection: $printOptions.footerStyle) {
                     ForEach(ReceiptFooterStyle.allCases) { style in Text(style.displayName).tag(style) }
                 }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("device-gallery-code-style")
                 .onChange(of: printOptions) { _, value in ReceiptPrintSettingsStore.save(value) }
                 Button("Restore Default") { printOptions = .default }
                 if printOptions.footerStyle == .decorativeBarcodeOnly {
