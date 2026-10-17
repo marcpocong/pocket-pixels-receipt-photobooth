@@ -696,7 +696,7 @@ struct BoothSessionView: View {
         let headerEstimate: CGFloat = 126
         let actionEstimate: CGFloat = isPrinterWorking ? 54 : 124
         let galleryEstimate = showsGalleryStatus ? statusQRSize + 42 : 0
-        // The keepsake / as-printed toggle only appears before printing.
+        // The keepsake / black & white toggle only appears before printing.
         let previewModeEstimate: CGFloat = showsGalleryStatus ? 0 : ReceiptPreviewMode.pickerHeightEstimate
         let debugDisclosureEstimate: CGFloat
 #if DEBUG
@@ -717,7 +717,7 @@ struct BoothSessionView: View {
                                        isPrinting: viewModel.state == .printing)
                 } else if let previewImage = receiptPreviewMode.image(
                     keepsake: viewModel.receiptImage,
-                    thermal: viewModel.thermalReceiptPreview
+                    monochrome: viewModel.monochromeReceiptPreview
                 ) {
                     let previewLayout = receiptPreviewLayout(for: previewImage, maxWidth: maxWidth, maxHeight: maxHeight)
                     Group {
@@ -750,11 +750,11 @@ struct BoothSessionView: View {
             .shadow(color: MadeToKeepTheme.ColorPalette.amberGlow.opacity(0.12), radius: 18, x: 0, y: 8)
             .shadow(color: MadeToKeepTheme.ColorPalette.charcoal.opacity(0.10), radius: 14, x: 0, y: 7)
         }
-        .accessibilityLabel(receiptPreviewMode == .thermal && !showsPrinterSlot ? "Receipt preview as printed" : "Receipt preview")
+        .accessibilityLabel(receiptPreviewMode == .blackAndWhite && !showsPrinterSlot ? "Black and white receipt preview" : "Receipt preview")
     }
 
-    /// A quiet toggle under the pre-print preview. "As printed" shows the actual thermal raster the
-    /// printer receives, so guests know the keepsake prints in black and white.
+    /// A quiet toggle under the pre-print preview. "Black & White" shows a smooth grayscale digital
+    /// preview so guests know the keepsake prints in black and white; it is not the printer raster.
     private func receiptPreviewModePicker(width: CGFloat) -> some View {
         VStack(spacing: 5) {
             HStack(spacing: 6) {
@@ -772,7 +772,7 @@ struct BoothSessionView: View {
                             .overlay(Capsule().strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.45), lineWidth: 1))
                     }
                     .buttonStyle(.plain)
-                    .disabled(mode == .thermal && viewModel.thermalReceiptPreview == nil)
+                    .disabled(mode == .blackAndWhite && viewModel.monochromeReceiptPreview == nil)
                     .accessibilityAddTraits(isSelected ? .isSelected : [])
                     .accessibilityIdentifier("receiptPreviewMode.\(mode.rawValue)")
                 }
@@ -1061,7 +1061,7 @@ struct BoothSessionView: View {
                 .foregroundStyle(.white)
 
             HStack(alignment: .top, spacing: 16) {
-                ReceiptPreviewView(title: "Thermal Receipt Preview", image: viewModel.thermalReceiptPreview)
+                ReceiptPreviewView(title: "Exact Printer Raster — Diagnostic", image: viewModel.thermalReceiptPreview)
                     .frame(maxWidth: 300)
 
                 VStack(alignment: .leading, spacing: 14) {

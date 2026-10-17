@@ -5,7 +5,7 @@ This Worker is the browser-neutral public front door for customer gallery GET re
 Customer browsers open:
 
 ```text
-https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/?g=<64-lowercase-hex-token>
+https://gallery.madetokeepstudios.workers.dev/?g=<64-lowercase-hex-token>
 ```
 
 The Worker fetches the private Apps Script gallery renderer server-to-server:
@@ -38,9 +38,9 @@ npm test
 
 1. Install or authenticate Wrangler if needed.
 2. Set `APPS_SCRIPT_GALLERY_ORIGIN` in `wrangler.toml` for local testing, or configure the same variable in the Cloudflare dashboard.
-3. Deploy with `wrangler deploy`.
+3. Confirm the existing account/Worker and deploy with `wrangler deploy --keep-vars` to retain configured variables.
 4. Test the temporary `workers.dev` URL with a new gallery token.
-5. The active legacy Worker URL is `https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/`. Keep it live for printed QR codes. A new hostname is optional and must use a domain you actually control.
+5. The current production URL is `https://gallery.madetokeepstudios.workers.dev/`. The legacy hostname currently fails DNS; see the release record below. Preserve established URLs and do not create or rename a Worker for this redesign.
 6. Set Apps Script property `MADE_TO_KEEP_CUSTOMER_GALLERY_BASE_URL` (or the legacy `POCKET_PIXELS_CUSTOMER_GALLERY_BASE_URL`) to the final Worker base URL, including a trailing slash.
 7. Set the iPad app's `MADE_TO_KEEP_CUSTOMER_GALLERY_BASE_URL` build setting (or the legacy Info.plist key) to the same Worker base URL.
 

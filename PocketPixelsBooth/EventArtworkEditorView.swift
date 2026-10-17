@@ -361,7 +361,7 @@ enum ArtworkPreviewMode: String, CaseIterable, Identifiable {
     case thermal
 
     var id: String { rawValue }
-    var title: String { self == .original ? "Original" : "Thermal" }
+    var title: String { self == .original ? "Original" : "Printer Raster" }
 }
 
 private enum SliderValueFormat {

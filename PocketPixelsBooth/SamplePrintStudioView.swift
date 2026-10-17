@@ -184,7 +184,7 @@ struct SamplePrintStudioView: View {
                         .scaledToFit()
                         .opacity(model.previewState == .rendering ? 0.45 : 1)
                         .overlay { Rectangle().stroke(Color.secondary.opacity(0.25)) }
-                        .accessibilityLabel("Thermal receipt preview")
+                        .accessibilityLabel("Exact printer raster, diagnostic")
                 }
                 switch model.previewState {
                 case .rendering, .idle:
@@ -200,7 +200,7 @@ struct SamplePrintStudioView: View {
             .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
 
             if let receipt = model.printableSample?.receipt {
-                Text("Printer preview · \(String(format: "%.0f", receipt.estimatedLengthMillimeters)) mm long · no QR or session ID")
+                Text("Exact printer raster · diagnostic · \(String(format: "%.0f", receipt.estimatedLengthMillimeters)) mm long · no QR or session ID")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

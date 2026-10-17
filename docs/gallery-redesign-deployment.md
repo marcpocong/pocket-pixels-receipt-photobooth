@@ -1,95 +1,79 @@
-# Customer Gallery — Event release and rollback (October 16, 2026)
+# Customer gallery release — October 18, 2026
 
-**Released October 16 with owner approval after final candidate Production Gate passed.**
+The owner explicitly authorized implementation, production deployment and safe integration of the approved desktop/mobile QR gallery redesign. PR #7 was already merged at the integration base `08a277b213aabaad27a30aa3081763bb12b3963b`; its legacy and UUID-suffixed session ID validation is preserved.
 
-## Verified current deployment
+## Active production release
 
-- Public front door: `https://gallery.madetokeepstudios.workers.dev/`. Its read-only
-  `?diagnostic=proxy` reports healthy upstream and backend
-  `made-to-keep-gallery-v3-stills-20261016`.
-- Existing Apps Script project: **Pocket Pixels Gallery Backend**, signed-in Pocket Pixels
-  account, project ID `1EdArbkIBJzbdyuyqrDcbp898FfudGv2TbrlFNNYrMoiAhkStzc7qJg5h`.
-- Manage deployments confirms the existing Web App is **version 23** (October 16).
-  Version 22 (October 9) is retained for rollback.
-  Its `/exec` URL exactly matches `PocketPixelsBooth/Info.plist` and the Worker configuration.
-  Execute as owner / Anyone access are already configured; preserve both.
-- The October 14 editorial source was never deployed. The active page is generated in
-  `Code.gs`; replacing the legacy `Index.html` will not release this design.
-- Legacy documented front door `https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/`
-  returns NXDOMAIN from both 1.1.1.1 and 8.8.8.8. Historical tokens remain supported in source, but
-  availability of that old hostname is **unverified and requires account/routing investigation**.
-  Do not rename, delete, or redirect either front door while resolving this.
-- Authenticated existing Cloudflare CLI access confirms account
-  `f4119288ab0fe1f5c0e2f37b86735236`, subdomain `madetokeepstudios`, Worker `gallery`,
-  no custom domains and no legacy gallery Worker. The existing account cannot retain the current
-  workers.dev host while also being renamed to the former subdomain. No subdomain change occurred.
-- Live Worker rollback version: `c5ccf383-0010-48f1-9fd7-0eb17679078c`. Configuration
-  preserves production compatibility date `2026-10-08`, enabled workers.dev and disabled preview URLs.
-  Deploy with `--keep-vars`; the existing origin is the sole binding. Dry run and 29 tests pass.
-- Released Worker: `aabb760a-95e1-4964-b698-39c7aff376d6`. Live API comparison confirms prior
-  bindings, compatibility flags/date, observability, tail consumers and logpush are preserved.
-  Observability was briefly disabled by the initial CLI upload and immediately restored; the
-  complete prior settings are now explicit in `wrangler.toml`.
-- Public proxy health confirms v3/upstream 200; invalid/pending native URLSession reads pass.
-  A historical token on the current host loads its photo and both receipts, including lightbox.
-  Owner confirmed a fresh session on iPhone Safari after release: no sign-in, all photos and both
-  receipts visible, individual photo saving passed. Android Chrome, native bulk sharing and a
-  physical offline-recovery drill remain unverified.
+| Component | Verified release |
+| --- | --- |
+| Public front door | `https://gallery.madetokeepstudios.workers.dev/` |
+| Apps Script project | Pocket Pixels Gallery Backend, `1EdArbkIBJzbdyuyqrDcbp898FfudGv2TbrlFNNYrMoiAhkStzc7qJg5h` |
+| Existing Web App version | **26**, deployed October 18, 2026 |
+| Backend diagnostic | `made-to-keep-gallery-v5-fit-20261018` |
+| Cloudflare account | `f4119288ab0fe1f5c0e2f37b86735236`, subdomain `madetokeepstudios` |
+| Existing Worker | `gallery` |
+| Worker release version | `2d21941f-e3a5-4d34-84be-c2d9371e6414` |
+| Completed-page cache namespace | `made-to-keep-fit-20261018` |
+| Implementation commits | `d5e65e9` (redesign), `709e335` (caption removal and image-fit correction) |
+| Pull request | [#8](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/pull/8) |
+| Official outbound Instagram destination | `https://www.instagram.com/madetokeep.studios/` |
 
-## Released changes
+The existing `/exec` deployment ID remains `AKfycbxFc4wpaRipbj-xEXt-zW6m5GoaJ1QkJtnw8Ryg4aH5rDeZDXXctXDTCWCWJwK1SwRSdQ`. Manage deployments confirmed execution as the existing owner and Anyone access before release. The editor's saved source was copied back and compared byte for byte against the tested `Code.gs` before publishing. No script properties, upload endpoint, credentials, folders, bindings, domains or routes were changed.
 
-`Code.gs` backend version: `made-to-keep-gallery-v3-stills-20261016`.
-Warm ivory / burgundy editorial page, centered wordmark, oversized headline, primary Save All
-Photos action, still-photo gallery, both receipts, and static paper-strip ornaments on wide
-screens. Historical GIFs stay stored and accepted by upload/manifests but are not loaded or
-presented in the new customer page. Pending, invalid and temporary failure pages retain the
-existing bounded polling, privacy and error behavior.
+Apps Script was updated first in the existing deployment, its diagnostic verified, then the existing Worker deployed with cached Wrangler 4.151.0 and `--keep-vars`. A dry run passed. Live Cloudflare API comparisons confirmed the original origin binding, compatibility date `2026-10-08`, empty compatibility flags, observability, tail consumers, logpush, placement, tags and usage model were preserved. workers.dev remains enabled and preview URLs disabled. No payment Worker or iPad application runtime was changed.
 
-Worker cache version: `made-to-keep-stills-20261016`. Only the internal completed-page cache
-key changes. Public QR URLs, authentication, token lookup, manifest schema and Drive data do not.
+Version 25 and Worker `5b2600ab-3f04-48ad-8281-e17528dcb136` initially released the redesign. The owner then requested removing “good people”, “same energy” and “little moments, big memories”, and reported cropped/oversized enlarged photos. Version 26 and the current Worker release implement that follow-up on the same endpoints.
 
-## Validation before release
+## Implementation and design
+
+The active `Code.gs` renderer now includes a compact branded header, accessible mobile menu, editorial hero with up to two actual gallery photos in Polaroids, gallery cards with timestamps and actions, directly visible receipt cards, Instagram promotion, captured-date/privacy strip and branded footer. A one-photo session uses one Polaroid. All three requested decorative phrases and their caption elements are removed; the brand tagline and Instagram copy remain. Enlarged images fill a bounded viewer stage with `object-fit: contain`, and the viewer height is set from the current viewport on opening/resizing. This fixes intrinsic-size overflow and WebKit’s first-open viewport sizing without changing original files. The full original photographs display without cropping; source image proportions affect page height.
+
+Receipts stay paired at 400px and above and stack on narrower phones. The Instagram card reflows at smaller widths for readable text. System fonts, inline SVG icons and ornaments, warm ivory/burgundy colors and subtle paper surfaces follow the approved references. [Seven Chrome screenshots](../BuildArtifacts/GalleryRedesign/README.md) use synthetic assets and contain no customer images or live tokens. This is a responsive interpretation, not a claim of pixel-perfect equivalence across fonts and photograph proportions.
+
+The official Instagram destination appears only in the completed gallery's menu and promotional card. Both links specify `target="_blank"`, `rel="noopener noreferrer"` and `referrerpolicy="no-referrer"`. There are no Instagram embeds, third-party scripts, fonts, trackers or remote photo resources. Tokens are never appended to this destination. The document and Worker retain no-referrer protection.
+
+Save/Share preserve filenames, MIME types and original bytes. The primary bulk action stays visible: native multi-file sharing where supported, desktop download attempts with browser-permission guidance, and an individual-save navigation fallback on unsupported iOS browsers. Gallery sharing uses the current public origin and token, native Web Share or clipboard, and a manual-copy dialog when clipboard access is denied. It explicitly explains that anyone with the link can view the gallery.
+
+## Validation
 
 ```sh
 node Backend/GoogleAppsScript/GridSixValidation.test.cjs --fixtures
-(cd Backend/CloudflareGalleryProxy && npm test)
+npm test --prefix Backend/CloudflareGalleryProxy
+xcodebuild build-for-testing -project PocketPixelsBooth.xcodeproj -scheme PocketPixelsBooth \
+  -destination 'platform=iOS Simulator,id=<available-iPad>' -derivedDataPath DerivedData \
+  CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER=
+xcodebuild test-without-building -project PocketPixelsBooth.xcodeproj -scheme PocketPixelsBooth \
+  -destination 'platform=iOS Simulator,id=<same-iPad>' -derivedDataPath DerivedData \
+  -only-testing:PocketPixelsBoothTests/GalleryBrowserLayoutTests -parallel-testing-enabled NO \
+  CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER=
 ```
 
-Run the iOS gate, including `GalleryBrowserLayoutTests`, after generating these synthetic
-fixtures. Local WebKit tests cover 1/2/3/4/6 photos at 320/375/390/430/768/1024/1440 px.
-Fresh-gallery access and individual saving passed on real iPhone Safari by owner observation.
-Android Chrome and native bulk share sheets still require a phone check.
+- Apps Script pure checks passed: counts 1–6, v1/v2, optional historical GIF storage, legacy/UUID IDs, image/render budgets, escaping, completed-page marker, front-door precedence, exact outbound allowlist, no external resources and privacy.
+- **29/29 Worker tests passed**, including internal cache namespace, upstream validation, headers, authentication isolation, invalid/pending behavior and both front-door token contracts.
+- Simulator application build and test build passed. Final scoped checks ran against `709e335`; the iPad runtime was unchanged by that follow-up. The initial remote application run on `d5e65e9` reported 673 passes and two gallery failures: a one-photo overflow at 375px and a fixture-navigation startup timeout. The latest caption-free design has no overflow at that width, and the fixture startup allowance is now 45 seconds with all navigation/readiness assertions retained. The full suite is rerunning against the final source; its final result is recorded below when complete. **5/5 WebKit tests passed**, including **54 count/viewport combinations**: 1–6 photos at 320/375/390/430/768/1024/1440/844/1194px. Tests cover original File metadata, native-share and download fallbacks, menu, legacy receipt, collage bindings, gallery URL/token sharing and copying, lightbox focus/navigation and an intercepted Instagram navigation with no Referer header. The new viewer regression adds **20 combinations** of portrait/landscape photos and both receipt versions across phone, landscape and tablet/desktop viewports, asserting that the entire image stays within the visible viewer.
+- Chrome screenshots at 320/375/390/430/768/1024/1440px were reviewed and refined. WebKit's initial overflow findings were fixed; the final matrix has no horizontal overflow or undersized button targets.
 
-## Authorized release sequence
+## Production verification
 
-1. Owner approval received; retain Apps Script **version 22** as the rollback version.
-2. In the existing project editor, replace **Code.gs** with validated source. Do not run upload
-   functions or edit script properties. Browser access to this exact project is available;
-   manual owner copying is not a prerequisite.
-3. Deploy → Manage deployments → edit the **existing active Web App** → New version → Deploy.
-   Never create a deployment or change its `/exec` URL/access/owner.
-4. Check `?diagnostic=phase6c` on the existing `/exec` URL; expect the new backend version.
-5. Before updating Workers, verify the Cloudflare account/subdomain and existing Worker name.
-   Current `wrangler.toml` names **gallery**, matching the active public host. It has **no
-   `madetokeep` environment**; the former `--env madetokeep` instructions were incorrect.
-   Update the existing `gallery` Worker in the verified account. Update any independently
-   confirmed legacy Worker with the same source; do not guess a target or create replacements.
-6. Check the public proxy diagnostic again. Check a consented diagnostic gallery plus a known
-   historical gallery privately on both confirmed front doors. Never log or publish their tokens.
-7. Confirm all photos, both receipts, individual viewing/saving, sharing and Save All; test
-   iPhone Safari / Android Chrome. Unsupported bulk saving must guide guests to individual Save.
-8. Test a fresh random valid-but-unused token (pending) and an invalid token (invalid). Repeated
-   completed-page reads should show cache HIT. No payment or customer data write is needed.
-
-Apps Script alone updates pages after existing edge caches expire (up to one hour). The Worker
-cache bump makes the switch immediate. Do not change the PayMongo Worker for this release.
+- Apps Script `?diagnostic=phase6c` and public `?diagnostic=proxy` report the v5 backend, healthy upstream 200 and the existing raw proxy route.
+- Three existing completed galleries on the current front door return the new design with dynamic photos and both receipts; two other known links retain pending behavior. No customer token or imagery is included in committed evidence.
+- The Worker namespace change caused completed-page MISS responses followed by HITs, with the original `public, max-age=3600` policy. Random unused tokens return the branded pending state with cache BYPASS and no-store. Malformed tokens return a safe 404/no-store response.
+- Production Chrome confirmed all photos and receipt previews load, Polaroids reuse the correct gallery images, the mobile menu opens/closes, the lightbox advances through photos, and the Instagram CTA opens the exact official profile without extra parameters. No gallery console errors were observed.
+- Individual photo, color receipt and thermal receipt downloads were read from disk and compared with the embedded original data: exact byte matches. With multiple downloads permitted, both bulk-downloaded photographs also matched the originals. Chrome can restrict multiple downloads; the UI provides guidance and individual Save controls. Temporary clipboard and automatic-download permission tests were restored to their original Ask defaults.
+- A production manual-copy dialog was observed with clipboard access denied. Native sharing and clipboard success branches are covered by WebKit stubs; real iOS/Android native share sheets were not exercised in this release.
+- Production Chrome verified zero decorative caption elements and full-image containment on desktop and a 390×844 mobile viewport, including first-tap opening and next-photo navigation. The original 1056×1408 photo is fully visible; no gallery console errors were observed.
+- Original embedded asset hashes were identical before and after the Worker cache switch.
 
 ## Rollback
 
-Edit the **same** Apps Script deployment back to **version 22**. Restore the previous Worker
-version `c5ccf383-0010-48f1-9fd7-0eb17679078c` using Cloudflare deployment rollback
-(same Worker, account and routes). The prior
-repository Worker is at `9dfd258`; restoring it only changes the internal cache namespace.
-Recheck proxy diagnostics, a consented diagnostic gallery and private historical links.
-No data migration or file deletion is part of release or rollback. New still-only payloads were
-already supported by version 22, so the new iPad candidate remains compatible after rollback.
+For the caption/viewer correction alone, the immediately preceding release is Apps Script **version 25** and Worker **`5b2600ab-3f04-48ad-8281-e17528dcb136`**. Both remain available. The pre-redesign rollback is recorded below.
+
+Before the initial redesign, the existing Apps Script Web App was **version 24** (October 17 reliability/session-ID update), not the older version 23 mentioned in historical notes. Restore **version 24** on the **same deployment** if rollback is necessary; retain its UUID session compatibility. Version 23 and version 22 remain older historical versions.
+
+The verified previous Worker version is **`aabb760a-95e1-4964-b698-39c7aff376d6`**. Restore that version through the existing `gallery` Worker's deployment rollback in the same account. Recheck both diagnostics and a private consented historical link. No data migration or customer-file deletion is involved in release or rollback. Because Apps Script was released before the Worker cache switch, some entries in the former cache namespace can contain the newer HTML. If an urgent visual rollback must bypass those entries, revert Apps Script first, then deploy the known-good Worker source with a fresh internal rollback cache namespace and `--keep-vars`; keep customer URLs and bindings unchanged. Otherwise completed entries expire within the existing one-hour policy.
+
+## Known limits
+
+The legacy hostname `https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/` still returns **NXDOMAIN from both 1.1.1.1 and 8.8.8.8**, as it did before this release. The current authorized Cloudflare account uses subdomain `madetokeepstudios`; October 16 inspection found no legacy Worker in that account. Restoring the old hostname requires the account/routing that owns the former subdomain; renaming the current account would break the working front door and was not attempted. Historical tokens remain compatible on the current hostname, but this does not make old printed hostnames reachable.
+
+Schema-v1 galleries with only the color receipt pass local rendering and WebKit checks; the three inspected live completed galleries all had both receipt assets. Physical iPhone Safari/Android share-sheet validation remains a device check. No physical printer/payment tests or device install were performed for this gallery-only release.

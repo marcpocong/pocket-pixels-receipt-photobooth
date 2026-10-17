@@ -65,6 +65,19 @@ enum GalleryUploadPreparation {
         }
     }
 
+    /// Smooth grayscale PNG at the same width as the color receipt copy, so both gallery receipts
+    /// share identical geometry.
+    nonisolated static func preparedMonochromeReceiptData(from image: UIImage) throws -> Data {
+        try autoreleasepool {
+            let receipt = image.normalizedForGalleryUpload().resizedForGalleryUpload(width: BoothConfiguration.receiptWidth)
+            let data = try MonochromeReceiptRenderer.render(receipt).pngData
+            guard data.count <= GalleryPreparedUploadMetrics.maxFileDecodedBytes else {
+                throw GalleryUploadError.imageEncoding("Encoded black & white receipt is larger than 6 MB.")
+            }
+            return data
+        }
+    }
+
     nonisolated private static func encodeAdaptiveJPEG(
         _ image: UIImage,
         startingQuality: CGFloat,

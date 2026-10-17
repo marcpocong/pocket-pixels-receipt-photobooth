@@ -156,21 +156,22 @@ nonisolated enum CustomerExperiencePreviewPolicy {
 }
 
 /// Which rendering the pre-print receipt preview shows. The keepsake view is the composed receipt;
-/// "As printed" is the exact thermal raster preview the printer receives (never an approximation).
+/// "Black & White" is a smooth grayscale digital preview (`MonochromeReceiptRenderer`). Guests never
+/// see the 1-bit printer raster: that stays in operator diagnostics only.
 enum ReceiptPreviewMode: String, CaseIterable, Sendable {
     case keepsake
-    case thermal
+    case blackAndWhite
     /// The guest's photos played in order, like the gallery GIF. Multi-photo formats only.
     case motion
 
-    static let printNote = "Prints in black and white on thermal paper."
+    static let printNote = "Printed in black and white on thermal paper. Final print texture may vary."
     /// Reserved vertical space for the toggle and note on the receipt screen.
     static let pickerHeightEstimate: CGFloat = 62
 
     var title: String {
         switch self {
         case .keepsake: "Keepsake"
-        case .thermal: "As printed"
+        case .blackAndWhite: "Black & White"
         case .motion: "In Motion"
         }
     }
@@ -180,11 +181,12 @@ enum ReceiptPreviewMode: String, CaseIterable, Sendable {
         motion ? allCases : allCases.filter { $0 != .motion }
     }
 
-    /// The thermal view falls back to the keepsake while the raster preview is still rendering.
-    func image(keepsake: UIImage?, thermal: UIImage?) -> UIImage? {
+    /// Black & White shows only the smooth monochrome preview. While it is still rendering this
+    /// returns nil (a loading state), never the keepsake or the printer raster.
+    func image(keepsake: UIImage?, monochrome: UIImage?) -> UIImage? {
         switch self {
         case .keepsake: keepsake
-        case .thermal: thermal ?? keepsake
+        case .blackAndWhite: monochrome
         case .motion: keepsake
         }
     }

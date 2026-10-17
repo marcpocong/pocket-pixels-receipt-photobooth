@@ -266,6 +266,50 @@ final class EventFinalizationTests: XCTestCase {
 
 @MainActor
 final class GalleryBrowserLayoutTests: XCTestCase {
+    func testSlowImageDecodeKeepsPlaceholdersAndTouchTargetsUntilLoad() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("DerivedData/gallery-fixtures")
+        let configuration = WKWebViewConfiguration()
+        configuration.userContentController.addUserScript(WKUserScript(source: """
+        window.heldPreviews = [];
+        const originalSource = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+        Object.defineProperty(HTMLImageElement.prototype, 'src', {
+            get: originalSource.get,
+            set: function(value) {
+                if (this.id.startsWith('image-')) { heldPreviews.push({image:this, source:value}); }
+                else { originalSource.set.call(this, value); }
+            }
+        });
+        window.releasePreviews = function() {
+            window.releasedPreviews = heldPreviews.slice();
+            heldPreviews.forEach(item => originalSource.set.call(item.image, item.source));
+        };
+        """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        let (web, window) = hostedBrowser(configuration: configuration)
+        defer { web.stopLoading(); window.isHidden = true }
+        try await loadFixture(String(contentsOf: root.appendingPathComponent("gallery-2.html"), encoding: .utf8), in: web)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        var prepared = false
+        repeat {
+            prepared = try await web.evaluateJavaScript("heldPreviews.length === 4") as? Bool == true
+            if !prepared { try await Task.sleep(for: .milliseconds(20)) }
+        } while !prepared && ContinuousClock.now < deadline
+        XCTAssertTrue(prepared, "All previews must reach the deliberately delayed image loader")
+        let retained = try await web.evaluateJavaScript("""
+        heldPreviews.every(item => item.image.hidden
+            && document.getElementById(item.image.id.replace('image-', 'placeholder-'))
+            && item.image.closest('button').getBoundingClientRect().height >= 44)
+        """) as? Bool
+        XCTAssertEqual(retained, true, "Loading photos and receipts keep their placeholder and usable target")
+        _ = try await web.evaluateJavaScript("releasePreviews(); true")
+        var displayed = false
+        let loadedDeadline = ContinuousClock.now.advanced(by: .seconds(5))
+        repeat {
+            displayed = try await web.evaluateJavaScript("releasedPreviews.every(item => !item.image.hidden && item.image.complete && item.image.naturalWidth > 0 && !document.getElementById(item.image.id.replace('image-', 'placeholder-')))") as? Bool == true
+            if !displayed { try await Task.sleep(for: .milliseconds(20)) }
+        } while !displayed && ContinuousClock.now < loadedDeadline
+        XCTAssertTrue(displayed, "Actual load events reveal every preview and remove its placeholder")
+    }
+
     func testMobileShareAndDownloadFallbackPreserveFilesAndAccurateGuidance() async throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("DerivedData/gallery-fixtures")
         let html = try String(contentsOf: root.appendingPathComponent("gallery-2.html"), encoding: .utf8)
@@ -295,9 +339,12 @@ final class GalleryBrowserLayoutTests: XCTestCase {
                 XCTAssertTrue(shares.flatMap { $0 }.allSatisfy { ($0["size"] as? Int ?? 0) > 0 })
             } else {
                 let hidden = try await web.evaluateJavaScript("document.getElementById('shareAll').hidden") as? Bool
-                XCTAssertEqual(hidden, true)
+                XCTAssertEqual(hidden, false)
                 let hint = try await web.evaluateJavaScript("document.getElementById('allHint').textContent") as? String
                 XCTAssertTrue(hint?.contains("Use Save under each photo") == true)
+                _ = try await web.evaluateJavaScript("document.getElementById('shareAll').click()")
+                let fallback = try await web.evaluateJavaScript("document.getElementById('message').textContent") as? String
+                XCTAssertTrue(fallback?.contains("one photo at a time") == true)
                 _ = try await web.evaluateJavaScript("document.querySelector('[data-download=\"photo-01.jpg\"]').click()")
                 let downloads = try await web.evaluateJavaScript("window.downloadedFiles") as? [String]
                 XCTAssertEqual(downloads, ["photo-01.jpg"])
@@ -313,7 +360,7 @@ final class GalleryBrowserLayoutTests: XCTestCase {
         // processes. Each fixture still loads independently and every viewport is asserted.
         let (web, window) = hostedBrowser()
         defer { web.stopLoading(); window.isHidden = true }
-        for count in [1, 2, 3, 4, 6] {
+        for count in [1, 2, 3, 4, 5, 6] {
             let html = try String(contentsOf: root.appendingPathComponent("gallery-\(count).html"), encoding: .utf8)
             try await loadFixture(html, in: web)
             for (width, height) in [(320, 900), (375, 900), (390, 900), (430, 900), (768, 1024), (1024, 768), (1440, 900), (844, 390), (1194, 834)] {
@@ -321,14 +368,16 @@ final class GalleryBrowserLayoutTests: XCTestCase {
                 web.frame = window.bounds
                 window.layoutIfNeeded()
                 web.layoutIfNeeded()
-                try await waitForViewport(width, in: web)
+                try await waitForViewport(width, height: height, in: web)
+                // Viewport synchronization is independent of the measured outcome.
+                // A real overflow or collapsed target fails on this first settled measurement.
                 let checks = try await web.evaluateJavaScript("""
-                (()=>{const buttons=[...document.querySelectorAll('button')].filter(b=>b.getBoundingClientRect().width>0);return {overflow:document.documentElement.scrollWidth>innerWidth, photos:document.querySelectorAll('.shot').length, gif:document.querySelectorAll('[data-open="session.gif"]').length, small:buttons.filter(b=>b.getBoundingClientRect().height<43).length, save:!document.getElementById('shareAll').hidden}})()
+                (()=>{const buttons=[...document.querySelectorAll('button')].filter(b=>b.getBoundingClientRect().width>0);return {overflow:document.documentElement.scrollWidth>innerWidth, photos:document.querySelectorAll('.shot').length, gif:document.querySelectorAll('[data-open="session.gif"]').length, small:buttons.filter(b=>b.getBoundingClientRect().height<43).length, save:!document.getElementById('shareAll').hidden, viewport:[innerWidth,innerHeight,document.documentElement.clientWidth], smallControls:buttons.filter(b=>b.getBoundingClientRect().height<43).map(b=>({id:b.id,label:b.getAttribute('aria-label'),height:b.getBoundingClientRect().height})), overflowElements:[...document.querySelectorAll('body *')].filter(e=>{const r=e.getBoundingClientRect();return r.width>0&&(r.right>innerWidth+1||r.left< -1);}).map(e=>({tag:e.tagName,id:e.id,class:e.getAttribute('class'),rect:[e.getBoundingClientRect().left,e.getBoundingClientRect().right]}))}})()
                 """) as! [String: Any]
-                XCTAssertEqual(checks["overflow"] as? Bool, false, "\(count) photos at \(width)")
+                XCTAssertEqual(checks["overflow"] as? Bool, false, "\(count) photos at \(width): \(checks)")
                 XCTAssertEqual(checks["photos"] as? Int, count)
                 XCTAssertEqual(checks["gif"] as? Int, 0)
-                XCTAssertEqual(checks["small"] as? Int, 0)
+                XCTAssertEqual(checks["small"] as? Int, 0, "\(count) photos at \(width): \(checks)")
                 XCTAssertEqual(checks["save"] as? Bool, true)
                 let opened = try await web.evaluateJavaScript("document.querySelector('[data-open]').click(); !document.getElementById('lightbox').hidden") as? Bool
                 XCTAssertEqual(opened, true)
@@ -341,9 +390,169 @@ final class GalleryBrowserLayoutTests: XCTestCase {
                     attachment.name = "gallery-\(width)"
                     attachment.lifetime = .keepAlways
                     add(attachment)
+
                 }
             }
         }
+    }
+
+    func testEditorialMenuReceiptsCollageAndPrivateInstagramNavigation() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("DerivedData/gallery-fixtures")
+        let (web, window) = hostedBrowser()
+        defer { web.stopLoading(); window.isHidden = true }
+        try await loadFixture(String(contentsOf: root.appendingPathComponent("gallery-2.html"), encoding: .utf8), in: web)
+        let checks = try await web.evaluateJavaScript("""
+        (()=>{const a=document.querySelector('.instagram-cta');return {receipts:document.querySelectorAll('.receipt-card').length, collapsed:document.querySelectorAll('details').length, collage:[...document.querySelectorAll('[data-collage]')].every(i=>i.src===document.getElementById('image-'+i.dataset.collage).src), instagram:a.href, referrer:a.referrerPolicy, rel:a.rel, order:!!(document.querySelector('.receipt-section').compareDocumentPosition(document.querySelector('.instagram-card'))&Node.DOCUMENT_POSITION_FOLLOWING)}})()
+        """) as! [String: Any]
+        XCTAssertEqual(checks["receipts"] as? Int, 2)
+        XCTAssertEqual(checks["collapsed"] as? Int, 0)
+        XCTAssertEqual(checks["collage"] as? Bool, true)
+        XCTAssertEqual(checks["instagram"] as? String, "https://www.instagram.com/madetokeep.studios/")
+        XCTAssertEqual(checks["referrer"] as? String, "no-referrer")
+        XCTAssertEqual(checks["rel"] as? String, "noopener noreferrer")
+        XCTAssertEqual(checks["order"] as? Bool, true)
+        _ = try await web.evaluateJavaScript("document.getElementById('menuToggle').click()")
+        let browserResult1 = try await web.evaluateJavaScript("document.getElementById('menuToggle').getAttribute('aria-expanded')") as? String
+        XCTAssertEqual(browserResult1, "true")
+        _ = try await web.evaluateJavaScript("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
+        let browserResult2 = try await web.evaluateJavaScript("document.getElementById('galleryMenu').hidden") as? Bool
+        XCTAssertEqual(browserResult2, true)
+        let outbound = GalleryOutboundNavigationObserver()
+        web.navigationDelegate = outbound
+        _ = try await web.evaluateJavaScript("document.querySelector('.instagram-cta').click()")
+        await fulfillment(of: [outbound.requested], timeout: 5)
+        XCTAssertEqual(outbound.url?.absoluteString, "https://www.instagram.com/madetokeep.studios/")
+        XCTAssertNil(outbound.referrer)
+        web.navigationDelegate = nil
+        try await loadFixture(String(contentsOf: root.appendingPathComponent("legacy.html"), encoding: .utf8), in: web)
+        let browserResult3 = try await web.evaluateJavaScript("document.querySelectorAll('.receipt-card').length") as? Int
+        XCTAssertEqual(browserResult3, 1)
+    }
+
+    func testGalleryLinkShareClipboardAndLightboxFocus() async throws {
+        let configuration = WKWebViewConfiguration()
+        configuration.userContentController.addUserScript(WKUserScript(source: """
+        window.linkShares=[];window.copiedLinks=[];
+        Object.defineProperty(navigator,'share',{configurable:true,value:async data=>window.linkShares.push(data)});
+        Object.defineProperty(navigator,'clipboard',{value:{writeText:async value=>window.copiedLinks.push(value)}});
+        """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        let (web, window) = hostedBrowser(configuration: configuration)
+        defer { web.stopLoading(); window.isHidden = true }
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("DerivedData/gallery-fixtures")
+        try await loadFixture(String(contentsOf: root.appendingPathComponent("gallery-2.html"), encoding: .utf8), in: web)
+        _ = try await web.evaluateJavaScript("document.querySelector('[data-share-gallery]').click()")
+        let browserResult4 = try await web.evaluateJavaScript("window.linkShares[0].url") as? String
+        XCTAssertEqual(browserResult4, "https://gallery.example.test/?g=" + String(repeating: "c", count: 64))
+        _ = try await web.evaluateJavaScript("Object.defineProperty(navigator,'share',{value:undefined});document.querySelector('[data-share-gallery]').click()")
+        let browserResult5 = try await web.evaluateJavaScript("window.copiedLinks[0]") as? String
+        XCTAssertEqual(browserResult5, "https://gallery.example.test/?g=" + String(repeating: "c", count: 64))
+        _ = try await web.evaluateJavaScript("document.querySelector('[data-open]').focus();document.querySelector('[data-open]').click();document.getElementById('lightboxShare').focus();document.dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',bubbles:true,cancelable:true}))")
+        let browserResult6 = try await web.evaluateJavaScript("document.activeElement.id") as? String
+        XCTAssertEqual(browserResult6, "lightboxClose")
+        _ = try await web.evaluateJavaScript("document.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}))")
+        let browserResult7 = try await web.evaluateJavaScript("document.getElementById('lightboxCount').textContent") as? String
+        XCTAssertEqual(browserResult7, "2 / 2")
+        _ = try await web.evaluateJavaScript("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
+        let browserResult8 = try await web.evaluateJavaScript("document.activeElement.hasAttribute('data-open') && !document.querySelector('main').inert") as? Bool
+        XCTAssertEqual(browserResult8, true)
+    }
+
+    func testFullSizePortraitLandscapeAndReceiptsFitViewport() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("DerivedData/gallery-fixtures")
+        let (web, window) = hostedBrowser()
+        defer { web.stopLoading(); window.isHidden = true }
+        try await loadFixture(String(contentsOf: root.appendingPathComponent("gallery-orientations.html"), encoding: .utf8), in: web)
+        for (width, height) in [(320, 568), (390, 844), (844, 390), (768, 1024), (1440, 900)] {
+            window.frame = CGRect(x: 0, y: 0, width: width, height: height)
+            web.frame = window.bounds
+            window.layoutIfNeeded()
+            web.layoutIfNeeded()
+            try await waitForViewport(width, height: height, in: web)
+            for name in ["photo-01.jpg", "photo-02.jpg", "receipt-color.jpg", "receipt-bw.png"] {
+                _ = try await web.evaluateJavaScript("document.querySelector('[data-open=\"\(name)\"]').click()")
+                let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+                var loaded = false
+                repeat {
+                    loaded = try await web.evaluateJavaScript("document.getElementById('lightboxImage').complete && document.getElementById('lightboxImage').naturalWidth > 0") as? Bool == true
+                    if !loaded { try await Task.sleep(for: .milliseconds(20)) }
+                } while !loaded && ContinuousClock.now < deadline
+                XCTAssertTrue(loaded)
+                let fit = try await web.evaluateJavaScript("""
+                (()=>{const image=document.getElementById('lightboxImage'),i=image.getBoundingClientRect(),s=document.querySelector('.lightbox-stage').getBoundingClientRect();return {contained:i.left>=s.left-1&&i.right<=s.right+1&&i.top>=s.top-1&&i.bottom<=s.bottom+1, visible:s.height>0&&s.top>=-1&&s.bottom<=innerHeight+1, fit:getComputedStyle(image).objectFit, width:document.documentElement.scrollWidth<=innerWidth, viewport:[innerWidth,innerHeight], stage:[s.top,s.bottom,s.height]};})()
+                """) as! [String: Any]
+                XCTAssertEqual(fit["contained"] as? Bool, true, "\(name) at \(width)×\(height)")
+                XCTAssertEqual(fit["visible"] as? Bool, true, "\(name) at \(width)×\(height): \(fit)")
+                XCTAssertEqual(fit["fit"] as? String, "contain")
+                XCTAssertEqual(fit["width"] as? Bool, true)
+                _ = try await web.evaluateJavaScript("document.getElementById('lightboxClose').click()")
+            }
+        }
+    }
+
+    /// Historical galleries stored the 1-bit printer raster as receipt-bw.png. Customers instead get a
+    /// smooth grayscale copy derived in the browser from the color receipt, and saving/sharing it
+    /// produces a genuinely monochrome PNG. New galleries keep the booth's grayscale bytes unchanged.
+    func testBlackAndWhiteReceiptIsSmoothForHistoricalAndNewGalleries() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("DerivedData/gallery-fixtures")
+        let configuration = WKWebViewConfiguration()
+        configuration.userContentController.addUserScript(WKUserScript(source: """
+        window.sharedFiles=[];
+        Object.defineProperty(navigator,'userAgent',{get:()=> 'iPhone Safari'});
+        Object.defineProperty(navigator,'canShare',{value:()=> true});
+        Object.defineProperty(navigator,'share',{value:async data=>{window.sharedFiles.push(data.files);}});
+        window.inspectGray=async function(blobOrImage){const image=blobOrImage instanceof Blob?await createImageBitmap(blobOrImage):blobOrImage;const c=document.createElement('canvas');c.width=image.naturalWidth||image.width;c.height=image.naturalHeight||image.height;const x=c.getContext('2d');x.drawImage(image,0,0);const d=x.getImageData(0,0,c.width,c.height).data;let colored=0;const levels=new Set();for(let i=0;i<d.length;i+=4){if(d[i]!==d[i+1]||d[i+1]!==d[i+2]){colored++;}levels.add(d[i]);}return {colored,levels:levels.size,width:c.width,height:c.height};};
+        """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        let (web, window) = hostedBrowser(configuration: configuration)
+        defer { web.stopLoading(); window.isHidden = true }
+
+        try await loadFixture(String(contentsOf: root.appendingPathComponent("gallery-historical-raster.html"), encoding: .utf8), in: web)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        var shown = false
+        repeat {
+            shown = try await web.evaluateJavaScript("(()=>{const i=document.getElementById('image-receipt-bw.png');return !i.hidden&&i.src.startsWith('blob:')&&i.complete&&i.naturalWidth>0;})()") as? Bool == true
+            if !shown { try await Task.sleep(for: .milliseconds(50)) }
+        } while !shown && ContinuousClock.now < deadline
+        XCTAssertTrue(shown, "Derived black & white receipt is displayed")
+        let card = try await web.evaluateJavaScript("""
+        (()=>{const cards=[...document.querySelectorAll('.receipt-card h3')].map(h=>h.textContent);return {cards, raster:typeof galleryData.thermalReceipt.base64Data, derive:galleryData.thermalReceipt.deriveFrom, fallback:document.querySelectorAll('.mono-fallback').length};})()
+        """) as! [String: Any]
+        XCTAssertEqual(card["cards"] as? [String], ["Color Receipt", "Black & White Receipt"])
+        XCTAssertEqual(card["raster"] as? String, "undefined", "The legacy raster is not embedded")
+        XCTAssertEqual(card["derive"] as? String, "receipt-color.jpg")
+        XCTAssertEqual(card["fallback"] as? Int, 0)
+        let displayed = try await web.callAsyncJavaScript("return await inspectGray(document.getElementById('image-receipt-bw.png'))", contentWorld: .page) as! [String: Any]
+        XCTAssertEqual(displayed["colored"] as? Int, 0, "Displayed receipt is pure grayscale")
+        XCTAssertGreaterThan(displayed["levels"] as? Int ?? 0, 32, "Smooth tones, not a 1-bit raster: \(displayed)")
+        XCTAssertEqual(displayed["width"] as? Int, 576)
+        XCTAssertEqual(displayed["height"] as? Int, 1112, "Same geometry as the color receipt")
+
+        _ = try await web.evaluateJavaScript("document.querySelector('[data-download=\"receipt-bw.png\"]').click()")
+        let saved = try await web.callAsyncJavaScript("""
+        for(let i=0;i<100&&!window.sharedFiles.length;i++){await new Promise(r=>setTimeout(r,30));}
+        const file=window.sharedFiles[0][0];const gray=await inspectGray(file);return {name:file.name,type:file.type,size:file.size,...gray};
+        """, contentWorld: .page) as! [String: Any]
+        XCTAssertEqual(saved["name"] as? String, "receipt-bw.png")
+        XCTAssertEqual(saved["type"] as? String, "image/png")
+        XCTAssertGreaterThan(saved["size"] as? Int ?? 0, 0)
+        XCTAssertEqual(saved["colored"] as? Int, 0, "Saved file is genuinely monochrome")
+        XCTAssertGreaterThan(saved["levels"] as? Int ?? 0, 32)
+
+        _ = try await web.evaluateJavaScript("document.querySelector('[data-open=\"receipt-bw.png\"]').click()")
+        let lightbox = try await web.evaluateJavaScript("[!document.getElementById('lightbox').hidden, document.getElementById('lightboxCount').textContent, document.getElementById('lightboxImage').alt]") as? [Any]
+        XCTAssertEqual(lightbox?[0] as? Bool, true)
+        XCTAssertEqual(lightbox?[1] as? String, "black & white receipt")
+        XCTAssertEqual(lightbox?[2] as? String, "Made to Keep Studios black and white receipt")
+        _ = try await web.evaluateJavaScript("document.getElementById('lightboxClose').click()")
+
+        // New gallery: the booth's smooth grayscale PNG is used byte-for-byte, with no derivation.
+        try await loadFixture(String(contentsOf: root.appendingPathComponent("gallery-2.html"), encoding: .utf8), in: web)
+        let fresh = try await web.callAsyncJavaScript("""
+        const item=galleryData.thermalReceipt;const file=fileForItem(item);const stored=atob(item.base64Data);const bytes=new Uint8Array(await file.arrayBuffer());let same=bytes.length===stored.length;for(let i=0;same&&i<bytes.length;i++){same=bytes[i]===stored.charCodeAt(i);}return {derive:item.deriveFrom||null,same,colorType:bytes[25],depth:bytes[24]};
+        """, contentWorld: .page) as! [String: Any]
+        XCTAssertTrue(fresh["derive"] is NSNull)
+        XCTAssertEqual(fresh["same"] as? Bool, true)
+        XCTAssertEqual(fresh["colorType"] as? Int, 0)
+        XCTAssertEqual(fresh["depth"] as? Int, 8)
     }
 
     private func hostedBrowser(configuration: WKWebViewConfiguration? = nil) -> (WKWebView, UIWindow) {
@@ -361,12 +570,22 @@ final class GalleryBrowserLayoutTests: XCTestCase {
         let observer = GalleryFixtureNavigationObserver()
         web.navigationDelegate = observer
         defer { web.navigationDelegate = nil }
-        web.loadHTMLString(html, baseURL: URL(string: "https://gallery.example.test"))
-        await fulfillment(of: [observer.finished], timeout: 15)
-        if let error = observer.error { throw error }
-        guard observer.didFinish else {
+        // Mark the current document so a stale page can never satisfy the readiness check below.
+        _ = try? await web.evaluateJavaScript("window.__previousFixture = true; true")
+        // A unique ignored parameter per load: the iOS 27 simulator's WebKit stalls when the same
+        // view reloads an identical fragment URL. The gallery drops every parameter except `g`.
+        web.loadHTMLString(html, baseURL: URL(string: "https://gallery.example.test/?g=" + String(repeating: "c", count: 64) + "&ignored=private&fixture=\(UUID().uuidString)#photos"))
+        // Poll the new document directly rather than relying only on didFinish.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(45))
+        var loadedNewDocument = false
+        repeat {
+            if let error = observer.error { throw error }
+            loadedNewDocument = (try? await web.evaluateJavaScript("window.__previousFixture !== true && document.readyState === 'complete'") as? Bool) == true
+            if !loadedNewDocument { try await Task.sleep(for: .milliseconds(50)) }
+        } while !loadedNewDocument && ContinuousClock.now < deadline
+        guard loadedNewDocument else {
             throw NSError(domain: "GalleryBrowserFixture", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "Visible gallery fixture navigation did not finish within 15 seconds."])
+                          userInfo: [NSLocalizedDescriptionKey: "Visible gallery fixture navigation did not finish within 45 seconds."])
         }
         let ready = try await web.evaluateJavaScript("document.readyState === 'complete' && typeof photoItems !== 'undefined' && !!document.getElementById('shareAll') && !!document.getElementById('allHint')") as? Bool
         XCTAssertEqual(ready, true, "Navigation must finish with the actual gallery script and controls ready")
@@ -376,12 +595,26 @@ final class GalleryBrowserLayoutTests: XCTestCase {
         }
     }
 
-    private func waitForViewport(_ width: Int, in web: WKWebView) async throws {
+    private func waitForViewport(_ width: Int, height: Int? = nil, in web: WKWebView) async throws {
         let deadline = ContinuousClock.now.advanced(by: .seconds(5))
         var actual: Int?
         repeat {
             actual = try await web.evaluateJavaScript("innerWidth") as? Int
-            if actual == width { return }
+            if actual == width {
+                let actualHeight = try await web.evaluateJavaScript("innerHeight") as? Int
+                if height == nil || actualHeight == height {
+                    // WebKit can expose innerWidth before committing the matching media-query
+                    // layout. Wait for two rendered frames, then recheck both viewport owners.
+                    // Assertions below still reject every overflow and undersized control.
+                    let stable = try await web.callAsyncJavaScript("""
+                    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                    return innerWidth === width && document.documentElement.clientWidth === width
+                        && (height === null || innerHeight === height)
+                        && matchMedia('(width: ' + width + 'px)').matches;
+                    """, arguments: ["width": width, "height": height.map { $0 as Any } ?? NSNull()], contentWorld: .page) as? Bool
+                    if stable == true { return }
+                }
+            }
             try await Task.sleep(for: .milliseconds(50))
         } while ContinuousClock.now < deadline
         XCTFail("Browser viewport did not resize to \(width); actual: \(String(describing: actual))")
@@ -410,5 +643,18 @@ private final class GalleryFixtureNavigationObserver: NSObject, WKNavigationDele
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         self.error = error
         finished.fulfill()
+    }
+}
+
+@MainActor
+private final class GalleryOutboundNavigationObserver: NSObject, WKNavigationDelegate {
+    let requested = XCTestExpectation(description: "Approved Instagram navigation")
+    var url: URL?
+    var referrer: String?
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        url = navigationAction.request.url
+        referrer = navigationAction.request.value(forHTTPHeaderField: "Referer")
+        requested.fulfill()
+        decisionHandler(.cancel)
     }
 }

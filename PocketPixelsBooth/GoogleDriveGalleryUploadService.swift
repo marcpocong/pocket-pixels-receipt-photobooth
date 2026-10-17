@@ -311,13 +311,13 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         )
 
         // `composedReceipt` is the privacy-redacted gallery composition supplied by the
-        // session model. The thermal copy must be derived from that image, never from the
-        // private physical-print raster.
-        let thermalRaster = try ThermalImageRasterizer.rasterize(composedReceipt, purpose: .completeReceipt)
+        // session model. The black & white copy must be derived from that image, never from the
+        // private physical print. The legacy `thermalReceipt` / `receipt-bw.png` slot now carries a
+        // smooth 8-bit grayscale customer preview, not the 1-bit printer raster.
         let preparedThermalReceipt = GalleryStoredUploadImage(
             filename: "receipt-bw.png",
             mimeType: "image/png",
-            data: thermalRaster.previewPNGData
+            data: try GalleryUploadPreparation.preparedMonochromeReceiptData(from: composedReceipt)
         )
         // New galleries contain approved still photos and both receipt representations only.
         // Optional GIF fields remain supported for durable queues and historical manifests.
