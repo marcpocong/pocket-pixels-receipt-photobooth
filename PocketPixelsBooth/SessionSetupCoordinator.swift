@@ -72,7 +72,8 @@ nonisolated struct SetupFailure: LocalizedError {
 nonisolated protocol SessionSetupAPI: Sendable {
     func listEvents() async throws -> [OperatorEventSummary]
     func eventDetail(id: String) async throws -> OperatorEventDetail
-    func createEvent(name: String, venue: String) async throws -> OperatorCreatedEvent
+    func createEvent(name: String, venue: String, operationID: String) async throws -> OperatorCreatedEvent
+    func eventCreation(operationID: String) async throws -> OperatorEventCreationLookup
     func saveDraft(eventID: String, expectedVersion: Int, name: String, venue: String, policy: ServerPolicyDraft.RequestBody) async throws -> OperatorEventUpdate
     func transitionEvent(id: String, action: String, expectedVersion: Int, policyRevisionID: String?, acknowledgedUnitPriceCentavos: Int?) async throws -> OperatorEventTransition
     func activeEvent() async throws -> ActiveEventResponse
@@ -133,6 +134,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     private let acceptance: SessionAcceptanceStore
     let eventRuns: EventRunStore
     let library: EventDesignLibraryStore
+    let creations: CommercialEventCreationStore
     private let api: @MainActor () throws -> any SessionSetupAPI
     private let authorized: @MainActor () -> Bool
     private let blockingReason: @MainActor () -> String?
@@ -143,9 +145,10 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     private let currentProfile: @MainActor () -> EventProfile
     private let applyProfile: @MainActor (EventProfile) throws -> Void
     private let artworkAvailable: @MainActor (String?) -> Bool
+    private var creationObserver: AnyCancellable?
 
     init(eventID: String? = nil, draftTarget: SavedDraftID? = nil, workspace: OperatorWorkspace? = nil, acceptance: SessionAcceptanceStore? = nil, library: EventDesignLibraryStore? = nil,
-         eventRuns: EventRunStore? = nil,
+         eventRuns: EventRunStore? = nil, creations: CommercialEventCreationStore? = nil,
          api: @escaping @MainActor () throws -> any SessionSetupAPI = {
              guard let c = PaymentsConfiguration.current() else { throw SetupFailure("Set up this iPad in Advanced → Payment Maintenance first.") }
              return PaymentsAPIClient(configuration: c)
@@ -164,6 +167,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         let library = library ?? .shared
         self.draftTarget = draftTarget
         self.workspace = workspace; self.acceptance = acceptance ?? .shared; self.library = library; self.eventRuns = eventRuns ?? .shared
+        self.creations = creations ?? .shared
         self.api = api; self.authorized = authorized; self.blockingReason = blockingReason
         self.loadLocal = loadLocal; self.saveLocal = saveLocal; self.source = source; self.saveSource = saveSource
         self.currentProfile = currentProfile; self.applyProfile = applyProfile; self.artworkAvailable = artworkAvailable
@@ -200,6 +204,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         }
         design = designID.flatMap { workspace.designDraft(id: $0) ?? saved.design(id: $0) }
         if design == nil { designID = nil }
+        creationObserver = self.creations.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
     var workspaceForEditing: OperatorWorkspace { workspace }
@@ -406,6 +411,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         }
         if mode == .localPrepaid { return prepaid.activePolicy.validationMessage }
         if conflict { return "Server Settings Changed — Review Required." }
+        if pendingCreation != nil { return "A paid event may already have been created. Confirm it under Event Creation Needs Confirmation first." }
         if targetServerEventID == nil {
             return eventModeEnabled ? "Connect this event to paid checkout to set a price." : "Set up regular paid sessions to set a price."
         }
@@ -558,6 +564,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     /// operator action; the link is remembered so revisiting setup never creates duplicates.
     func connectPaidCheckout() async {
         guard !busy, authorized(), !needsRefresh, mode == .serverManaged, targetServerEventID == nil else { return }
+        if let reason = creationBlocker { message = reason; return }
         busy = true; defer { busy = false }
         let binding = workspace.serverBinding
         do {
@@ -565,13 +572,12 @@ extension PaymentsAPIClient: SessionSetupAPI {}
                 guard var design else { throw SetupFailure("Choose or create an event first.") }
                 guard !design.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw SetupFailure("Enter an event name first.") }
                 if library.design(id: design.id) == nil { try library.save(design) }
-                let created = try await api().createEvent(name: design.displayName, venue: design.venue)
-                try library.link(designID: design.id, binding: binding, serverEventID: created.id)
-                design.serverEvents[binding] = created.id
+                let intent = try await createCommercialEvent(name: design.displayName, venue: design.venue, purpose: .connectDesign(designID: design.id))
+                try completeLink(intent)
+                design.serverEvents[binding] = intent.eventID
                 self.design = design
             } else {
                 events = try await api().listEvents()
-                let id: String
                 // Earlier releases used the studio-prefixed name. Reuse that event without
                 // changing its policy; never create a second commercial draft on an upgrade.
                 let existing = events.filter {
@@ -583,10 +589,11 @@ extension PaymentsAPIClient: SessionSetupAPI {}
                     guard unlinkedServerEvents.contains(where: { $0.id == reusable.id }) else {
                         throw SetupFailure("Regular sessions are already linked to a saved event. Select that existing event in Event Mode before continuing.")
                     }
-                    id = reusable.id
+                    try library.setRegularServerEvent(reusable.id, binding: binding)
+                } else {
+                    let intent = try await createCommercialEvent(name: Self.regularEventName, venue: "", purpose: .regularSessions)
+                    try completeLink(intent)
                 }
-                else { id = try await api().createEvent(name: Self.regularEventName, venue: "").id }
-                try library.setRegularServerEvent(id, binding: binding)
             }
             guard let target = targetServerEventID else { throw SetupFailure("The paid checkout link was not saved.") }
             selectedID = target; persistSelection()
@@ -594,8 +601,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
             events = try await api().listEvents()
             message = "Paid checkout ready. It is not accepting guests until you review and start."
         } catch {
-            needsRefresh = true
-            message = "Paid checkout was not confirmed. Check Current Status before trying again. \(error.localizedDescription)"
+            creationFailed(error, fallback: "Paid checkout was not confirmed. Check Current Status before trying again.")
         }
     }
 
@@ -605,29 +611,161 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     func startNewPaidOccurrence() async {
         guard !busy, authorized(), !needsRefresh, canStartNewPaidOccurrence, let ended = detail else { return }
         if let reason = blockingReason() { message = reason; return }
+        if let reason = creationBlocker { message = reason; return }
         busy = true; defer { busy = false }
-        let binding = workspace.serverBinding
         let carried = policy
         do {
             let eventName = eventModeEnabled ? (design?.displayName ?? name) : Self.regularEventName
             if eventModeEnabled, let design, library.design(id: design.id) == nil { try library.save(design) }
-            let created = try await api().createEvent(name: eventName, venue: eventModeEnabled ? (design?.venue ?? "") : "")
-            try library.linkNewCommercialOccurrence(designID: eventModeEnabled ? designID : nil, binding: binding,
-                                                    expectedCurrent: ended.event.id, newServerEventID: created.id)
-            if eventModeEnabled, let stored = library.design(id: designID) {
-                design?.serverEvents = stored.serverEvents
-                design?.retiredServerEvents = stored.retiredServerEvents
-            }
-            selectedID = created.id; detail = nil; baseVersion = nil; persistSelection()
-            try await loadPaid(created.id)
+            let intent = try await createCommercialEvent(name: eventName, venue: eventModeEnabled ? (design?.venue ?? "") : "",
+                                                         purpose: .newOccurrence(designID: eventModeEnabled ? designID : nil, replacing: ended.event.id))
+            try completeLink(intent)
+            guard let createdID = intent.eventID else { throw SetupFailure("The new paid event was not confirmed.") }
+            selectedID = createdID; detail = nil; baseVersion = nil; persistSelection()
+            try await loadPaid(createdID)
             policy = carried
             if policy.offlineValidUntil < Date() { policy.offlineCashEnabled = false }
             events = try await api().listEvents()
             message = "New paid occurrence prepared as a draft. The ended event keeps its orders and reports. Review the price, then start."
         } catch {
-            needsRefresh = true
-            message = "The new paid occurrence was not confirmed. Check Current Status before trying again; an unconfirmed draft would be listed for explicit selection. \(error.localizedDescription)"
+            creationFailed(error, fallback: "The new paid occurrence was not confirmed. Check Current Status before trying again.")
         }
+    }
+
+    // MARK: Commercial-event creation recovery
+
+    /// The unresolved paid-event creation on this payments connection, if any.
+    var pendingCreation: CommercialEventCreationIntent? { creations.open(binding: workspace.serverBinding) }
+    /// Unresolved creations on another connection (switch back to resolve them).
+    var creationsElsewhere: [CommercialEventCreationIntent] { creations.openElsewhere(binding: workspace.serverBinding) }
+    /// Draft paid events not linked to anything, offered for an explicit operator choice.
+    var draftCandidatesForCreation: [OperatorEventSummary] { unlinkedServerEvents.filter { $0.lifecycle == "DRAFT" } }
+
+    private var creationBlocker: String? {
+        if creations.isUnreadable { return creations.storageError }
+        if pendingCreation != nil { return "An earlier paid-event creation needs confirmation first. Nothing new was created." }
+        return nil
+    }
+
+    /// Stable operation ID → durable intent → idempotent create → exact verification. The local
+    /// link is made by the caller only after this returns a verified event.
+    private func createCommercialEvent(name: String, venue: String, purpose: CommercialEventCreationIntent.Purpose) async throws -> CommercialEventCreationIntent {
+        let binding = workspace.serverBinding
+        let intent = CommercialEventCreationIntent(id: UUID().uuidString.lowercased(), serverBinding: binding, purpose: purpose,
+                                                   name: name, venue: venue, createdAt: Date(), state: .requested)
+        try creations.begin(intent)
+        let created: OperatorCreatedEvent
+        do {
+            created = try await api().createEvent(name: name, venue: venue, operationID: intent.id)
+        } catch let error as PaymentsAPIError where error.provesNoMutation {
+            try? creations.markNotCreated(id: intent.id, reason: "rejected: \(error.code ?? "request refused")")
+            throw error
+        }
+        if let echoed = created.operationId, echoed != intent.id { throw SetupFailure("The server answered for a different request. Check the original request.") }
+        // The response names the event on the connection the request was sent to.
+        try creations.markCreated(id: intent.id, eventID: created.id)
+        guard workspace.serverBinding == binding else { throw SetupFailure("The payments connection changed. Switch back to finish linking the new paid event.") }
+        _ = try await api().eventDetail(id: created.id)
+        return creations.intent(id: intent.id) ?? intent
+    }
+
+    /// Saves the local link for a verified creation and closes it. Local only and repeatable:
+    /// an already-saved link is recognised, and a conflicting link is refused, not replaced.
+    private func completeLink(_ intent: CommercialEventCreationIntent) throws {
+        guard let eventID = intent.eventID, intent.state == .created || intent.state == .linked else { throw SetupFailure("The created paid event has not been confirmed.") }
+        guard intent.serverBinding == workspace.serverBinding else { throw SetupFailure("This paid event belongs to a different payments connection. Switch back to link it.") }
+        let binding = intent.serverBinding
+        switch intent.purpose {
+        case .connectDesign(let id):
+            guard let saved = library.design(id: id) else { throw SetupFailure("The saved event for this paid event no longer exists. Review the draft instead.") }
+            let current = saved.serverEventID(binding: binding)
+            guard current == nil || current == eventID else { throw SetupFailure("This design was connected to another paid event meanwhile. Review the draft instead.") }
+            if current == nil { try library.link(designID: id, binding: binding, serverEventID: eventID) }
+        case .regularSessions:
+            let current = library.library.regularServerEvents[binding]
+            guard current == nil || current == eventID else { throw SetupFailure("Regular sessions were connected to another paid event meanwhile. Review the draft instead.") }
+            if current == nil { try library.setRegularServerEvent(eventID, binding: binding) }
+        case .newOccurrence(let id, let replacing):
+            let current = id.map { library.design(id: $0)?.serverEventID(binding: binding) } ?? library.library.regularServerEvents[binding]
+            if current != eventID {
+                try library.linkNewCommercialOccurrence(designID: id, binding: binding, expectedCurrent: replacing, newServerEventID: eventID)
+            }
+        }
+        try creations.markLinked(id: intent.id)
+        if let id = intent.designID, id == designID, let stored = library.design(id: id) {
+            design?.serverEvents = stored.serverEvents
+            design?.retiredServerEvents = stored.retiredServerEvents
+        }
+    }
+
+    private func creationFailed(_ error: Error, fallback: String) {
+        if pendingCreation != nil {
+            message = "Event creation needs confirmation: a paid event may already exist on the server. Use Check Original Request — nothing will be created again automatically. (\(error.localizedDescription))"
+        } else {
+            needsRefresh = true
+            message = "\(fallback) \(error.localizedDescription)"
+        }
+    }
+
+    /// Check Original Request: exact, read-only lookup of what the operation produced.
+    func checkOriginalCreation() async {
+        guard !busy, authorized(), let intent = pendingCreation else { return }
+        busy = true; defer { busy = false }
+        if intent.state == .created { message = "The original request created a paid event. Complete Linking to finish."; return }
+        do {
+            let found = try await api().eventCreation(operationID: intent.id)
+            guard found.operationId == intent.id, workspace.serverBinding == intent.serverBinding else { throw PaymentsAPIError.invalidResponse }
+            try creations.markCreated(id: intent.id, eventID: found.event.id)
+            events = (try? await api().listEvents()) ?? events
+            message = "Found the paid event created by the original request (\(found.event.name), \(found.event.lifecycle.capitalized)). Complete Linking to finish."
+        } catch let error as PaymentsAPIError where error.code == "creation_not_found" {
+            do {
+                try creations.markNotCreated(id: intent.id, reason: "server: no event for this operation")
+                message = "Confirmed: the original request did not create a paid event. You can create it again."
+            } catch { message = error.localizedDescription }
+        } catch let error as PaymentsAPIError where error.code == "not_found" {
+            message = "This payments server can't look up the original request yet (it needs the creation-recovery update). Review Existing Draft to choose it explicitly, or ask the owner."
+        } catch {
+            message = "The original request couldn't be checked: \(error.localizedDescription) Nothing was changed; try again when online."
+        }
+    }
+
+    /// Complete Linking: saves the local link for an exactly identified event.
+    func completeCreationLinking() async {
+        guard !busy, authorized(), let intent = pendingCreation, intent.state == .created, let eventID = intent.eventID else { return }
+        busy = true; defer { busy = false }
+        do {
+            _ = try await api().eventDetail(id: eventID)
+            guard workspace.serverBinding == intent.serverBinding else { throw SetupFailure("The payments connection changed.") }
+            try completeLink(intent)
+            events = (try? await api().listEvents()) ?? events
+            needsRefresh = false
+            message = "Linked. The paid event is a draft and isn't accepting guests until you review and start."
+            busy = false
+            await refresh()
+        } catch { message = "Linking was not completed: \(error.localizedDescription) Nothing else was changed." }
+    }
+
+    /// Review Existing Draft: the operator explicitly chooses which existing draft the original
+    /// request produced (for servers without exact lookup). Recorded with the operator's reason.
+    func useDraftForPendingCreation(_ eventID: String, reason: String) async {
+        guard !busy, authorized(), let intent = pendingCreation, intent.state == .requested,
+              draftCandidatesForCreation.contains(where: { $0.id == eventID }) else { return }
+        do {
+            try creations.supersede(id: intent.id, reason: reason, selectedEventID: eventID)
+            message = "Draft selected and recorded with your reason."
+            await completeCreationLinking()
+        } catch { message = error.localizedDescription }
+    }
+
+    /// Deliberately closes the original request without linking anything, with a recorded reason.
+    /// Any draft it may have created stays on the server, listed, unable to accept guests.
+    func abandonPendingCreation(reason: String) {
+        guard !busy, authorized(), let intent = pendingCreation else { return }
+        do {
+            try creations.supersede(id: intent.id, reason: reason, selectedEventID: nil)
+            message = "The original request was closed and recorded. Any draft it created stays listed under Paid Events and never accepts guests on its own."
+        } catch { message = error.localizedDescription }
     }
 
     private func loadPaid(_ id: String) async throws {

@@ -361,8 +361,16 @@ actor PaymentsAPIClient {
         }
     }
 
-    func createEvent(name: String, venue: String) async throws -> OperatorCreatedEvent {
-        try await send("v1/admin/events", method: "POST", body: OperatorCreateEventBody(name: name, venue: venue))
+    /// `operationID` is the booth's durable creation operation ID, sent as the idempotency key: a
+    /// Worker with migration 0006 returns the original event for a repeat. Older Workers ignore it.
+    func createEvent(name: String, venue: String, operationID: String) async throws -> OperatorCreatedEvent {
+        try await send("v1/admin/events", method: "POST", body: OperatorCreateEventBody(name: name, venue: venue), idempotencyKey: operationID)
+    }
+
+    /// Read-only exact lookup of what a creation operation produced on this account.
+    func eventCreation(operationID: String) async throws -> OperatorEventCreationLookup {
+        let encoded = operationID.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-._:"))) ?? operationID
+        return try await send("v1/admin/event-creations/\(encoded)", method: "GET", body: Optional<EmptyBody>.none)
     }
 
     func eventDetail(id: String) async throws -> OperatorEventDetail {
@@ -554,7 +562,17 @@ nonisolated struct OperatorEventSummary: Codable, Identifiable, Sendable, Hashab
     var activeUnitPriceCentavos: Int? = nil
 }
 nonisolated struct OperatorEventListResponse: Codable, Sendable { let events: [OperatorEventSummary]; let nextCursor: String? }
-nonisolated struct OperatorCreatedEvent: Codable, Sendable { let id: String; let lifecycle: String; var version: Int? = nil }
+nonisolated struct OperatorCreatedEvent: Codable, Sendable {
+    let id: String; let lifecycle: String; var version: Int? = nil
+    /// Echoed by Workers that support creation idempotency; absent on older Workers.
+    var operationId: String? = nil
+    var replayed: Bool? = nil
+}
+nonisolated struct OperatorEventCreationLookup: Codable, Sendable {
+    nonisolated struct Event: Codable, Sendable { let id: String; let name: String; let venue: String; let lifecycle: String; let version: Int }
+    let operationId: String
+    let event: Event
+}
 nonisolated struct OperatorEventTransition: Codable, Sendable { let id: String; let lifecycle: String; var activePolicyRevisionId: String? = nil; var version: Int? = nil }
 
 nonisolated struct OperatorPolicyRevision: Codable, Equatable, Sendable {

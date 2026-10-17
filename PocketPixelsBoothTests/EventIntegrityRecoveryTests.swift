@@ -210,3 +210,210 @@ import XCTest
         guard case .needsReview = status else { return XCTFail("Ambiguous identity is shown as Needs Operator Review, got \(status)") }
     }
 }
+
+/// P1: a paid-event creation can't silently produce duplicate commercial events, and an
+/// interrupted creation is recovered by exact identity.
+@MainActor final class CommercialEventCreationRecoveryTests: XCTestCase {
+    private func paidSetup(_ booth: Booth) async -> SessionSetupCoordinator {
+        let setup = booth.setup()
+        await setup.choosePayment(.qrOnly)
+        return setup
+    }
+    private func designCount(_ booth: Booth) -> Int { booth.library.library.events.count }
+
+    func testLostCreateResponseNeverCreatesASecondEventAndRecoversByExactIdentity() async throws {
+        let booth = Booth(); defer { booth.cleanup() }
+        let setup = await paidSetup(booth)
+        booth.server.loseCreateResponse = true
+        await setup.createEvent(name: "Gala Night", venue: "Ballroom")
+        XCTAssertEqual(booth.server.events.count, 1, "The server committed the create")
+        let pending = try XCTUnwrap(setup.pendingCreation, setup.message)
+        XCTAssertEqual(pending.state, .requested)
+        XCTAssertNil(setup.design?.serverEventID(binding: booth.binding), "Nothing is linked from a lost response")
+        XCTAssertTrue(setup.validation?.contains("Confirm") == true, setup.validation ?? "")
+
+        // Duplicate operator actions can't create another event while it is unresolved.
+        await setup.connectPaidCheckout()
+        await setup.connectPaidCheckout()
+        XCTAssertEqual(booth.server.mutations("create"), 1)
+        XCTAssertEqual(booth.server.events.count, 1)
+
+        await setup.checkOriginalCreation()
+        XCTAssertEqual(setup.pendingCreation?.state, .created, setup.message)
+        XCTAssertEqual(setup.pendingCreation?.eventID, "srv-1")
+        await setup.completeCreationLinking()
+        XCTAssertNil(setup.pendingCreation, setup.message)
+        XCTAssertEqual(booth.library.design(id: setup.design?.id)?.serverEventID(binding: booth.binding), "srv-1")
+        XCTAssertEqual(booth.server.events.count, 1, "Exactly one commercial event")
+        XCTAssertEqual(booth.creations.intents.map(\.state), [.linked])
+    }
+
+    func testSameOperationIDReplaysAndDifferentPayloadFails() async throws {
+        let server = LifecycleServerStub()
+        let first = try await server.createEvent(name: "Gala", venue: "Hall", operationID: "op-1")
+        let again = try await server.createEvent(name: "Gala", venue: "Hall", operationID: "op-1")
+        XCTAssertEqual(first.id, again.id)
+        XCTAssertEqual(again.replayed, true)
+        do { _ = try await server.createEvent(name: "Other", venue: "Hall", operationID: "op-1"); XCTFail("payload mismatch must fail") }
+        catch let error as PaymentsAPIError { XCTAssertEqual(error.code, "idempotency_mismatch"); XCTAssertTrue(error.provesNoMutation) }
+        XCTAssertEqual(server.events.count, 1)
+    }
+
+    func testCrashAfterServerCreationBeforeLocalLinkingResumesAfterRelaunch() async throws {
+        let booth = Booth(); defer { booth.cleanup() }
+        let setup = await paidSetup(booth)
+        booth.server.detailUnreachableOnce = true   // the create answered; the verification read failed
+        await setup.createEvent(name: "Gala Night", venue: "Ballroom")
+        XCTAssertEqual(setup.pendingCreation?.state, .created, setup.message)
+        let designID = try XCTUnwrap(setup.design?.id)
+        booth.relaunch()
+        let resumed = booth.setup()
+        let pending = try XCTUnwrap(resumed.pendingCreation, "The durable intent survives relaunch")
+        XCTAssertEqual(pending.eventID, "srv-1")
+        await resumed.completeCreationLinking()
+        XCTAssertNil(resumed.pendingCreation, resumed.message)
+        XCTAssertEqual(booth.library.design(id: designID)?.serverEventID(binding: booth.binding), "srv-1")
+        await resumed.completeCreationLinking()   // repeat is a no-op
+        XCTAssertEqual(booth.server.mutations("create"), 1)
+    }
+
+    func testIntentWriteFailureSendsNothing() async throws {
+        let booth = Booth(); defer { booth.cleanup() }
+        let setup = await paidSetup(booth)
+        booth.creationWriteFails = true
+        await setup.createEvent(name: "Gala Night", venue: "Ballroom")
+        XCTAssertEqual(booth.server.mutations("create"), 0, "No request without a durable operation ID")
+        XCTAssertTrue(booth.server.events.isEmpty)
+        XCTAssertNil(setup.pendingCreation)
+        XCTAssertEqual(designCount(booth), 1, "The saved design is kept")
+    }
+
+    func testDefinitiveRejectionClosesTheRequestAndAllowsARetry() async throws {
+        let booth = Booth(); defer { booth.cleanup() }
+        let setup = await paidSetup(booth)
+        booth.server.createFailsBeforeCommit = .rejected(code: "required_text_missing", message: "Missing", status: 422, details: Data())
+        await setup.createEvent(name: "Gala Night", venue: "Ballroom")
+        XCTAssertNil(setup.pendingCreation, "A 4xx refusal proves nothing was created")
+        XCTAssertEqual(booth.creations.intents.first?.state, .notCreated)
+        await setup.refresh()
+        await setup.connectPaidCheckout()
+        XCTAssertNil(setup.pendingCreation, setup.message)
+        XCTAssertEqual(booth.server.events.count, 1)
+    }
+
+    func testRequestThatNeverArrivedIsConfirmedNotCreatedThenRetried() async throws {
+        let booth = Booth(); defer { booth.cleanup() }
+        let setup = await paidSetup(booth)
+        booth.server.createFailsBeforeCommit = .outcomeUnknown   // timeout: did it arrive? unknown
+        await setup.createEvent(name: "Gala Night", venue: "Ballroom")
+        XCTAssertEqual(setup.pendingCreation?.state, .requested, "A timeout stays unresolved")
+        await setup.checkOriginalCreation()
+        XCTAssertNil(setup.pendingCreation, setup.message)
+        XCTAssertEqual(booth.creations.intents.first?.state, .notCreated)
+        await setup.connectPaidCheckout()
+        XCTAssertEqual(booth.server.events.count, 1)
+        XCTAssertEqual(booth.library.design(id: setup.design?.id)?.serverEventID(binding: booth.binding), "srv-1")
+    }
+
+    func testOlderWorkerWithoutLookupFallsBackToExplicitAuditedDraftSelection() async throws {
+        let booth = Booth(); defer { booth.cleanup() }
+        booth.server.supportsCreationIdempotency = false
+        let setup = await paidSetup(booth)
+        booth.server.loseCreateResponse = true
+        await setup.createEvent(name: "Gala Night", venue: "Ballroom")
+        await setup.checkOriginalCreation()
+        XCTAssertEqual(setup.pendingCreation?.state, .requested, "No guess is made")
+        XCTAssertTrue(setup.message.contains("can't look up"), setup.message)
+        await setup.refresh()
+        XCTAssertEqual(setup.draftCandidatesForCreation.map(\.id), ["srv-1"])
+        await setup.useDraftForPendingCreation("srv-1", reason: "   ")
+        XCTAssertNotNil(setup.pendingCreation, "A reason is required")
+        await setup.useDraftForPendingCreation("srv-1", reason: "Only draft created at 10:02; confirmed on dashboard")
+        XCTAssertNil(setup.pendingCreation, setup.message)
+        let record = try XCTUnwrap(booth.creations.intents.first)
+        XCTAssertEqual(record.state, .linked)
+        XCTAssertTrue(record.resolution?.hasPrefix("operator-selected:") == true, "Recorded as the operator's decision, not an exact match")
+        XCTAssertEqual(booth.server.events.count, 1)
+    }
+
+    func testAbandoningRequiresAReasonAndKeepsTheDraft() async throws {
+        let booth = Booth(); defer { booth.cleanup() }
+        let setup = await paidSetup(booth)
+        booth.server.loseCreateResponse = true
+        await setup.createEvent(name: "Gala Night", venue: "Ballroom")
+        setup.abandonPendingCreation(reason: "")
+        XCTAssertNotNil(setup.pendingCreation)
+        setup.abandonPendingCreation(reason: "Owner will use a different event")
+        XCTAssertNil(setup.pendingCreation)
+        XCTAssertEqual(booth.creations.intents.first?.state, .superseded)
+        XCTAssertNotNil(booth.server.events["srv-1"], "Nothing on the server is deleted")
+    }
+
+    func testCreationOnAnotherConnectionIsNeverAttachedHere() async throws {
+        let booth = Booth(); defer { booth.cleanup() }
+        try booth.creations.begin(.init(id: "op-live", serverBinding: "live:https://payments.example", purpose: .regularSessions,
+                                        name: "Regular Sessions", venue: "", createdAt: Date(), state: .requested))
+        let setup = await paidSetup(booth)
+        XCTAssertNil(setup.pendingCreation, "Belongs to LIVE; this booth is on another connection")
+        XCTAssertEqual(setup.creationsElsewhere.map(\.id), ["op-live"])
+        await setup.checkOriginalCreation()
+        await setup.completeCreationLinking()
+        XCTAssertFalse(booth.server.calls.contains { $0.hasPrefix("lookup:") }, "Never looked up on the wrong server")
+        await setup.createEvent(name: "Gala Night", venue: "Ballroom")
+        XCTAssertEqual(booth.server.events.count, 1, "This connection isn't blocked by another environment's request")
+        XCTAssertEqual(booth.creations.intent(id: "op-live")?.state, .requested, "The LIVE request stays for LIVE")
+    }
+
+    func testConcurrentDuplicateTapsCreateOneEvent() async throws {
+        let booth = Booth(); defer { booth.cleanup() }
+        let setup = await paidSetup(booth)
+        let saved = try booth.library.create(name: "Gala Night", venue: "Ballroom")
+        await setup.chooseDesign(saved.id)
+        async let first: Void = setup.connectPaidCheckout()
+        async let second: Void = setup.connectPaidCheckout()
+        _ = await (first, second)
+        XCTAssertEqual(booth.server.mutations("create"), 1)
+    }
+
+    func testCorruptedCreationJournalBlocksNewCreationsAndIsPreserved() async throws {
+        let booth = Booth(); defer { booth.cleanup() }
+        let file = booth.directory.appendingPathComponent("EventCreationV1/intents.json")
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("garbage".utf8).write(to: file)
+        booth.relaunch()
+        let setup = await paidSetup(booth)
+        await setup.createEvent(name: "Gala Night", venue: "Ballroom")
+        XCTAssertEqual(booth.server.mutations("create"), 0)
+        XCTAssertEqual(try Data(contentsOf: file), Data("garbage".utf8))
+    }
+
+    func testLostResponseWhileStartingNewPaidOccurrenceRecoversWithoutReassigningHistory() async throws {
+        let booth = Booth(); defer { booth.cleanup() }
+        let setup = await paidSetup(booth)
+        await setup.createEvent(name: "Gala Night", venue: "Ballroom")
+        setup.policy.priceText = "75"
+        let started = await setup.startAccepting()
+        XCTAssertTrue(started, setup.message)
+        let runA = try XCTUnwrap(booth.runs.current)
+        let oldEvent = try XCTUnwrap(runA.context.commercialEventID)
+        _ = await booth.lifecycle().end(scope: .thisBoothAndCommercialEvent)
+
+        let reuse = booth.setup()
+        await reuse.refresh()
+        XCTAssertTrue(reuse.canStartNewPaidOccurrence)
+        booth.server.loseCreateResponse = true
+        await reuse.startNewPaidOccurrence()
+        XCTAssertNotNil(reuse.pendingCreation, reuse.message)
+        XCTAssertEqual(booth.library.design(id: runA.context.designID)?.serverEventID(binding: booth.binding), oldEvent, "Not relinked from a lost response")
+        await reuse.startNewPaidOccurrence()
+        XCTAssertEqual(booth.server.mutations("create"), 2, "One original create, one occurrence create — no duplicate")
+        await reuse.checkOriginalCreation()
+        await reuse.completeCreationLinking()
+        XCTAssertNil(reuse.pendingCreation, reuse.message)
+        let design = try XCTUnwrap(booth.library.design(id: runA.context.designID))
+        XCTAssertEqual(design.serverEvents[booth.binding], "srv-2")
+        XCTAssertEqual(design.retiredServerEvents?[booth.binding], [oldEvent])
+        XCTAssertEqual(booth.runs.runs.first { $0.id == runA.id }?.context.commercialEventID, oldEvent, "Old run keeps its commercial identity")
+        XCTAssertEqual(booth.server.events[oldEvent]?.lifecycle, .ended)
+    }
+}

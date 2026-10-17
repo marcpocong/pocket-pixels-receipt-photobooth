@@ -28,6 +28,13 @@ struct SessionSetupView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 header
+                if let pending = setup.pendingCreation { CreationRecoveryCard(setup: setup, intent: pending) }
+                ForEach(setup.creationsElsewhere) { other in
+                    SetupCard {
+                        Label("A paid-event creation on another payments connection needs confirmation", systemImage: "arrow.left.arrow.right.circle").font(.headline).foregroundStyle(.orange)
+                        Text("\"\(other.name)\" was requested on \(other.serverBinding.hasPrefix("live:") ? "LIVE" : "TEST"). Switch back to that connection to resolve it; nothing from it is attached here.").font(.callout)
+                    }
+                }
                 if setup.needsRefresh {
                     SetupCard {
                         Label("Action Needs Review", systemImage: "exclamationmark.arrow.circlepath").font(.headline).foregroundStyle(.orange)
@@ -612,4 +619,66 @@ private func paymentMethods(_ qr: Bool, _ cash: Bool) -> String {
 }
 private func formatNames(_ values: [String]) -> String {
     BoothFormat.allCases.filter { $0.paymentRawValue(in: values) != nil }.map(\.displayName).joined(separator: ", ")
+}
+
+/// Event creation needs confirmation: the original request may have created a paid event whose
+/// response was lost. Every action is exact or explicitly chosen; none can create a duplicate.
+private struct CreationRecoveryCard: View {
+    @ObservedObject var setup: SessionSetupCoordinator
+    let intent: CommercialEventCreationIntent
+    @State private var reviewing = false
+    @State private var selectedDraft: String?
+    @State private var reason = ""
+    @State private var abandoning = false
+
+    var body: some View {
+        SetupCard {
+            Label("Event creation needs confirmation", systemImage: "exclamationmark.arrow.triangle.2.circlepath").font(.headline).foregroundStyle(.orange)
+                .accessibilityIdentifier("creation-recovery")
+            Text(intent.state == .created
+                 ? "The paid event \"\(intent.name)\" was created on the payments server, but it isn't linked on this iPad yet."
+                 : "A paid event named \"\(intent.name)\" may already exist: the request was sent at \(intent.createdAt.formatted(date: .abbreviated, time: .shortened)) but its answer was lost. Nothing will be created again automatically.")
+                .font(.callout)
+            if !setup.message.isEmpty { Text(setup.message).font(.callout).foregroundStyle(.secondary) }
+            let columns = [GridItem(.adaptive(minimum: 220), spacing: 12)]
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
+                if intent.state == .requested {
+                    Button { Task { await setup.checkOriginalCreation() } } label: { Label("Check Original Request", systemImage: "magnifyingglass").frame(maxWidth: .infinity, minHeight: 44) }
+                        .buttonStyle(.borderedProminent).accessibilityIdentifier("check-original-creation")
+                    Button { reviewing.toggle() } label: { Label("Review Existing Draft", systemImage: "list.bullet").frame(maxWidth: .infinity, minHeight: 44) }
+                        .buttonStyle(.bordered)
+                } else {
+                    Button { Task { await setup.completeCreationLinking() } } label: { Label("Complete Linking", systemImage: "link").frame(maxWidth: .infinity, minHeight: 44) }
+                        .buttonStyle(.borderedProminent).accessibilityIdentifier("complete-creation-linking")
+                }
+                Button { abandoning.toggle() } label: { Label("Close Original Request…", systemImage: "xmark.circle").frame(maxWidth: .infinity, minHeight: 44) }
+                    .buttonStyle(.bordered)
+            }
+            if reviewing && intent.state == .requested {
+                if setup.draftCandidatesForCreation.isEmpty {
+                    Text("No unlinked draft paid events are listed. Check Original Request, or refresh the list with Check Current Status.").font(.footnote)
+                } else {
+                    Picker("Draft created by the original request", selection: $selectedDraft) {
+                        Text("Choose…").tag(String?.none)
+                        ForEach(setup.draftCandidatesForCreation) { Text("\($0.name) · \($0.updatedAt.formatted(date: .abbreviated, time: .shortened))").tag(Optional($0.id)) }
+                    }
+                    Text("Choosing a draft is your decision; names and times are shown only to help. It is recorded with your reason.").font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            if (reviewing && selectedDraft != nil) || abandoning {
+                TextField("Reason (required, kept with the record)", text: $reason).textFieldStyle(.roundedBorder)
+                if reviewing, let selectedDraft {
+                    Button("Use This Draft") { Task { await setup.useDraftForPendingCreation(selectedDraft, reason: reason) } }
+                        .buttonStyle(.borderedProminent).disabled(reason.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+                if abandoning {
+                    Button("Close Without Linking", role: .destructive) { setup.abandonPendingCreation(reason: reason) }
+                        .buttonStyle(.bordered).disabled(reason.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Text("Use this only when you're sure the original request should not be used. A draft it may have created stays listed and never accepts guests on its own; you can then create the paid event again.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            Text("Return to Event Setup at any time; this stays here until it's resolved.").font(.footnote).foregroundStyle(.secondary)
+        }
+    }
 }

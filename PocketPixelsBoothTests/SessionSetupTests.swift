@@ -27,7 +27,10 @@ import SwiftUI
             updatedAt: Date(), activePolicyRevisionId: active?.id), activePolicy: active, latestRevision: latest,
             hasUnpublishedRevision: latest.id != active?.id, outstandingEntitlements: 0, serverTime: Date())
     }
-    @MainActor func createEvent(name: String, venue: String) async throws -> OperatorCreatedEvent {
+    @MainActor func eventCreation(operationID: String) async throws -> OperatorEventCreationLookup {
+        throw PaymentsAPIError.rejected(code: "not_found", message: "missing", status: 404, details: Data())
+    }
+    @MainActor func createEvent(name: String, venue: String, operationID: String) async throws -> OperatorCreatedEvent {
         calls.append("create"); self.name = name; self.venue = venue
         return .init(id: "event", lifecycle: "DRAFT", version: 1)
     }
@@ -92,7 +95,7 @@ import SwiftUI
         api.barrier = { [weak self] in self?.acceptance.state.blocked == true }
     }
     func makeModel() -> SessionSetupCoordinator {
-        .init(workspace: workspace, acceptance: acceptance, library: library, eventRuns: runs, api: { self.api }, authorized: { self.permitted },
+        .init(workspace: workspace, acceptance: acceptance, library: library, eventRuns: runs, creations: CommercialEventCreationStore(directory: directory), api: { self.api }, authorized: { self.permitted },
               blockingReason: { self.blockedReason }, loadLocal: { self.local }, saveLocal: { self.local = $0 },
               source: { self.source }, saveSource: { self.source = $0 }, currentProfile: { self.profile },
               applyProfile: { self.profile = $0; self.applied.append($0) }, artworkAvailable: { $0.map(self.usableArtwork.contains) ?? false })
@@ -282,7 +285,7 @@ import SwiftUI
             if fail { throw CocoaError(.fileWriteOutOfSpace) }
             try DurableFileWriter.write(data, to: url)
         }, legacyProfile: { .pocketPixelsDefault }, legacyName: { "" })
-        let model = SessionSetupCoordinator(workspace: f.workspace, acceptance: f.acceptance, library: library, eventRuns: f.runs,
+        let model = SessionSetupCoordinator(workspace: f.workspace, acceptance: f.acceptance, library: library, eventRuns: f.runs, creations: CommercialEventCreationStore(directory: f.directory),
             api: { f.api }, authorized: { true }, blockingReason: { nil }, loadLocal: { f.local }, saveLocal: { f.local = $0 },
             source: { f.source }, saveSource: { f.source = $0 }, currentProfile: { f.profile }, applyProfile: { f.profile = $0 })
         fail = true
