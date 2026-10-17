@@ -2,6 +2,8 @@
 
 This backend receives gallery uploads from the iPad, stores them in one dedicated Google Drive folder, and renders private-by-link customer galleries for the Cloudflare Worker front door.
 
+For production updates, use the existing project and deployment described in [the release record](../../docs/gallery-redesign-deployment.md). The steps below also describe initial setup; do not create a replacement project to update production.
+
 ## Setup Steps
 
 1. In Google Drive, create a dedicated folder named something like `Pocket Pixels Galleries`.
@@ -26,16 +28,16 @@ This backend receives gallery uploads from the iPad, stores them in one dedicate
 20. Build and run the iPad app in DEBUG.
 21. Open the `Cloud Test` tab and enter the same device token. The token is saved to the iPad Keychain and is not stored in source code.
 22. Select exactly three test photos and build the receipt preview.
-23. Confirm Cloud Test shows a redacted gallery token, Worker customer gallery URL, and QR preview before upload. The URL must look like `https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/?g={galleryToken}` and must not contain `script.google.com`.
-24. Open the pre-upload gallery link. It may correctly show `Gallery unavailable`.
+23. Confirm Cloud Test shows a redacted gallery token, Worker customer gallery URL, and QR preview before upload. The URL must look like `https://gallery.madetokeepstudios.workers.dev/?g={galleryToken}` and must not contain `script.google.com`.
+24. Open the pre-upload gallery link. A valid unused token should show the branded pending state.
 25. Upload one test gallery.
 26. Confirm exactly one folder appears inside the dedicated Pocket Pixels root folder.
 27. Confirm that folder is named `gallery-{galleryToken}` and contains the sequenced photos, `receipt-color.jpg`, `receipt-bw.png`, optional `session.gif`, and `manifest.json`.
-28. Confirm `manifest.json` is schema v2 and lists the exact stored photo/receipt assets. Multi-photo sessions normally include `gif: "session.gif"`; Solo and degraded galleries omit it.
+28. Confirm `manifest.json` is schema v2 and lists the exact stored photo/receipt assets. New still-photo uploads omit the GIF; historical payloads may include `gif: "session.gif"`.
 29. Open the same Worker gallery link in Safari and confirm all gallery images appear.
 30. Tap `Retry Same Upload` in Cloud Test and confirm it returns an existing completed gallery without creating a second folder or changing the customer gallery URL.
 31. To update this Phase 6C backend, use `Deploy -> Manage deployments -> Edit -> New version -> Deploy`. Preserve the existing Web App deployment so the backend `/exec` URL does not change. Do not create a new deployment.
-32. Open `?diagnostic=phase6c` on the deployed `/exec` URL and confirm `backendVersion` is `made-to-keep-gallery-v2-editorial-20261014`.
+32. Open `?diagnostic=phase6c` on the deployed `/exec` URL and confirm `backendVersion` is `made-to-keep-gallery-v4-editorial-20261018`.
 33. Open a completed Worker gallery URL in iPhone Safari, iPhone Chrome, iPad Safari, iPad Chrome, desktop Safari, desktop Chrome signed out, desktop Chrome Incognito, Brave, and normal desktop Chrome with multiple Google accounts signed in.
 34. Confirm the browser address bar remains on the Worker/custom gallery domain and never navigates to `script.google.com/macros/u/<number>/`.
 
@@ -44,7 +46,7 @@ This backend receives gallery uploads from the iPad, stores them in one dedicate
 - `MADE_TO_KEEP_CUSTOMER_GALLERY_BASE_URL` is the preferred Script Property for the customer gallery front door used in new upload responses.
 - When it is unset or blank, `POCKET_PIXELS_CUSTOMER_GALLERY_BASE_URL` is used. Do not delete or rename the legacy property; existing deployments rely on it.
 - A present but invalid Made to Keep value (not HTTPS, or `script.google.com`) fails uploads instead of silently falling back, so misconfiguration is visible.
-- Gallery lookup is by token only. Old QR codes on the legacy Worker host and new QR codes on the Made to Keep host open the same Drive gallery.
+- Gallery lookup is by token only. Historical tokens and new tokens resolve to the same Drive storage. The old hostname currently fails DNS; token compatibility does not prove that old printed hostnames are reachable. See the release record.
 - Run `checkCustomerGalleryConfig` to see which property is active (`propertyName`, `usesLegacyProperty`) without logging the value.
 - Only set the Made to Keep property after the new Worker/front door is deployed and verified. See `Backend/CloudflareGalleryProxy/README.md` for the full deployment order.
 
