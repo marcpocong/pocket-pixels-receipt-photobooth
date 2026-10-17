@@ -83,6 +83,7 @@ assert.match(html, /item\.filename.*item\.mimeType/);
 assert.match(html, /showEmbeddedImages\(\)/);
 assert.match(html, /Color Receipt/);
 assert.match(html, /Thermal Receipt/);
+assert.doesNotMatch(html, /good people|same energy|big memories|class="handwritten"/i);
 assert.equal(context.makeCompleteManifest_(context.makeSelfTestPayload_(2)).gif, 'session.gif');
 
 const legacyFixture = galleryFixture(2, 1);
@@ -309,6 +310,14 @@ if (process.argv.includes('--fixtures')) {
     }
     fs.writeFileSync(path.join(output, `gallery-${count}.html`), context.renderGalleryPage_(fixture, {}, Date.now()).getContent());
   }
+  const orientationFixture = galleryFixture(2);
+  for (const [name, file] of Object.entries(orientationFixture.filesByName)) {
+    const receipt = name.startsWith('receipt');
+    const landscape = name === 'photo-02.jpg';
+    const bytes = syntheticPNG(receipt ? 576 : landscape ? 1408 : 1056, receipt ? 1112 : landscape ? 1056 : 1408);
+    file.getBlob = () => ({getBytes: () => Array.from(bytes)});
+  }
+  fs.writeFileSync(path.join(output, 'gallery-orientations.html'), context.renderGalleryPage_(orientationFixture, {}, Date.now()).getContent());
   fs.writeFileSync(path.join(output, 'legacy.html'), legacyHTML);
   fs.writeFileSync(path.join(output, 'pending.html'), pendingHTML);
   fs.writeFileSync(path.join(output, 'invalid.html'), invalidHTML);

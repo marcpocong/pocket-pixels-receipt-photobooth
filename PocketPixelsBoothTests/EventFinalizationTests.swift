@@ -411,6 +411,38 @@ final class GalleryBrowserLayoutTests: XCTestCase {
         XCTAssertEqual(browserResult8, true)
     }
 
+    func testFullSizePortraitLandscapeAndReceiptsFitViewport() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("DerivedData/gallery-fixtures")
+        let (web, window) = hostedBrowser()
+        defer { web.stopLoading(); window.isHidden = true }
+        try await loadFixture(String(contentsOf: root.appendingPathComponent("gallery-orientations.html"), encoding: .utf8), in: web)
+        for (width, height) in [(320, 568), (390, 844), (844, 390), (768, 1024), (1440, 900)] {
+            window.frame = CGRect(x: 0, y: 0, width: width, height: height)
+            web.frame = window.bounds
+            window.layoutIfNeeded()
+            web.layoutIfNeeded()
+            try await waitForViewport(width, height: height, in: web)
+            for name in ["photo-01.jpg", "photo-02.jpg", "receipt-color.jpg", "receipt-bw.png"] {
+                _ = try await web.evaluateJavaScript("document.querySelector('[data-open=\"\(name)\"]').click()")
+                let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+                var loaded = false
+                repeat {
+                    loaded = try await web.evaluateJavaScript("document.getElementById('lightboxImage').complete && document.getElementById('lightboxImage').naturalWidth > 0") as? Bool == true
+                    if !loaded { try await Task.sleep(for: .milliseconds(20)) }
+                } while !loaded && ContinuousClock.now < deadline
+                XCTAssertTrue(loaded)
+                let fit = try await web.evaluateJavaScript("""
+                (()=>{const image=document.getElementById('lightboxImage'),i=image.getBoundingClientRect(),s=document.querySelector('.lightbox-stage').getBoundingClientRect();return {contained:i.left>=s.left-1&&i.right<=s.right+1&&i.top>=s.top-1&&i.bottom<=s.bottom+1, visible:s.height>0&&s.top>=-1&&s.bottom<=innerHeight+1, fit:getComputedStyle(image).objectFit, width:document.documentElement.scrollWidth<=innerWidth, viewport:[innerWidth,innerHeight], stage:[s.top,s.bottom,s.height]};})()
+                """) as! [String: Any]
+                XCTAssertEqual(fit["contained"] as? Bool, true, "\(name) at \(width)×\(height)")
+                XCTAssertEqual(fit["visible"] as? Bool, true, "\(name) at \(width)×\(height): \(fit)")
+                XCTAssertEqual(fit["fit"] as? String, "contain")
+                XCTAssertEqual(fit["width"] as? Bool, true)
+                _ = try await web.evaluateJavaScript("document.getElementById('lightboxClose').click()")
+            }
+        }
+    }
+
     private func hostedBrowser(configuration: WKWebViewConfiguration? = nil) -> (WKWebView, UIWindow) {
         let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844), configuration: configuration ?? WKWebViewConfiguration())
         let controller = UIViewController()
@@ -441,12 +473,15 @@ final class GalleryBrowserLayoutTests: XCTestCase {
         }
     }
 
-    private func waitForViewport(_ width: Int, in web: WKWebView) async throws {
+    private func waitForViewport(_ width: Int, height: Int? = nil, in web: WKWebView) async throws {
         let deadline = ContinuousClock.now.advanced(by: .seconds(5))
         var actual: Int?
         repeat {
             actual = try await web.evaluateJavaScript("innerWidth") as? Int
-            if actual == width { return }
+            if actual == width {
+                let actualHeight = try await web.evaluateJavaScript("innerHeight") as? Int
+                if height == nil || actualHeight == height { return }
+            }
             try await Task.sleep(for: .milliseconds(50))
         } while ContinuousClock.now < deadline
         XCTFail("Browser viewport did not resize to \(width); actual: \(String(describing: actual))")

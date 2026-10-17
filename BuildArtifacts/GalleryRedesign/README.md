@@ -7,3 +7,5 @@ The desktop editorial layout follows the approved reference: compact wordmark/he
 `GalleryBrowserLayoutTests` is in `PocketPixelsBoothTests/EventFinalizationTests.swift`. It covers six photo counts at nine viewports, native-share/download fallbacks, original filenames/MIME types, actual image bindings, legacy receipts, menu interaction, gallery link sharing/copying with the token, lightbox navigation/focus, and an intercepted Instagram navigation with no Referer header. Chrome evidence supplements WebKit's DOM/interaction checks.
 
 Release and rollback details: [deployment record](../../docs/gallery-redesign-deployment.md).
+
+The owner’s follow-up removes the Polaroid captions and handwritten “little moments, big memories” decoration. The image viewer now contains the entire original photo or receipt within its available area, including the first open on WebKit and viewport resizing. `viewer-mobile.png` and `viewer-desktop.png` show synthetic portrait-image fitting. The expanded suite has five tests, including 20 orientation/receipt viewport combinations in addition to the existing 54 gallery layouts.
