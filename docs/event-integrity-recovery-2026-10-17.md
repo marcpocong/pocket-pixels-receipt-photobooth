@@ -73,3 +73,14 @@ Before installing on Carlo: confirm idle (no guest, print or payment in progress
 4. Optional, TEST connection only: Connect to Paid Checkout on a scratch design; confirm one draft is created.
 
 No live payment is needed for acceptance.
+
+## Owner-approved release — October 17, 2026 (Asia/Manila)
+
+- PR #5 merged to `main` as `cc930e678e02ecab9f6b70716c3dea6d21b7136d` (tree identical to the CI-verified head `52802433`; Production Gate run 39033130672 passed).
+- **TEST Payments Worker:** migration `0006` applied to `pocket-pixels-payments-test`; deployed version `59526557-f5e7-4995-b8d5-a4836ed33ab8`. Verified read-only: health `environment: test`, new columns and unique index present, 2 existing events intact, lookup route requires authentication.
+- **LIVE Payments Worker:** migration `0006` applied to `pocket-pixels-payments-live` and deployed by the owner from the terminal.
+  - **Incident:** the first deploy (`e3c3b5d7-151f-4b9e-a315-9b335720672e`) used a plain `wrangler deploy --env live`, which restored the checked-in `LIVE_PAYMENTS_ENABLED=false` (see `docs/payment-operations.md`). LIVE payments were disabled for a few minutes. Redeployed with `--var LIVE_PAYMENTS_ENABLED:true` as `48e7850a-a50b-4e80-9235-ee574064d3c8`; health confirmed `liveEnabled: true` at 21:38. PayMongo retries refused webhooks, and reconciliation resumes on the next 5-minute Cron. **Every LIVE deploy must include `--var LIVE_PAYMENTS_ENABLED:true`.**
+  - The LIVE database contents were not read after the migration (blocked by tooling policy). The migration is additive; check the paid event's orders in Payment Maintenance.
+- **Carlo** (`00008112-000D08463E8BC01E`): idle at 21:14 (app not running; last write 06:46). Private pre-install copy of the app's Library: 3,574 files. The app was opened at about 21:33 (only the startup recovery check wrote data). The signed Release from `cc930e6` (executable SHA-256 `1e7e556673d30d98e6e44e8e4cb31fe7228d9b62bc06f90c9a91ef83561e86bf`) was installed in place by the owner, without uninstalling.
+  - After the install, all 3,555 data files (excluding caches and snapshots) are present, none missing or added. The only changed file is `checkout-checkpoints.json`: the same 58 checkout IDs, and only the retained unresolved entitlement's `updatedAt` changed, as at Stage 3. The app was relaunched at about 21:40.
+  - Physical operator acceptance on Carlo (Current Event status, Record Event Run, Booth Health) is still pending.
