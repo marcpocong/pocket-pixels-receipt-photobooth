@@ -99,6 +99,9 @@ final class BoothSessionViewModel: ObservableObject {
     private var activeTask: Task<Void, Never>?
     private var paymentPollTask: Task<Void, Never>?
     private var paymentPollOwner: UUID?
+    /// Guest-facing escalation while a payment is being verified. Interface state only.
+    @Published private(set) var paymentVerificationStage = PaymentVerificationStage.checking
+    private var verificationClock = PaymentVerificationClock()
     private static let interactionLogger = Logger(subsystem: "com.pocketpixels.PocketPixelsBooth", category: "GuestInteraction")
 
     func logGuestAction(_ action: String, result: String) {
@@ -871,6 +874,10 @@ final class BoothSessionViewModel: ObservableObject {
         let owner = UUID()
         paymentPollOwner = owner
         let checkoutSessionID = sessionIdentifier
+        // Same checkout (foregrounding, Check Again, order discovered by recovery): the escalation
+        // clock keeps running. Only a deliberate new checkout or a new guest restarts it.
+        verificationClock.begin(key: "\(checkoutSessionID ?? "unknown")#\(checkoutAttempt)", now: Date())
+        updateVerificationStage()
         paymentPollTask = Task { [weak self] in
             guard let self else { return }
             var iteration = 0
@@ -907,6 +914,8 @@ final class BoothSessionViewModel: ObservableObject {
                     }
                     paymentOrder = response.order
                     paymentAttempt = response.attempt
+                    verificationClock.recordResponse(reviewHeld: response.attempt?.state == "MANUAL_REVIEW" || response.entitlement?.serverState == "REVIEW_REQUIRED"
+                                                     || ["MANUAL_REVIEW", "LATE_PAID_REVIEW"].contains(response.order.state))
                     checkoutGuard.newCheckoutAllowed = response.attempt?.isConclusivelyUnpaid == true && response.newCheckout?.allowed == true
                     checkoutGuard.qrAttemptUnresolved = response.attempt?.isConclusivelyUnpaid != true
                     if let checkoutSessionID {
@@ -944,14 +953,21 @@ final class BoothSessionViewModel: ObservableObject {
                     }
                 } catch {
                     guard ownsPaymentPolling(owner, generation: generation), !Task.isCancelled else { return }
+                    verificationClock.recordFailure()
                     checkoutGuard.newCheckoutAllowed = false
                     checkoutGuard.qrAttemptUnresolved = true
                     state = .paymentReconciliation
                     statusMessage = "Payment status is unknown. Reconnecting — please do not pay again."
                 }
+                updateVerificationStage()
                 try? await Task.sleep(for: .seconds(iteration < 90 ? 2 : 5))
             }
         }
+    }
+
+    private func updateVerificationStage() {
+        let next = verificationClock.stage(now: Date(), qrExpiresAt: paymentAttempt?.expiresAt)
+        if next != paymentVerificationStage { paymentVerificationStage = next }
     }
 
     /// Paid sessions (server or offline cash) keep one batch so a retry continues the same receipt.
