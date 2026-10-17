@@ -86,7 +86,7 @@ struct CurrentEventCard: View {
             if let run { fact("Started", run.createdAt.formatted(date: .abbreviated, time: .shortened)) }
             else if lifecycle.canRecordUpgradedRun { fact("Event run", "Not recorded yet — statistics start with the first guest or Record Event Run") }
             fact("Payment", paymentLine)
-            fact("Guest admission", acceptance.state.blocked ? "Not accepting new guests" : "Ready for guests")
+            fact("Guest admission", guestAdmissionLine)
             fact("Printer", printer.requiresRecovery ? "Recovery required" : printer.state.message)
             fact("Galleries waiting", "\(operations.pendingUploadCount)")
             if paid, let checked = lifecycle.lastCheckedAt { fact("Server checked", checked.formatted(date: .omitted, time: .shortened)) }
@@ -146,6 +146,9 @@ struct CurrentEventCard: View {
         case .pausedOnBooth, .serverPaused:
             Button { confirm = .resume } label: { Label(regular ? "Resume Booth" : "Resume Event", systemImage: "play.fill").frame(maxWidth: .infinity, minHeight: 48) }
                 .buttonStyle(.borderedProminent).accessibilityIdentifier("resume-event")
+        case .needsReview where run == nil && [.ended, .archived].contains(lifecycle.confirmedCommercialLifecycle):
+            Button { confirm = .regular } label: { Label("Return to Regular Booth", systemImage: "camera").frame(maxWidth: .infinity, minHeight: 48) }
+                .buttonStyle(.borderedProminent).accessibilityIdentifier("return-to-regular-booth")
         case .needsReview(let reason) where reason.contains("ended for every booth"):
             Button { confirm = .finishEnding } label: { Label("Finish Ending on This iPad", systemImage: "flag.checkered").frame(maxWidth: .infinity, minHeight: 48) }
                 .buttonStyle(.borderedProminent)
@@ -188,6 +191,12 @@ struct CurrentEventCard: View {
         return "Made to Keep Studios"
     }
     private var appliedDesign: String { library.design(id: library.library.appliedEventID)?.displayName ?? "Studio branding" }
+    private var guestAdmissionLine: String {
+        if acceptance.state.blocked { return "Not accepting new guests" }
+        if status.isAccepting { return "Ready for guests" }
+        if case .unconfirmed = status { return "Payment status must be checked" }
+        return "Needs operator attention"
+    }
     private var paymentLine: String {
         if regular { return "No payment required" }
         if !paid {

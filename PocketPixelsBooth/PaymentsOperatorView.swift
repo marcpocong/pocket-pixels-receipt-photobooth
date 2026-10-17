@@ -155,6 +155,13 @@ struct PaymentsOperatorView: View {
                     Text(item.classification.operatorDescription).font(.subheadline)
                     Text("Checkout \(item.checkpoint.id) · started \(item.checkpoint.createdAt.formatted(date: .omitted, time: .shortened))")
                         .font(.caption).foregroundStyle(.secondary)
+                    if let reference = item.checkpoint.recoveryReference {
+                        Text("Recovery reference: \(reference)")
+                            .font(.caption.monospaced()).textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text("Match the guest's saved reference, then verify this checkout. The reference alone does not authorize recovery.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     HStack {
                         if item.classification.isResumable {
                             Button("Resume for This Guest") { resumeCandidate = item }

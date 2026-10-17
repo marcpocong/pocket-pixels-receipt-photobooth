@@ -124,7 +124,11 @@ nonisolated enum EventStatusModel {
         default: break
         }
         if let pending = input.pendingTransition {
-            let action = pending.kind == .endCommercialEvent ? "Ending the paid event" : "Pausing the paid event"
+            let action: String = switch pending.kind {
+            case .endCommercialEvent: "Ending the paid event"
+            case .pauseCommercialEvent: "Pausing the paid event"
+            case .returnToRegular: "Returning to Regular Booth"
+            }
             return .recoveryRequired("\(action) was interrupted before it was confirmed. Check Status to finish it; nothing will be repeated automatically.")
         }
         if input.regularMode {
@@ -212,7 +216,7 @@ nonisolated enum EventStatusModel {
                 if let reason = input.recoveryReason { return .needsReview(reason) }
                 return check.isAccountActiveEvent ? .accepting : .needsReview("Another paid event is active for this account.")
             case .paused?: return .serverPaused
-            case .ended?, .archived?: return .needsReview("The paid event this iPad was started for has ended. Set up the next event in Event Setup; its sales are kept.")
+            case .ended?, .archived?: return .needsReview("The paid event this iPad was started for has ended. Choose Return to Regular Booth after reviewing recovery; its sales are kept.")
             case .draft?: return .needsReview("The paid event has not been started. Review and start it in Event Setup.")
             case nil: return .unconfirmed("lifecycle not reported")
             }
