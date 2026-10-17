@@ -295,9 +295,12 @@ final class GalleryBrowserLayoutTests: XCTestCase {
                 XCTAssertTrue(shares.flatMap { $0 }.allSatisfy { ($0["size"] as? Int ?? 0) > 0 })
             } else {
                 let hidden = try await web.evaluateJavaScript("document.getElementById('shareAll').hidden") as? Bool
-                XCTAssertEqual(hidden, true)
+                XCTAssertEqual(hidden, false)
                 let hint = try await web.evaluateJavaScript("document.getElementById('allHint').textContent") as? String
                 XCTAssertTrue(hint?.contains("Use Save under each photo") == true)
+                _ = try await web.evaluateJavaScript("document.getElementById('shareAll').click()")
+                let fallback = try await web.evaluateJavaScript("document.getElementById('message').textContent") as? String
+                XCTAssertTrue(fallback?.contains("one photo at a time") == true)
                 _ = try await web.evaluateJavaScript("document.querySelector('[data-download=\"photo-01.jpg\"]').click()")
                 let downloads = try await web.evaluateJavaScript("window.downloadedFiles") as? [String]
                 XCTAssertEqual(downloads, ["photo-01.jpg"])
@@ -313,7 +316,7 @@ final class GalleryBrowserLayoutTests: XCTestCase {
         // processes. Each fixture still loads independently and every viewport is asserted.
         let (web, window) = hostedBrowser()
         defer { web.stopLoading(); window.isHidden = true }
-        for count in [1, 2, 3, 4, 6] {
+        for count in [1, 2, 3, 4, 5, 6] {
             let html = try String(contentsOf: root.appendingPathComponent("gallery-\(count).html"), encoding: .utf8)
             try await loadFixture(html, in: web)
             for (width, height) in [(320, 900), (375, 900), (390, 900), (430, 900), (768, 1024), (1024, 768), (1440, 900), (844, 390), (1194, 834)] {
@@ -341,9 +344,71 @@ final class GalleryBrowserLayoutTests: XCTestCase {
                     attachment.name = "gallery-\(width)"
                     attachment.lifetime = .keepAlways
                     add(attachment)
+
                 }
             }
         }
+    }
+
+    func testEditorialMenuReceiptsCollageAndPrivateInstagramNavigation() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("DerivedData/gallery-fixtures")
+        let (web, window) = hostedBrowser()
+        defer { web.stopLoading(); window.isHidden = true }
+        try await loadFixture(String(contentsOf: root.appendingPathComponent("gallery-2.html"), encoding: .utf8), in: web)
+        let checks = try await web.evaluateJavaScript("""
+        (()=>{const a=document.querySelector('.instagram-cta');return {receipts:document.querySelectorAll('.receipt-card').length, collapsed:document.querySelectorAll('details').length, collage:[...document.querySelectorAll('[data-collage]')].every(i=>i.src===document.getElementById('image-'+i.dataset.collage).src), instagram:a.href, referrer:a.referrerPolicy, rel:a.rel, order:!!(document.querySelector('.receipt-section').compareDocumentPosition(document.querySelector('.instagram-card'))&Node.DOCUMENT_POSITION_FOLLOWING)}})()
+        """) as! [String: Any]
+        XCTAssertEqual(checks["receipts"] as? Int, 2)
+        XCTAssertEqual(checks["collapsed"] as? Int, 0)
+        XCTAssertEqual(checks["collage"] as? Bool, true)
+        XCTAssertEqual(checks["instagram"] as? String, "https://www.instagram.com/madetokeep.studios/")
+        XCTAssertEqual(checks["referrer"] as? String, "no-referrer")
+        XCTAssertEqual(checks["rel"] as? String, "noopener noreferrer")
+        XCTAssertEqual(checks["order"] as? Bool, true)
+        _ = try await web.evaluateJavaScript("document.getElementById('menuToggle').click()")
+        let browserResult1 = try await web.evaluateJavaScript("document.getElementById('menuToggle').getAttribute('aria-expanded')") as? String
+        XCTAssertEqual(browserResult1, "true")
+        _ = try await web.evaluateJavaScript("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
+        let browserResult2 = try await web.evaluateJavaScript("document.getElementById('galleryMenu').hidden") as? Bool
+        XCTAssertEqual(browserResult2, true)
+        let outbound = GalleryOutboundNavigationObserver()
+        web.navigationDelegate = outbound
+        _ = try await web.evaluateJavaScript("document.querySelector('.instagram-cta').click()")
+        await fulfillment(of: [outbound.requested], timeout: 5)
+        XCTAssertEqual(outbound.url?.absoluteString, "https://www.instagram.com/madetokeep.studios/")
+        XCTAssertNil(outbound.referrer)
+        web.navigationDelegate = nil
+        try await loadFixture(String(contentsOf: root.appendingPathComponent("legacy.html"), encoding: .utf8), in: web)
+        let browserResult3 = try await web.evaluateJavaScript("document.querySelectorAll('.receipt-card').length") as? Int
+        XCTAssertEqual(browserResult3, 1)
+    }
+
+    func testGalleryLinkShareClipboardAndLightboxFocus() async throws {
+        let configuration = WKWebViewConfiguration()
+        configuration.userContentController.addUserScript(WKUserScript(source: """
+        window.linkShares=[];window.copiedLinks=[];
+        Object.defineProperty(navigator,'share',{configurable:true,value:async data=>window.linkShares.push(data)});
+        Object.defineProperty(navigator,'clipboard',{value:{writeText:async value=>window.copiedLinks.push(value)}});
+        """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        let (web, window) = hostedBrowser(configuration: configuration)
+        defer { web.stopLoading(); window.isHidden = true }
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("DerivedData/gallery-fixtures")
+        try await loadFixture(String(contentsOf: root.appendingPathComponent("gallery-2.html"), encoding: .utf8), in: web)
+        _ = try await web.evaluateJavaScript("document.querySelector('[data-share-gallery]').click()")
+        let browserResult4 = try await web.evaluateJavaScript("window.linkShares[0].url") as? String
+        XCTAssertEqual(browserResult4, "https://gallery.example.test/?g=" + String(repeating: "c", count: 64))
+        _ = try await web.evaluateJavaScript("Object.defineProperty(navigator,'share',{value:undefined});document.querySelector('[data-share-gallery]').click()")
+        let browserResult5 = try await web.evaluateJavaScript("window.copiedLinks[0]") as? String
+        XCTAssertEqual(browserResult5, "https://gallery.example.test/?g=" + String(repeating: "c", count: 64))
+        _ = try await web.evaluateJavaScript("document.querySelector('[data-open]').focus();document.querySelector('[data-open]').click();document.getElementById('lightboxShare').focus();document.dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',bubbles:true,cancelable:true}))")
+        let browserResult6 = try await web.evaluateJavaScript("document.activeElement.id") as? String
+        XCTAssertEqual(browserResult6, "lightboxClose")
+        _ = try await web.evaluateJavaScript("document.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}))")
+        let browserResult7 = try await web.evaluateJavaScript("document.getElementById('lightboxCount').textContent") as? String
+        XCTAssertEqual(browserResult7, "2 / 2")
+        _ = try await web.evaluateJavaScript("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
+        let browserResult8 = try await web.evaluateJavaScript("document.activeElement.hasAttribute('data-open') && !document.querySelector('main').inert") as? Bool
+        XCTAssertEqual(browserResult8, true)
     }
 
     private func hostedBrowser(configuration: WKWebViewConfiguration? = nil) -> (WKWebView, UIWindow) {
@@ -361,7 +426,7 @@ final class GalleryBrowserLayoutTests: XCTestCase {
         let observer = GalleryFixtureNavigationObserver()
         web.navigationDelegate = observer
         defer { web.navigationDelegate = nil }
-        web.loadHTMLString(html, baseURL: URL(string: "https://gallery.example.test"))
+        web.loadHTMLString(html, baseURL: URL(string: "https://gallery.example.test/?g=" + String(repeating: "c", count: 64) + "&ignored=private#photos"))
         await fulfillment(of: [observer.finished], timeout: 15)
         if let error = observer.error { throw error }
         guard observer.didFinish else {
@@ -410,5 +475,18 @@ private final class GalleryFixtureNavigationObserver: NSObject, WKNavigationDele
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         self.error = error
         finished.fulfill()
+    }
+}
+
+@MainActor
+private final class GalleryOutboundNavigationObserver: NSObject, WKNavigationDelegate {
+    let requested = XCTestExpectation(description: "Approved Instagram navigation")
+    var url: URL?
+    var referrer: String?
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        url = navigationAction.request.url
+        referrer = navigationAction.request.value(forHTTPHeaderField: "Referer")
+        requested.fulfill()
+        decisionHandler(.cancel)
     }
 }

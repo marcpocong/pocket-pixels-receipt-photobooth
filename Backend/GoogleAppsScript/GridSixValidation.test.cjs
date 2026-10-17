@@ -35,7 +35,7 @@ context.runPhase6CBackendSelfChecks();
 assert.equal(context.validateUploadToken_('').code, 'MISSING_DEVICE_TOKEN');
 assert.equal(context.validateUploadToken_('wrong-device-token-value').code, 'INVALID_DEVICE_TOKEN');
 assert.equal(context.validateUploadToken_('correct-device-token-value'), null);
-for (const count of [1, 2, 3, 4, 6]) {
+for (const count of [1, 2, 3, 4, 5, 6]) {
   const payload = context.makeSelfTestPayload_(count);
   assert.equal(context.validateUploadPayload_(payload).ok, true);
   assert.equal(payload._validatedImages.length, count + 3);
@@ -74,11 +74,11 @@ assert.equal(loaded.gif.mimeType, 'image/gif');
 assert.equal(loaded.gif.role, 'gif');
 const html = context.renderGalleryPage_(fixture, {}, Date.now()).getContent();
 assert.doesNotMatch(html, /Your GIF|Save GIF|Share GIF|motionTitle|motionToggle|image-session\.gif|data-open="session\.gif"/);
-assert.match(html, /your moments,<br>made to keep\./);
+assert.match(html, /your moments,<br><em>made to keep\./);
 assert.match(html, /View, save and share the photographs from your session\./);
-assert.match(html, /Save your photos before closing this page\./);
+assert.match(html, /Save your favourites before closing this page\./);
 assert.match(html, /prefers-reduced-motion:reduce/);
-assert.match(html, /Printed version/);
+assert.doesNotMatch(html, /<details/);
 assert.match(html, /item\.filename.*item\.mimeType/);
 assert.match(html, /showEmbeddedImages\(\)/);
 assert.match(html, /Color Receipt/);
@@ -93,7 +93,7 @@ assert.match(legacyHTML, /Color Receipt/);
 const soloFixture = galleryFixture(1, 2, false);
 const soloHTML = context.renderGalleryPage_(soloFixture, {}, Date.now()).getContent();
 assert.doesNotMatch(soloHTML, /id="motionTitle"|class="gif-section|id="motionToggle"|data-download="session\.gif"|data-share="session\.gif"/);
-assert.match(soloHTML, /Save Photo/);
+assert.match(soloHTML, /data-download="photo-01\.jpg"/);
 
 // Made to Keep Studios visible rebrand (Phase 1). The legacy completed-gallery marker stays
 // because the Cloudflare Worker uses it for cache decisions.
@@ -106,16 +106,16 @@ for (const page of [html, legacyHTML, pendingHTML, invalidHTML, tooLargeHTML]) {
   assert.match(page, /class="brand-wordmark">made to keep</);
   assert.match(page, /class="brand-secondary">studios</);
   assert.doesNotMatch(page, /Pocket Pixels/i);
-  assert.doesNotMatch(page, /@pocketpixels\.ceb|instagram\.com/i);
+  assert.doesNotMatch(page, /@pocketpixels\.ceb|instagram\.com\/pocketpixels/i);
   assert.doesNotMatch(page, /data:image\/png;base64,/, 'No embedded bitmap logo (legacy PP monogram) in the gallery');
 }
 for (const page of [html, legacyHTML]) {
   assert.match(page, /data-pocket-pixels-gallery-status="complete"/);
   assert.match(page, /Photo Gallery/);
   assert.match(page, /Receipt Copy/);
-  assert.match(page, /SAVE ALL PHOTOS/);
-  assert.match(page, /data-download="photo-01\.jpg">Save Photo/);
-  assert.match(page, /data-share="photo-01\.jpg">Share/);
+  assert.match(page, /Download all photos/);
+  assert.match(page, /data-download="photo-01\.jpg">/);
+  assert.match(page, /data-share="photo-01\.jpg">/);
   assert.match(page, /class="footer-tagline">little moments, made to keep\.</);
   assert.match(page, /title:\\?"Made to Keep Studios\\?"/);
   assert.match(page, /alt="Made to Keep Studios photo 1"/);
@@ -126,7 +126,17 @@ assert.match(pendingHTML, /your photos are still being prepared\./);
 assert.match(invalidHTML, /This gallery link cannot be opened\./);
 for (const page of [html, legacyHTML, soloHTML, pendingHTML, invalidHTML, tooLargeHTML]) {
   // Self-contained: no third-party fonts, scripts, images or Google Drive links.
-  assert.doesNotMatch(page, /(src|href)=["']?https?:/i, 'Gallery pages load nothing from other origins');
+  const navigationLinks = [...page.matchAll(/<a\b[^>]*href="(https?:[^\"]+)"[^>]*>/g)];
+  for (const [tag, destination] of navigationLinks) {
+    assert.equal(destination, 'https://www.instagram.com/madetokeep.studios/');
+    assert.match(tag, /target="_blank"/);
+    assert.match(tag, /rel="noopener noreferrer"/);
+    assert.match(tag, /referrerpolicy="no-referrer"/);
+  }
+  assert.equal(navigationLinks.length, page.includes('data-pocket-pixels-gallery-status="complete"') ? 2 : 0, 'Only the menu and promotional card link to Instagram');
+  assert.doesNotMatch(page.replace(/<a\b[^>]*>/g, ''), /(?:src|href)=["']?https?:/i, 'No external scripts, images, fonts or arbitrary links');
+  assert.doesNotMatch(page, /@import|url\(["']?https?:|<(?:script|link|iframe)[^>]*(?:src|href)="https?:/i);
+  assert.doesNotMatch(page, /[?&](?:g|token)=[a-f0-9]{64}/i, 'Private token is never embedded into outbound links');
   assert.doesNotMatch(page, /drive\.google\.com|googleusercontent|fonts\.googleapis/i);
   assert.match(page, /<meta name="referrer" content="no-referrer">/);
 }
@@ -144,13 +154,13 @@ const hostileHTML = context.renderGalleryPage_(hostile, {}, Date.now()).getConte
 assert.doesNotMatch(hostileHTML, /<img src=x onerror/);
 assert.doesNotMatch(hostileHTML.split('<script>')[1], /<\/?img src=x/);
 // Every photo count renders every photo individually with its own actions.
-for (const count of [1, 2, 3, 4, 6]) {
+for (const count of [1, 2, 3, 4, 5, 6]) {
   const countHTML = context.renderGalleryPage_(galleryFixture(count), {}, Date.now()).getContent();
   assert.match(countHTML, new RegExp('photo-grid photo-count-' + count + '"'));
   for (let i = 1; i <= count; i++) {
     const name = 'photo-0' + i + '\\.jpg';
     assert.match(countHTML, new RegExp('data-open="' + name + '"'));
-    assert.match(countHTML, new RegExp('data-download="' + name + '">Save Photo'));
+    assert.match(countHTML, new RegExp('data-download="' + name + '">'));
   }
 }
 console.log('Made to Keep Studios gallery branding checks passed (v1, v2, pending, invalid, too large).');
@@ -291,14 +301,15 @@ if (process.argv.includes('--fixtures')) {
     }
     return Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]), chunk('IHDR', header), chunk('IDAT', zlib.deflateSync(pixels)), chunk('IEND', Buffer.alloc(0))]);
   }
-  for (const count of [1, 2, 3, 4, 6]) {
+  for (const count of [1, 2, 3, 4, 5, 6]) {
     const fixture = galleryFixture(count);
     for (const [name, file] of Object.entries(fixture.filesByName)) {
-      const bytes = syntheticPNG(300, name.startsWith('receipt') ? 800 : 400);
+      const bytes = syntheticPNG(name.startsWith('receipt') ? 300 : 600, name.startsWith('receipt') ? 800 : 450);
       file.getBlob = () => ({getBytes: () => Array.from(bytes)});
     }
     fs.writeFileSync(path.join(output, `gallery-${count}.html`), context.renderGalleryPage_(fixture, {}, Date.now()).getContent());
   }
+  fs.writeFileSync(path.join(output, 'legacy.html'), legacyHTML);
   fs.writeFileSync(path.join(output, 'pending.html'), pendingHTML);
   fs.writeFileSync(path.join(output, 'invalid.html'), invalidHTML);
 }
@@ -312,3 +323,13 @@ for (const suffix of ['-partial', '-12345678-1234-4abc-8def-123456789abc/other',
   bad.sessionID += suffix;
   assert.equal(context.validateUploadPayload_(bad).ok, false);
 }
+
+const uuidGallery = galleryFixture(2);
+uuidGallery.manifest.sessionID = 'PP-20261018-131234-12345678-1234-4abc-8def-123456789abc';
+const uuidHTML = context.renderGalleryPage_(uuidGallery, {}, Date.now()).getContent();
+assert.match(uuidHTML, /Ref 261018-131234/);
+assert.doesNotMatch(uuidHTML, /12345678-1234-4abc-8def-123456789abc/);
+assert.equal((soloHTML.match(/data-collage=/g) || []).length, 1);
+assert.equal((html.match(/data-collage=/g) || []).length, 2);
+assert.doesNotMatch(legacyHTML, /class="receipt-card"[^>]*[\s\S]*Thermal Receipt/);
+console.log('Editorial collage, legacy receipt and concise UUID session reference checks passed.');
