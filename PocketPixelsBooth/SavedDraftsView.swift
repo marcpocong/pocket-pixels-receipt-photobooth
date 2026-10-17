@@ -24,16 +24,7 @@ struct SavedDraftsView: View {
             ForEach(Array(Set(entries.map(\.eventName))).sorted(), id: \.self) { name in
                 SwiftUI.Section {
                     ForEach(entries.filter { $0.eventName == name }) { entry in
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text(entry.category).font(.headline)
-                            SavedDraftChangesView(changes: Array(entry.changes.prefix(3)))
-                            if entry.changes.count > 3 { Text("\(entry.changes.count - 3) more changes").font(.caption).foregroundStyle(.secondary) }
-                            if let notice = entry.notice { Text(notice).font(.footnote).foregroundStyle(.secondary) }
-                            HStack {
-                                NavigationLink("Review", value: OperatorWorkspaceRoute.draftReview(entry.id)).buttonStyle(.borderedProminent)
-                                Button("Discard Changes", role: .destructive) { discardCandidate = entry }.buttonStyle(.bordered)
-                            }
-                        }.padding(.vertical, 10)
+                        draftRow(entry)
                     }
                 } header: { Text(name) }
             }
@@ -53,6 +44,20 @@ struct SavedDraftsView: View {
         .task { await refresh() }
         .refreshable { await refresh() }
     }
+    // Returning an opaque View keeps older SDKs from selecting Charts' ForEach overload.
+    private func draftRow(_ entry: SavedDraftEntry) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(entry.category).font(.headline)
+            SavedDraftChangesView(changes: Array(entry.changes.prefix(3)))
+            if entry.changes.count > 3 { Text("\(entry.changes.count - 3) more changes").font(.caption).foregroundStyle(.secondary) }
+            if let notice = entry.notice { Text(notice).font(.footnote).foregroundStyle(.secondary) }
+            HStack {
+                NavigationLink("Review", value: OperatorWorkspaceRoute.draftReview(entry.id)).buttonStyle(.borderedProminent)
+                Button("Discard Changes", role: .destructive) { discardCandidate = entry }.buttonStyle(.bordered)
+            }
+        }.padding(.vertical, 10)
+    }
+
     private func refresh() async {
         guard loadsRemote, OperatorAccessPermit.shared.isAuthorized else { return }
         if let configuration = PaymentsConfiguration.current() {

@@ -408,11 +408,7 @@ struct RecentSessionsView: View {
                 ForEach(viewModel.groupedSummaries, id: \.0) { sectionTitle, summaries in
                     SwiftUI.Section {
                         ForEach(summaries) { summary in
-                            NavigationLink {
-                                ArchivedSessionDetailView(summary: summary, rootViewModel: viewModel)
-                            } label: {
-                                RecentSessionRow(summary: summary, viewModel: viewModel)
-                            }
+                            archivedSessionLink(summary)
                         }
                     } header: { Text(sectionTitle) }
                 }
@@ -441,6 +437,15 @@ struct RecentSessionsView: View {
             viewModel.refresh()
         }
     }
+    // Keep the collection row's type unambiguously in SwiftUI on older compilers.
+    private func archivedSessionLink(_ summary: RecentSessionArchiveSummary) -> some View {
+        NavigationLink {
+            ArchivedSessionDetailView(summary: summary, rootViewModel: viewModel)
+        } label: {
+            RecentSessionRow(summary: summary, viewModel: viewModel)
+        }
+    }
+
 }
 
 struct RecentSessionRow: View {
