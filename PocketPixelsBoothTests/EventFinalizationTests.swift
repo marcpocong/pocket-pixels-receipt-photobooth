@@ -324,14 +324,23 @@ final class GalleryBrowserLayoutTests: XCTestCase {
                 web.frame = window.bounds
                 window.layoutIfNeeded()
                 web.layoutIfNeeded()
-                try await waitForViewport(width, in: web)
-                let checks = try await web.evaluateJavaScript("""
-                (()=>{const buttons=[...document.querySelectorAll('button')].filter(b=>b.getBoundingClientRect().width>0);return {overflow:document.documentElement.scrollWidth>innerWidth, photos:document.querySelectorAll('.shot').length, gif:document.querySelectorAll('[data-open="session.gif"]').length, small:buttons.filter(b=>b.getBoundingClientRect().height<43).length, save:!document.getElementById('shareAll').hidden}})()
-                """) as! [String: Any]
-                XCTAssertEqual(checks["overflow"] as? Bool, false, "\(count) photos at \(width)")
+                try await waitForViewport(width, height: height, in: web)
+                // Measure after layout settles: slower CI simulators can report the previous width's
+                // reflow for a frame or two. A persistent overflow still fails after the window.
+                var checks: [String: Any] = [:]
+                let settleDeadline = ContinuousClock.now.advanced(by: .seconds(3))
+                repeat {
+                    checks = try await web.callAsyncJavaScript("""
+                    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+                    const buttons=[...document.querySelectorAll('button')].filter(b=>b.getBoundingClientRect().width>0);return {overflow:document.documentElement.scrollWidth>innerWidth, photos:document.querySelectorAll('.shot').length, gif:document.querySelectorAll('[data-open="session.gif"]').length, small:buttons.filter(b=>b.getBoundingClientRect().height<43).length, save:!document.getElementById('shareAll').hidden};
+                    """, contentWorld: .page) as! [String: Any]
+                    if checks["overflow"] as? Bool == false && checks["small"] as? Int == 0 { break }
+                    try await Task.sleep(for: .milliseconds(100))
+                } while ContinuousClock.now < settleDeadline
+                XCTAssertEqual(checks["overflow"] as? Bool, false, "\(count) photos at \(width): \(checks)")
                 XCTAssertEqual(checks["photos"] as? Int, count)
                 XCTAssertEqual(checks["gif"] as? Int, 0)
-                XCTAssertEqual(checks["small"] as? Int, 0)
+                XCTAssertEqual(checks["small"] as? Int, 0, "\(count) photos at \(width): \(checks)")
                 XCTAssertEqual(checks["save"] as? Bool, true)
                 let opened = try await web.evaluateJavaScript("document.querySelector('[data-open]').click(); !document.getElementById('lightbox').hidden") as? Bool
                 XCTAssertEqual(opened, true)
@@ -556,7 +565,18 @@ final class GalleryBrowserLayoutTests: XCTestCase {
             actual = try await web.evaluateJavaScript("innerWidth") as? Int
             if actual == width {
                 let actualHeight = try await web.evaluateJavaScript("innerHeight") as? Int
-                if height == nil || actualHeight == height { return }
+                if height == nil || actualHeight == height {
+                    // WebKit can expose innerWidth before committing the matching media-query
+                    // layout. Wait for two rendered frames, then recheck both viewport owners.
+                    // Assertions below still reject every overflow and undersized control.
+                    let stable = try await web.callAsyncJavaScript("""
+                    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                    return innerWidth === width && document.documentElement.clientWidth === width
+                        && (height === null || innerHeight === height)
+                        && matchMedia('(width: ' + width + 'px)').matches;
+                    """, arguments: ["width": width, "height": height.map { $0 as Any } ?? NSNull()], contentWorld: .page) as? Bool
+                    if stable == true { return }
+                }
             }
             try await Task.sleep(for: .milliseconds(50))
         } while ContinuousClock.now < deadline
