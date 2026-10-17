@@ -18,6 +18,10 @@ System provides printer, camera, galleries, storage, monitoring, Booth Check, an
 
 The dashboard does not modify camera capture, printer transport/raster, receipt composition, payment verification, customer sessions, gallery tokens, original photos, upload credentials, or monochrome rendering services. No dependencies, bundle identifier, signing team, entitlement, or project build configuration changed.
 
+## SDK compatibility
+
+The first PR build exposed an older Swift compiler overload ambiguity after adding Apple Charts: two existing dynamically titled SwiftUI list sections were inferred through ChartContentBuilder. Recent Sessions and Saved Drafts now use explicit SwiftUI section content and Text headers. Layout and behavior are unchanged. The rebuilt source passed the focused dashboard/draft suite; all mandatory production checks must pass on the corrected head.
+
 ## Regression repair
 
 An existing CSV test excluded the text `b1` using a substring assertion. A randomly generated run UUID could contain `b1`, causing a false failure. The test now checks the exact exported session_id column set `{a1, a2}`, retaining record count and other content assertions. CSV implementation is unchanged.

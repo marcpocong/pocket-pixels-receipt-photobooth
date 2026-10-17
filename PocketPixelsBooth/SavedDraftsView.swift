@@ -22,7 +22,7 @@ struct SavedDraftsView: View {
                 ContentUnavailableView("No saved drafts", systemImage: "checkmark.circle", description: Text("Your setup has no unfinished local changes."))
             }
             ForEach(Array(Set(entries.map(\.eventName))).sorted(), id: \.self) { name in
-                Section(name) {
+                SwiftUI.Section {
                     ForEach(entries.filter { $0.eventName == name }) { entry in
                         VStack(alignment: .leading, spacing: 12) {
                             Text(entry.category).font(.headline)
@@ -35,7 +35,7 @@ struct SavedDraftsView: View {
                             }
                         }.padding(.vertical, 10)
                     }
-                }
+                } header: { Text(name) }
             }
             if !message.isEmpty { Section { Text(message).foregroundStyle(.red) } }
         }
