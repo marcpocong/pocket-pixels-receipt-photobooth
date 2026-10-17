@@ -238,6 +238,7 @@ nonisolated struct EventReceiptDesignConfiguration: Codable, Equatable, Sendable
     /// Optional event caption that replaces the format's default editorial caption. Up to two
     /// lines separated by a newline; empty keeps the default caption.
     var editorialCaption: String
+    var footerStyleOverride: ReceiptFooterStyle? = nil
 
     nonisolated static let `default` = EventReceiptDesignConfiguration(typography: .default)
 
@@ -249,19 +250,21 @@ nonisolated struct EventReceiptDesignConfiguration: Codable, Equatable, Sendable
     private enum CodingKeys: String, CodingKey {
         case typography
         case editorialCaption
+        case footerStyleOverride
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        footerStyleOverride = (try? container.decodeIfPresent(ReceiptFooterStyle.self, forKey: .footerStyleOverride))
         typography = (try? container.decodeIfPresent(EventTypographyConfiguration.self, forKey: .typography)) ?? .default
         editorialCaption = (try? container.decodeIfPresent(String.self, forKey: .editorialCaption)) ?? ""
     }
 
     func normalized() -> EventReceiptDesignConfiguration {
-        EventReceiptDesignConfiguration(
-            typography: typography.normalized(),
-            editorialCaption: ReceiptEditorialCaption.normalized(editorialCaption)
-        )
+        var value = self
+        value.typography = typography.normalized()
+        value.editorialCaption = ReceiptEditorialCaption.normalized(editorialCaption)
+        return value
     }
 }
 

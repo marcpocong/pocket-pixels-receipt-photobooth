@@ -32,6 +32,7 @@ nonisolated struct AppRecoverySnapshot: Codable, Sendable {
     let updatedAt: Date
     /// Committed Passport keepsake data, retained only for the session that owns this snapshot.
     var passport: PassportSessionData? = nil
+    var receiptPrintOptions: ReceiptPrintOptions? = nil
 }
 
 nonisolated enum AppRecoveryStoreError: Error, LocalizedError, Equatable {

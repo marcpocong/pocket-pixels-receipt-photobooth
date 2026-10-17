@@ -33,6 +33,7 @@ struct BoothSessionEnvironment {
     /// The event configuration a new session freezes. Qualification supplies its own scenario
     /// profile instead of editing the operator's saved event settings.
     var eventProfileSource: @MainActor () -> EventProfile = { EventProfileStore.load() }
+    var receiptPrintOptionsSource: @MainActor () -> ReceiptPrintOptions = { ReceiptPrintSettingsStore.load() }
     /// Sticker Studio settings a new session freezes. Qualification never shows the editor.
     var stickerConfigurationSource: @MainActor () -> StickerStudioSessionConfiguration = { StickerStudioSessionConfiguration.current() }
     /// Operator sticker library for the guest catalog; nil means built-in stickers only.

@@ -511,22 +511,19 @@ struct EventReceiptComposerPreview: View {
     ) async throws -> ComposedReceipt {
         let worker = Task.detached(priority: .utility) {
             try Task.checkCancellation()
-            guard let galleryURL = URL(string: "https://pocket-pixels-gallery.pocketpixels-ceb.workers.dev/?g=event-preview") else {
-                throw GalleryUploadError.invalidGalleryURL
-            }
-
             let date = previewDate
             return try ReceiptComposer.compose(
                 photos: makeSamplePhotos(count: format.photoCount),
                 sessionIdentifier: "PP-20260907-192104",
                 date: date,
-                galleryURL: galleryURL,
+                galleryURL: nil,
                 format: format,
                 eventProfile: profile.activeReceiptSnapshot,
                 passport: format == .passport
                     ? .operatorPreviewSample(configuration: PassportConfiguration.effective(for: profile))
                     : nil,
-                printOptions: printOptions
+                printOptions: printOptions.resolved(for: profile),
+                sampleGalleryPlaceholder: true
             )
         }
         return try await withTaskCancellationHandler {

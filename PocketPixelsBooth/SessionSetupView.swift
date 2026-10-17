@@ -6,6 +6,7 @@ struct SessionSetupView: View {
     @ObservedObject private var acceptance = SessionAcceptanceStore.shared
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var devicePrintOptions = ReceiptPrintSettingsStore.load()
     @State private var review = false
     @State private var confirmDiscard = false
     @State private var confirmPause = false
@@ -60,7 +61,10 @@ struct SessionSetupView: View {
         .overlay { if setup.busy { ProgressView("Checking setup…").padding(24).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)) } }
         .safeAreaInset(edge: .bottom) { bottomBar }
         .task { if setup.mode == .serverManaged { await setup.refresh() } }
-        .onAppear { setup.reloadDesignFromStorage() }
+        .onAppear { setup.reloadDesignFromStorage(); devicePrintOptions = ReceiptPrintSettingsStore.load() }
+        .onReceive(NotificationCenter.default.publisher(for: ReceiptPrintSettingsStore.didChangeNotification)) { _ in
+            devicePrintOptions = ReceiptPrintSettingsStore.load()
+        }
         .onReceive(NotificationCenter.default.publisher(for: OperatorWorkspace.didUnlock)) { _ in
             if setup.mode == .serverManaged { Task { await setup.refresh() } }
         }
@@ -353,6 +357,16 @@ struct SessionSetupView: View {
 
     @ViewBuilder private var receiptSection: some View {
         SetupCard {
+            Picker("Device Gallery Code Style", selection: $devicePrintOptions.footerStyle) {
+                ForEach(ReceiptFooterStyle.allCases) { style in Text(style.displayName).tag(style) }
+            }
+            .onChange(of: devicePrintOptions) { _, value in ReceiptPrintSettingsStore.save(value) }
+            Button("Restore Default") { devicePrintOptions = .default }
+            Text("Saves immediately for future sessions. Events can override this device default.").font(.footnote).foregroundStyle(.secondary)
+            if devicePrintOptions.footerStyle == .decorativeBarcodeOnly {
+                Label("The barcode is decorative and provides no gallery access. The iPad gallery QR remains available.", systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(.orange)
+            }
+            Divider()
             if setup.eventModeEnabled, let design = Binding($setup.design) {
                 EventReceiptDesignPanel(design: design, isDirty: setup.designDirty, save: { setup.saveDesign() }, discard: { setup.discardDesignChanges() })
                 NavigationLink {
@@ -369,7 +383,7 @@ struct SessionSetupView: View {
             }
             Divider()
             DisclosureGroup("Preview Receipt", isExpanded: $previewExpanded) {
-                EventReceiptComposerPreview(profile: setup.effectiveProfile, printOptions: ReceiptPrintSettingsStore.load())
+                EventReceiptComposerPreview(profile: setup.effectiveProfile, printOptions: devicePrintOptions)
                     .padding(.top, 8)
             }
             .font(.headline)

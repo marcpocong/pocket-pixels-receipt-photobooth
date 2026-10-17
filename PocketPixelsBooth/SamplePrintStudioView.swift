@@ -133,6 +133,10 @@ struct SamplePrintStudioView: View {
             }
 
             StudioStep(number: 3, title: "Design") {
+                Picker("Gallery Code Style", selection: $model.footerStyle) {
+                    ForEach(ReceiptFooterStyle.allCases) { style in Text(style.displayName).tag(style) }
+                }
+                Text("Samples show a non-scannable placeholder. No customer gallery is created.").font(.footnote).foregroundStyle(.secondary)
                 Picker("Branding", selection: $model.branding) {
                     ForEach(SamplePrintBranding.allCases) { branding in
                         Text(usesPreviewDesign && branding == .savedEvent ? "Preview Design" : branding.displayName).tag(branding)

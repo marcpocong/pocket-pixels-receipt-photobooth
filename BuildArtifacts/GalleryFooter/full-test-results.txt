@@ -1,0 +1,1317 @@
+Test Suite 'All tests' started at 2026-10-17 22:24:55.164.
+Test Suite 'PocketPixelsBoothTests.xctest' started at 2026-10-17 22:24:55.165.
+Test Suite 'CoBrandedReceiptTests' started at 2026-10-17 22:24:55.165.
+Test Case '-[PocketPixelsBoothTests.CoBrandedReceiptTests testCoBrandedHeaderPlacesWordmarkSeparatorAndLogoOnOneMidlineForEveryFormat]' started.
+Test Case '-[PocketPixelsBoothTests.CoBrandedReceiptTests testCoBrandedHeaderPlacesWordmarkSeparatorAndLogoOnOneMidlineForEveryFormat]' passed (0.537 seconds).
+Test Case '-[PocketPixelsBoothTests.CoBrandedReceiptTests testCoBrandedModePersistsAndOlderProfilesDecodeUnchanged]' started.
+Test Case '-[PocketPixelsBoothTests.CoBrandedReceiptTests testCoBrandedModePersistsAndOlderProfilesDecodeUnchanged]' passed (0.025 seconds).
+Test Case '-[PocketPixelsBoothTests.CoBrandedReceiptTests testDefaultStandardAndCoBrandedMastheadsStartWithinSixMillimetres]' started.
+Test Case '-[PocketPixelsBoothTests.CoBrandedReceiptTests testDefaultStandardAndCoBrandedMastheadsStartWithinSixMillimetres]' passed (19.495 seconds).
+Test Case '-[PocketPixelsBoothTests.CoBrandedReceiptTests testLegacyStudioAndEventFirstProfilesStillResolveAsBefore]' started.
+Test Case '-[PocketPixelsBoothTests.CoBrandedReceiptTests testLegacyStudioAndEventFirstProfilesStillResolveAsBefore]' passed (0.046 seconds).
+Test Case '-[PocketPixelsBoothTests.CoBrandedReceiptTests testLogoKeepsItsProportionsForWideSquareAndTallArtwork]' started.
+Test Case '-[PocketPixelsBoothTests.CoBrandedReceiptTests testLogoKeepsItsProportionsForWideSquareAndTallArtwork]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.CoBrandedReceiptTests testMissingLogoFallsBackToStandardHeaderWithoutBlankSpace]' started.
+Test Case '-[PocketPixelsBoothTests.CoBrandedReceiptTests testMissingLogoFallsBackToStandardHeaderWithoutBlankSpace]' passed (0.003 seconds).
+Test Case '-[PocketPixelsBoothTests.CoBrandedReceiptTests testPhotographsKeepTheirSizeAndHeaderStaysCompactComparedWithStandard]' started.
+Test Case '-[PocketPixelsBoothTests.CoBrandedReceiptTests testPhotographsKeepTheirSizeAndHeaderStaysCompactComparedWithStandard]' passed (0.074 seconds).
+Test Case '-[PocketPixelsBoothTests.CoBrandedReceiptTests testRenderEveryFormatCoBrandedWithNormalAndThermalArtifacts]' started.
+Test Case '-[PocketPixelsBoothTests.CoBrandedReceiptTests testRenderEveryFormatCoBrandedWithNormalAndThermalArtifacts]' passed (32.114 seconds).
+Test Case '-[PocketPixelsBoothTests.CoBrandedReceiptTests testStickersNeverCoverTheCoBrandedHeader]' started.
+Test Case '-[PocketPixelsBoothTests.CoBrandedReceiptTests testStickersNeverCoverTheCoBrandedHeader]' passed (0.032 seconds).
+Test Case '-[PocketPixelsBoothTests.CoBrandedReceiptTests testThermalRasterKeepsTheSeparatorAndWordmarkInk]' started.
+Test Case '-[PocketPixelsBoothTests.CoBrandedReceiptTests testThermalRasterKeepsTheSeparatorAndWordmarkInk]' passed (0.701 seconds).
+Test Suite 'CoBrandedReceiptTests' passed at 2026-10-17 22:25:48.202.
+	 Executed 10 tests, with 0 failures (0 unexpected) in 53.030 (53.036) seconds
+Test Suite 'CommercialEventCreationRecoveryTests' started at 2026-10-17 22:25:48.203.
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testAbandoningRequiresAReasonAndKeepsTheDraft]' started.
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testAbandoningRequiresAReasonAndKeepsTheDraft]' passed (0.090 seconds).
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testConcurrentDuplicateTapsCreateOneEvent]' started.
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testConcurrentDuplicateTapsCreateOneEvent]' passed (0.049 seconds).
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testCorruptedCreationJournalBlocksNewCreationsAndIsPreserved]' started.
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testCorruptedCreationJournalBlocksNewCreationsAndIsPreserved]' passed (0.027 seconds).
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testCrashAfterServerCreationBeforeLocalLinkingResumesAfterRelaunch]' started.
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testCrashAfterServerCreationBeforeLocalLinkingResumesAfterRelaunch]' passed (0.059 seconds).
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testCreationOnAnotherConnectionIsNeverAttachedHere]' started.
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testCreationOnAnotherConnectionIsNeverAttachedHere]' passed (0.063 seconds).
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testDefinitiveRejectionClosesTheRequestAndAllowsARetry]' started.
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testDefinitiveRejectionClosesTheRequestAndAllowsARetry]' passed (0.060 seconds).
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testIntentWriteFailureSendsNothing]' started.
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testIntentWriteFailureSendsNothing]' passed (0.036 seconds).
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testLostCreateResponseNeverCreatesASecondEventAndRecoversByExactIdentity]' started.
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testLostCreateResponseNeverCreatesASecondEventAndRecoversByExactIdentity]' passed (0.056 seconds).
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testLostResponseWhileStartingNewPaidOccurrenceRecoversWithoutReassigningHistory]' started.
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testLostResponseWhileStartingNewPaidOccurrenceRecoversWithoutReassigningHistory]' passed (0.148 seconds).
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testOlderWorkerWithoutLookupFallsBackToExplicitAuditedDraftSelection]' started.
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testOlderWorkerWithoutLookupFallsBackToExplicitAuditedDraftSelection]' passed (0.048 seconds).
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testRequestThatNeverArrivedIsConfirmedNotCreatedThenRetried]' started.
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testRequestThatNeverArrivedIsConfirmedNotCreatedThenRetried]' passed (0.065 seconds).
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testSameOperationIDReplaysAndDifferentPayloadFails]' started.
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testSameOperationIDReplaysAndDifferentPayloadFails]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testUnpairedIPadSendsNothingAndRecordsNoCreation]' started.
+Test Case '-[PocketPixelsBoothTests.CommercialEventCreationRecoveryTests testUnpairedIPadSendsNothingAndRecordsNoCreation]' passed (0.025 seconds).
+Test Suite 'CommercialEventCreationRecoveryTests' passed at 2026-10-17 22:25:48.936.
+	 Executed 13 tests, with 0 failures (0 unexpected) in 0.729 (0.733) seconds
+Test Suite 'CustomerExperienceTests' started at 2026-10-17 22:25:48.936.
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testControlledThemesHaveNamesAndDescriptions]' started.
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testControlledThemesHaveNamesAndDescriptions]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testCustomerContentNormalizesWhitespaceAndLimitsLength]' started.
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testCustomerContentNormalizesWhitespaceAndLimitsLength]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testCustomerErrorClassificationDoesNotExposeTechnicalDetail]' started.
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testCustomerErrorClassificationDoesNotExposeTechnicalDetail]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testCustomerIdentityFallbackDoesNotCoupleScreenAndReceiptMessages]' started.
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testCustomerIdentityFallbackDoesNotCoupleScreenAndReceiptMessages]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testDoneResetStillClearsCustomerIdentityAndCopyCount]' started.
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testDoneResetStillClearsCustomerIdentityAndCopyCount]' passed (0.028 seconds).
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testEventModeSummaryClearlyDistinguishesScreenAndReceiptActivation]' started.
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testEventModeSummaryClearlyDistinguishesScreenAndReceiptActivation]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testGridSixCustomerScreensOnElevenInchIPad]' started.
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testGridSixCustomerScreensOnElevenInchIPad]' passed (6.641 seconds).
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testIdleResetIsBlockedByEveryPrintSafetyCondition]' started.
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testIdleResetIsBlockedByEveryPrintSafetyCondition]' passed (0.000 seconds).
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testIdleResetIsLimitedToConservativeCustomerStates]' started.
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testIdleResetIsLimitedToConservativeCustomerStates]' passed (0.000 seconds).
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testOlderPersistedProfileDecodesWithSafeCustomerDefaults]' started.
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testOlderPersistedProfileDecodesWithSafeCustomerDefaults]' passed (0.021 seconds).
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testReceiptOutputSelectionsUseControlledProductionProfiles]' started.
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testReceiptOutputSelectionsUseControlledProductionProfiles]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testReturningToWelcomeReloadsEventModeAfterItWasTurnedOffMidSession]' started.
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testReturningToWelcomeReloadsEventModeAfterItWasTurnedOffMidSession]' passed (0.004 seconds).
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testStaticPreviewPolicyHasNoProductionSideEffects]' started.
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testStaticPreviewPolicyHasNoProductionSideEffects]' passed (0.000 seconds).
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testThankYouUsesShorterButConservativeTimeout]' started.
+Test Case '-[PocketPixelsBoothTests.CustomerExperienceTests testThankYouUsesShorterButConservativeTimeout]' passed (0.000 seconds).
+Test Suite 'CustomerExperienceTests' passed at 2026-10-17 22:25:55.639.
+	 Executed 14 tests, with 0 failures (0 unexpected) in 6.699 (6.703) seconds
+Test Suite 'EventDesignDirtyStateTests' started at 2026-10-17 22:25:55.639.
+Test Case '-[PocketPixelsBoothTests.EventDesignDirtyStateTests testConnectingPaidCheckoutDoesNotMarkTheDesignAsEdited]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignDirtyStateTests testConnectingPaidCheckoutDoesNotMarkTheDesignAsEdited]' passed (0.136 seconds).
+Test Suite 'EventDesignDirtyStateTests' passed at 2026-10-17 22:25:55.775.
+Test Suite 'EventDesignLibraryTests' started at 2026-10-17 22:25:55.775.
+Test Case '-[PocketPixelsBoothTests.EventDesignLibraryTests testLegacyProfileMigratesToOneSavedEventWithoutChangingIt]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignLibraryTests testLegacyProfileMigratesToOneSavedEventWithoutChangingIt]' passed (0.006 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignLibraryTests testServerLinksAreSeparatedByPaymentsEnvironment]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignLibraryTests testServerLinksAreSeparatedByPaymentsEnvironment]' passed (0.019 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignLibraryTests testSessionSetupDraftFromEarlierBuildStillDecodes]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignLibraryTests testSessionSetupDraftFromEarlierBuildStillDecodes]' passed (0.000 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignLibraryTests testUnreadableLibraryIsPreservedAndRefusesWrites]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignLibraryTests testUnreadableLibraryIsPreservedAndRefusesWrites]' passed (0.001 seconds).
+Test Suite 'EventDesignLibraryTests' passed at 2026-10-17 22:25:55.802.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.026 (0.026) seconds
+Test Suite 'EventDesignStudioTests' started at 2026-10-17 22:25:55.802.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testArchivedReprintKeepsFrozenArtworkAfterSettingsChange]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testArchivedReprintKeepsFrozenArtworkAfterSettingsChange]' passed (0.601 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testArtworkFrameAlwaysStaysInsidePrintableBounds]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testArtworkFrameAlwaysStaysInsidePrintableBounds]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testClassicPresetIsTheLegacyReceiptTypography]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testClassicPresetIsTheLegacyReceiptTypography]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testCustomTypographyValuesClampAndNormalize]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testCustomTypographyValuesClampAndNormalize]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testDesignRoundTripsThroughPersistence]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testDesignRoundTripsThroughPersistence]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testEveryFontFaceIsInstalledAndResolvesDeterministically]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testEveryFontFaceIsInstalledAndResolvesDeterministically]' passed (0.007 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testEveryPresetFitsLongestTextInEveryFormatWithoutOverlap]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testEveryPresetFitsLongestTextInEveryFormatWithoutOverlap]' passed (3.185 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testExtremeArtworkSettingsKeepEveryFormatWithinMaximumHeight]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testExtremeArtworkSettingsKeepEveryFormatWithinMaximumHeight]' passed (0.060 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testFillBannerHeightAndZoomAreBoundedAndDeterministic]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testFillBannerHeightAndZoomAreBoundedAndDeterministic]' passed (0.005 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testJPEGArtworkRemainsSupported]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testJPEGArtworkRemainsSupported]' passed (1.211 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testLegacyAlignmentAndNewHorizontalPositionAgree]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testLegacyAlignmentAndNewHorizontalPositionAgree]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testLegacyProfileWithoutNewFieldsDecodesToClassicAndAlignmentPlacement]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testLegacyProfileWithoutNewFieldsDecodesToClassicAndAlignmentPlacement]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testLongTitleShrinksWithinSafeRangeAndShortTitleKeepsPreferredSize]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testLongTitleShrinksWithinSafeRangeAndShortTitleKeepsPreferredSize]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testMultiPageAndUnreadableArtworkAreRejectedCleanly]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testMultiPageAndUnreadableArtworkAreRejectedCleanly]' passed (0.005 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testPassportLayoutIsIndependentOfReceiptTypography]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testPassportLayoutIsIndependentOfReceiptTypography]' passed (0.648 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testResetClearsEditorAdjustmentsButKeepsArtwork]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testResetClearsEditorAdjustmentsButKeepsArtwork]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testSessionArtworkIsFrozenAndCannotLeakIntoLaterSession]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testSessionArtworkIsFrozenAndCannotLeakIntoLaterSession]' passed (0.275 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testSinglePagePDFImportsAsVectorAndRendersAtReceiptResolution]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testSinglePagePDFImportsAsVectorAndRendersAtReceiptResolution]' passed (1.143 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testThermalPreviewMatchesProductionReceiptRaster]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testThermalPreviewMatchesProductionReceiptRaster]' passed (1.201 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testTransparentPNGCompositesToWhiteInReceiptAndThermalPreview]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testTransparentPNGCompositesToWhiteInReceiptAndThermalPreview]' passed (0.322 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testTypographyChangeAffectsOnlySessionsFrozenAfterIt]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testTypographyChangeAffectsOnlySessionsFrozenAfterIt]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testTypographyLayoutIsDeterministic]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testTypographyLayoutIsDeterministic]' passed (0.006 seconds).
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testUnknownOrCorruptDesignValuesNeverMakeTheProfileUnreadable]' started.
+Test Case '-[PocketPixelsBoothTests.EventDesignStudioTests testUnknownOrCorruptDesignValuesNeverMakeTheProfileUnreadable]' passed (0.003 seconds).
+Test Suite 'EventDesignStudioTests' passed at 2026-10-17 22:26:04.497.
+	 Executed 23 tests, with 0 failures (0 unexpected) in 8.684 (8.695) seconds
+Test Suite 'EventFinalizationTests' started at 2026-10-17 22:26:04.497.
+Test Case '-[PocketPixelsBoothTests.EventFinalizationTests testAccessibilityCopySelectionScrollsWithoutHorizontalClipping]' started.
+Test Case '-[PocketPixelsBoothTests.EventFinalizationTests testAccessibilityCopySelectionScrollsWithoutHorizontalClipping]' passed (1.181 seconds).
+Test Case '-[PocketPixelsBoothTests.EventFinalizationTests testBackAndCancelBeforeCheckoutPreserveIdentityAndCreateNoPayment]' started.
+Test Case '-[PocketPixelsBoothTests.EventFinalizationTests testBackAndCancelBeforeCheckoutPreserveIdentityAndCreateNoPayment]' passed (0.097 seconds).
+Test Case '-[PocketPixelsBoothTests.EventFinalizationTests testCancelAtPaidCameraReadyReturnsToWelcomeAndRetainsRecoveryForEveryPaidSource]' started.
+Test Case '-[PocketPixelsBoothTests.EventFinalizationTests testCancelAtPaidCameraReadyReturnsToWelcomeAndRetainsRecoveryForEveryPaidSource]' passed (0.063 seconds).
+Test Case '-[PocketPixelsBoothTests.EventFinalizationTests testConclusivePolicyRejectionReopensCopyReviewButUnresolvedPaymentDoesNot]' started.
+Test Case '-[PocketPixelsBoothTests.EventFinalizationTests testConclusivePolicyRejectionReopensCopyReviewButUnresolvedPaymentDoesNot]' passed (0.016 seconds).
+Test Case '-[PocketPixelsBoothTests.EventFinalizationTests testCopySelectionAndThankYouFitCarloPortraitAndLandscape]' started.
+Test Case '-[PocketPixelsBoothTests.EventFinalizationTests testCopySelectionAndThankYouFitCarloPortraitAndLandscape]' passed (7.515 seconds).
+Test Case '-[PocketPixelsBoothTests.EventFinalizationTests testPaymentAndCashBackPreserveSessionAndCopiesWithoutCreatingOrders]' started.
+Test Case '-[PocketPixelsBoothTests.EventFinalizationTests testPaymentAndCashBackPreserveSessionAndCopiesWithoutCreatingOrders]' passed (0.003 seconds).
+Test Case '-[PocketPixelsBoothTests.EventFinalizationTests testPaymentAndCashScreensFitAndCenterInBothCarloOrientations]' started.
+Test Case '-[PocketPixelsBoothTests.EventFinalizationTests testPaymentAndCashScreensFitAndCenterInBothCarloOrientations]' passed (8.873 seconds).
+Test Case '-[PocketPixelsBoothTests.EventFinalizationTests testPaymentScreenNavigationCannotAbandonAnUnresolvedRequest]' started.
+Test Case '-[PocketPixelsBoothTests.EventFinalizationTests testPaymentScreenNavigationCannotAbandonAnUnresolvedRequest]' passed (0.059 seconds).
+Test Case '-[PocketPixelsBoothTests.EventFinalizationTests testQuantityLimitsUseConfiguredPolicyAndRepeatedContinueDoesNotStartAnOrder]' started.
+Test Case '-[PocketPixelsBoothTests.EventFinalizationTests testQuantityLimitsUseConfiguredPolicyAndRepeatedContinueDoesNotStartAnOrder]' passed (0.003 seconds).
+Test Case '-[PocketPixelsBoothTests.EventFinalizationTests testUnresolvedPaymentCannotNavigateBackCancelOrChangeQuantity]' started.
+Test Case '-[PocketPixelsBoothTests.EventFinalizationTests testUnresolvedPaymentCannotNavigateBackCancelOrChangeQuantity]' passed (0.003 seconds).
+Test Suite 'EventFinalizationTests' passed at 2026-10-17 22:26:22.317.
+	 Executed 10 tests, with 0 failures (0 unexpected) in 17.814 (17.820) seconds
+Test Suite 'EventHeaderTests' started at 2026-10-17 22:26:22.318.
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testAlignmentProducesDeterministicFrames]' started.
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testAlignmentProducesDeterministicFrames]' passed (0.025 seconds).
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testCustomHeaderAppearsWithinSafeRegionAndPreservesAspectRatio]' started.
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testCustomHeaderAppearsWithinSafeRegionAndPreservesAspectRatio]' passed (0.105 seconds).
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testCustomHeaderKeepsEveryReceiptFormatWithinMaximumHeight]' started.
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testCustomHeaderKeepsEveryReceiptFormatWithinMaximumHeight]' passed (0.021 seconds).
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testDefaultAndNoHeaderGeometry]' started.
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testDefaultAndNoHeaderGeometry]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testEventTextBlockCanBeRemovedWithoutReservedHeight]' started.
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testEventTextBlockCanBeRemovedWithoutReservedHeight]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testExtremelyTallHeaderIsCapped]' started.
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testExtremelyTallHeaderIsCapped]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testFitFillAndCropSettingsAreDeterministicAndCodable]' started.
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testFitFillAndCropSettingsAreDeterministicAndCodable]' passed (0.003 seconds).
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testImmutableAssetsKeepSessionAIsolatedFromProfileReplacement]' started.
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testImmutableAssetsKeepSessionAIsolatedFromProfileReplacement]' passed (0.008 seconds).
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testLegacyEventProfileDecodesWithDefaultHeader]' started.
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testLegacyEventProfileDecodesWithDefaultHeader]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testMaximumHeaderScaleStaysWithinPrintableWidth]' started.
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testMaximumHeaderScaleStaysWithinPrintableWidth]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testMissingAssetFallsBackToDefaultHeader]' started.
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testMissingAssetFallsBackToDefaultHeader]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testNewEventImageResetUsesSafeDefaultsAndKeepsAsset]' started.
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testNewEventImageResetUsesSafeDefaultsAndKeepsAsset]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testQualityAnalyzerFindsBroadWarningClasses]' started.
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testQualityAnalyzerFindsBroadWarningClasses]' passed (0.009 seconds).
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testSavedAdvancedEventImageAdjustmentsSurviveProfileRoundTrip]' started.
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testSavedAdvancedEventImageAdjustmentsSurviveProfileRoundTrip]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testThermalPreviewIsDeterministic]' started.
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testThermalPreviewIsDeterministic]' passed (0.234 seconds).
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testTransparentPNGCompositesAgainstWhite]' started.
+Test Case '-[PocketPixelsBoothTests.EventHeaderTests testTransparentPNGCompositesAgainstWhite]' passed (0.002 seconds).
+Test Suite 'EventHeaderTests' passed at 2026-10-17 22:26:22.741.
+	 Executed 16 tests, with 0 failures (0 unexpected) in 0.416 (0.423) seconds
+Test Suite 'EventHistoryReportingTests' started at 2026-10-17 22:26:22.741.
+Test Case '-[PocketPixelsBoothTests.EventHistoryReportingTests testCommercialOrdersNotLinkedToAnyRunStayUnassignedAndAreNotGuessed]' started.
+Test Case '-[PocketPixelsBoothTests.EventHistoryReportingTests testCommercialOrdersNotLinkedToAnyRunStayUnassignedAndAreNotGuessed]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.EventHistoryReportingTests testCorruptAttributionJournalIsPreservedAndBlocksNewAttributions]' started.
+Test Case '-[PocketPixelsBoothTests.EventHistoryReportingTests testCorruptAttributionJournalIsPreservedAndBlocksNewAttributions]' passed (0.003 seconds).
+Test Case '-[PocketPixelsBoothTests.EventHistoryReportingTests testHistoricalReportProvesOnlyIdentityLinkedSessionsAndExplainsTheRest]' started.
+Test Case '-[PocketPixelsBoothTests.EventHistoryReportingTests testHistoricalReportProvesOnlyIdentityLinkedSessionsAndExplainsTheRest]' passed (0.013 seconds).
+Test Case '-[PocketPixelsBoothTests.EventHistoryReportingTests testLegacyDesignLibraryDecodesWithoutRetiredLinksAndDraftCannotReplaceALink]' started.
+Test Case '-[PocketPixelsBoothTests.EventHistoryReportingTests testLegacyDesignLibraryDecodesWithoutRetiredLinksAndDraftCannotReplaceALink]' passed (0.028 seconds).
+Test Case '-[PocketPixelsBoothTests.EventHistoryReportingTests testLegacyManifestWithoutNewFieldsDecodesAndOlderReadersIgnoreThem]' started.
+Test Case '-[PocketPixelsBoothTests.EventHistoryReportingTests testLegacyManifestWithoutNewFieldsDecodesAndOlderReadersIgnoreThem]' passed (0.010 seconds).
+Test Case '-[PocketPixelsBoothTests.EventHistoryReportingTests testManualAttributionIsAuthenticatedAppendOnlyAuditedAndSeparateFromExactCounts]' started.
+Test Case '-[PocketPixelsBoothTests.EventHistoryReportingTests testManualAttributionIsAuthenticatedAppendOnlyAuditedAndSeparateFromExactCounts]' passed (0.013 seconds).
+Test Case '-[PocketPixelsBoothTests.EventHistoryReportingTests testMultipleRunsKeepSeparateRestartSafeStatisticsAndCompleteCSV]' started.
+Test Case '-[PocketPixelsBoothTests.EventHistoryReportingTests testMultipleRunsKeepSeparateRestartSafeStatisticsAndCompleteCSV]' passed (0.039 seconds).
+Test Case '-[PocketPixelsBoothTests.EventHistoryReportingTests testUnassignedPrintEvidenceIsCountedOnceAndNeverAdopted]' started.
+Test Case '-[PocketPixelsBoothTests.EventHistoryReportingTests testUnassignedPrintEvidenceIsCountedOnceAndNeverAdopted]' passed (0.034 seconds).
+Test Suite 'EventHistoryReportingTests' passed at 2026-10-17 22:26:22.886.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.142 (0.145) seconds
+Test Suite 'EventLifecycleIntegrationTests' started at 2026-10-17 22:26:22.887.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testArchivedDesignAndArchivedRunCannotStartOrResume]' started.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testArchivedDesignAndArchivedRunCannotStartOrResume]' passed (0.148 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testConcurrentAndDuplicateOperatorActionsAreSerialized]' started.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testConcurrentAndDuplicateOperatorActionsAreSerialized]' passed (0.259 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testCurrentEventAndReportTabsRenderInPortraitAndLandscape]' started.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testCurrentEventAndReportTabsRenderInPortraitAndLandscape]' passed (13.644 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testEndedRunIsNeverReopenedAndRequiresExplicitNewOccurrence]' started.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testEndedRunIsNeverReopenedAndRequiresExplicitNewOccurrence]' passed (0.164 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testEndForEveryBoothCompletesRunOnlyAfterServerConfirmsEnded]' started.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testEndForEveryBoothCompletesRunOnlyAfterServerConfirmsEnded]' passed (0.158 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testEndThenRelaunchStillRequiresNewOccurrenceAndKeepsHistory]' started.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testEndThenRelaunchStillRequiresNewOccurrenceAndKeepsHistory]' passed (0.174 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testEndThisBoothOnlyLeavesTheSharedPaidEventOpen]' started.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testEndThisBoothOnlyLeavesTheSharedPaidEventOpen]' passed (0.166 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testLegacyInstallWithoutRunsStillAdmitsFirstGuestButMismatchFailsClosed]' started.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testLegacyInstallWithoutRunsStillAdmitsFirstGuestButMismatchFailsClosed]' passed (0.033 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testLostEndResponseIsReconciledAfterRelaunchWithoutRepeatingTheMutation]' started.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testLostEndResponseIsReconciledAfterRelaunchWithoutRepeatingTheMutation]' passed (0.195 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testMaintenanceEndElsewhereCompletesMatchingLocalRun]' started.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testMaintenanceEndElsewhereCompletesMatchingLocalRun]' passed (0.156 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testPauseBoothNeverPausesTheSharedPaidEventForOtherBooths]' started.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testPauseBoothNeverPausesTheSharedPaidEventForOtherBooths]' passed (0.212 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testPauseCommercialEventIsExplicitServerWideAndConfirmedByReadBack]' started.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testPauseCommercialEventIsExplicitServerWideAndConfirmedByReadBack]' passed (0.234 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testPausedRunResumesWithSameIdentityOnlyThroughRevalidatedStart]' started.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testPausedRunResumesWithSameIdentityOnlyThroughRevalidatedStart]' passed (0.147 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testPrepaidStartCommitsRunBeforeFirstGuestAndReportsWithoutPaymentsServer]' started.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testPrepaidStartCommitsRunBeforeFirstGuestAndReportsWithoutPaymentsServer]' passed (0.093 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testReusingEndedPaidDesignCreatesFreshCommercialEventAndKeepsOldFinancialHistory]' started.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testReusingEndedPaidDesignCreatesFreshCommercialEventAndKeepsOldFinancialHistory]' passed (0.334 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testRunWriteFailureAtStartKeepsAdmissionClosed]' started.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testRunWriteFailureAtStartKeepsAdmissionClosed]' passed (0.052 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testStaleOrReusedCommercialLinkIsRefusedWithoutChangingTheDesign]' started.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testStaleOrReusedCommercialLinkIsRefusedWithoutChangingTheDesign]' passed (0.208 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testStatusModelNeverDerivesAcceptingFromASingleSource]' started.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testStatusModelNeverDerivesAcceptingFromASingleSource]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testSwitchingDesignsStartsNewRunWithoutMovingSessions]' started.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testSwitchingDesignsStartsNewRunWithoutMovingSessions]' passed (0.172 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testSwitchingPaidToPrepaidWithUnresolvedEntitlementIsBlockedAndKeepsState]' started.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testSwitchingPaidToPrepaidWithUnresolvedEntitlementIsBlockedAndKeepsState]' passed (0.145 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testUnreachableEndLeavesRunPausedAndReviewClearsIntentWithoutGuessing]' started.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testUnreachableEndLeavesRunPausedAndReviewClearsIntentWithoutGuessing]' passed (0.123 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testUnreadableRunHistoryBlocksStartAndIsPreserved]' started.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testUnreadableRunHistoryBlocksStartAndIsPreserved]' passed (0.024 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testVersionConflictDuringEndIsNotRetriedAndKeepsHistory]' started.
+Test Case '-[PocketPixelsBoothTests.EventLifecycleIntegrationTests testVersionConflictDuringEndIsNotRetriedAndKeepsHistory]' passed (0.127 seconds).
+Test Suite 'EventLifecycleIntegrationTests' passed at 2026-10-17 22:26:39.864.
+	 Executed 23 tests, with 0 failures (0 unexpected) in 16.967 (16.977) seconds
+Test Suite 'EventLogoImportTests' started at 2026-10-17 22:26:39.864.
+Test Case '-[PocketPixelsBoothTests.EventLogoImportTests testContentBoundsIgnoreEmptyPaddingSoPaddedLogosPrintAtTheSameSize]' started.
+Test Case '-[PocketPixelsBoothTests.EventLogoImportTests testContentBoundsIgnoreEmptyPaddingSoPaddedLogosPrintAtTheSameSize]' passed (0.031 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLogoImportTests testCorruptOversizedMultipageAndEncryptedFilesAreRejectedWithClearMessages]' started.
+Test Case '-[PocketPixelsBoothTests.EventLogoImportTests testCorruptOversizedMultipageAndEncryptedFilesAreRejectedWithClearMessages]' passed (0.004 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLogoImportTests testReplacementCreatesANewIdentifierAndKeepsTheOldArtworkForFrozenSessions]' started.
+Test Case '-[PocketPixelsBoothTests.EventLogoImportTests testReplacementCreatesANewIdentifierAndKeepsTheOldArtworkForFrozenSessions]' passed (0.008 seconds).
+Test Case '-[PocketPixelsBoothTests.EventLogoImportTests testValidPNGTransparentPNGJPEGAndVectorPDFImport]' started.
+Test Case '-[PocketPixelsBoothTests.EventLogoImportTests testValidPNGTransparentPNGJPEGAndVectorPDFImport]' passed (0.009 seconds).
+Test Suite 'EventLogoImportTests' passed at 2026-10-17 22:26:39.916.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.051 (0.052) seconds
+Test Suite 'EventOperationsTests' started at 2026-10-17 22:26:39.917.
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testAllPassingChecksAreReady]' started.
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testAllPassingChecksAreReady]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testNextCustomerResetClearsIdentityAndCopyCount]' started.
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testNextCustomerResetClearsIdentityAndCopyCount]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testNoChecksCannotClaimReady]' started.
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testNoChecksCannotClaimReady]' passed (0.000 seconds).
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testOfflinePendingUploadsNeedAttentionButDoNotBlockPrinting]' started.
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testOfflinePendingUploadsNeedAttentionButDoNotBlockPrinting]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testOldArchivesSurviveSaveAndStoreReopen]' started.
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testOldArchivesSurviveSaveAndStoreReopen]' passed (0.029 seconds).
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testOptionalProfileAttentionDoesNotBlockOperation]' started.
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testOptionalProfileAttentionDoesNotBlockOperation]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testPrinterRecoveryLockBlocksReadiness]' started.
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testPrinterRecoveryLockBlocksReadiness]' passed (0.000 seconds).
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testRapidStartCannotReplaceAnExistingSession]' started.
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testRapidStartCannotReplaceAnExistingSession]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testRecoveryEventsCountUniqueUnknownJobsOnly]' started.
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testRecoveryEventsCountUniqueUnknownJobsOnly]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testReprintRequiresIdleUnlockedResolvedState]' started.
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testReprintRequiresIdleUnlockedResolvedState]' passed (0.000 seconds).
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testRequestedCopiesCountBatchesOnceIncludingFailedBatch]' started.
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testRequestedCopiesCountBatchesOnceIncludingFailedBatch]' passed (0.000 seconds).
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testStorageProbeFailureIsNotReportedAsAccessible]' started.
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testStorageProbeFailureIsNotReportedAsAccessible]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testStorageProbeLeavesExistingDataIntact]' started.
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testStorageProbeLeavesExistingDataIntact]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testStorageThresholdBoundaries]' started.
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testStorageThresholdBoundaries]' passed (0.000 seconds).
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testUnknownPrintNeedsFreshAcknowledgementAfterRelaunch]' started.
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testUnknownPrintNeedsFreshAcknowledgementAfterRelaunch]' passed (0.000 seconds).
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testUnverifiedCriticalCameraCannotClaimReady]' started.
+Test Case '-[PocketPixelsBoothTests.EventOperationsTests testUnverifiedCriticalCameraCannotClaimReady]' passed (0.001 seconds).
+Test Suite 'EventOperationsTests' passed at 2026-10-17 22:26:39.962.
+	 Executed 16 tests, with 0 failures (0 unexpected) in 0.041 (0.045) seconds
+Test Suite 'EventReportingAPITests' started at 2026-10-17 22:26:39.962.
+Test Case '-[PocketPixelsBoothTests.EventReportingAPITests testCSVLoadsEveryPageAndIncludesHeaderOnlyOnce]' started.
+Test Case '-[PocketPixelsBoothTests.EventReportingAPITests testCSVLoadsEveryPageAndIncludesHeaderOnlyOnce]' passed (0.013 seconds).
+Test Case '-[PocketPixelsBoothTests.EventReportingAPITests testDeliveredPrintCountIsDecodedWithoutEquatingItToSensorConfirmation]' started.
+Test Case '-[PocketPixelsBoothTests.EventReportingAPITests testDeliveredPrintCountIsDecodedWithoutEquatingItToSensorConfirmation]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.EventReportingAPITests testEventListLoadsAllPagesIncludingArchivedHistory]' started.
+Test Case '-[PocketPixelsBoothTests.EventReportingAPITests testEventListLoadsAllPagesIncludingArchivedHistory]' passed (0.004 seconds).
+Test Case '-[PocketPixelsBoothTests.EventReportingAPITests testExactRunPaymentsRequireExplicitBackendCapabilityInsteadOfReturningMisleadingZero]' started.
+Test Case '-[PocketPixelsBoothTests.EventReportingAPITests testExactRunPaymentsRequireExplicitBackendCapabilityInsteadOfReturningMisleadingZero]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.EventReportingAPITests testFailedSummaryAndWrongCredentialThrowInsteadOfBecomingZero]' started.
+Test Case '-[PocketPixelsBoothTests.EventReportingAPITests testFailedSummaryAndWrongCredentialThrowInsteadOfBecomingZero]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.EventReportingAPITests testIncompleteCSVWithoutNextCursorIsNotOfferedAsComplete]' started.
+Test Case '-[PocketPixelsBoothTests.EventReportingAPITests testIncompleteCSVWithoutNextCursorIsNotOfferedAsComplete]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.EventReportingAPITests testRepeatedPaginationCursorFailsInsteadOfSilentTruncation]' started.
+Test Case '-[PocketPixelsBoothTests.EventReportingAPITests testRepeatedPaginationCursorFailsInsteadOfSilentTruncation]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.EventReportingAPITests testRunOrderQueryCompletesAllPagesIncludingExactSessionIDs]' started.
+Test Case '-[PocketPixelsBoothTests.EventReportingAPITests testRunOrderQueryCompletesAllPagesIncludingExactSessionIDs]' passed (0.002 seconds).
+Test Suite 'EventReportingAPITests' passed at 2026-10-17 22:26:39.991.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.027 (0.030) seconds
+Test Suite 'EventRunArchiveAndLayoutTests' started at 2026-10-17 22:26:39.992.
+Test Case '-[PocketPixelsBoothTests.EventRunArchiveAndLayoutTests testAppliedCommerciallyLinkedAndHistoricalDesignsCannotBeDeleted]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunArchiveAndLayoutTests testAppliedCommerciallyLinkedAndHistoricalDesignsCannotBeDeleted]' passed (0.643 seconds).
+Test Case '-[PocketPixelsBoothTests.EventRunArchiveAndLayoutTests testArchiveStoresExactRunAndLegacyMetadataLoadsWithoutRewritingOrInference]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunArchiveAndLayoutTests testArchiveStoresExactRunAndLegacyMetadataLoadsWithoutRewritingOrInference]' passed (0.788 seconds).
+Test Case '-[PocketPixelsBoothTests.EventRunArchiveAndLayoutTests testDesignCleanupRequiresAuthenticationAndSafeIdle]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunArchiveAndLayoutTests testDesignCleanupRequiresAuthenticationAndSafeIdle]' passed (0.017 seconds).
+Test Case '-[PocketPixelsBoothTests.EventRunArchiveAndLayoutTests testOnlyUnusedDesignCanBeDeletedAndArchiveIsReversible]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunArchiveAndLayoutTests testOnlyUnusedDesignCanBeDeletedAndArchiveIsReversible]' passed (0.023 seconds).
+Test Case '-[PocketPixelsBoothTests.EventRunArchiveAndLayoutTests testPrintJournalReconciliationRepairsStatisticsAfterCrashWithoutAdoptingLegacySessions]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunArchiveAndLayoutTests testPrintJournalReconciliationRepairsStatisticsAfterCrashWithoutAdoptingLegacySessions]' passed (0.035 seconds).
+Test Case '-[PocketPixelsBoothTests.EventRunArchiveAndLayoutTests testRunReportRendersPortraitAndLandscapeWithSyntheticHistory]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunArchiveAndLayoutTests testRunReportRendersPortraitAndLandscapeWithSyntheticHistory]' passed (2.920 seconds).
+Test Suite 'EventRunArchiveAndLayoutTests' passed at 2026-10-17 22:26:44.421.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 4.427 (4.429) seconds
+Test Suite 'EventRunReportingTests' started at 2026-10-17 22:26:44.422.
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testActualCompletionCallbackRecordsOnceAndKeepsRunAfterGuestReset]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testActualCompletionCallbackRecordsOnceAndKeepsRunAfterGuestReset]' passed (0.036 seconds).
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testAutomaticContextSwitchCannotBypassUnresolvedFinancialRecovery]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testAutomaticContextSwitchCannotBypassUnresolvedFinancialRecovery]' passed (0.006 seconds).
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testDiskFailureKeepsCommittedRunAndSessionRecords]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testDiskFailureKeepsCommittedRunAndSessionRecords]' passed (0.011 seconds).
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testFinancialAndPrintSafetyAndAuthenticationBlockRunReset]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testFinancialAndPrintSafetyAndAuthenticationBlockRunReset]' passed (0.005 seconds).
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testHistoricalSessionCannotBeReassignedToNewRun]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testHistoricalSessionCannotBeReassignedToNewRun]' passed (0.016 seconds).
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testInvalidFinancialAmountsFailInsteadOfDisplayingZero]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testInvalidFinancialAmountsFailInsteadOfDisplayingZero]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testLegacySessionDecodingKeepsMissingGalleryEvidenceUnknown]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testLegacySessionDecodingKeepsMissingGalleryEvidenceUnknown]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testNamesNeverIdentifyRunsAndTestLiveRemainSeparate]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testNamesNeverIdentifyRunsAndTestLiveRemainSeparate]' passed (0.015 seconds).
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testOfflineCashSnapshotScopesEnvironmentAndRunWithoutServerAccess]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testOfflineCashSnapshotScopesEnvironmentAndRunWithoutServerAccess]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testPaidButUnclaimedOrderMatchesOriginalCheckoutWithoutInventingAClaim]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testPaidButUnclaimedOrderMatchesOriginalCheckoutWithoutInventingAClaim]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testPartialPrintsAndGalleryUnknownAreNotCompletedOrVerified]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testPartialPrintsAndGalleryUnknownAreNotCompletedOrVerified]' passed (0.016 seconds).
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testPauseAndEndCloseExistingAdmissionBarrierForRollbackSafety]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testPauseAndEndCloseExistingAdmissionBarrierForRollbackSafety]' passed (0.024 seconds).
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testPauseResumeEndAndArchivePreserveIdentityAndHistory]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testPauseResumeEndAndArchivePreserveIdentityAndHistory]' passed (0.024 seconds).
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testRepeatedCallbacksDoNotInflateCopiesCompletionOrGalleryCounts]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testRepeatedCallbacksDoNotInflateCopiesCompletionOrGalleryCounts]' passed (0.097 seconds).
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testRunAndCompletionsSurviveRelaunchAndNewRunKeepsHistory]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testRunAndCompletionsSurviveRelaunchAndNewRunKeepsHistory]' passed (0.021 seconds).
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testRunPaymentsUseExactMembershipAndExcludeUnresolvedAndHeldFromRevenue]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testRunPaymentsUseExactMembershipAndExcludeUnresolvedAndHeldFromRevenue]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testRunWriteFailureAfterPausingLeavesAdmissionFailClosed]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testRunWriteFailureAfterPausingLeavesAdmissionFailClosed]' passed (0.010 seconds).
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testUnreadableRunHistoryIsPreservedAndCannotBeOverwritten]' started.
+Test Case '-[PocketPixelsBoothTests.EventRunReportingTests testUnreadableRunHistoryIsPreservedAndCannotBeOverwritten]' passed (0.002 seconds).
+Test Suite 'EventRunReportingTests' passed at 2026-10-17 22:26:44.717.
+	 Executed 18 tests, with 0 failures (0 unexpected) in 0.288 (0.295) seconds
+Test Suite 'EventSetupAndPaymentMatrixTests' started at 2026-10-17 22:26:44.717.
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testAmbiguousRegularSessionsDoNotCreateOrChooseAnotherEvent]' started.
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testAmbiguousRegularSessionsDoNotCreateOrChooseAnotherEvent]' passed (0.029 seconds).
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testDifferentConnectionDraftReviewNeverContactsCurrentServer]' started.
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testDifferentConnectionDraftReviewNeverContactsCurrentServer]' passed (0.008 seconds).
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testEventOffWithEveryPaymentChoiceUsesTheStudioReceipt]' started.
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testEventOffWithEveryPaymentChoiceUsesTheStudioReceipt]' passed (0.360 seconds).
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testEventOnLogoOffFreeAppliesEventScreensButStandardReceipt]' started.
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testEventOnLogoOffFreeAppliesEventScreensButStandardReceipt]' passed (0.100 seconds).
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testExistingInstallsKeepTheirCommittedPaidEventWithoutRelinking]' started.
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testExistingInstallsKeepTheirCommittedPaidEventWithoutRelinking]' passed (0.032 seconds).
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testExistingRegularSessionsNamesAreReusedWithoutChangingServerPolicy]' started.
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testExistingRegularSessionsNamesAreReusedWithoutChangingServerPolicy]' passed (0.079 seconds).
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testFreeEventWithCoBrandedReceipt]' started.
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testFreeEventWithCoBrandedReceipt]' passed (0.081 seconds).
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testPaidEventWithStandardReceiptConnectsOnceAndCarriesTheEventName]' started.
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testPaidEventWithStandardReceiptConnectsOnceAndCarriesTheEventName]' passed (0.123 seconds).
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testPaidToFreeEventPausesTheRemoteEventFirst]' started.
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testPaidToFreeEventPausesTheRemoteEventFirst]' passed (0.169 seconds).
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testPaymentChoiceAppliesToTheLoadedPolicyAndClearsOfflineCashWithCash]' started.
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testPaymentChoiceAppliesToTheLoadedPolicyAndClearsOfflineCashWithCash]' passed (0.128 seconds).
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testPersonalizedReceiptRequiresAUsableLogo]' started.
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testPersonalizedReceiptRequiresAUsableLogo]' passed (0.052 seconds).
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testQRMinimumAndEmptyMethodsAreRejected]' started.
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testQRMinimumAndEmptyMethodsAreRejected]' passed (0.101 seconds).
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testRevisitingSetupNeverCreatesDuplicatePaidEvents]' started.
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testRevisitingSetupNeverCreatesDuplicatePaidEvents]' passed (0.077 seconds).
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testSaveDesignNeverReportsSuccessWhenTheWriteFails]' started.
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testSaveDesignNeverReportsSuccessWhenTheWriteFails]' passed (0.050 seconds).
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testSavedEventAndDraftsAreRestoredAfterRelaunch]' started.
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testSavedEventAndDraftsAreRestoredAfterRelaunch]' passed (0.064 seconds).
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testSwitchingEventsNeverCarriesAnotherEventsLogo]' started.
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testSwitchingEventsNeverCarriesAnotherEventsLogo]' passed (0.190 seconds).
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testTargetedPaymentReviewIsReadOnlyAndCapturesOriginalBaselineOnEdit]' started.
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testTargetedPaymentReviewIsReadOnlyAndCapturesOriginalBaselineOnEdit]' passed (0.161 seconds).
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testTurningLogoOrEventModeOffKeepsTheSavedArtwork]' started.
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testTurningLogoOrEventModeOffKeepsTheSavedArtwork]' passed (0.235 seconds).
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testViewingAppliedAndPausedSetupDoesNotLeaveFalseDrafts]' started.
+Test Case '-[PocketPixelsBoothTests.EventSetupAndPaymentMatrixTests testViewingAppliedAndPausedSetupDoesNotLeaveFalseDrafts]' passed (0.171 seconds).
+Test Suite 'EventSetupAndPaymentMatrixTests' passed at 2026-10-17 22:26:46.936.
+	 Executed 19 tests, with 0 failures (0 unexpected) in 2.210 (2.219) seconds
+Test Suite 'GalleryAuthenticationClassificationTests' started at 2026-10-17 22:26:46.936.
+Test Case '-[PocketPixelsBoothTests.GalleryAuthenticationClassificationTests testAuthCodesAreClassifiedEvenInsideHTTP200Body]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryAuthenticationClassificationTests testAuthCodesAreClassifiedEvenInsideHTTP200Body]' passed (0.004 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryAuthenticationClassificationTests testNonAuthBackendErrorIsNotMisclassified]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryAuthenticationClassificationTests testNonAuthBackendErrorIsNotMisclassified]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryAuthenticationClassificationTests testOperatorFacingAuthMessagePointsToGallerySetup]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryAuthenticationClassificationTests testOperatorFacingAuthMessagePointsToGallerySetup]' passed (0.004 seconds).
+Test Suite 'GalleryAuthenticationClassificationTests' passed at 2026-10-17 22:26:46.947.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.009 (0.011) seconds
+Test Suite 'GalleryBrowserLayoutTests' started at 2026-10-17 22:26:46.947.
+Test Case '-[PocketPixelsBoothTests.GalleryBrowserLayoutTests testMobileShareAndDownloadFallbackPreserveFilesAndAccurateGuidance]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryBrowserLayoutTests testMobileShareAndDownloadFallbackPreserveFilesAndAccurateGuidance]' passed (3.240 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryBrowserLayoutTests testSyntheticGalleriesFitAllWidthsAndOpenPhotosAndReceipts]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryBrowserLayoutTests testSyntheticGalleriesFitAllWidthsAndOpenPhotosAndReceipts]' passed (3.382 seconds).
+Test Suite 'GalleryBrowserLayoutTests' passed at 2026-10-17 22:26:53.571.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 6.622 (6.624) seconds
+Test Suite 'GalleryDeliveryHardeningTests' started at 2026-10-17 22:26:53.572.
+Test Case '-[PocketPixelsBoothTests.GalleryDeliveryHardeningTests testCancelAndStartAnotherSessionNeverDeleteQueuedGallery]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryDeliveryHardeningTests testCancelAndStartAnotherSessionNeverDeleteQueuedGallery]' passed (0.574 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryDeliveryHardeningTests testColdPublicPageTakingLongerThanEightSecondsReconcilesWithoutPOST]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryDeliveryHardeningTests testColdPublicPageTakingLongerThanEightSecondsReconcilesWithoutPOST]' passed (9.622 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryDeliveryHardeningTests testNetworkAndBackendFailuresRetainDurablePhotosAcrossRestart]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryDeliveryHardeningTests testNetworkAndBackendFailuresRetainDurablePhotosAcrossRestart]' passed (5.097 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryDeliveryHardeningTests testPublicSweepRecoversLaterReadyGalleriesBeforeSlowUpload]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryDeliveryHardeningTests testPublicSweepRecoversLaterReadyGalleriesBeforeSlowUpload]' passed (1.400 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryDeliveryHardeningTests testRetryAllContinuesAfterFailureAndReconcilesWithoutAnotherPOST]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryDeliveryHardeningTests testRetryAllContinuesAfterFailureAndReconcilesWithoutAnotherPOST]' passed (1.625 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryDeliveryHardeningTests testSimultaneousTriggersAndCancelCannotReleaseAnotherUploadLock]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryDeliveryHardeningTests testSimultaneousTriggersAndCancelCannotReleaseAnotherUploadLock]' passed (1.201 seconds).
+Test Suite 'GalleryDeliveryHardeningTests' passed at 2026-10-17 22:27:13.096.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 19.520 (19.524) seconds
+Test Suite 'GalleryFrontDoorMigrationTests' started at 2026-10-17 22:27:13.097.
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testArchivedSessionsRetainOriginalURLAndReprintReproducesSameQR]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testArchivedSessionsRetainOriginalURLAndReprintReproducesSameQR]' passed (1.691 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testEveryBoothFormatComposesReceiptQRFromItsSessionURL]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testEveryBoothFormatComposesReceiptQRFromItsSessionURL]' passed (0.610 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testGalleryURLRoundTripsToItsOwnFrontDoor]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testGalleryURLRoundTripsToItsOwnFrontDoor]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testInvalidPreferredValueFailsInsteadOfSilentlyFallingBack]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testInvalidPreferredValueFailsInsteadOfSilentlyFallingBack]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testLegacyInfoPlistKeyRemainsFallback]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testLegacyInfoPlistKeyRemainsFallback]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testLoadUsesStandardOperatorOverrideForNewSessions]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testLoadUsesStandardOperatorOverrideForNewSessions]' passed (0.003 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testMadeToKeepInfoPlistKeyIsPreferredOverLegacyKey]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testMadeToKeepInfoPlistKeyIsPreferredOverLegacyKey]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testMissingBothKeysGivesClearError]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testMissingBothKeysGivesClearError]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testNewSessionsUsePreferredFrontDoorWithUnchangedQueryAndToken]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testNewSessionsUsePreferredFrontDoorWithUnchangedQueryAndToken]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testOperatorOverrideHasHighestPriority]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testOperatorOverrideHasHighestPriority]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testOperatorOverrideStoreAcceptsBothFrontDoors]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testOperatorOverrideStoreAcceptsBothFrontDoors]' passed (0.006 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testPackagedInfoPlistUsesVerifiedMadeToKeepFrontDoor]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testPackagedInfoPlistUsesVerifiedMadeToKeepFrontDoor]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testPreparationReusesSessionFrozenURLEvenAfterConfigChanges]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testPreparationReusesSessionFrozenURLEvenAfterConfigChanges]' passed (0.436 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testQueuedLegacyAndNewPayloadsKeepTheirFrozenURLs]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testQueuedLegacyAndNewPayloadsKeepTheirFrozenURLs]' passed (0.853 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testRecoverySnapshotsRoundTripLegacyAndNewURLsUnchanged]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testRecoverySnapshotsRoundTripLegacyAndNewURLsUnchanged]' passed (0.009 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testRetryReturnsFrozenLegacyURLWhenBackendNowAnswersWithNewFrontDoor]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testRetryReturnsFrozenLegacyURLWhenBackendNowAnswersWithNewFrontDoor]' passed (0.460 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testSuccessfulResponseFromEitherFrontDoorIsAcceptedForSameToken]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testSuccessfulResponseFromEitherFrontDoorIsAcceptedForSameToken]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testValidationAcceptsLegacyAndMadeToKeepHostsAndStaysStrict]' started.
+Test Case '-[PocketPixelsBoothTests.GalleryFrontDoorMigrationTests testValidationAcceptsLegacyAndMadeToKeepHostsAndStaysStrict]' passed (0.001 seconds).
+Test Suite 'GalleryFrontDoorMigrationTests' passed at 2026-10-17 22:27:17.181.
+	 Executed 18 tests, with 0 failures (0 unexpected) in 4.077 (4.084) seconds
+Test Suite 'GuestPaymentAndCashTests' started at 2026-10-17 22:27:17.181.
+Test Case '-[PocketPixelsBoothTests.GuestPaymentAndCashTests testAttendantConfirmationFailingOnTheServerNeverFallsBackToSelfDeclaration]' started.
+Test Case '-[PocketPixelsBoothTests.GuestPaymentAndCashTests testAttendantConfirmationFailingOnTheServerNeverFallsBackToSelfDeclaration]' passed (0.006 seconds).
+Test Case '-[PocketPixelsBoothTests.GuestPaymentAndCashTests testAttendantConfirmationRequiresAuthentication]' started.
+Test Case '-[PocketPixelsBoothTests.GuestPaymentAndCashTests testAttendantConfirmationRequiresAuthentication]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.GuestPaymentAndCashTests testCashOnlyGoesStraightToTheAttendantScreenWithoutCreatingAnyOrder]' started.
+Test Case '-[PocketPixelsBoothTests.GuestPaymentAndCashTests testCashOnlyGoesStraightToTheAttendantScreenWithoutCreatingAnyOrder]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.GuestPaymentAndCashTests testChoicesMapOntoTheExistingPolicyModel]' started.
+Test Case '-[PocketPixelsBoothTests.GuestPaymentAndCashTests testChoicesMapOntoTheExistingPolicyModel]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.GuestPaymentAndCashTests testConfirmationUnavailableErrorsAreRecognised]' started.
+Test Case '-[PocketPixelsBoothTests.GuestPaymentAndCashTests testConfirmationUnavailableErrorsAreRecognised]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.GuestPaymentAndCashTests testConfirmCashUsesTheOperatorCredentialAndSendsTheShownAmount]' started.
+Test Case '-[PocketPixelsBoothTests.GuestPaymentAndCashTests testConfirmCashUsesTheOperatorCredentialAndSendsTheShownAmount]' passed (0.008 seconds).
+Test Case '-[PocketPixelsBoothTests.GuestPaymentAndCashTests testGuestDeclarationCannotBypassOfflineAttendantAuthentication]' started.
+Test Case '-[PocketPixelsBoothTests.GuestPaymentAndCashTests testGuestDeclarationCannotBypassOfflineAttendantAuthentication]' passed (0.003 seconds).
+Test Case '-[PocketPixelsBoothTests.GuestPaymentAndCashTests testGuestDeclarationUsesBoothCredentialAndKeepsSelfReportedProvenance]' started.
+Test Case '-[PocketPixelsBoothTests.GuestPaymentAndCashTests testGuestDeclarationUsesBoothCredentialAndKeepsSelfReportedProvenance]' passed (0.009 seconds).
+Test Case '-[PocketPixelsBoothTests.GuestPaymentAndCashTests testOnlineGuestDeclarationDoesNotAskForOperatorAuthentication]' started.
+Test Case '-[PocketPixelsBoothTests.GuestPaymentAndCashTests testOnlineGuestDeclarationDoesNotAskForOperatorAuthentication]' passed (0.004 seconds).
+Test Case '-[PocketPixelsBoothTests.GuestPaymentAndCashTests testOperatorConfirmedProvenanceIsDecodedSeparatelyFromHistoricalCash]' started.
+Test Case '-[PocketPixelsBoothTests.GuestPaymentAndCashTests testOperatorConfirmedProvenanceIsDecodedSeparatelyFromHistoricalCash]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.GuestPaymentAndCashTests testQROnlyNeverOffersCashAndBothMethodsStillAskTheGuest]' started.
+Test Case '-[PocketPixelsBoothTests.GuestPaymentAndCashTests testQROnlyNeverOffersCashAndBothMethodsStillAskTheGuest]' passed (0.004 seconds).
+Test Suite 'GuestPaymentAndCashTests' passed at 2026-10-17 22:27:17.227.
+	 Executed 11 tests, with 0 failures (0 unexpected) in 0.041 (0.046) seconds
+Test Suite 'HardwareQualificationTests' started at 2026-10-17 22:27:17.227.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testApprovalCoversOnlyTheFirstBatchUntilRenewed]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testApprovalCoversOnlyTheFirstBatchUntilRenewed]' passed (2.650 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testAuthorizationIsBoundToRunPlanLaunchBatchAndBudget]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testAuthorizationIsBoundToRunPlanLaunchBatchAndBudget]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testAutomaticPhotoPassInputUsesDiagnosticSessionTransitionsOnly]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testAutomaticPhotoPassInputUsesDiagnosticSessionTransitionsOnly]' passed (0.006 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testBackToBackCustomerBatchesAreSerializedWithoutInterleaving]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testBackToBackCustomerBatchesAreSerializedWithoutInterleaving]' passed (0.043 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testCleanupRefusesActiveRunsAndUnresolvedPrints]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testCleanupRefusesActiveRunsAndUnresolvedPrints]' passed (0.014 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testCopyCountsStaySeparateFromSessionCounts]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testCopyCountsStaySeparateFromSessionCounts]' passed (69.411 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testCustomerEnvironmentKeepsProductionBehaviour]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testCustomerEnvironmentKeepsProductionBehaviour]' passed (0.007 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testDefaultConfigurationIsSimulationAndNeverTouchesThePrinter]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testDefaultConfigurationIsSimulationAndNeverTouchesThePrinter]' passed (5.433 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testDiagnosticCopiesAndRemainingRetryAreAuthorizedOnlyForQualification]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testDiagnosticCopiesAndRemainingRetryAreAuthorizedOnlyForQualification]' passed (0.071 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testDiagnosticPhotosKeepCaptureAndPrintOrientationConsistent]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testDiagnosticPhotosKeepCaptureAndPrintOrientationConsistent]' passed (0.071 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testDiagnosticRunsNeverWriteCustomerArchivesGalleriesOrRecovery]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testDiagnosticRunsNeverWriteCustomerArchivesGalleriesOrRecovery]' passed (4.461 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testFailedPreprintCheckpointSendsNoBytes]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testFailedPreprintCheckpointSendsNoBytes]' passed (0.868 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testHandsFreeApprovalCoversWholeRunOnlyForModeC]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testHandsFreeApprovalCoversWholeRunOnlyForModeC]' passed (0.015 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testHandsFreeReportKeepsPhysicalChecksUnverified]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testHandsFreeReportKeepsPhysicalChecksUnverified]' passed (0.003 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testHundredSessionPlanIsDeterministicBalancedAndCoversEveryScenario]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testHundredSessionPlanIsDeterministicBalancedAndCoversEveryScenario]' passed (0.011 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testHundredSimulatedSessionsHaveHundredDistinctIdentities]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testHundredSimulatedSessionsHaveHundredDistinctIdentities]' passed (166.679 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testOnlyACompleteFullyConfirmedRunCanPass]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testOnlyACompleteFullyConfirmedRunCanPass]' passed (0.012 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testOwnerConfirmedHandsFreeRunPassesWithoutInventingDrillAcknowledgments]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testOwnerConfirmedHandsFreeRunPassesWithoutInventingDrillAcknowledgments]' passed (0.006 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testPauseAndStopPreventNewPhysicalJobs]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testPauseAndStopPreventNewPhysicalJobs]' passed (1.820 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testPhysicalRunNeverStartsWithoutExplicitApproval]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testPhysicalRunNeverStartsWithoutExplicitApproval]' passed (0.040 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testPrinterEndurancePassIsScopedAndStillRequiresEvidence]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testPrinterEndurancePassIsScopedAndStillRequiresEvidence]' passed (0.010 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testPrinterRecoveryLockBlocksStartAndStopsARun]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testPrinterRecoveryLockBlocksStartAndStopsARun]' passed (3.476 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testQualificationBoothEnvironmentIsolatesTheProductionStateMachine]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testQualificationBoothEnvironmentIsolatesTheProductionStateMachine]' passed (2.367 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testRelaunchReconstructsStateWithoutResumingAndInvalidatesApproval]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testRelaunchReconstructsStateWithoutResumingAndInvalidatesApproval]' passed (0.042 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testReportsNeverClaimPhysicalValidationFromMockResults]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testReportsNeverClaimPhysicalValidationFromMockResults]' passed (0.004 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testSafetyGateListsEveryBlockingCondition]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testSafetyGateListsEveryBlockingCondition]' passed (0.005 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testStopRunFromPrintErrorPromptNeverStartsAnotherSession]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testStopRunFromPrintErrorPromptNeverStartsAnotherSession]' passed (1.947 seconds).
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testUncertainPrintHaltsTheRunAndIsNeverResent]' started.
+Test Case '-[PocketPixelsBoothTests.HardwareQualificationTests testUncertainPrintHaltsTheRunAndIsNeverResent]' passed (1.624 seconds).
+Test Suite 'HardwareQualificationTests' passed at 2026-10-17 22:31:38.346.
+	 Executed 28 tests, with 0 failures (0 unexpected) in 261.099 (261.118) seconds
+Test Suite 'HistoricalAttributionBatchTests' started at 2026-10-17 22:31:38.346.
+Test Case '-[PocketPixelsBoothTests.HistoricalAttributionBatchTests testEarlierBuildJournalEntriesWithoutBatchIDStillDecode]' started.
+Test Case '-[PocketPixelsBoothTests.HistoricalAttributionBatchTests testEarlierBuildJournalEntriesWithoutBatchIDStillDecode]' passed (0.011 seconds).
+Test Case '-[PocketPixelsBoothTests.HistoricalAttributionBatchTests testFailedBatchWriteAttributesNothing]' started.
+Test Case '-[PocketPixelsBoothTests.HistoricalAttributionBatchTests testFailedBatchWriteAttributesNothing]' passed (0.025 seconds).
+Test Case '-[PocketPixelsBoothTests.HistoricalAttributionBatchTests testOneInvalidItemRejectsTheWholeBatch]' started.
+Test Case '-[PocketPixelsBoothTests.HistoricalAttributionBatchTests testOneInvalidItemRejectsTheWholeBatch]' passed (0.023 seconds).
+Test Case '-[PocketPixelsBoothTests.HistoricalAttributionBatchTests testRealRunBoundsAreEnforcedButEarlierEventRecordsAreOperatorDefined]' started.
+Test Case '-[PocketPixelsBoothTests.HistoricalAttributionBatchTests testRealRunBoundsAreEnforcedButEarlierEventRecordsAreOperatorDefined]' passed (0.009 seconds).
+Test Case '-[PocketPixelsBoothTests.HistoricalAttributionBatchTests testRepeatedSubmissionAndRelaunchKeepOneAuditedBatch]' started.
+Test Case '-[PocketPixelsBoothTests.HistoricalAttributionBatchTests testRepeatedSubmissionAndRelaunchKeepOneAuditedBatch]' passed (0.023 seconds).
+Test Case '-[PocketPixelsBoothTests.HistoricalAttributionBatchTests testTwoEventsOnTheSameDayAreAttributedSeparatelyBySelection]' started.
+Test Case '-[PocketPixelsBoothTests.HistoricalAttributionBatchTests testTwoEventsOnTheSameDayAreAttributedSeparatelyBySelection]' passed (0.032 seconds).
+Test Suite 'HistoricalAttributionBatchTests' passed at 2026-10-17 22:31:38.477.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.123 (0.130) seconds
+Test Suite 'LiveEventPaymentRecoveryTests' started at 2026-10-17 22:31:38.477.
+Test Case '-[PocketPixelsBoothTests.LiveEventPaymentRecoveryTests testCancelledPollCannotReturnAuthorizedCameraToPayment]' started.
+Test Case '-[PocketPixelsBoothTests.LiveEventPaymentRecoveryTests testCancelledPollCannotReturnAuthorizedCameraToPayment]' passed (0.105 seconds).
+Test Case '-[PocketPixelsBoothTests.LiveEventPaymentRecoveryTests testEmptyLookupRequiresAttendantAndDoesNotDeclareCheckoutUnpaid]' started.
+Test Case '-[PocketPixelsBoothTests.LiveEventPaymentRecoveryTests testEmptyLookupRequiresAttendantAndDoesNotDeclareCheckoutUnpaid]' passed (0.039 seconds).
+Test Case '-[PocketPixelsBoothTests.LiveEventPaymentRecoveryTests testLostConnectionRevokesPreviouslyAllowedReplacement]' started.
+Test Case '-[PocketPixelsBoothTests.LiveEventPaymentRecoveryTests testLostConnectionRevokesPreviouslyAllowedReplacement]' passed (0.062 seconds).
+Test Case '-[PocketPixelsBoothTests.LiveEventPaymentRecoveryTests testOnlyConclusiveUnpaidServerDecisionAllowsDeliberateNewCheckout]' started.
+Test Case '-[PocketPixelsBoothTests.LiveEventPaymentRecoveryTests testOnlyConclusiveUnpaidServerDecisionAllowsDeliberateNewCheckout]' passed (0.029 seconds).
+Test Case '-[PocketPixelsBoothTests.LiveEventPaymentRecoveryTests testOperatorArmedResumeFromReconciliationRevalidatesAndClaimsSameCheckout]' started.
+Test Case '-[PocketPixelsBoothTests.LiveEventPaymentRecoveryTests testOperatorArmedResumeFromReconciliationRevalidatesAndClaimsSameCheckout]' passed (0.158 seconds).
+Test Case '-[PocketPixelsBoothTests.LiveEventPaymentRecoveryTests testOperatorResumeCannotReplaceDifferentGuestOrAuthorizedCamera]' started.
+Test Case '-[PocketPixelsBoothTests.LiveEventPaymentRecoveryTests testOperatorResumeCannotReplaceDifferentGuestOrAuthorizedCamera]' passed (0.114 seconds).
+Test Case '-[PocketPixelsBoothTests.LiveEventPaymentRecoveryTests testRapidStartTapsCannotReplaceAnExistingCustomer]' started.
+Test Case '-[PocketPixelsBoothTests.LiveEventPaymentRecoveryTests testRapidStartTapsCannotReplaceAnExistingCustomer]' passed (0.076 seconds).
+Test Case '-[PocketPixelsBoothTests.LiveEventPaymentRecoveryTests testResetCancelsPreviousPollWithoutChangingNextCustomer]' started.
+Test Case '-[PocketPixelsBoothTests.LiveEventPaymentRecoveryTests testResetCancelsPreviousPollWithoutChangingNextCustomer]' passed (0.027 seconds).
+Test Case '-[PocketPixelsBoothTests.LiveEventPaymentRecoveryTests testTimeoutRetainsUnknownOutcomeAndForegroundRecoversOriginalOrder]' started.
+Test Case '-[PocketPixelsBoothTests.LiveEventPaymentRecoveryTests testTimeoutRetainsUnknownOutcomeAndForegroundRecoversOriginalOrder]' passed (0.108 seconds).
+Test Case '-[PocketPixelsBoothTests.LiveEventPaymentRecoveryTests testUnknownOrderIsLookedUpWithoutCreatingAnotherPaymentAndCancellationKeepsRecord]' started.
+Test Case '-[PocketPixelsBoothTests.LiveEventPaymentRecoveryTests testUnknownOrderIsLookedUpWithoutCreatingAnotherPaymentAndCancellationKeepsRecord]' passed (0.048 seconds).
+Test Case '-[PocketPixelsBoothTests.LiveEventPaymentRecoveryTests testVerifiedPaymentClaimsOriginalEntitlementAndSession]' started.
+Test Case '-[PocketPixelsBoothTests.LiveEventPaymentRecoveryTests testVerifiedPaymentClaimsOriginalEntitlementAndSession]' passed (0.076 seconds).
+Test Suite 'LiveEventPaymentRecoveryTests' passed at 2026-10-17 22:31:39.326.
+	 Executed 11 tests, with 0 failures (0 unexpected) in 0.841 (0.849) seconds
+Test Suite 'MadeToKeepBrandTests' started at 2026-10-17 22:31:39.326.
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testAppDisplayNameIsMadeToKeepStudios]' started.
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testAppDisplayNameIsMadeToKeepStudios]' passed (0.010 seconds).
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testBrandConstantsMatchReference]' started.
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testBrandConstantsMatchReference]' passed (0.006 seconds).
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testCustomerFlowScreensUseMadeToKeepDesignSystem]' started.
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testCustomerFlowScreensUseMadeToKeepDesignSystem]' passed (18.210 seconds).
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testDefaultReceiptIsMadeToKeepBrandedInColorAndThermal]' started.
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testDefaultReceiptIsMadeToKeepBrandedInColorAndThermal]' passed (1.488 seconds).
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testDefaultVisibleCopyNeverShowsRetiredBrand]' started.
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testDefaultVisibleCopyNeverShowsRetiredBrand]' passed (0.006 seconds).
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testDuoReviewLayoutFitsPortraitWithoutScrolling]' started.
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testDuoReviewLayoutFitsPortraitWithoutScrolling]' passed (0.006 seconds).
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testDuoReviewPhotoAreaIncreasesByAtLeastFortyPercentFromPreviousGeometry]' started.
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testDuoReviewPhotoAreaIncreasesByAtLeastFortyPercentFromPreviousGeometry]' passed (0.004 seconds).
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testEventAndPhotoPassReceiptRegressionFixtures]' started.
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testEventAndPhotoPassReceiptRegressionFixtures]' passed (2.581 seconds).
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testEventModeWelcomeKeepsMadeToKeepPoster]' started.
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testEventModeWelcomeKeepsMadeToKeepPoster]' passed (1.644 seconds).
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testEveryFormatReviewFitsElevenInchIPadInBothOrientations]' started.
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testEveryFormatReviewFitsElevenInchIPadInBothOrientations]' passed (0.013 seconds).
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testEveryFormatReviewRendersOnElevenInchCanvas]' started.
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testEveryFormatReviewRendersOnElevenInchCanvas]' passed (20.840 seconds).
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testLegacyCompatibilityIdentifiersAreUnchanged]' started.
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testLegacyCompatibilityIdentifiersAreUnchanged]' passed (0.008 seconds).
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testPortraitReviewMirrorsPrintedArrangement]' started.
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testPortraitReviewMirrorsPrintedArrangement]' passed (0.008 seconds).
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testShortWindowsScrollInsteadOfClippingControls]' started.
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testShortWindowsScrollInsteadOfClippingControls]' passed (0.007 seconds).
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testWelcomePosterLayoutMatchesElevenInchCanvas]' started.
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testWelcomePosterLayoutMatchesElevenInchCanvas]' passed (0.006 seconds).
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testWelcomeScreenMatchesReferenceCanvasSizes]' started.
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testWelcomeScreenMatchesReferenceCanvasSizes]' passed (3.210 seconds).
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testWordmarkFontResolvesToHighContrastItalicSerif]' started.
+Test Case '-[PocketPixelsBoothTests.MadeToKeepBrandTests testWordmarkFontResolvesToHighContrastItalicSerif]' passed (0.007 seconds).
+Test Suite 'MadeToKeepBrandTests' passed at 2026-10-17 22:32:27.393.
+	 Executed 17 tests, with 0 failures (0 unexpected) in 48.054 (48.067) seconds
+Test Suite 'OccurrenceBoundaryTests' started at 2026-10-17 22:32:27.394.
+Test Case '-[PocketPixelsBoothTests.OccurrenceBoundaryTests testCrashBetweenAdmissionClosureAndRunTransitionStaysClosedAndRecovers]' started.
+Test Case '-[PocketPixelsBoothTests.OccurrenceBoundaryTests testCrashBetweenAdmissionClosureAndRunTransitionStaysClosedAndRecovers]' passed (0.371 seconds).
+Test Case '-[PocketPixelsBoothTests.OccurrenceBoundaryTests testNewOccurrenceSharingACommercialEventKeepsRevenueSeparatePerRun]' started.
+Test Case '-[PocketPixelsBoothTests.OccurrenceBoundaryTests testNewOccurrenceSharingACommercialEventKeepsRevenueSeparatePerRun]' passed (0.324 seconds).
+Test Case '-[PocketPixelsBoothTests.OccurrenceBoundaryTests testPausedOccurrenceResumesWithTheSameRun]' started.
+Test Case '-[PocketPixelsBoothTests.OccurrenceBoundaryTests testPausedOccurrenceResumesWithTheSameRun]' passed (0.268 seconds).
+Test Case '-[PocketPixelsBoothTests.OccurrenceBoundaryTests testRunningEventCannotBeResetFromSetupWithoutEndingIt]' started.
+Test Case '-[PocketPixelsBoothTests.OccurrenceBoundaryTests testRunningEventCannotBeResetFromSetupWithoutEndingIt]' passed (0.215 seconds).
+Test Case '-[PocketPixelsBoothTests.OccurrenceBoundaryTests testSwitchingPaidEventsCompletesThePreviousRunAndKeepsItsIdentity]' started.
+Test Case '-[PocketPixelsBoothTests.OccurrenceBoundaryTests testSwitchingPaidEventsCompletesThePreviousRunAndKeepsItsIdentity]' passed (0.337 seconds).
+Test Suite 'OccurrenceBoundaryTests' passed at 2026-10-17 22:32:28.913.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 1.516 (1.519) seconds
+Test Suite 'OnlineStickerProviderTests' started at 2026-10-17 22:32:28.914.
+Test Case '-[PocketPixelsBoothTests.OnlineStickerProviderTests testParsingDropsDisallowedOrOversizedMediaAndPaginates]' started.
+Test Case '-[PocketPixelsBoothTests.OnlineStickerProviderTests testParsingDropsDisallowedOrOversizedMediaAndPaginates]' passed (0.029 seconds).
+Test Case '-[PocketPixelsBoothTests.OnlineStickerProviderTests testRequestsUseDocumentedEndpointsAndSafeSearch]' started.
+Test Case '-[PocketPixelsBoothTests.OnlineStickerProviderTests testRequestsUseDocumentedEndpointsAndSafeSearch]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.OnlineStickerProviderTests testURLPolicyRejectsUnsafeAddresses]' started.
+Test Case '-[PocketPixelsBoothTests.OnlineStickerProviderTests testURLPolicyRejectsUnsafeAddresses]' passed (0.001 seconds).
+Test Suite 'OnlineStickerProviderTests' passed at 2026-10-17 22:32:28.949.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.033 (0.035) seconds
+Test Suite 'OperatorAccessAppearanceTests' started at 2026-10-17 22:32:28.949.
+Test Case '-[PocketPixelsBoothTests.OperatorAccessAppearanceTests testRenderAccessCardInPortraitAndLandscape]' started.
+Test Case '-[PocketPixelsBoothTests.OperatorAccessAppearanceTests testRenderAccessCardInPortraitAndLandscape]' passed (3.112 seconds).
+Test Suite 'OperatorAccessAppearanceTests' passed at 2026-10-17 22:32:32.063.
+Test Suite 'OperatorExperienceTests' started at 2026-10-17 22:32:32.063.
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testAllPassingChecksAreReadyForGuestsWithoutClutter]' started.
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testAllPassingChecksAreReadyForGuestsWithoutClutter]' passed (0.004 seconds).
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testAutomaticPassportBrandingPrefersImageThenNameThenPocketPassport]' started.
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testAutomaticPassportBrandingPrefersImageThenNameThenPocketPassport]' passed (0.005 seconds).
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testBackendOverridesValidatePersistAndResetWithoutStoringCredentials]' started.
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testBackendOverridesValidatePersistAndResetWithoutStoringCredentials]' passed (0.012 seconds).
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testCheckDisplayNamesAvoidInternalTerminology]' started.
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testCheckDisplayNamesAvoidInternalTerminology]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testEventModeActivationControlsBothOutputsAndFreezesSnapshot]' started.
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testEventModeActivationControlsBothOutputsAndFreezesSnapshot]' passed (0.062 seconds).
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testNewlyImportedTallImageUsesSafeDefaultsWithinPrintableBounds]' started.
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testNewlyImportedTallImageUsesSafeDefaultsWithinPrintableBounds]' passed (0.052 seconds).
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testOperatorFacingHeaderNames]' started.
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testOperatorFacingHeaderNames]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testPassportEventBrandingSwitchPreservesAdvancedOverrides]' started.
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testPassportEventBrandingSwitchPreservesAdvancedOverrides]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testPreviewKeepsExplicitSplitConfiguration]' started.
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testPreviewKeepsExplicitSplitConfiguration]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testPreviewShowsActivatedLookWhileEventModeIsOff]' started.
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testPreviewShowsActivatedLookWhileEventModeIsOff]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testPrinterRecoveryLockOffersFixPrinter]' started.
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testPrinterRecoveryLockOffersFixPrinter]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testReceiptPreviewIsSideEffectFreeForEveryFormat]' started.
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testReceiptPreviewIsSideEffectFreeForEveryFormat]' passed (2.929 seconds).
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testSamplePrintPolicyBlocksUnresolvedStateAndPreparationDoubleTap]' started.
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testSamplePrintPolicyBlocksUnresolvedStateAndPreparationDoubleTap]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testSavedProfileWithAdvancedHeaderAndPassportOverrideDecodesUnchanged]' started.
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testSavedProfileWithAdvancedHeaderAndPassportOverrideDecodesUnchanged]' passed (0.003 seconds).
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testStatusBeforeBoothCheckAsksOperatorToRunIt]' started.
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testStatusBeforeBoothCheckAsksOperatorToRunIt]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testUncertainPrintSurfacesRecoveryWithoutSofteningReadiness]' started.
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testUncertainPrintSurfacesRecoveryWithoutSofteningReadiness]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testWaitingGalleriesAndOfflineAreAttentionNotFailure]' started.
+Test Case '-[PocketPixelsBoothTests.OperatorExperienceTests testWaitingGalleriesAndOfflineAreAttentionNotFailure]' passed (0.001 seconds).
+Test Suite 'OperatorExperienceTests' passed at 2026-10-17 22:32:35.150.
+	 Executed 17 tests, with 0 failures (0 unexpected) in 3.077 (3.086) seconds
+Test Suite 'PassportFormatTests' started at 2026-10-17 22:32:35.150.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testArchivePersistsPassportAndReprintKeepsFrozenReceipt]' started.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testArchivePersistsPassportAndReprintKeepsFrozenReceipt]' passed (1.463 seconds).
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testBirthdayValidationAgeAndCommitDropsYear]' started.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testBirthdayValidationAgeAndCommitDropsYear]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testCustomerResetClearsAllPassportData]' started.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testCustomerResetClearsAllPassportData]' passed (0.012 seconds).
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testCustomHeaderGraphicAndEventTextCombinations]' started.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testCustomHeaderGraphicAndEventTextCombinations]' passed (6.435 seconds).
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testDefaultThemeAndConfigurationAreDeterministic]' started.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testDefaultThemeAndConfigurationAreDeterministic]' passed (0.373 seconds).
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testEventModeTitleIntegrationWithoutStackedHeaders]' started.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testEventModeTitleIntegrationWithoutStackedHeaders]' passed (0.029 seconds).
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testEveryThemeProducesValidDistinctLayouts]' started.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testEveryThemeProducesValidDistinctLayouts]' passed (0.555 seconds).
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testGalleryUploadsTwoPhotosAndNoPassportPersonalDetails]' started.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testGalleryUploadsTwoPhotosAndNoPassportPersonalDetails]' passed (1.274 seconds).
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testMaximumLengthFieldsFitWithoutOverflowForEveryTheme]' started.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testMaximumLengthFieldsFitWithoutOverflowForEveryTheme]' passed (0.742 seconds).
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testMissingOptionalFieldsStillProduceCompleteCards]' started.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testMissingOptionalFieldsStillProduceCompleteCards]' passed (0.096 seconds).
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testPassportCustomerScreensOnElevenInchIPad]' started.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testPassportCustomerScreensOnElevenInchIPad]' passed (23.233 seconds).
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testPassportDataFromSessionACannotAppearInSessionB]' started.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testPassportDataFromSessionACannotAppearInSessionB]' passed (0.413 seconds).
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testPassportFormatIdentityAndCodableValue]' started.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testPassportFormatIdentityAndCodableValue]' passed (0.003 seconds).
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testPassportLayoutHasTwoLandscapeCardsAboveFooterInsideCanvas]' started.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testPassportLayoutHasTwoLandscapeCardsAboveFooterInsideCanvas]' passed (0.005 seconds).
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testPassportPhysicalDimensions]' started.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testPassportPhysicalDimensions]' passed (9.573 seconds).
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testPassportReceiptQRDecodesAndRasterIsDeterministic]' started.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testPassportReceiptQRDecodesAndRasterIsDeterministic]' passed (1.570 seconds).
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testPassportRequiresExactlyTwoPhotosAndFollowsDetailsSignaturePreviewFlow]' started.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testPassportRequiresExactlyTwoPhotosAndFollowsDetailsSignaturePreviewFlow]' passed (0.022 seconds).
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testPassportSessionDataCodableRoundTripAndOptionalFields]' started.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testPassportSessionDataCodableRoundTripAndOptionalFields]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testPhotoOneIsLowerPortraitAndPhotoTwoIsUpperHero]' started.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testPhotoOneIsLowerPortraitAndPhotoTwoIsUpperHero]' passed (0.068 seconds).
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testRecoverySnapshotRoundTripsCommittedPassportOnlyForItsSession]' started.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testRecoverySnapshotRoundTripsCommittedPassportOnlyForItsSession]' passed (0.051 seconds).
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testRetakeTargetsOnlyTheRequestedPassportPhoto]' started.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testRetakeTargetsOnlyTheRequestedPassportPhoto]' passed (0.008 seconds).
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testSignatureIsResolutionIndependentAndRoundTrips]' started.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testSignatureIsResolutionIndependentAndRoundTrips]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testTextLimitsWhitespaceAndUnicodeNormalization]' started.
+Test Case '-[PocketPixelsBoothTests.PassportFormatTests testTextLimitsWhitespaceAndUnicodeNormalization]' passed (0.002 seconds).
+Test Suite 'PassportFormatTests' passed at 2026-10-17 22:33:21.095.
+	 Executed 23 tests, with 0 failures (0 unexpected) in 45.931 (45.944) seconds
+Test Suite 'PaymentCameraHandoffTests' started at 2026-10-17 22:33:21.095.
+Test Case '-[PocketPixelsBoothTests.PaymentCameraHandoffTests testAuthorizedPaymentRelinquishesTaskOwnershipAndStartPhotosClaimsIt]' started.
+Test Case '-[PocketPixelsBoothTests.PaymentCameraHandoffTests testAuthorizedPaymentRelinquishesTaskOwnershipAndStartPhotosClaimsIt]' passed (0.003 seconds).
+Test Suite 'PaymentCameraHandoffTests' passed at 2026-10-17 22:33:21.099.
+Test Suite 'PaymentRecoveryConcurrencyTests' started at 2026-10-17 22:33:21.099.
+Test Case '-[PocketPixelsBoothTests.PaymentRecoveryConcurrencyTests testManySimultaneousRequestsCoalesceIntoOneFollowUpPass]' started.
+Test Case '-[PocketPixelsBoothTests.PaymentRecoveryConcurrencyTests testManySimultaneousRequestsCoalesceIntoOneFollowUpPass]' passed (0.055 seconds).
+Test Case '-[PocketPixelsBoothTests.PaymentRecoveryConcurrencyTests testOlderResponseArrivingLateNeverOverwritesNewerClassification]' started.
+Test Case '-[PocketPixelsBoothTests.PaymentRecoveryConcurrencyTests testOlderResponseArrivingLateNeverOverwritesNewerClassification]' passed (0.021 seconds).
+Test Case '-[PocketPixelsBoothTests.PaymentRecoveryConcurrencyTests testOperatorDismissalDuringARefreshIsNeverResurrectedOrOverwritten]' started.
+Test Case '-[PocketPixelsBoothTests.PaymentRecoveryConcurrencyTests testOperatorDismissalDuringARefreshIsNeverResurrectedOrOverwritten]' passed (0.014 seconds).
+Test Case '-[PocketPixelsBoothTests.PaymentRecoveryConcurrencyTests testTimeoutUnknownAndPossiblyPaidExpiredStatesStayPendingAndUnresolved]' started.
+Test Case '-[PocketPixelsBoothTests.PaymentRecoveryConcurrencyTests testTimeoutUnknownAndPossiblyPaidExpiredStatesStayPendingAndUnresolved]' passed (0.040 seconds).
+Test Case '-[PocketPixelsBoothTests.PaymentRecoveryConcurrencyTests testVerifiedPaymentStaysResumableAndArmedResumeFollowsTheNewestAnswer]' started.
+Test Case '-[PocketPixelsBoothTests.PaymentRecoveryConcurrencyTests testVerifiedPaymentStaysResumableAndArmedResumeFollowsTheNewestAnswer]' passed (0.022 seconds).
+Test Suite 'PaymentRecoveryConcurrencyTests' passed at 2026-10-17 22:33:21.254.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.152 (0.155) seconds
+Test Suite 'PaymentVerificationEscalationTests' started at 2026-10-17 22:33:21.254.
+Test Case '-[PocketPixelsBoothTests.PaymentVerificationEscalationTests testAnUnexpiredQRIsNeverReportedAsSlow]' started.
+Test Case '-[PocketPixelsBoothTests.PaymentVerificationEscalationTests testAnUnexpiredQRIsNeverReportedAsSlow]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.PaymentVerificationEscalationTests testEscalatedQRScreenRendersInPortraitAndLandscape]' started.
+Test Case '-[PocketPixelsBoothTests.PaymentVerificationEscalationTests testEscalatedQRScreenRendersInPortraitAndLandscape]' passed (1.866 seconds).
+Test Case '-[PocketPixelsBoothTests.PaymentVerificationEscalationTests testForegroundRestartKeepsTheClockAndANewCheckoutRestartsIt]' started.
+Test Case '-[PocketPixelsBoothTests.PaymentVerificationEscalationTests testForegroundRestartKeepsTheClockAndANewCheckoutRestartsIt]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.PaymentVerificationEscalationTests testOfflineFailuresEscalateAndRecoveryOnlineResetsTheFailureCount]' started.
+Test Case '-[PocketPixelsBoothTests.PaymentVerificationEscalationTests testOfflineFailuresEscalateAndRecoveryOnlineResetsTheFailureCount]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.PaymentVerificationEscalationTests testReconciliationEscalatesByTimeWithoutChangingTheCheckout]' started.
+Test Case '-[PocketPixelsBoothTests.PaymentVerificationEscalationTests testReconciliationEscalatesByTimeWithoutChangingTheCheckout]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.PaymentVerificationEscalationTests testServerReviewHoldNeedsTheAttendantImmediately]' started.
+Test Case '-[PocketPixelsBoothTests.PaymentVerificationEscalationTests testServerReviewHoldNeedsTheAttendantImmediately]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.PaymentVerificationEscalationTests testStagesNeverOfferPaymentAndAlwaysSayDoNotPayAgainWhenUncertain]' started.
+Test Case '-[PocketPixelsBoothTests.PaymentVerificationEscalationTests testStagesNeverOfferPaymentAndAlwaysSayDoNotPayAgainWhenUncertain]' passed (0.001 seconds).
+Test Suite 'PaymentVerificationEscalationTests' passed at 2026-10-17 22:33:23.130.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 1.873 (1.876) seconds
+Test Suite 'PhotoPassFormatTests' started at 2026-10-17 22:33:23.130.
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testArchiveRoundTripKeepsPhotoPassAndReprintIsIdentical]' started.
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testArchiveRoundTripKeepsPhotoPassAndReprintIsIdentical]' passed (1.161 seconds).
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testCustomerFacingNameIsPhotoPassButStoredIdentityStaysPassport]' started.
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testCustomerFacingNameIsPhotoPassButStoredIdentityStaysPassport]' passed (0.004 seconds).
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testCustomerResetClearsNameNotesAndSignature]' started.
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testCustomerResetClearsNameNotesAndSignature]' passed (0.007 seconds).
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testEventProfileFillsDateEventAndLocation]' started.
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testEventProfileFillsDateEventAndLocation]' passed (0.004 seconds).
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testGalleryCopyHasNoNameNotesOrSignature]' started.
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testGalleryCopyHasNoNameNotesOrSignature]' passed (0.950 seconds).
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testLegacyArchivedSessionStillRendersTheLegacyDesign]' started.
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testLegacyArchivedSessionStillRendersTheLegacyDesign]' passed (0.212 seconds).
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testLongValuesFitTheirFieldsWithoutOverlap]' started.
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testLongValuesFitTheirFieldsWithoutOverlap]' passed (0.196 seconds).
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testNotesAndDesignVersionCodableRoundTripAndLegacyDefaults]' started.
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testNotesAndDesignVersionCodableRoundTripAndLegacyDefaults]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testNotesNormalizationLimitAndHasAnyDetails]' started.
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testNotesNormalizationLimitAndHasAnyDetails]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testPhotoOneFillsThePortraitAndPhotoTwoTheHero]' started.
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testPhotoOneFillsThePortraitAndPhotoTwoTheHero]' passed (0.074 seconds).
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testPhotoPassFlowKeepsPhotosNameNoteAndSignatureWhenGoingBack]' started.
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testPhotoPassFlowKeepsPhotosNameNoteAndSignatureWhenGoingBack]' passed (0.015 seconds).
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testSignatureInkStaysInsideTheSignatureBox]' started.
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testSignatureInkStaysInsideTheSignatureBox]' passed (0.084 seconds).
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testTemplateGeometryIsDeterministicAndInsideTheCards]' started.
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testTemplateGeometryIsDeterministicAndInsideTheCards]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testThermalRasterQRAndDebugArtifacts]' started.
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testThermalRasterQRAndDebugArtifacts]' passed (2.726 seconds).
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testUpperPhotoRotatesCounterclockwiseWithoutMirroringAndLowerPhotoStaysUpright]' started.
+Test Case '-[PocketPixelsBoothTests.PhotoPassFormatTests testUpperPhotoRotatesCounterclockwiseWithoutMirroringAndLowerPhotoStaysUpright]' passed (0.058 seconds).
+Test Suite 'PhotoPassFormatTests' passed at 2026-10-17 22:33:28.629.
+	 Executed 15 tests, with 0 failures (0 unexpected) in 5.494 (5.499) seconds
+Test Suite 'PhotoPresentationConsistencyTests' started at 2026-10-17 22:33:28.630.
+Test Case '-[PocketPixelsBoothTests.PhotoPresentationConsistencyTests testEveryFormatPrintsExactlyTheApprovedCropWithoutRotationOrMirroring]' started.
+Test Case '-[PocketPixelsBoothTests.PhotoPresentationConsistencyTests testEveryFormatPrintsExactlyTheApprovedCropWithoutRotationOrMirroring]' passed (1.020 seconds).
+Test Case '-[PocketPixelsBoothTests.PhotoPresentationConsistencyTests testPhotoPassHeroIsApprovedAsTheUprightPortraitThatPrintsSideways]' started.
+Test Case '-[PocketPixelsBoothTests.PhotoPresentationConsistencyTests testPhotoPassHeroIsApprovedAsTheUprightPortraitThatPrintsSideways]' passed (0.000 seconds).
+Test Case '-[PocketPixelsBoothTests.PhotoPresentationConsistencyTests testPresentationNeverModifiesTheStoredSource]' started.
+Test Case '-[PocketPixelsBoothTests.PhotoPresentationConsistencyTests testPresentationNeverModifiesTheStoredSource]' passed (0.017 seconds).
+Test Case '-[PocketPixelsBoothTests.PhotoPresentationConsistencyTests testThermalPreparationDoesNotCropTheApprovedPhotoAgain]' started.
+Test Case '-[PocketPixelsBoothTests.PhotoPresentationConsistencyTests testThermalPreparationDoesNotCropTheApprovedPhotoAgain]' passed (0.113 seconds).
+Test Suite 'PhotoPresentationConsistencyTests' passed at 2026-10-17 22:33:29.782.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 1.151 (1.152) seconds
+Test Suite 'PrintDurabilityTests' started at 2026-10-17 22:33:29.782.
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testArchiveCommitFailureIsReportedAndNeverPartiallyVisible]' started.
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testArchiveCommitFailureIsReportedAndNeverPartiallyVisible]' passed (0.585 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testArchivePayloadCommitsDurablyBeforeThumbnailsAndIsIdempotent]' started.
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testArchivePayloadCommitsDurablyBeforeThumbnailsAndIsIdempotent]' passed (0.692 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testArchivesNeverCrossContaminateBetweenSessions]' started.
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testArchivesNeverCrossContaminateBetweenSessions]' passed (1.704 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testBluetoothProductionPolicyIsExplicitAndSafeModeRemainsAvailable]' started.
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testBluetoothProductionPolicyIsExplicitAndSafeModeRemainsAvailable]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testCheckpointRunsBeforeEveryCopyAndBlocksOnlyTheFailingCopy]' started.
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testCheckpointRunsBeforeEveryCopyAndBlocksOnlyTheFailingCopy]' passed (0.012 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testCriticalRecoverySaveIsVerifiedAndLeavesNoTemporaryFiles]' started.
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testCriticalRecoverySaveIsVerifiedAndLeavesNoTemporaryFiles]' passed (0.013 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testFailedCheckpointNeverInvokesTransportAndSendsZeroBytes]' started.
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testFailedCheckpointNeverInvokesTransportAndSendsZeroBytes]' passed (0.011 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testRecoveryClearIsScopedToItsOwnSession]' started.
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testRecoveryClearIsScopedToItsOwnSession]' passed (0.005 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testSuccessfulCheckpointPermitsPrintAndPersistsUnknownStatus]' started.
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testSuccessfulCheckpointPermitsPrintAndPersistsUnknownStatus]' passed (0.008 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testWifiFailureAfterBytesRequiresRecoveryAndNeverRetries]' started.
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testWifiFailureAfterBytesRequiresRecoveryAndNeverRetries]' passed (0.008 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testWifiFailureBeforeBytesDoesNotLockRecovery]' started.
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testWifiFailureBeforeBytesDoesNotLockRecovery]' passed (0.006 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testWifiOutcomeMappingForEveryTransmissionState]' started.
+Test Case '-[PocketPixelsBoothTests.PrintDurabilityTests testWifiOutcomeMappingForEveryTransmissionState]' passed (0.001 seconds).
+Test Suite 'PrintDurabilityTests' passed at 2026-10-17 22:33:32.830.
+	 Executed 12 tests, with 0 failures (0 unexpected) in 3.045 (3.048) seconds
+Test Suite 'PrintReliabilityTests' started at 2026-10-17 22:33:32.830.
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testBluetoothUnavailableBeforeBytesDoesNotRequireUnsafeRecovery]' started.
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testBluetoothUnavailableBeforeBytesDoesNotRequireUnsafeRecovery]' passed (0.004 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testConnectionFailureBeforeBytesDoesNotRequireUnsafeRecovery]' started.
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testConnectionFailureBeforeBytesDoesNotRequireUnsafeRecovery]' passed (0.003 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testDuplicateCompletionCallbackIsRejectedByLifecycle]' started.
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testDuplicateCompletionCallbackIsRejectedByLifecycle]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testFailureAfterBytesLocksPrinterRecovery]' started.
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testFailureAfterBytesLocksPrinterRecovery]' passed (0.003 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testFailureAfterBytesNeverAutoRetries]' started.
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testFailureAfterBytesNeverAutoRetries]' passed (0.004 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testFailureAtFinalByteLocksPrinterRecovery]' started.
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testFailureAtFinalByteLocksPrinterRecovery]' passed (0.003 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testFailureBeforeBytesDoesNotRequireUnsafeRecovery]' started.
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testFailureBeforeBytesDoesNotRequireUnsafeRecovery]' passed (0.003 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testFailureHalfwayLocksPrinterRecovery]' started.
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testFailureHalfwayLocksPrinterRecovery]' passed (0.003 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testMultiCopyEnvelopeIntegrityForSupportedCopyCounts]' started.
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testMultiCopyEnvelopeIntegrityForSupportedCopyCounts]' passed (0.063 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testNextCopyDoesNotStartAfterUnknownPrintFailure]' started.
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testNextCopyDoesNotStartAfterUnknownPrintFailure]' passed (0.003 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testPrintAuditMatchesExecutedJobs]' started.
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testPrintAuditMatchesExecutedJobs]' passed (0.009 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testSingleCopyEnvelopeIntegrity]' started.
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testSingleCopyEnvelopeIntegrity]' passed (0.003 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testSpoolerNeverAllowsConcurrentPhysicalJobs]' started.
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testSpoolerNeverAllowsConcurrentPhysicalJobs]' passed (0.307 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testTenCopiesUseIdenticalFrozenPayload]' started.
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testTenCopiesUseIdenticalFrozenPayload]' passed (0.045 seconds).
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testTimeoutBeforeTransmissionDoesNotRequireUnsafeRecovery]' started.
+Test Case '-[PocketPixelsBoothTests.PrintReliabilityTests testTimeoutBeforeTransmissionDoesNotRequireUnsafeRecovery]' passed (0.003 seconds).
+Test Suite 'PrintReliabilityTests' passed at 2026-10-17 22:33:33.291.
+	 Executed 15 tests, with 0 failures (0 unexpected) in 0.458 (0.461) seconds
+Test Suite 'ProductionHealthTests' started at 2026-10-17 22:33:33.291.
+Test Case '-[PocketPixelsBoothTests.ProductionHealthTests testHealthSheetRendersInPortraitAndLandscapeWithoutRemoteCalls]' started.
+Test Case '-[PocketPixelsBoothTests.ProductionHealthTests testHealthSheetRendersInPortraitAndLandscapeWithoutRemoteCalls]' passed (0.965 seconds).
+Test Case '-[PocketPixelsBoothTests.ProductionHealthTests testHealthyBoothStillDoesNotClaimTheCachedPrinterIsHealthy]' started.
+Test Case '-[PocketPixelsBoothTests.ProductionHealthTests testHealthyBoothStillDoesNotClaimTheCachedPrinterIsHealthy]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.ProductionHealthTests testProblemsAreClassifiedAsWarningUnavailableOrNeedsReview]' started.
+Test Case '-[PocketPixelsBoothTests.ProductionHealthTests testProblemsAreClassifiedAsWarningUnavailableOrNeedsReview]' passed (0.000 seconds).
+Test Case '-[PocketPixelsBoothTests.ProductionHealthTests testSupportExportContainsNoSecretsURLsOrFullIdentifiers]' started.
+Test Case '-[PocketPixelsBoothTests.ProductionHealthTests testSupportExportContainsNoSecretsURLsOrFullIdentifiers]' passed (0.001 seconds).
+Test Suite 'ProductionHealthTests' passed at 2026-10-17 22:33:34.258.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.966 (0.967) seconds
+Test Suite 'QRPhPaymentLayoutTests' started at 2026-10-17 22:33:34.259.
+Test Case '-[PocketPixelsBoothTests.QRPhPaymentLayoutTests testAccessibilityAndSmallWindowScrollToAllContent]' started.
+Test Case '-[PocketPixelsBoothTests.QRPhPaymentLayoutTests testAccessibilityAndSmallWindowScrollToAllContent]' passed (1.693 seconds).
+Test Case '-[PocketPixelsBoothTests.QRPhPaymentLayoutTests testLoadingAndUnavailableKeepAmountVisibleWithoutInventingCodeOrExpiry]' started.
+Test Case '-[PocketPixelsBoothTests.QRPhPaymentLayoutTests testLoadingAndUnavailableKeepAmountVisibleWithoutInventingCodeOrExpiry]' passed (4.695 seconds).
+Test Case '-[PocketPixelsBoothTests.QRPhPaymentLayoutTests testNonSquareProviderImageRetainsItsAspectRatio]' started.
+Test Case '-[PocketPixelsBoothTests.QRPhPaymentLayoutTests testNonSquareProviderImageRetainsItsAspectRatio]' passed (0.830 seconds).
+Test Case '-[PocketPixelsBoothTests.QRPhPaymentLayoutTests testReadyCodeScansAndIsCenteredInBothOrientations]' started.
+Test Case '-[PocketPixelsBoothTests.QRPhPaymentLayoutTests testReadyCodeScansAndIsCenteredInBothOrientations]' passed (3.576 seconds).
+Test Suite 'QRPhPaymentLayoutTests' passed at 2026-10-17 22:33:45.055.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 10.795 (10.796) seconds
+Test Suite 'ReceiptAndRasterRegressionTests' started at 2026-10-17 22:33:45.055.
+Test Case '-[PocketPixelsBoothTests.ReceiptAndRasterRegressionTests testExtremeEventTextDoesNotOverlapReceiptSections]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptAndRasterRegressionTests testExtremeEventTextDoesNotOverlapReceiptSections]' passed (0.755 seconds).
+Test Case '-[PocketPixelsBoothTests.ReceiptAndRasterRegressionTests testGridSixCompleteReceiptRasterAndArchiveReprintAreIdentical]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptAndRasterRegressionTests testGridSixCompleteReceiptRasterAndArchiveReprintAreIdentical]' passed (1.891 seconds).
+Test Case '-[PocketPixelsBoothTests.ReceiptAndRasterRegressionTests testGridSixHeaderEventAndQRCombinationsAndDimensions]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptAndRasterRegressionTests testGridSixHeaderEventAndQRCombinationsAndDimensions]' passed (1.811 seconds).
+Test Case '-[PocketPixelsBoothTests.ReceiptAndRasterRegressionTests testGridSixIdentityAndLegacyCodableValues]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptAndRasterRegressionTests testGridSixIdentityAndLegacyCodableValues]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.ReceiptAndRasterRegressionTests testGridSixUsesThreeRowsOfExistingGridTiles]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptAndRasterRegressionTests testGridSixUsesThreeRowsOfExistingGridTiles]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.ReceiptAndRasterRegressionTests testRasterCommandIntegrity]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptAndRasterRegressionTests testRasterCommandIntegrity]' passed (1.837 seconds).
+Test Case '-[PocketPixelsBoothTests.ReceiptAndRasterRegressionTests testRasterOutputIsDeterministic]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptAndRasterRegressionTests testRasterOutputIsDeterministic]' passed (0.207 seconds).
+Test Case '-[PocketPixelsBoothTests.ReceiptAndRasterRegressionTests testReceiptLayoutValidForEveryBoothFormat]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptAndRasterRegressionTests testReceiptLayoutValidForEveryBoothFormat]' passed (0.539 seconds).
+Test Case '-[PocketPixelsBoothTests.ReceiptAndRasterRegressionTests testReceiptMastheadUsesMadeToKeepDescriptor]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptAndRasterRegressionTests testReceiptMastheadUsesMadeToKeepDescriptor]' passed (0.001 seconds).
+Test Suite 'ReceiptAndRasterRegressionTests' passed at 2026-10-17 22:33:52.101.
+	 Executed 9 tests, with 0 failures (0 unexpected) in 7.043 (7.046) seconds
+Test Suite 'ReceiptDesignSystemTests' started at 2026-10-17 22:33:52.102.
+Test Case '-[PocketPixelsBoothTests.ReceiptDesignSystemTests testCommittedSessionFreezesPhysicalPrintOptions]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptDesignSystemTests testCommittedSessionFreezesPhysicalPrintOptions]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.ReceiptDesignSystemTests testEditorialCaptionNormalizesToTwoPrintSafeLines]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptDesignSystemTests testEditorialCaptionNormalizesToTwoPrintSafeLines]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.ReceiptDesignSystemTests testEventCaptionPrintsOnlyWhenConfiguredBelowTheFooter]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptDesignSystemTests testEventCaptionPrintsOnlyWhenConfiguredBelowTheFooter]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.ReceiptDesignSystemTests testEventFirstWithoutArtworkUsesSafeStudioFallback]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptDesignSystemTests testEventFirstWithoutArtworkUsesSafeStudioFallback]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.ReceiptDesignSystemTests testEveryFormatPrintsTheThreePartFooterWithTheSessionTimeAndNoDefaultCaption]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptDesignSystemTests testEveryFormatPrintsTheThreePartFooterWithTheSessionTimeAndNoDefaultCaption]' passed (0.003 seconds).
+Test Case '-[PocketPixelsBoothTests.ReceiptDesignSystemTests testFooterArtworkIsBundledDeterministicAndPureBlackOnWhite]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptDesignSystemTests testFooterArtworkIsBundledDeterministicAndPureBlackOnWhite]' passed (0.103 seconds).
+Test Case '-[PocketPixelsBoothTests.ReceiptDesignSystemTests testPrintedQRChoiceReflowsEveryFormatWithoutRemovingGalleryURL]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptDesignSystemTests testPrintedQRChoiceReflowsEveryFormatWithoutRemovingGalleryURL]' passed (2.202 seconds).
+Test Case '-[PocketPixelsBoothTests.ReceiptDesignSystemTests testPrintedQRSettingDefaultsOnAndPersistsIndependently]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptDesignSystemTests testPrintedQRSettingDefaultsOnAndPersistsIndependently]' passed (0.006 seconds).
+Test Case '-[PocketPixelsBoothTests.ReceiptDesignSystemTests testRenderEveryFormatAndBrandingCombination]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptDesignSystemTests testRenderEveryFormatAndBrandingCombination]' passed (37.168 seconds).
+Test Suite 'ReceiptDesignSystemTests' passed at 2026-10-17 22:34:31.592.
+	 Executed 9 tests, with 0 failures (0 unexpected) in 39.488 (39.491) seconds
+Test Suite 'ReceiptFooterModeTests' started at 2026-10-17 22:34:31.593.
+Test Case '-[PocketPixelsBoothTests.ReceiptFooterModeTests testAdmissionFreezesFooterBeforeFormatSelectionAndRecoveryPersistsIt]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptFooterModeTests testAdmissionFreezesFooterBeforeFormatSelectionAndRecoveryPersistsIt]' passed (0.054 seconds).
+Test Case '-[PocketPixelsBoothTests.ReceiptFooterModeTests testAllModesFormatsAndFinalThermalQRWithVisualArtifacts]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptFooterModeTests testAllModesFormatsAndFinalThermalQRWithVisualArtifacts]' passed (34.943 seconds).
+Test Case '-[PocketPixelsBoothTests.ReceiptFooterModeTests testCheckoutCheckpointRoundTripAndOlderPayload]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptFooterModeTests testCheckoutCheckpointRoundTripAndOlderPayload]' passed (0.026 seconds).
+Test Case '-[PocketPixelsBoothTests.ReceiptFooterModeTests testEventOverrideWithoutLogoAndInheritance]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptFooterModeTests testEventOverrideWithoutLogoAndInheritance]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.ReceiptFooterModeTests testMigrationAndUnknownValues]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptFooterModeTests testMigrationAndUnknownValues]' passed (0.019 seconds).
+Test Case '-[PocketPixelsBoothTests.ReceiptFooterModeTests testModuleGeometryQuietZonesAndProtectedArea]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptFooterModeTests testModuleGeometryQuietZonesAndProtectedArea]' passed (0.018 seconds).
+Test Case '-[PocketPixelsBoothTests.ReceiptFooterModeTests testSamplesHaveNoScannableGalleryButPreserveSelectedGeometry]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptFooterModeTests testSamplesHaveNoScannableGalleryButPreserveSelectedGeometry]' passed (3.407 seconds).
+Test Suite 'ReceiptFooterModeTests' passed at 2026-10-17 22:35:10.065.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 38.468 (38.473) seconds
+Test Suite 'ReceiptPreviewAccuracyTests' started at 2026-10-17 22:35:10.066.
+Test Case '-[PocketPixelsBoothTests.ReceiptPreviewAccuracyTests testPreviewModeDefaultsToKeepsakeAndFallsBackUntilThermalIsReady]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptPreviewAccuracyTests testPreviewModeDefaultsToKeepsakeAndFallsBackUntilThermalIsReady]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.ReceiptPreviewAccuracyTests testThermalPreviewIsTheExactOneBitRasterForEveryConfiguration]' started.
+Test Case '-[PocketPixelsBoothTests.ReceiptPreviewAccuracyTests testThermalPreviewIsTheExactOneBitRasterForEveryConfiguration]' passed (32.680 seconds).
+Test Suite 'ReceiptPreviewAccuracyTests' passed at 2026-10-17 22:35:42.749.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 32.681 (32.684) seconds
+Test Suite 'SamplePrintStudioTests' started at 2026-10-17 22:35:42.750.
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testAnyChangeInvalidatesThePreparedRaster]' started.
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testAnyChangeInvalidatesThePreparedRaster]' passed (6.598 seconds).
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testDecoderAppliesOrientationAndBoundsLargePhotos]' started.
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testDecoderAppliesOrientationAndBoundsLargePhotos]' passed (0.140 seconds).
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testEverySampleFormatPrintsWithoutSessionIdentifierOrQR]' started.
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testEverySampleFormatPrintsWithoutSessionIdentifierOrQR]' passed (8.953 seconds).
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testExplicitDuplicateReplaceReorderClearAndRemove]' started.
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testExplicitDuplicateReplaceReorderClearAndRemove]' passed (0.025 seconds).
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testExplicitPreviewDesignStaysIsolatedFromAppliedBranding]' started.
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testExplicitPreviewDesignStaysIsolatedFromAppliedBranding]' passed (0.013 seconds).
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testFailedCopyStopsTheBatch]' started.
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testFailedCopyStopsTheBatch]' passed (1.485 seconds).
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testFormatChangeKeepsArrangementAndUsesOnlyUnusedPhotos]' started.
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testFormatChangeKeepsArrangementAndUsesOnlyUnusedPhotos]' passed (0.021 seconds).
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testImportFillsSlotsInOrderWithoutSilentlyRepeatingAPhoto]' started.
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testImportFillsSlotsInOrderWithoutSilentlyRepeatingAPhoto]' passed (0.027 seconds).
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testIncompleteOrBlockedSamplesCannotPrint]' started.
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testIncompleteOrBlockedSamplesCannotPrint]' passed (2.994 seconds).
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testMountedDepartingSlotAndChooserSurviveShrinkingFormats]' started.
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testMountedDepartingSlotAndChooserSurviveShrinkingFormats]' passed (3.978 seconds).
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testPhotoPassSampleUsesOperatorDetails]' started.
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testPhotoPassSampleUsesOperatorDetails]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testPolicyBlocksGuestSessionsUnresolvedPrintsRecoveryAndDoubleTap]' started.
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testPolicyBlocksGuestSessionsUnresolvedPrintsRecoveryAndDoubleTap]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testPrintSendsTheExactPreparedRasterForEveryCopyAndNeverRecomposes]' started.
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testPrintSendsTheExactPreparedRasterForEveryCopyAndNeverRecomposes]' passed (1.500 seconds).
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testSavedBrandingIsOnlyOfferedWhenSavedAndNeverUsesDrafts]' started.
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testSavedBrandingIsOnlyOfferedWhenSavedAndNeverUsesDrafts]' passed (0.006 seconds).
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testTrayIsBounded]' started.
+Test Case '-[PocketPixelsBoothTests.SamplePrintStudioTests testTrayIsBounded]' passed (0.016 seconds).
+Test Suite 'SamplePrintStudioTests' passed at 2026-10-17 22:36:08.523.
+	 Executed 15 tests, with 0 failures (0 unexpected) in 25.759 (25.773) seconds
+Test Suite 'SavedDraftsTests' started at 2026-10-17 22:36:08.523.
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testEquivalentDraftPruningKeepsGenuineDesignEdits]' started.
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testEquivalentDraftPruningKeepsGenuineDesignEdits]' passed (0.048 seconds).
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testEquivalentLookingSelectionForAnotherPaymentConnectionIsRetained]' started.
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testEquivalentLookingSelectionForAnotherPaymentConnectionIsRetained]' passed (0.019 seconds).
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testImplicitAndExplicitEquivalentHeaderDefaultsDoNotCreateADraft]' started.
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testImplicitAndExplicitEquivalentHeaderDefaultsDoNotCreateADraft]' passed (0.011 seconds).
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testIndividualDiscardPreservesOtherDraftsSavedDesignAndAppliedState]' started.
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testIndividualDiscardPreservesOtherDraftsSavedDesignAndAppliedState]' passed (0.029 seconds).
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testLogoReplacementIsExplainedWithoutExposingAssetIdentifiers]' started.
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testLogoReplacementIsExplainedWithoutExposingAssetIdentifiers]' passed (0.016 seconds).
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testPaymentDiffUsesBaselineIgnoresEquivalentPesoTextAndDisabledOfflineDate]' started.
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testPaymentDiffUsesBaselineIgnoresEquivalentPesoTextAndDisabledOfflineDate]' passed (0.026 seconds).
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testRealSampleIsDiscoverableWithOnlyChangedFieldsAndMetadataDoesNotCount]' started.
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testRealSampleIsDiscoverableWithOnlyChangedFieldsAndMetadataDoesNotCount]' passed (0.037 seconds).
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testRenderDraftListAndSampleReviewInBothOrientations]' started.
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testRenderDraftListAndSampleReviewInBothOrientations]' passed (17.282 seconds).
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testReturningToNormalizedSavedValuesRemovesTheAutosavedDraft]' started.
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testReturningToNormalizedSavedValuesRemovesTheAutosavedDraft]' passed (0.044 seconds).
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testTargetedDesignReviewDoesNotChangeAnotherDraftOrSessionSelectionAndSaveDoesNotApply]' started.
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testTargetedDesignReviewDoesNotChangeAnotherDraftOrSessionSelectionAndSaveDoesNotApply]' passed (0.073 seconds).
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testTypedReviewRoutesSurviveRestart]' started.
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testTypedReviewRoutesSurviveRestart]' passed (0.044 seconds).
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testUnauthorizedAndFailedDiscardKeepTheDraft]' started.
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testUnauthorizedAndFailedDiscardKeepTheDraft]' passed (0.013 seconds).
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testUnfinishedNewEventShowsOnlyEnteredFields]' started.
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testUnfinishedNewEventShowsOnlyEnteredFields]' passed (0.023 seconds).
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testUnknownBaselineAndOtherConnectionStayVisibleAndCannotBePruned]' started.
+Test Case '-[PocketPixelsBoothTests.SavedDraftsTests testUnknownBaselineAndOtherConnectionStayVisibleAndCannotBePruned]' passed (0.025 seconds).
+Test Suite 'SavedDraftsTests' passed at 2026-10-17 22:36:26.224.
+	 Executed 14 tests, with 0 failures (0 unexpected) in 17.691 (17.701) seconds
+Test Suite 'SessionGIFAndSamplePreviewTests' started at 2026-10-17 22:36:26.224.
+Test Case '-[PocketPixelsBoothTests.SessionGIFAndSamplePreviewTests testGIFFrameCountsTimingLoopDimensionsAndSignature]' started.
+Test Case '-[PocketPixelsBoothTests.SessionGIFAndSamplePreviewTests testGIFFrameCountsTimingLoopDimensionsAndSignature]' passed (0.932 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionGIFAndSamplePreviewTests testGIFHonorsCallerByteBudgetAndRejectsAbsurdBudget]' started.
+Test Case '-[PocketPixelsBoothTests.SessionGIFAndSamplePreviewTests testGIFHonorsCallerByteBudgetAndRejectsAbsurdBudget]' passed (0.597 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionGIFAndSamplePreviewTests testGIFPreservesApprovedFrameOrder]' started.
+Test Case '-[PocketPixelsBoothTests.SessionGIFAndSamplePreviewTests testGIFPreservesApprovedFrameOrder]' passed (0.274 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionGIFAndSamplePreviewTests testGIFRejectsMissingFrames]' started.
+Test Case '-[PocketPixelsBoothTests.SessionGIFAndSamplePreviewTests testGIFRejectsMissingFrames]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionGIFAndSamplePreviewTests testMixedPortraitLandscapeAndOrientedFramesUseOneNeutralCanvas]' started.
+Test Case '-[PocketPixelsBoothTests.SessionGIFAndSamplePreviewTests testMixedPortraitLandscapeAndOrientedFramesUseOneNeutralCanvas]' passed (0.149 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionGIFAndSamplePreviewTests testSoloGalleryRemainsSchemaV2WithoutMisleadingGIF]' started.
+Test Case '-[PocketPixelsBoothTests.SessionGIFAndSamplePreviewTests testSoloGalleryRemainsSchemaV2WithoutMisleadingGIF]' passed (0.415 seconds).
+Test Suite 'SessionGIFAndSamplePreviewTests' passed at 2026-10-17 22:36:28.596.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 2.368 (2.372) seconds
+Test Suite 'SessionIsolationAndRecoveryTests' started at 2026-10-17 22:36:28.597.
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testCopyCountResetsToOneForNewSession]' started.
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testCopyCountResetsToOneForNewSession]' passed (0.012 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testCrashAtPrintStatusUnknownDoesNotAutoReprint]' started.
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testCrashAtPrintStatusUnknownDoesNotAutoReprint]' passed (0.019 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testDelayedOldSessionCallbackCannotMutateNewSession]' started.
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testDelayedOldSessionCallbackCannotMutateNewSession]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testGridSixRecoveryRoundTripsZeroThroughSixPhotos]' started.
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testGridSixRecoveryRoundTripsZeroThroughSixPhotos]' passed (0.066 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testNewCustomerCannotReusePreviousCustomerPayload]' started.
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testNewCustomerCannotReusePreviousCustomerPayload]' passed (0.009 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testOldCameraCallbackCannotOverwriteNewSession]' started.
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testOldCameraCallbackCannotOverwriteNewSession]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testOldGalleryCompletionCannotOverwriteNewSession]' started.
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testOldGalleryCompletionCannotOverwriteNewSession]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testOldReceiptCompositionCannotOverwriteNewSession]' started.
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testOldReceiptCompositionCannotOverwriteNewSession]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testOneThousandSessionsHaveZeroCrossSessionContamination]' started.
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testOneThousandSessionsHaveZeroCrossSessionContamination]' passed (113.382 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testPendingConfirmationFromCancelledSessionCannotAdvanceNextSession]' started.
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testPendingConfirmationFromCancelledSessionCannotAdvanceNextSession]' passed (0.376 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testRapidSessionResetDoesNotLeakState]' started.
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testRapidSessionResetDoesNotLeakState]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testSixPhotoCommittedSessionOfflineQueueAndResetIsolation]' started.
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testSixPhotoCommittedSessionOfflineQueueAndResetIsolation]' passed (1.494 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testSixPhotoSequenceReachesReviewOnlyAfterSixAndRejectsExtraSamples]' started.
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testSixPhotoSequenceReachesReviewOnlyAfterSixAndRejectsExtraSamples]' passed (0.012 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testSyntheticRasterPreservesSeedBeyondOneByte]' started.
+Test Case '-[PocketPixelsBoothTests.SessionIsolationAndRecoveryTests testSyntheticRasterPreservesSeedBeyondOneByte]' passed (0.011 seconds).
+Test Suite 'SessionIsolationAndRecoveryTests' passed at 2026-10-17 22:38:23.990.
+	 Executed 14 tests, with 0 failures (0 unexpected) in 115.385 (115.393) seconds
+Test Suite 'SessionMotionPreviewTests' started at 2026-10-17 22:38:23.991.
+Test Case '-[PocketPixelsBoothTests.SessionMotionPreviewTests testEveryFormatUploadsStillPhotosAndBothReceiptsWithoutGIF]' started.
+Test Case '-[PocketPixelsBoothTests.SessionMotionPreviewTests testEveryFormatUploadsStillPhotosAndBothReceiptsWithoutGIF]' passed (3.795 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionMotionPreviewTests testFramesKeepPhotoOrderAndFitMixedOrientationsWithoutCropping]' started.
+Test Case '-[PocketPixelsBoothTests.SessionMotionPreviewTests testFramesKeepPhotoOrderAndFitMixedOrientationsWithoutCropping]' passed (0.031 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionMotionPreviewTests testMotionIsOfferedForEveryMultiPhotoFormatButNeverSolo]' started.
+Test Case '-[PocketPixelsBoothTests.SessionMotionPreviewTests testMotionIsOfferedForEveryMultiPhotoFormatButNeverSolo]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionMotionPreviewTests testPreviewTimingMatchesTheGalleryGIFAndLoopsInOrder]' started.
+Test Case '-[PocketPixelsBoothTests.SessionMotionPreviewTests testPreviewTimingMatchesTheGalleryGIFAndLoopsInOrder]' passed (0.002 seconds).
+Test Suite 'SessionMotionPreviewTests' passed at 2026-10-17 22:38:27.860.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 3.830 (3.869) seconds
+Test Suite 'SessionSetupScreenRenderTests' started at 2026-10-17 22:38:27.860.
+Test Case '-[PocketPixelsBoothTests.SessionSetupScreenRenderTests testRenderCenteredGuestCash]' started.
+Test Case '-[PocketPixelsBoothTests.SessionSetupScreenRenderTests testRenderCenteredGuestCash]' passed (3.138 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionSetupScreenRenderTests testRenderSetupScenarios]' started.
+Test Case '-[PocketPixelsBoothTests.SessionSetupScreenRenderTests testRenderSetupScenarios]' passed (12.740 seconds).
+Test Suite 'SessionSetupScreenRenderTests' passed at 2026-10-17 22:38:43.740.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 15.878 (15.879) seconds
+Test Suite 'SessionSetupTests' started at 2026-10-17 22:38:43.740.
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testAcceptanceBindingAndCorruptStateFailClosedWithoutOverwritingOriginal]' started.
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testAcceptanceBindingAndCorruptStateFailClosedWithoutOverwritingOriginal]' passed (0.023 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testAppliedDesignIdentityFailureKeepsAdmissionClosed]' started.
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testAppliedDesignIdentityFailureKeepsAdmissionClosed]' passed (0.045 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testFreeActivationNeedsNoPaymentsAndPreservesIncludedCopiesAndFormats]' started.
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testFreeActivationNeedsNoPaymentsAndPreservesIncludedCopiesAndFormats]' passed (0.106 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testFulfillmentBlocksSwitchingButDoesNotBlockPausingNewSessions]' started.
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testFulfillmentBlocksSwitchingButDoesNotBlockPausingNewSessions]' passed (0.015 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testInterruptedPaidToFreeTransitionNeverOpensFreeSessions]' started.
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testInterruptedPaidToFreeTransitionNeverOpensFreeSessions]' passed (0.022 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testLegacyPhotoPassFormatRemainsEnabledAndIsNotSilentlyDroppedFromSavedSetup]' started.
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testLegacyPhotoPassFormatRemainsEnabledAndIsNotSilentlyDroppedFromSavedSetup]' passed (0.009 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testLegacyWorkspaceStillDecodesWithoutSessionSetupFields]' started.
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testLegacyWorkspaceStillDecodesWithoutSessionSetupFields]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testLockDuringActivationPreventsSourceCommit]' started.
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testLockDuringActivationPreventsSourceCommit]' passed (0.040 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testModeSelectionIsStagedInBothDirectionsAndDraftsSurviveRelaunch]' started.
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testModeSelectionIsStagedInBothDirectionsAndDraftsSurviveRelaunch]' passed (0.103 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testPaidActivationAcknowledgesExactSavedPriceAndCommitsModeOnlyAfterConfirmation]' started.
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testPaidActivationAcknowledgesExactSavedPriceAndCommitsModeOnlyAfterConfirmation]' passed (0.085 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testPaidAdmissionDoesNotDependOnPausedOrInvalidPrepaidSettings]' started.
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testPaidAdmissionDoesNotDependOnPausedOrInvalidPrepaidSettings]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testPaidToFreePausesServerBeforeCommittingFreeMode]' started.
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testPaidToFreePausesServerBeforeCommittingFreeMode]' passed (0.054 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testRenderActualOperatorScreensForVisualReview]' started.
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testRenderActualOperatorScreensForVisualReview]' passed (6.428 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testSaveWithoutStartingNeverChangesSourceOrPublishes]' started.
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testSaveWithoutStartingNeverChangesSourceOrPublishes]' passed (0.051 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testStaleServerVersionPreservesLocalEditsAndRequiresReview]' started.
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testStaleServerVersionPreservesLocalEditsAndRequiresReview]' passed (0.109 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testTurningTheLogoOffKeepsTheSavedDesignButPrintsTheStandardReceipt]' started.
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testTurningTheLogoOffKeepsTheSavedDesignButPrintsTheStandardReceipt]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testUnifiedAndMaintenanceRoutesRoundTripWithoutLosingSavedNavigation]' started.
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testUnifiedAndMaintenanceRoutesRoundTripWithoutLosingSavedNavigation]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testUnknownActivationReportsActiveServerButBoothRemainsPausedUntilExplicitRetry]' started.
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testUnknownActivationReportsActiveServerButBoothRemainsPausedUntilExplicitRetry]' passed (0.097 seconds).
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testUnknownSaveClosesGateAcrossRelaunchAndNeverAutomaticallyRetriesMutation]' started.
+Test Case '-[PocketPixelsBoothTests.SessionSetupTests testUnknownSaveClosesGateAcrossRelaunchAndNeverAutomaticallyRetriesMutation]' passed (0.101 seconds).
+Test Suite 'SessionSetupTests' passed at 2026-10-17 22:38:51.046.
+	 Executed 19 tests, with 0 failures (0 unexpected) in 7.295 (7.306) seconds
+Test Suite 'StaticStickerCollectionTests' started at 2026-10-17 22:38:51.047.
+Test Case '-[PocketPixelsBoothTests.StaticStickerCollectionTests testAll200StickersAreDistinctStaticTransparentAndBounded]' started.
+Test Case '-[PocketPixelsBoothTests.StaticStickerCollectionTests testAll200StickersAreDistinctStaticTransparentAndBounded]' passed (2.034 seconds).
+Test Case '-[PocketPixelsBoothTests.StaticStickerCollectionTests testCategoryBrowsingAndSearchStayEntirelyLocal]' started.
+Test Case '-[PocketPixelsBoothTests.StaticStickerCollectionTests testCategoryBrowsingAndSearchStayEntirelyLocal]' passed (0.034 seconds).
+Test Case '-[PocketPixelsBoothTests.StaticStickerCollectionTests testContactSheetsAndExactThermalArtwork]' started.
+Test Case '-[PocketPixelsBoothTests.StaticStickerCollectionTests testContactSheetsAndExactThermalArtwork]' passed (6.270 seconds).
+Test Case '-[PocketPixelsBoothTests.StaticStickerCollectionTests testNewGIFImportsAreRejectedWhileLegacyFilesAndSettingsSurvive]' started.
+Test Case '-[PocketPixelsBoothTests.StaticStickerCollectionTests testNewGIFImportsAreRejectedWhileLegacyFilesAndSettingsSurvive]' passed (0.057 seconds).
+Test Case '-[PocketPixelsBoothTests.StaticStickerCollectionTests testOperatorControlsAndPreviewWithoutEnablingLiveStudio]' started.
+Test Case '-[PocketPixelsBoothTests.StaticStickerCollectionTests testOperatorControlsAndPreviewWithoutEnablingLiveStudio]' passed (3.222 seconds).
+Test Case '-[PocketPixelsBoothTests.StaticStickerCollectionTests testOriginal150StickerIDsArePreservedAndExpansionAddsFifty]' started.
+Test Case '-[PocketPixelsBoothTests.StaticStickerCollectionTests testOriginal150StickerIDsArePreservedAndExpansionAddsFifty]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.StaticStickerCollectionTests testRenderStaticStudioInPortraitAndLandscape]' started.
+Test Case '-[PocketPixelsBoothTests.StaticStickerCollectionTests testRenderStaticStudioInPortraitAndLandscape]' passed (3.566 seconds).
+Test Case '-[PocketPixelsBoothTests.StaticStickerCollectionTests testRepresentativeStickersAcrossEveryReceiptFormatAndMultipleCopies]' started.
+Test Case '-[PocketPixelsBoothTests.StaticStickerCollectionTests testRepresentativeStickersAcrossEveryReceiptFormatAndMultipleCopies]' passed (16.886 seconds).
+Test Suite 'StaticStickerCollectionTests' passed at 2026-10-17 22:39:23.122.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 32.070 (32.075) seconds
+Test Suite 'StickerCatalogTests' started at 2026-10-17 22:39:23.123.
+Test Case '-[PocketPixelsBoothTests.StickerCatalogTests testBuiltInLibraryIsOriginalLegibleAndOffline]' started.
+Test Case '-[PocketPixelsBoothTests.StickerCatalogTests testBuiltInLibraryIsOriginalLegibleAndOffline]' passed (20.562 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerCatalogTests testDecoderLimitsAreEnforced]' started.
+Test Case '-[PocketPixelsBoothTests.StickerCatalogTests testDecoderLimitsAreEnforced]' passed (0.148 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerCatalogTests testEventCollectionEnableDisableReorderAndDelete]' started.
+Test Case '-[PocketPixelsBoothTests.StickerCatalogTests testEventCollectionEnableDisableReorderAndDelete]' passed (0.063 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerCatalogTests testGIFPrintsADeterministicRepresentativeStillFrame]' started.
+Test Case '-[PocketPixelsBoothTests.StickerCatalogTests testGIFPrintsADeterministicRepresentativeStillFrame]' passed (0.015 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerCatalogTests testGuestCatalogRespectsSourcesAndHidesEmptyCategories]' started.
+Test Case '-[PocketPixelsBoothTests.StickerCatalogTests testGuestCatalogRespectsSourcesAndHidesEmptyCategories]' passed (0.005 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerCatalogTests testImportSurvivesRestartAndMissingOrCorruptFilesAreSkipped]' started.
+Test Case '-[PocketPixelsBoothTests.StickerCatalogTests testImportSurvivesRestartAndMissingOrCorruptFilesAreSkipped]' passed (0.051 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerCatalogTests testPrintPreparationSnapsAlphaAndFlagsLowContrast]' started.
+Test Case '-[PocketPixelsBoothTests.StickerCatalogTests testPrintPreparationSnapsAlphaAndFlagsLowContrast]' passed (0.018 seconds).
+Test Suite 'StickerCatalogTests' passed at 2026-10-17 22:39:43.989.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 20.862 (20.866) seconds
+Test Suite 'StickerGeometryTests' started at 2026-10-17 22:39:43.989.
+Test Case '-[PocketPixelsBoothTests.StickerGeometryTests testDragPinchAndTwistAreClampedTogether]' started.
+Test Case '-[PocketPixelsBoothTests.StickerGeometryTests testDragPinchAndTwistAreClampedTogether]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerGeometryTests testMalformedPlacementsFailSafely]' started.
+Test Case '-[PocketPixelsBoothTests.StickerGeometryTests testMalformedPlacementsFailSafely]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerGeometryTests testRotationNormalizationAndLegibilityWarning]' started.
+Test Case '-[PocketPixelsBoothTests.StickerGeometryTests testRotationNormalizationAndLegibilityWarning]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerGeometryTests testSingleTransformMapsPrintAndDisplayAtEveryIPadScale]' started.
+Test Case '-[PocketPixelsBoothTests.StickerGeometryTests testSingleTransformMapsPrintAndDisplayAtEveryIPadScale]' passed (0.001 seconds).
+Test Suite 'StickerGeometryTests' passed at 2026-10-17 22:39:43.998.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.006 (0.008) seconds
+Test Suite 'StickerRenderingTests' started at 2026-10-17 22:39:43.998.
+Test Case '-[PocketPixelsBoothTests.StickerRenderingTests testAlphaCompositesOverThePhoto]' started.
+Test Case '-[PocketPixelsBoothTests.StickerRenderingTests testAlphaCompositesOverThePhoto]' passed (0.244 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerRenderingTests testNoStickersIsByteForByteIdenticalToBaselineForEveryFormat]' started.
+Test Case '-[PocketPixelsBoothTests.StickerRenderingTests testNoStickersIsByteForByteIdenticalToBaselineForEveryFormat]' passed (15.743 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerRenderingTests testPhotoPassGalleryRedactionKeepsStickersAndOriginalPhotos]' started.
+Test Case '-[PocketPixelsBoothTests.StickerRenderingTests testPhotoPassGalleryRedactionKeepsStickersAndOriginalPhotos]' passed (1.567 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerRenderingTests testRegionsComeFromTheExactLayoutPlanForEveryFormat]' started.
+Test Case '-[PocketPixelsBoothTests.StickerRenderingTests testRegionsComeFromTheExactLayoutPlanForEveryFormat]' passed (1.587 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerRenderingTests testStickerInkStaysInsideItsRegionAndNeverTouchesProtectedElements]' started.
+Test Case '-[PocketPixelsBoothTests.StickerRenderingTests testStickerInkStaysInsideItsRegionAndNeverTouchesProtectedElements]' passed (5.754 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerRenderingTests testThermalPreviewPrintRasterAndCopiesMatchForOneCommittedSession]' started.
+Test Case '-[PocketPixelsBoothTests.StickerRenderingTests testThermalPreviewPrintRasterAndCopiesMatchForOneCommittedSession]' passed (3.079 seconds).
+Test Suite 'StickerRenderingTests' passed at 2026-10-17 22:40:11.977.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 27.974 (27.979) seconds
+Test Suite 'StickerStudioFlowTests' started at 2026-10-17 22:40:11.977.
+Test Case '-[PocketPixelsBoothTests.StickerStudioFlowTests testBackPreservesPhotosAndDraftWithoutSideEffects]' started.
+Test Case '-[PocketPixelsBoothTests.StickerStudioFlowTests testBackPreservesPhotosAndDraftWithoutSideEffects]' passed (0.836 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerStudioFlowTests testDoneWaitsForPendingArtworkAndPreservesStaticDraftOnBack]' started.
+Test Case '-[PocketPixelsBoothTests.StickerStudioFlowTests testDoneWaitsForPendingArtworkAndPreservesStaticDraftOnBack]' passed (2.158 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerStudioFlowTests testEveryStandardFormatVisitsStickerStudioOnceAndDoneCommitsOnce]' started.
+Test Case '-[PocketPixelsBoothTests.StickerStudioFlowTests testEveryStandardFormatVisitsStickerStudioOnceAndDoneCommitsOnce]' passed (5.351 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerStudioFlowTests testFeatureOffKeepsTheExistingFlowWithNoStickerWork]' started.
+Test Case '-[PocketPixelsBoothTests.StickerStudioFlowTests testFeatureOffKeepsTheExistingFlowWithNoStickerWork]' passed (0.627 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerStudioFlowTests testPhotoPassVisitsStickersAfterDetailsSignatureAndPreview]' started.
+Test Case '-[PocketPixelsBoothTests.StickerStudioFlowTests testPhotoPassVisitsStickersAfterDetailsSignatureAndPreview]' passed (1.150 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerStudioFlowTests testQualificationEnvironmentNeverOpensStickerStudio]' started.
+Test Case '-[PocketPixelsBoothTests.StickerStudioFlowTests testQualificationEnvironmentNeverOpensStickerStudio]' passed (0.002 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerStudioFlowTests testSettingsAreFrozenPerSessionAndIdleResetClearsTheDraft]' started.
+Test Case '-[PocketPixelsBoothTests.StickerStudioFlowTests testSettingsAreFrozenPerSessionAndIdleResetClearsTheDraft]' passed (0.177 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerStudioFlowTests testSkipCommitsTheOriginalReceipt]' started.
+Test Case '-[PocketPixelsBoothTests.StickerStudioFlowTests testSkipCommitsTheOriginalReceipt]' passed (1.284 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerStudioFlowTests testStickerStatesIntegrateWithIdleAndErrorPolicies]' started.
+Test Case '-[PocketPixelsBoothTests.StickerStudioFlowTests testStickerStatesIntegrateWithIdleAndErrorPolicies]' passed (0.002 seconds).
+Test Suite 'StickerStudioFlowTests' passed at 2026-10-17 22:40:23.567.
+	 Executed 9 tests, with 0 failures (0 unexpected) in 11.586 (11.590) seconds
+Test Suite 'StickerStudioSessionTests' started at 2026-10-17 22:40:23.567.
+Test Case '-[PocketPixelsBoothTests.StickerStudioSessionTests testAddMoveUndoRedoDeleteResetAndLimit]' started.
+Test Case '-[PocketPixelsBoothTests.StickerStudioSessionTests testAddMoveUndoRedoDeleteResetAndLimit]' passed (0.312 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerStudioSessionTests testHitTestingFindsTinyAndRotatedStickers]' started.
+Test Case '-[PocketPixelsBoothTests.StickerStudioSessionTests testHitTestingFindsTinyAndRotatedStickers]' passed (0.240 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerStudioSessionTests testLegacyOnlineConfigurationCannotTriggerGuestNetworkRequests]' started.
+Test Case '-[PocketPixelsBoothTests.StickerStudioSessionTests testLegacyOnlineConfigurationCannotTriggerGuestNetworkRequests]' passed (0.214 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerStudioSessionTests testRepeatedSyntheticEditSessionsDoNotLeakState]' started.
+Test Case '-[PocketPixelsBoothTests.StickerStudioSessionTests testRepeatedSyntheticEditSessionsDoNotLeakState]' passed (49.756 seconds).
+Test Suite 'StickerStudioSessionTests' passed at 2026-10-17 22:41:14.091.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 50.522 (50.524) seconds
+Test Suite 'StickerStudioSettingsTests' started at 2026-10-17 22:41:14.092.
+Test Case '-[PocketPixelsBoothTests.StickerStudioSettingsTests testAPIKeyIsNeverStoredInSettingsOrShownInFull]' started.
+Test Case '-[PocketPixelsBoothTests.StickerStudioSettingsTests testAPIKeyIsNeverStoredInSettingsOrShownInFull]' passed (0.008 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerStudioSettingsTests testMasterToggleDefaultsOffForNewAndPreMigrationInstalls]' started.
+Test Case '-[PocketPixelsBoothTests.StickerStudioSettingsTests testMasterToggleDefaultsOffForNewAndPreMigrationInstalls]' passed (0.005 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerStudioSettingsTests testNormalizationClampsLimitsAndDropsUnacknowledgedOnline]' started.
+Test Case '-[PocketPixelsBoothTests.StickerStudioSettingsTests testNormalizationClampsLimitsAndDropsUnacknowledgedOnline]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerStudioSettingsTests testOnAndOffPersistAcrossRelaunchAndCorruptDataResetsSafely]' started.
+Test Case '-[PocketPixelsBoothTests.StickerStudioSettingsTests testOnAndOffPersistAcrossRelaunchAndCorruptDataResetsSafely]' passed (0.006 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerStudioSettingsTests testOnlineRequiresMasterKeyToggleAndRightsTogether]' started.
+Test Case '-[PocketPixelsBoothTests.StickerStudioSettingsTests testOnlineRequiresMasterKeyToggleAndRightsTogether]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.StickerStudioSettingsTests testSavingPostsChangeNotification]' started.
+Test Case '-[PocketPixelsBoothTests.StickerStudioSettingsTests testSavingPostsChangeNotification]' passed (0.003 seconds).
+Test Suite 'StickerStudioSettingsTests' passed at 2026-10-17 22:41:14.118.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.024 (0.026) seconds
+Test Suite 'UpgradedEventBootstrapTests' started at 2026-10-17 22:41:14.118.
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testBootstrapChangesOnlyTheRunManifestAndKeepsHistory]' started.
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testBootstrapChangesOnlyTheRunManifestAndKeepsHistory]' passed (0.024 seconds).
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testConnectionUnavailableIsUnconfirmedAndRecordsNothing]' started.
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testConnectionUnavailableIsUnconfirmedAndRecordsNothing]' passed (0.010 seconds).
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testCorruptedRunHistoryBlocksBootstrapAndKeepsTheFile]' started.
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testCorruptedRunHistoryBlocksBootstrapAndKeepsTheFile]' passed (0.011 seconds).
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testFirstGuestAfterBootstrapUsesTheRecordedRunAndStatusStaysAccepting]' started.
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testFirstGuestAfterBootstrapUsesTheRecordedRunAndStatusStaysAccepting]' passed (0.023 seconds).
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testFirstGuestWithoutBootstrapKeepsTheEstablishedUpgradePath]' started.
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testFirstGuestWithoutBootstrapKeepsTheEstablishedUpgradePath]' passed (0.023 seconds).
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testInterruptedBootstrapRetriesAfterRelaunchAndNeverDuplicates]' started.
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testInterruptedBootstrapRetriesAfterRelaunchAndNeverDuplicates]' passed (0.015 seconds).
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testOpenAdmissionWithNoCommittedPaidEventNeedsReview]' started.
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testOpenAdmissionWithNoCommittedPaidEventNeedsReview]' passed (0.000 seconds).
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testServerActiveButLocalAdmissionPausedIsPausedOnThisIPad]' started.
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testServerActiveButLocalAdmissionPausedIsPausedOnThisIPad]' passed (0.014 seconds).
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testServerPausedEndedDraftAndMissingEventsAreNeverAcceptingOrUnconfigured]' started.
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testServerPausedEndedDraftAndMissingEventsAreNeverAcceptingOrUnconfigured]' passed (0.044 seconds).
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testUnauthorizedOperatorCannotRecordARun]' started.
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testUnauthorizedOperatorCannotRecordARun]' passed (0.009 seconds).
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testUnresolvedCheckoutNeedsReviewWithOrWithoutARun]' started.
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testUnresolvedCheckoutNeedsReviewWithOrWithoutARun]' passed (0.001 seconds).
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testUpgradedActivePaidEventWithoutRunIsNotShownAsUnconfigured]' started.
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testUpgradedActivePaidEventWithoutRunIsNotShownAsUnconfigured]' passed (0.011 seconds).
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testUpgradedPrepaidEventWithoutRunAcceptsAndPausedPrepaidIsPaused]' started.
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testUpgradedPrepaidEventWithoutRunAcceptsAndPausedPrepaidIsPaused]' passed (0.020 seconds).
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testWrongEnvironmentOrAccountNeedsReview]' started.
+Test Case '-[PocketPixelsBoothTests.UpgradedEventBootstrapTests testWrongEnvironmentOrAccountNeedsReview]' passed (0.025 seconds).
+Test Suite 'UpgradedEventBootstrapTests' passed at 2026-10-17 22:41:14.350.
+	 Executed 14 tests, with 0 failures (0 unexpected) in 0.228 (0.232) seconds
+Test Suite 'PocketPixelsBoothTests.xctest' passed at 2026-10-17 22:41:14.350.
+	 Executed 570 tests, with 0 failures (0 unexpected) in 978.838 (979.185) seconds
+Test Suite 'All tests' passed at 2026-10-17 22:41:14.351.
+	 Executed 570 tests, with 0 failures (0 unexpected) in 978.838 (979.187) seconds

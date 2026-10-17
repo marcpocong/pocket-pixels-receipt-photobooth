@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct OperatorBrandingView: View {
-    @State private var printsGalleryQR = ReceiptPrintSettingsStore.load().includesPrintedGalleryQR
+    @State private var printOptions = ReceiptPrintSettingsStore.load()
 
     var body: some View {
         List {
@@ -15,16 +15,27 @@ struct OperatorBrandingView: View {
                 NavigationLink(value: OperatorWorkspaceRoute.samplePrints) { Label("Print Display Samples", systemImage: "printer.dotmatrix") }
             }
             Section {
-                Toggle("Print Gallery QR Code", isOn: $printsGalleryQR)
-                    .onChange(of: printsGalleryQR) { _, value in ReceiptPrintSettingsStore.save(ReceiptPrintOptions(includesPrintedGalleryQR: value)) }
+                Picker("Gallery Code Style", selection: $printOptions.footerStyle) {
+                    ForEach(ReceiptFooterStyle.allCases) { style in Text(style.displayName).tag(style) }
+                }
+                .onChange(of: printOptions) { _, value in ReceiptPrintSettingsStore.save(value) }
+                Button("Restore Default") { printOptions = .default }
+                if printOptions.footerStyle == .decorativeBarcodeOnly {
+                    Label("The barcode is decorative and does not provide gallery access.", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                }
             } header: { Text("Physical Printing") } footer: {
-                Text("Applies to every receipt, with or without Event Mode. The guest’s gallery QR always stays available on the iPad.")
+                Text("Device default for future sessions. Saved events can override it. The guest’s gallery QR always stays available on the iPad.")
             }
             Section("Preview") {
                 NavigationLink("Preview Guest Experience") {
                     ScrollView { CustomerExperiencePreviewView(profile: EventProfileStore.load()).padding() }.navigationTitle("Guest Preview")
                 }
             }
-        }.navigationTitle("Branding & Design").tint(OperatorPalette.ink)
+        }
+        .onAppear { printOptions = ReceiptPrintSettingsStore.load() }
+        .onReceive(NotificationCenter.default.publisher(for: ReceiptPrintSettingsStore.didChangeNotification)) { _ in
+            printOptions = ReceiptPrintSettingsStore.load()
+        }
+        .navigationTitle("Branding & Design").tint(OperatorPalette.ink)
     }
 }

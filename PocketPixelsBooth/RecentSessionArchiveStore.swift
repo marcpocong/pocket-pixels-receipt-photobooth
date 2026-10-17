@@ -39,6 +39,7 @@ struct RecentSessionArchive: Sendable {
     let rasterizedImage: ThermalRasterizedImage
     /// Frozen Passport keepsake data stored locally with the archive; never uploaded.
     var passport: PassportSessionData? = nil
+    var receiptPrintOptions: ReceiptPrintOptions? = nil
 }
 
 struct RecentSessionArchivePayload: Sendable {
@@ -268,7 +269,8 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
             thermalPreviewPNGData: thermalPreview,
             thumbnailData: thumbnails,
             rasterizedImage: rasterizedImage,
-            passport: metadata.passport
+            passport: metadata.passport,
+            receiptPrintOptions: metadata.receiptPrintOptions
         )
     }
 
@@ -403,7 +405,8 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
             reprintCount: 0,
             passport: payload.committedSession.passport,
             eventRunID: payload.eventRunID,
-            eventDesignID: payload.eventDesignID
+            eventDesignID: payload.eventDesignID,
+            receiptPrintOptions: payload.committedSession.printOptions
         )
     }
 
@@ -570,6 +573,7 @@ nonisolated private struct RecentSessionArchiveMetadata: Codable, Equatable {
     var passport: PassportSessionData? = nil
     var eventRunID: String? = nil
     var eventDesignID: String? = nil
+    var receiptPrintOptions: ReceiptPrintOptions? = nil
 }
 
 private extension JSONEncoder {

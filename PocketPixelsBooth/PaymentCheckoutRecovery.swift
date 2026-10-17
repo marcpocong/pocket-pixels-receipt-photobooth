@@ -45,6 +45,8 @@ nonisolated struct CheckoutCheckpoint: Codable, Equatable, Identifiable, Sendabl
     var resolution: String?
     var resolvedAt: Date?
 
+    var receiptPrintOptions: ReceiptPrintOptions? = nil
+
     var isResolved: Bool { resolution != nil }
 }
 

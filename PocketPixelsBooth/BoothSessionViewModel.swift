@@ -128,6 +128,7 @@ final class BoothSessionViewModel: ObservableObject {
     private var retakeIndex: Int?
     private var isOperatorCameraRestartRunning = false
     private var sessionCreatedAt: Date?
+    private(set) var sessionPrintOptions: ReceiptPrintOptions = .default
     private var sessionEventProfile: EventProfile?
     private var committedGallerySession: CommittedGallerySession?
     private var customerSessionGeneration = 0
@@ -360,6 +361,7 @@ final class BoothSessionViewModel: ObservableObject {
         offlinePolicyPayload = offlinePolicy
         customerPrintPhotoProfile = CustomerReceiptPhotoToneStore.load().profile
         beginNewCustomerSession()
+        sessionPrintOptions = environment.receiptPrintOptionsSource().resolved(for: environment.eventProfileSource().normalized())
         freezeSessionStickerConfiguration()
         errorMessage = nil
         statusMessage = "Choose your format."
@@ -761,7 +763,7 @@ final class BoothSessionViewModel: ObservableObject {
             id: sessionID, environment: environment, deviceID: identity?.deviceID, accountID: identity?.accountID,
             eventID: eventID, policyRevisionID: policyRevisionID, unitPriceCentavos: unitPriceCentavos, copies: copies,
             format: format.rawValue, method: method, orderID: nil, entitlementID: nil, offlineRecordID: nil,
-            phase: .orderRequested, lastServerState: nil, createdAt: now, updatedAt: now, resolution: nil, resolvedAt: nil))
+            phase: .orderRequested, lastServerState: nil, createdAt: now, updatedAt: now, resolution: nil, resolvedAt: nil, receiptPrintOptions: sessionPrintOptions))
     }
 
     /// Retries a write whose outcome is unknown with the same idempotent request.
@@ -1066,9 +1068,21 @@ final class BoothSessionViewModel: ObservableObject {
             state = .error("This paid session could not be resumed. Please see the attendant.")
             return
         }
+        let recovery = recoveryStore?.load().flatMap { $0.sessionIdentifier == checkpoint.id ? $0 : nil }
+        if checkpoint.receiptPrintOptions != nil {
+            // Current checkouts must retain their original gallery identity across recovery.
+            // Never mint a replacement token after an interrupted customer's admission.
+            guard let recovery, let token = recovery.galleryToken, let url = recovery.galleryURL,
+                  GalleryURLBuilder.customerGalleryBaseURL(ofGalleryURL: url, galleryToken: token) != nil else {
+                state = .error("The original gallery recovery record is unavailable. Please see the attendant; this paid checkout has been retained.")
+                return
+            }
+        }
         cancelTasks()
         clearCustomerData()
         beginNewCustomerSession()
+        galleryToken = recovery?.galleryToken
+        galleryURL = recovery?.galleryURL
         let generation = customerSessionGeneration
         isTransitionActive = true
         statusMessage = "Resuming your paid session…"
@@ -1086,7 +1100,8 @@ final class BoothSessionViewModel: ObservableObject {
                                                         supportedFormatRawValues: [checkpoint.format], offlineValidUntil: nil),
                     startsAt: nil, endsAt: nil, updatedAt: Date())
                 sessionRunID = try eventRunStore?.session(id: checkpoint.id)?.runID
-                guard prepareSessionContext(format: format, sessionIdentifier: checkpoint.id, createdAt: Date()) else { return }
+                sessionPrintOptions = checkpoint.receiptPrintOptions ?? recovery?.receiptPrintOptions ?? ReceiptPrintOptions(footerStyle: .classicBarcodeAndGalleryQR)
+                guard prepareSessionContext(format: format, sessionIdentifier: checkpoint.id, createdAt: recovery?.createdAt ?? checkpoint.createdAt) else { return }
                 checkoutGuard = CheckoutGuard(serverCheckoutStarted: true, qrAttemptUnresolved: false, newCheckoutAllowed: false)
                 checkoutEntitlement = entitlement
                 selectedCheckoutCopies = entitlement.purchasedCopies
@@ -1489,7 +1504,7 @@ final class BoothSessionViewModel: ObservableObject {
             format: selectedBoothFormat,
             eventProfile: sessionEventProfile,
             passport: selectedBoothFormat == .passport ? passportDraft.committed(at: receiptDate) : nil,
-            printOptions: ReceiptPrintSettingsStore.load(),
+            printOptions: sessionPrintOptions,
             stickers: stickers
         )
         passportPreviewTask?.cancel()
@@ -1554,7 +1569,7 @@ final class BoothSessionViewModel: ObservableObject {
         let eventProfile = sessionEventProfile
         let passport = selectedBoothFormat == .passport ? passportDraft.committed(at: receiptDate) : nil
         let photoProfile = customerPrintPhotoProfile
-        let printOptions = ReceiptPrintSettingsStore.load()
+        let printOptions = sessionPrintOptions
         stickerPreparationTask = Task {
             let worker = Task.detached(priority: .userInitiated) { () throws -> (UIImage, StickerLayoutSnapshot) in
                 let receipt = try ReceiptComposer.compose(
@@ -1808,6 +1823,8 @@ final class BoothSessionViewModel: ObservableObject {
         let passport = passportDraft
         let eventProfile = sessionEventProfile
         let photoProfile = customerPrintPhotoProfile
+        let printOptions = sessionPrintOptions
+        let previewGalleryURL = galleryURL
         let sessionGeneration = customerSessionGeneration
         passportPreviewTask = Task {
             let worker = Task.detached(priority: .userInitiated) { () throws -> UIImage in
@@ -1815,11 +1832,12 @@ final class BoothSessionViewModel: ObservableObject {
                     photos: photos,
                     sessionIdentifier: "PASSPORT-PREVIEW",
                     date: date,
-                    galleryURL: nil,
+                    galleryURL: previewGalleryURL,
                     format: .passport,
                     eventProfile: eventProfile,
                     passport: passport,
-                    photoQualityProfile: photoProfile
+                    photoQualityProfile: photoProfile,
+                    printOptions: printOptions
                 )
                 guard let image = UIImage(data: receipt.imagePNGData) else {
                     throw ReceiptComposerError.renderFailed
@@ -2750,7 +2768,8 @@ final class BoothSessionViewModel: ObservableObject {
             stage: stage,
             updatedAt: Date(),
             // Only committed Passport data is persisted; in-progress drafts never touch disk.
-            passport: committedGallerySession?.passport
+            passport: committedGallerySession?.passport,
+            receiptPrintOptions: sessionPrintOptions
         )
         return snapshot
     }
