@@ -302,3 +302,13 @@ if (process.argv.includes('--fixtures')) {
   fs.writeFileSync(path.join(output, 'pending.html'), pendingHTML);
   fs.writeFileSync(path.join(output, 'invalid.html'), invalidHTML);
 }
+
+// New financial/customer ownership identifiers remain accepted by the same gallery deployment.
+const uniqueSession = context.makeSelfTestPayload_(1);
+uniqueSession.sessionID = 'PP-20261017-233000-12345678-1234-4abc-8def-123456789abc';
+assert.equal(context.validateUploadPayload_(uniqueSession).ok, true);
+for (const suffix of ['-partial', '-12345678-1234-4abc-8def-123456789abc/other', '-https://example.test']) {
+  const bad = context.makeSelfTestPayload_(1);
+  bad.sessionID += suffix;
+  assert.equal(context.validateUploadPayload_(bad).ok, false);
+}

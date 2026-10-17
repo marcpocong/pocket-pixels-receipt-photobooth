@@ -36,7 +36,7 @@ Opt-in **Unattended · QR Ph only** is committed with reviewed event acceptance.
 
 **Save My Checkout and Leave** durably preserves the original checkpoint and private gallery snapshot before stopping callbacks. It displays a random owner-assisted recovery reference. Only after this durable handoff may the guest return to Welcome. The payment remains unresolved; server/device reconciliation continues. Original recovery never automatically unlocks a later guest, and no uncertain print is automatically resent. Owner authentication and server state are required to arm recovery. The displayed reference alone is not authorization; self-service reclaim is not exposed.
 
-New customer ownership identifiers combine the readable receipt timestamp with a UUID, so rapid handoff, repeated device clocks and different booths cannot reuse a checkout identity. Historical/recovered identifiers remain exact.
+New customer ownership identifiers combine the readable receipt timestamp with a UUID, so rapid handoff, repeated device clocks and different booths cannot reuse a checkout identity. Historical/recovered identifiers remain exact. The existing Apps Script upload deployment was surgically updated from version 23 to version 24 to accept the UUID suffix while preserving legacy IDs; its URL, owner and access configuration are unchanged. Pure validator tests cover both shapes and reject partial/path/URL suffixes. Version 23 remains the rollback target.
 
 ## Monitoring and cost
 
@@ -69,4 +69,4 @@ For app rollback, retain both the current and pre-upgrade signed artifacts priva
 
 The owner confirmed Carlo is idle and the physical printer is unavailable. Physical paper delivery, scan quality, printer reconnect behavior and a complete real photo-to-paper-to-online-gallery session are therefore not verified. No simulated print is described as physically successful.
 
-The first broad simulator run exposed old lifecycle/reuse expectations and payment-reader assumptions, which were corrected, plus Keychain errors in an unsigned simulator run. Final verification uses the CI's ad-hoc simulator signing. Final test totals, PR/CI, signed build identity, preservation checks and installation outcome will be appended after they are independently verified.
+The first broad simulator run exposed old lifecycle/reuse expectations and payment-reader assumptions, which were corrected, plus Keychain errors in an unsigned simulator run. Final verification used the CI's ad-hoc simulator signing: all 673 reported tests passed (708 device executions including parameter cases), zero failures/skips. PR/CI, signed build identity, preservation checks and installation outcome will be appended after they are independently verified.
