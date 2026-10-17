@@ -65,8 +65,23 @@ For a payment-code emergency, the preceding LIVE code version is `48e7850a-a50b-
 
 For app rollback, retain both the current and pre-upgrade signed artifacts privately and install over the same bundle only when the booth is idle. Never uninstall or clear local/Keychain state. Prior builds ignore additive fields; a paused admission barrier remains fail-closed. The preceding app's signing profile expiry must be checked before any rollback.
 
-## Acceptance in progress
+## Device acceptance and remaining verification
 
 The owner confirmed Carlo is idle and the physical printer is unavailable. Physical paper delivery, scan quality, printer reconnect behavior and a complete real photo-to-paper-to-online-gallery session are therefore not verified. No simulated print is described as physically successful.
 
 The first broad simulator run exposed old lifecycle/reuse expectations and payment-reader assumptions, which were corrected, plus Keychain errors in an unsigned simulator run. Final verification used the CI's ad-hoc simulator signing: all 673 reported tests passed (708 device executions including parameter cases), zero failures/skips. PR/CI, signed build identity, preservation checks and installation outcome will be appended after they are independently verified.
+
+
+Carlo was rechecked as paired/available immediately before installation. A fresh 442 MB private Library backup matched the original backup exactly. All 58 checkout checkpoints were resolved; all 267 print-outbox entries were locally delivered, with no uncertain/pending print accounting. Build 1 was upgraded in place to **1.0 (2)** and launched successfully. No uninstall or data reset occurred.
+
+Post-install comparison preserved every Application Support file unchanged, including customer archives, payment journals, designs, event history and workspace. All original preference values matched; only the monitoring endpoint preference was added. OS launch snapshots and runtime caches changed normally. The monitoring device credential was provisioned privately into its separate Keychain service.
+
+The owner completed the protected **Return to Regular Booth** action and confirmed **Make a Memory → Format → Camera** works without payment. Independent device readback confirms `boothMode=regular`, `blocked=false`, local prepaid mode, no current run, and byte-equivalent historical run records. The camera test was cancelled before capture/printing and Carlo returned to Welcome.
+
+The real Carlo heartbeat reports network/storage ready and the unavailable printer accurately. The independent Worker delivered the printer and initial paused-state alerts once each; unauthorized heartbeat and overview requests return 401. Monitoring deployment version is `7cbf7596-d59d-4871-9cdb-660c2f7f818f`. A controlled actual missing-heartbeat/recovery test is in progress while GitHub CI runs; its final delivery results will be included in the release report.
+
+The PayMongo dashboard independently shows the existing LIVE endpoint enabled for `payment.paid`, `payment.failed` and `qrph.expired`. Endpoint, webhook secrets and subscription were preserved. Real provider settlement/webhook delivery and real-money recovery were not manufactured for testing.
+
+Signed Release verification passed with bundle `com.pocketpixels.PocketPixelsBooth`, team `PQ26682725`, Carlo included in provisioning, and executable SHA-256 `3f87f1b683356c55bba0ddf31112ab8c1d9af01039d9f15930ace9c6b54550fc`. The current development profile expires **October 19, 2026 at 4:10:21 PM Asia/Manila** and needs renewal before continued operation beyond that time.
+
+Release candidate branch: `regular-booth-reliability`; PR [#7](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/pull/7). Full release integration/CI status and actual monitoring outage results are recorded in the final release report. This is not a claim of complete physical production acceptance: the VOZY G80 is unavailable, so physical receipt delivery, scan quality, reconnect/recovery and a complete real capture-to-paper-to-gallery flow remain owner acceptance steps.
