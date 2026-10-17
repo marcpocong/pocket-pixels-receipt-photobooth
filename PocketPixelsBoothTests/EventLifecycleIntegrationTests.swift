@@ -170,13 +170,17 @@ import SwiftUI
             authorized: { [unowned self] in self.permitted }, blockingReason: { [unowned self] in self.busyReason }, recoveryReason: { nil },
             source: { [unowned self] in self.source }, loadLocal: { [unowned self] in self.local }, saveLocal: { [unowned self] in self.local = $0 },
             binding: { [unowned self] in self.binding }, appliedContext: { [unowned self] in self.appliedContext },
-            hasUnsavedSetup: { [unowned self] in self.workspace.hasUnsavedDrafts }, makeSetup: { [unowned self] in self.setup() })
+            hasUnsavedSetup: { [unowned self] in self.workspace.hasUnsavedDrafts }, makeSetup: { [unowned self] in self.setup() }, applyRegularConfiguration: { [unowned self] in
+                try self.library.recordApplied(eventModeEnabled: false, eventID: nil)
+                self.profile = .pocketPixelsDefault; self.source = .localPrepaid
+            })
     }
 
     /// The same gates a guest's Make a Memory tap passes, in the same order, using production
     /// admission helpers: the durable barrier, the policy source, then the committed run.
     func admitGuest(session: String = UUID().uuidString.lowercased(), format: String = "solo") async throws -> String {
         guard !acceptance.state.blocked else { throw SetupFailure("New sessions are paused.") }
+        if RegularBoothMode.isEnabled(acceptance: acceptance, runs: runs) { return "regular-booth" }
         let commercialID: String?
         if source == .serverManaged {
             guard let event = try await server.activeEvent().event, acceptance.permits(eventID: event.id, binding: binding) else { throw SetupFailure("Paid event not accepting guests.") }
@@ -244,54 +248,45 @@ import SwiftUI
         let lifecycle = booth.lifecycle()
         let ended = await lifecycle.end(scope: .thisBooth)
         XCTAssertTrue(ended, lifecycle.message)
-        XCTAssertEqual(booth.runs.current?.status, .completed)
-        XCTAssertNotNil(booth.runs.current?.endedAt)
-        XCTAssertTrue(booth.acceptance.state.blocked)
-        XCTAssertEqual(lifecycle.status, .completed)
-
-        // The operator opens setup again and starts the same design.
+        XCTAssertNil(booth.runs.current)
+        XCTAssertEqual(booth.runs.runs.first?.status, .completed)
+        XCTAssertNotNil(booth.runs.runs.first?.endedAt)
+        XCTAssertFalse(booth.acceptance.state.blocked)
+        XCTAssertEqual(lifecycle.status, .regular)
+        let regular = try await booth.admitGuest(session: "regular-guest")
+        XCTAssertEqual(regular, "regular-booth")
+        XCTAssertEqual(booth.runs.runs.count, 1, "Regular sessions do not create event occurrences")
         let again = booth.setup()
+        await again.setEventMode(true)
+        await again.chooseDesign(try XCTUnwrap(runA.context.designID))
         XCTAssertEqual(again.occurrencePlan, .requiresNewOccurrence(previousRunID: runA.id))
         let refused = await again.startAccepting()
-        XCTAssertFalse(refused, "Setup never reports 'accepting guests' against an ended run")
-        XCTAssertTrue(booth.acceptance.state.blocked, "Admission stays closed")
-        XCTAssertFalse(again.message.contains("Accepting guests"))
-        do { _ = try await booth.admitGuest(); XCTFail("A guest must not start") } catch {}
-        XCTAssertEqual(booth.runs.runs.count, 1)
-
+        XCTAssertFalse(refused, "An ended occurrence is never reopened")
         again.startsNewOccurrence = true
         let started = await again.startAccepting()
         XCTAssertTrue(started, again.message)
         let runB = try XCTUnwrap(booth.runs.current)
         XCTAssertNotEqual(runB.id, runA.id)
         XCTAssertEqual(runB.previousRunID, runA.id)
-        XCTAssertEqual(runB.context.designID, runA.context.designID, "Same reusable design")
-        XCTAssertEqual(booth.runs.runs.first { $0.id == runA.id }?.status, .completed)
         let admittedNow = try await booth.admitGuest(session: "b-1")
         XCTAssertEqual(admittedNow, runB.id)
-        XCTAssertEqual(try sessions(booth, run: runA.id).map(\.sessionID), ["a-1"], "History stays with the ended run")
-        XCTAssertEqual(EventRunStatistics(sessions: try sessions(booth, run: runB.id)).completed, 1, "Fresh statistics")
+        XCTAssertEqual(try sessions(booth, run: runA.id).map(\.sessionID), ["a-1"])
+        XCTAssertEqual(EventRunStatistics(sessions: try sessions(booth, run: runB.id)).completed, 1)
     }
 
-    func testEndThenRelaunchStillRequiresNewOccurrenceAndKeepsHistory() async throws {
+    func testEndThenRelaunchReturnsToRegularAndKeepsHistory() async throws {
         let booth = Booth(); defer { booth.cleanup() }
         _ = await startPrepaid(booth)
         let runA = try XCTUnwrap(booth.runs.current)
         _ = try await booth.admitGuest(session: "a-1")
         _ = await booth.lifecycle().end(scope: .thisBooth)
         booth.relaunch()
-        XCTAssertEqual(booth.runs.current?.id, runA.id)
-        XCTAssertEqual(booth.runs.current?.status, .completed, "Completed runs survive relaunch")
-        XCTAssertTrue(booth.acceptance.state.blocked)
-        let resumed = await booth.lifecycle().resume()
-        XCTAssertFalse(resumed, "An ended event isn't resumed")
-        let setup = booth.setup()
-        setup.startsNewOccurrence = true
-        let started = await setup.startAccepting()
-        XCTAssertTrue(started, setup.message)
-        XCTAssertNotEqual(booth.runs.current?.id, runA.id)
-        booth.relaunch()
-        XCTAssertEqual(booth.runs.runs.count, 2)
+        XCTAssertNil(booth.runs.current)
+        XCTAssertEqual(booth.runs.runs.first { $0.id == runA.id }?.status, .completed)
+        XCTAssertFalse(booth.acceptance.state.blocked)
+        XCTAssertEqual(booth.lifecycle().status, .regular)
+        let guest = try await booth.admitGuest()
+        XCTAssertEqual(guest, "regular-booth")
         XCTAssertEqual(try sessions(booth, run: runA.id).count, 1)
     }
 
@@ -370,7 +365,8 @@ import SwiftUI
         let ended = await lifecycle.end(scope: .thisBoothAndCommercialEvent)
         XCTAssertTrue(ended, lifecycle.message)
         XCTAssertEqual(booth.server.events[eventID]?.lifecycle, .ended)
-        XCTAssertEqual(booth.runs.current?.status, .completed)
+        XCTAssertNil(booth.runs.current)
+        XCTAssertEqual(booth.runs.runs.last?.status, .completed)
         XCTAssertNil(booth.runs.pendingTransition)
         XCTAssertTrue(lifecycle.message.contains("every booth"))
     }
@@ -384,7 +380,7 @@ import SwiftUI
         XCTAssertTrue(ended)
         XCTAssertEqual(booth.server.mutations("end"), 0)
         XCTAssertEqual(booth.server.events[eventID]?.lifecycle, .active)
-        XCTAssertTrue(lifecycle.message.contains("stays open for other booths"))
+        XCTAssertTrue(lifecycle.message.contains("other booths are unchanged") || lifecycle.message.contains("other booths are unchanged".capitalized) || lifecycle.message.contains("other booths are unchanged".replacingOccurrences(of: "other", with: "Other")))
     }
 
     func testLostEndResponseIsReconciledAfterRelaunchWithoutRepeatingTheMutation() async throws {
@@ -407,10 +403,10 @@ import SwiftUI
         let afterLaunch = booth.lifecycle()
         await afterLaunch.refresh()
         XCTAssertNil(booth.runs.pendingTransition)
-        XCTAssertEqual(booth.runs.current?.id, run.id)
-        XCTAssertEqual(booth.runs.current?.status, .completed)
+        XCTAssertNil(booth.runs.current)
+        XCTAssertEqual(booth.runs.runs.first { $0.id == run.id }?.status, .completed)
         XCTAssertEqual(booth.server.mutations("end"), 1, "The committed mutation is never repeated")
-        XCTAssertEqual(afterLaunch.status, .completed)
+        XCTAssertEqual(afterLaunch.status, .regular)
     }
 
     func testUnreachableEndLeavesRunPausedAndReviewClearsIntentWithoutGuessing() async throws {
@@ -491,6 +487,9 @@ import SwiftUI
         _ = await booth.lifecycle().end(scope: .thisBoothAndCommercialEvent)
 
         let reuse = booth.setup()
+        await reuse.setEventMode(true)
+        await reuse.choosePayment(.qrOnly)
+        await reuse.chooseDesign(try XCTUnwrap(booth.runs.runs.last?.context.designID))
         await reuse.refresh()
         XCTAssertTrue(reuse.validation?.contains("Start New Paid Occurrence") == true, reuse.validation ?? "")
         XCTAssertTrue(reuse.canStartNewPaidOccurrence)
@@ -531,6 +530,9 @@ import SwiftUI
         let oldEvent = try XCTUnwrap(booth.runs.current?.context.commercialEventID)
         _ = await booth.lifecycle().end(scope: .thisBoothAndCommercialEvent)
         let reuse = booth.setup()
+        await reuse.setEventMode(true)
+        await reuse.choosePayment(.qrOnly)
+        await reuse.chooseDesign(try XCTUnwrap(booth.runs.runs.last?.context.designID))
         await reuse.refresh()
         let designID = try XCTUnwrap(reuse.design?.id)
         // A concurrent relink makes the expected link stale; the library refuses.
@@ -610,15 +612,15 @@ import SwiftUI
         let setup = await startPrepaid(booth)
         let lifecycle = booth.lifecycle()
         _ = await lifecycle.end(scope: .thisBooth)
-        let run = try XCTUnwrap(booth.runs.current)
+        let run = try XCTUnwrap(booth.runs.runs.last)
         try booth.runs.transition(id: run.id, to: .archived)
-        XCTAssertEqual(lifecycle.status, .archived)
-        let resumed = await lifecycle.resume()
-        XCTAssertFalse(resumed)
-        XCTAssertThrowsError(try booth.library.archiveDesign(id: try XCTUnwrap(setup.design?.id)), "The applied design can't be archived")
+        XCTAssertEqual(lifecycle.status, .regular)
+        try booth.library.archiveDesign(id: try XCTUnwrap(setup.design?.id))
+        XCTAssertNotNil(booth.library.design(id: setup.design?.id)?.archivedAt)
         let other = try booth.library.create(name: "Other", venue: "")
         try booth.library.archiveDesign(id: other.id)
         let next = booth.setup()
+        await next.setEventMode(true)
         await next.chooseDesign(other.id)
         XCTAssertNotNil(next.validation)
     }

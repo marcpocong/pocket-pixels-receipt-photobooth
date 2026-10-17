@@ -12,7 +12,7 @@ import { createHarness, applyMigrations, migrationFiles, splitSQL } from "./supp
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 test("migration files are ordered and contiguous", () => {
-    assert.deepEqual(migrationFiles().map(name => name.slice(0, 4)), ["0001", "0002", "0003", "0004", "0005", "0006"]);
+    assert.deepEqual(migrationFiles().map(name => name.slice(0, 4)), ["0001", "0002", "0003", "0004", "0005", "0006", "0007"]);
 });
 
 test("SQL splitter keeps trigger bodies intact", () => {

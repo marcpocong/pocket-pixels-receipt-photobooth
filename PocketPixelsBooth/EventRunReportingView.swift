@@ -122,10 +122,10 @@ struct EventRunReportingView: View {
         }
         .onChange(of: selectedRunID) { _, _ in exportURL = nil; Task { await loadFinancials() } }
         .confirmationDialog(dialogTitle, isPresented: Binding(get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } }), titleVisibility: .visible) {
-            Button("Archive Run") { perform() }
+            Button(pendingAction == "delete" ? "Delete Unused Run" : "Archive Run", role: pendingAction == "delete" ? .destructive : nil) { perform() }
             Button("Cancel", role: .cancel) { }
         } message: { Text(dialogMessage) }
-        .confirmationDialog("Delete unused design?", isPresented: Binding(get: { designCandidate != nil }, set: { if !$0 { designCandidate = nil } })) {
+        .confirmationDialog("Delete unused design \(designCandidate?.displayName ?? "")?", isPresented: Binding(get: { designCandidate != nil }, set: { if !$0 { designCandidate = nil } })) {
             Button("Delete Unused Design", role: .destructive) { deleteDesign() }
             Button("Cancel", role: .cancel) { }
         } message: { Text("Applied, commercially linked and historically referenced designs cannot be deleted. Artwork and customer records are never removed.") }
@@ -366,6 +366,7 @@ struct EventRunReportingView: View {
     // MARK: Manage
 
     @ViewBuilder private var manageTab: some View {
+        Section { Toggle("Include archived designs and runs", isOn: $showsArchived) }
         Section {
             if let current = store.current { LabeledContent("Current run", value: label(current)) }
             NavigationLink(value: OperatorWorkspaceRoute.sessionSetup) {
@@ -374,6 +375,9 @@ struct EventRunReportingView: View {
             .accessibilityIdentifier("manage-new-occurrence")
             if let selected, selected.status == .completed || selected.status == .draft {
                 Button("Archive Selected Run…") { pendingAction = "archive" }.disabled(blocked != nil).frame(minHeight: 44)
+            }
+            if let selected, store.unusedRunDeletionReason(id: selected.id, archives: archives, inspectionComplete: localError == nil && !loading) == nil {
+                Button("Delete Unused Local Run…", role: .destructive) { pendingAction = "delete" }.disabled(blocked != nil).frame(minHeight: 44)
             }
             Picker("Selected run", selection: $selectedRunID) {
                 Text("Current run").tag(String?.none)
@@ -385,7 +389,7 @@ struct EventRunReportingView: View {
             Text("Reports never change the running event. For fresh statistics, end the event from Current Event, then use Start New Occurrence in Event Setup: it reviews the design and payment setup and keeps the ended run's history. Archiving hides an ended run from everyday lists; its sessions, receipts, galleries, entitlements and reports stay saved.")
         }
         Section {
-            ForEach(library.library.events) { design in
+            ForEach(library.library.events.filter { showsArchived || $0.archivedAt == nil }) { design in
                 HStack {
                     VStack(alignment: .leading) {
                         Text(design.displayName)
@@ -395,7 +399,15 @@ struct EventRunReportingView: View {
                     Menu("Manage") {
                         if design.archivedAt == nil { Button("Archive Design") { archiveDesign(design) } }
                         else { Button("Restore Design") { restoreDesign(design) } }
-                        Button("Delete Unused Design…", role: .destructive) { designCandidate = design }
+                        if library.deletionIneligibility(id: design.id, runs: store.runs, archives: archives,
+                            historyAvailable: localError == nil && !loading && store.storageError == nil
+                                && OperatorWorkspace.shared.persistenceError == nil
+                                && OperatorWorkspace.shared.designDraft(id: design.id) == nil
+                                && OperatorWorkspace.shared.snapshot.sessionSetup?.designID != design.id
+                                && CommercialEventCreationStore.shared.storageError == nil
+                                && !CommercialEventCreationStore.shared.intents.contains(where: { $0.isOpen && $0.designID == design.id })) == nil {
+                            Button("Delete Unused Design…", role: .destructive) { designCandidate = design }
+                        }
                     }
                 }.frame(minHeight: 48)
             }
@@ -464,14 +476,19 @@ struct EventRunReportingView: View {
 
     // MARK: Actions
 
-    private var dialogTitle: String { "Archive this run?" }
+    private var dialogTitle: String { "\(pendingAction == "delete" ? "Delete unused" : "Archive") run \(selected?.context.name ?? "")?" }
     private var dialogMessage: String {
-        "The run is hidden from everyday lists. Its sessions, receipts, galleries, payments and reports are kept and stay available under History."
+        if pendingAction == "delete" { return "Only this empty local run is removed. Deletion is refused if any commercial, session, receipt or later-occurrence dependency exists or inspection is incomplete." }
+        return "The run is hidden from everyday lists. Its sessions, receipts, galleries, payments and reports are kept and stay available under History."
     }
 
     private func perform() {
         defer { pendingAction = nil }
         do {
+            if pendingAction == "delete", let run = selected {
+                try store.deleteUnusedRun(id: run.id, archives: archives, inspectionComplete: localError == nil && !loading)
+                selectedRunID = nil; message = "Unused local run removed. Other history and records are kept."
+            }
             if pendingAction == "archive", let run = selected {
                 try store.transition(id: run.id, to: .archived); selectedRunID = nil
                 message = "Run archived. Its history and reports were retained."
@@ -496,7 +513,11 @@ struct EventRunReportingView: View {
         defer { designCandidate = nil }
         guard let designCandidate else { return }
         do {
-            guard localError == nil, !loading else { throw SetupFailure("Load event history before deleting a design.") }
+            guard localError == nil, !loading, OperatorWorkspace.shared.persistenceError == nil,
+                  OperatorWorkspace.shared.designDraft(id: designCandidate.id) == nil,
+                  OperatorWorkspace.shared.snapshot.sessionSetup?.designID != designCandidate.id,
+                  CommercialEventCreationStore.shared.storageError == nil,
+                  !CommercialEventCreationStore.shared.intents.contains(where: { $0.isOpen && $0.designID == designCandidate.id }) else { throw SetupFailure("Load event history and finish saved drafts or pending event creation before deleting a design.") }
             try library.deleteUnusedDesign(id: designCandidate.id, runs: store.runs, archives: archives, historyAvailable: store.storageError == nil)
             message = "Unused design removed. Artwork, drafts and customer records were retained."
         } catch { message = error.localizedDescription }

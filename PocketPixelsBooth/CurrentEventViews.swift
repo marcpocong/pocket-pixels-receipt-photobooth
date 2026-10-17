@@ -17,7 +17,7 @@ struct CurrentEventCard: View {
     @State private var showsHealth = false
     private let loadsRemote: Bool
 
-    enum Confirmation: String, Identifiable { case pauseBooth, pauseCommercial, resume, finishEnding, recordRun; var id: String { rawValue } }
+    enum Confirmation: String, Identifiable { case pauseBooth, pauseCommercial, resume, finishEnding, recordRun, regular; var id: String { rawValue } }
 
     init(lifecycle: EventLifecycleCoordinator? = nil, loadsRemote: Bool = true) {
         let model = lifecycle ?? EventLifecycleCoordinator()
@@ -27,8 +27,9 @@ struct CurrentEventCard: View {
     }
 
     private var status: EventOperatorStatus { lifecycle.status }
-    private var run: EventRunRecord? { runs.current }
-    private var local: CommercialEventRun { CommercialEventRunStore.load() }
+    private var run: EventRunRecord? { runs.operational }
+    private var regular: Bool { RegularBoothMode.isEnabled(acceptance: acceptance, runs: runs) }
+    private var local: CommercialEventRun { regular ? RegularBoothSettings.load().configuration : CommercialEventRunStore.load() }
     private var paid: Bool { CommercialPolicySource.load() == .serverManaged }
     private var busy: Bool { lifecycle.operation != nil }
 
@@ -63,7 +64,7 @@ struct CurrentEventCard: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("CURRENT EVENT").font(.caption.weight(.semibold)).tracking(2).foregroundStyle(Brand.burgundy)
+            Text("BOOTH STATUS").font(.caption.weight(.semibold)).tracking(2).foregroundStyle(Brand.burgundy)
             Text(eventName).font(.system(.largeTitle, design: .serif).weight(.semibold)).foregroundStyle(Brand.ink)
                 .accessibilityIdentifier("current-event-name")
             HStack(spacing: 10) {
@@ -85,7 +86,7 @@ struct CurrentEventCard: View {
             if let run { fact("Started", run.createdAt.formatted(date: .abbreviated, time: .shortened)) }
             else if lifecycle.canRecordUpgradedRun { fact("Event run", "Not recorded yet — statistics start with the first guest or Record Event Run") }
             fact("Payment", paymentLine)
-            fact("Guest admission", acceptance.state.blocked ? "Closed on this iPad" : "Open on this iPad")
+            fact("Guest admission", acceptance.state.blocked ? "Not accepting new guests" : "Ready for guests")
             fact("Printer", printer.requiresRecovery ? "Recovery required" : printer.state.message)
             fact("Galleries waiting", "\(operations.pendingUploadCount)")
             if paid, let checked = lifecycle.lastCheckedAt { fact("Server checked", checked.formatted(date: .omitted, time: .shortened)) }
@@ -139,8 +140,11 @@ struct CurrentEventCard: View {
 
     @ViewBuilder private var primaryAction: some View {
         switch status {
+        case .completed, .archived, .noEvent:
+            Button { confirm = .regular } label: { Label("Return to Regular Booth", systemImage: "camera.fill").frame(maxWidth: .infinity, minHeight: 48) }
+                .buttonStyle(.borderedProminent).accessibilityIdentifier("return-to-regular-booth")
         case .pausedOnBooth, .serverPaused:
-            Button { confirm = .resume } label: { Label("Resume Event", systemImage: "play.fill").frame(maxWidth: .infinity, minHeight: 48) }
+            Button { confirm = .resume } label: { Label(regular ? "Resume Booth" : "Resume Event", systemImage: "play.fill").frame(maxWidth: .infinity, minHeight: 48) }
                 .buttonStyle(.borderedProminent).accessibilityIdentifier("resume-event")
         case .needsReview(let reason) where reason.contains("ended for every booth"):
             Button { confirm = .finishEnding } label: { Label("Finish Ending on This iPad", systemImage: "flag.checkered").frame(maxWidth: .infinity, minHeight: 48) }
@@ -155,7 +159,8 @@ struct CurrentEventCard: View {
 
     private var setupTitle: String {
         switch status {
-        case .completed, .archived: "Start New Occurrence"
+        case .completed, .archived: "Set Up an Event"
+        case .regular: "Set Up an Event"
         case .accepting, .unconfirmed: "Edit Event Setup"
         default: "Set Up & Start"
         }
@@ -178,11 +183,13 @@ struct CurrentEventCard: View {
     // MARK: Derived text
 
     private var eventName: String {
+        if regular { return "Regular Booth" }
         if let run { return run.context.name.isEmpty ? "Regular Sessions" : run.context.name }
-        return library.design(id: library.library.appliedEventID)?.displayName ?? "Made to Keep Studios"
+        return "Made to Keep Studios"
     }
     private var appliedDesign: String { library.design(id: library.library.appliedEventID)?.displayName ?? "Studio branding" }
     private var paymentLine: String {
+        if regular { return "No payment required" }
         if !paid {
             let policy = local.activePolicy
             return "No payment · \(policy.defaultCopies) included, up to \(policy.maxCopies)"
@@ -195,7 +202,7 @@ struct CurrentEventCard: View {
     }
     private var statusColor: Color {
         switch status {
-        case .accepting: .green
+        case .accepting, .regular: .green
         case .recoveryRequired: .red
         case .needsReview, .unconfirmed, .pausedOnBooth, .serverPaused: .orange
         default: Brand.burgundy
@@ -218,6 +225,7 @@ struct CurrentEventCard: View {
         case .resume: _ = await lifecycle.resume()
         case .finishEnding: await lifecycle.finishEndingLocally()
         case .recordRun: _ = await lifecycle.recordUpgradedRun()
+        case .regular: _ = await lifecycle.returnToRegular()
         }
         if loadsRemote, paid { server = await ServerBoothStatus.load() }
     }
@@ -229,6 +237,7 @@ struct CurrentEventCard: View {
         case .resume: "Resume this event?"
         case .finishEnding: "Finish ending on this iPad?"
         case .recordRun: "Record an event run for this event?"
+        case .regular: "Return to Regular Booth?"
         case nil: ""
         }
     }
@@ -239,6 +248,7 @@ struct CurrentEventCard: View {
         case .resume: "Resume Event"
         case .finishEnding: "Complete This iPad's Run"
         case .recordRun: "Record Event Run"
+        case .regular: "Return to Regular Booth"
         }
     }
     private func confirmMessage(_ item: Confirmation) -> String {
@@ -255,6 +265,8 @@ struct CurrentEventCard: View {
                 : "Rechecks the saved setup and payment settings, then reopens this iPad with the same event run."
         case .finishEnding:
             return "The paid event has already ended. This completes this iPad's run; its sessions, galleries and reports are kept."
+        case .regular:
+            return "Verify the previous event and recovery records, then enable local no-payment sessions with standard Made to Keep branding. Other booths are unchanged. History, saved designs and drafts are kept."
         case .recordRun:
             return "This event was running before this iPad recorded event runs. After the paid event is confirmed, a run is recorded so statistics start now. Guest admission, prices, payments and earlier sessions are not changed."
         }
@@ -291,7 +303,7 @@ struct EndEventSheet: View {
                     } header: { Text("What ends") } footer: {
                         Text(closesCommercial
                              ? "Ends the paid event for every booth. It cannot be restarted; reuse the design with a new paid occurrence."
-                             : "Other booths on the same paid event keep taking guests. End the paid event when every booth is done.")
+                             : "This iPad switches to Regular Booth with no payment required. Other booths keep the paid event. The original server connection must be reachable to verify the switch.")
                     }
                 }
                 Section("Before ending") {
@@ -301,7 +313,7 @@ struct EndEventSheet: View {
                     if operations.pendingUploadCount > 0 { Text("Keep the app open online afterwards; waiting galleries keep uploading.").font(.footnote) }
                 }
                 Section("Kept after ending") {
-                    Text("Sessions, receipts, photos, galleries, print history, payment orders and entitlements, and this run's reports. Nothing is deleted.")
+                    Text("Sessions, receipts, photos, galleries, print history, payment orders and entitlements, and this run's reports. This iPad returns to Regular Booth with standard branding and no payment required.")
                         .font(.callout)
                 }
                 Section {

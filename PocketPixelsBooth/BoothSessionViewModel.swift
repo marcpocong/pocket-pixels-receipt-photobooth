@@ -307,12 +307,17 @@ final class BoothSessionViewModel: ObservableObject {
             return
         }
 
-        guard !SessionAcceptanceStore.shared.state.blocked else {
+        guard !SessionAcceptanceStore.shared.state.blocked, EventRunStore.shared.pendingTransition == nil else {
             logGuestAction("start_tap", result: "rejected_admission_paused")
             state = .error("New sessions are paused. Please see the attendant.")
             return
         }
 
+        if environment.regularBoothModeSource() {
+            beginChoosingFormat(run: RegularBoothSettings.load().configuration, authority: .localPrepaid,
+                                serverPolicy: nil, offlinePolicy: nil, regularBooth: true)
+            return
+        }
         guard CommercialPolicySource.load() == .serverManaged else {
             // Private / Prepaid booths never need the Payments Worker and never charge guests.
             let local = CommercialEventRunStore.load()
@@ -344,10 +349,10 @@ final class BoothSessionViewModel: ObservableObject {
         }
     }
 
-    private func beginChoosingFormat(run: CommercialEventRun, authority: PolicyAuthority, serverPolicy: ServerEventPolicy?, offlinePolicy: OfflinePolicyPayload?) {
+    private func beginChoosingFormat(run: CommercialEventRun, authority: PolicyAuthority, serverPolicy: ServerEventPolicy?, offlinePolicy: OfflinePolicyPayload?, regularBooth: Bool = false) {
         cancelTasks()
         clearCustomerData()
-        if environment.recordsCustomerSessionMetrics, let eventRunStore {
+        if !regularBooth, environment.recordsCustomerSessionMetrics, let eventRunStore {
             do {
                 let managed = authority != .localPrepaid
                 let context = EventRunContext.admission(library: EventDesignLibraryStore.shared.library, commercialEventID: managed ? run.id : nil,
@@ -696,6 +701,20 @@ final class BoothSessionViewModel: ObservableObject {
         activeTask = Task { [weak self] in
             guard let self else { return }
             do {
+                if SessionAcceptanceStore.shared.state.unattendedQR == true {
+                    statusMessage = "Checking booth readiness before payment…"
+                    let acceptance = SessionAcceptanceStore.shared
+                    guard acceptance.permits(eventID: event.id, binding: OperatorWorkspace.shared.serverBinding),
+                          event.qrphEnabled, !event.cashEnabled, event.lifecycle == .active else { throw SetupFailure("The unattended event needs operator review.") }
+                    let fresh = try await client.activeEvent()
+                    guard fresh.event?.id == event.id, fresh.event?.policyRevisionId == event.policyRevisionId,
+                          fresh.event?.qrphEnabled == true, fresh.event?.cashEnabled == false else { throw SetupFailure("Event payment settings changed. Please contact the booth owner.") }
+                    guard let checkpointStore, checkpointStore.integrityFault == nil else { throw SetupFailure("Checkout storage needs operator attention.") }
+                    try checkpointStore.verifyWritable()
+                    try await CheckoutReadiness().check()
+                    guard isCurrentCustomerSession(generation), !Task.isCancelled else { return }
+                    guard acceptance.permits(eventID: event.id, binding: OperatorWorkspace.shared.serverBinding) else { throw SetupFailure("The booth paused during readiness. No payment QR was issued.") }
+                }
                 checkoutGuard.serverCheckoutStarted = true
                 let order = try await createCheckoutOrder(client: client, event: event, format: format, copies: copies, sessionID: sessionIdentifier, method: "QRPH")
                 guard isCurrentCustomerSession(generation), !Task.isCancelled else { return }
@@ -850,8 +869,44 @@ final class BoothSessionViewModel: ObservableObject {
         }
     }
 
+    @Published private(set) var detachedRecoveryReference: String?
+
+    var canDetachUnresolvedCheckout: Bool {
+        state == .paymentReconciliation && !isTransitionActive && checkoutEntitlement == nil
+            && capturedPhotos.isEmpty && !isPrintBatchActive && !printerCoordinator.requiresRecovery
+            && detachedRecoveryReference == nil && sessionIdentifier != nil
+    }
+
+    func detachUnresolvedCheckout() {
+        guard canDetachUnresolvedCheckout, let id = sessionIdentifier, let checkpointStore,
+              let checkpoint = checkpointStore.checkpoint(id: id), checkpoint.phase < .entitled,
+              let snapshot = recoveryStore?.load(), snapshot.sessionIdentifier == id else {
+            statusMessage = "The original checkout could not be safely saved. Please call the attendant."; return
+        }
+        do {
+            let store = DetachedCheckoutStore(directory: environment.detachedCheckoutDirectory)
+            let existing = try store.load(sessionID: id)
+            let reference = existing?.reference ?? UUID().uuidString.lowercased()
+            let record = DetachedCheckoutRecord(checkpoint: checkpoint, snapshot: snapshot, reference: reference, detachedAt: existing?.detachedAt ?? Date())
+            try store.save(record)
+            guard checkpointStore.update(id: id, { $0.detachedAt = record.detachedAt; $0.recoveryReference = reference }) else { throw SetupFailure("The handoff journal could not be saved.") }
+            // There is no suspension between durable handoff and invalidating every callback.
+            stopPaymentPolling(); invalidateCustomerSessionCallbacks()
+            recoveryStore?.clear(sessionIdentifier: id)
+            operationalState.refresh()
+            detachedRecoveryReference = reference
+            statusMessage = "Your payment is still being checked. Save this reference and contact the booth owner before paying again. The reference alone cannot unlock a photo session."
+        } catch { statusMessage = "Your checkout is still here: \(error.localizedDescription) Please call the attendant." }
+    }
+
+    func finishDetachedCheckout() {
+        guard detachedRecoveryReference != nil, let id = sessionIdentifier,
+              checkpointStore?.checkpoint(id: id)?.detachedAt != nil else { return }
+        resetToWelcome()
+    }
+
     func recheckPayment() {
-        guard state == .paymentReconciliation, !isTransitionActive else {
+        guard state == .paymentReconciliation, !isTransitionActive, detachedRecoveryReference == nil else {
             logGuestAction("payment_recheck", result: "rejected_state_or_transition")
             return
         }
@@ -869,7 +924,7 @@ final class BoothSessionViewModel: ObservableObject {
     /// deliberate new checkout becomes available), or the session is reset. Never falls back to cash.
     private func pollQRStatus(orderID: String?, generation: Int) {
         stopPaymentPolling()
-        guard let client = paymentsClient else {
+        guard detachedRecoveryReference == nil, let client = paymentsClient else {
             statusMessage = "Payments cannot be reached on this iPad. Please call the attendant. Do not pay again."
             return
         }
@@ -905,7 +960,11 @@ final class BoothSessionViewModel: ObservableObject {
                         }
                     }
                     guard let recoveredOrderID else { return }
-                    let response = try await client.status(orderID: recoveredOrderID)
+                    let response: PaymentStatusResponse
+                    if iteration % 10 == 0 {
+                        do { response = try await client.reconcileOriginal(orderID: recoveredOrderID) }
+                        catch { response = try await client.status(orderID: recoveredOrderID) }
+                    } else { response = try await client.status(orderID: recoveredOrderID) }
                     guard ownsPaymentPolling(owner, generation: generation), !Task.isCancelled else { return }
                     guard response.order.id == recoveredOrderID,
                           response.order.checkoutSessionID == nil || response.order.checkoutSessionID == checkoutSessionID else {
@@ -1069,6 +1128,7 @@ final class BoothSessionViewModel: ObservableObject {
             return
         }
         let recovery = recoveryStore?.load().flatMap { $0.sessionIdentifier == checkpoint.id ? $0 : nil }
+            ?? (try? DetachedCheckoutStore(directory: environment.detachedCheckoutDirectory).load(sessionID: checkpoint.id))?.snapshot
         if checkpoint.receiptPrintOptions != nil {
             // Current checkouts must retain their original gallery identity across recovery.
             // Never mint a replacement token after an interrupted customer's admission.
@@ -2412,6 +2472,7 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     private func clearCustomerData() {
+        detachedRecoveryReference = nil
         capturedPhotos.removeAll()
         transientCapturedPhoto = nil
         transientCapturedPhotoIndex = nil

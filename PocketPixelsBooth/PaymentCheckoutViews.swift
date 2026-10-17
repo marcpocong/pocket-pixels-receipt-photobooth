@@ -558,10 +558,21 @@ struct PaymentReconciliationView: View {
                         .controlSize(.large)
                         .accessibilityIdentifier("payment.getHelp")
                 }
+                if let reference = viewModel.detachedRecoveryReference {
+                    Text("Recovery reference").font(.headline)
+                    Text(reference).font(.system(.title3, design: .monospaced)).textSelection(.enabled)
+                    Text("Save a photo of this reference. Contact the booth owner for protected recovery. Payment has not been declared failed; do not pay again.")
+                    Button("I Saved My Reference · Return to Welcome") { viewModel.finishDetachedCheckout() }
+                        .buttonStyle(.borderedProminent).controlSize(.large)
+                        .accessibilityIdentifier("payment.finishHandoff")
+                } else if viewModel.canDetachUnresolvedCheckout, stage != .checking {
+                    Button("Save My Checkout and Leave") { viewModel.detachUnresolvedCheckout() }
+                        .buttonStyle(.bordered).controlSize(.large).accessibilityIdentifier("payment.detachCheckout")
+                }
                 Button("Check Original Payment Again") { viewModel.recheckPayment() }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
-                    .disabled(viewModel.isCheckoutTransitionActive)
+                    .disabled(viewModel.isCheckoutTransitionActive || viewModel.detachedRecoveryReference != nil)
                 Text("Your original checkout stays saved. An attendant can review it securely; please do not pay again.")
                     .font(.callout)
                     .multilineTextAlignment(.center)

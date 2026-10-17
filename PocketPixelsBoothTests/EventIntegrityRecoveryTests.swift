@@ -425,6 +425,9 @@ import XCTest
         _ = await booth.lifecycle().end(scope: .thisBoothAndCommercialEvent)
 
         let reuse = booth.setup()
+        await reuse.setEventMode(true)
+        await reuse.chooseDesign(try XCTUnwrap(runA.context.designID))
+        await reuse.choosePayment(.qrOnly)
         await reuse.refresh()
         XCTAssertTrue(reuse.canStartNewPaidOccurrence)
         booth.server.loseCreateResponse = true
@@ -484,6 +487,9 @@ import XCTest
         XCTAssertEqual(booth.server.events[eventID]?.lifecycle, .active, "This-iPad end never changes the paid event")
 
         let next = booth.setup()
+        await next.setEventMode(true)
+        await next.chooseDesign(try XCTUnwrap(runA.context.designID))
+        await next.choosePayment(.qrOnly)
         await next.refresh()
         XCTAssertEqual(next.occurrencePlan, .requiresNewOccurrence(previousRunID: runA.id))
         next.startsNewOccurrence = true
@@ -539,8 +545,9 @@ import XCTest
         do { _ = try await booth.admitGuest(); XCTFail("admission must stay closed") } catch {}
         let retried = await lifecycle.end(scope: .thisBooth)
         XCTAssertTrue(retried, lifecycle.message)
-        XCTAssertEqual(booth.runs.current?.id, run.id)
-        XCTAssertEqual(booth.runs.current?.status, .completed)
+        XCTAssertNil(booth.runs.current)
+        XCTAssertEqual(booth.runs.runs.first { $0.id == run.id }?.status, .completed)
+        XCTAssertEqual(lifecycle.status, .regular)
     }
 
     func testPausedOccurrenceResumesWithTheSameRun() async throws {

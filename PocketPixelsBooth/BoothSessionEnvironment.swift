@@ -24,15 +24,19 @@ struct BoothSessionEnvironment {
     var archiveDirectory: URL?
     /// nil uses the production recovery store.
     var recoveryDirectory: URL?
+    var detachedCheckoutDirectory: URL?
     /// Customer galleries are prepared and uploaded. Qualification never uploads.
     var deliversGallery = true
     /// Event session counts and other customer metrics.
     var recordsCustomerSessionMetrics = true
     var printSource: PrintJobSource = .liveCustomer
-    var makeSessionIdentifier: @MainActor (Date) -> String = { ReceiptComposer.makeSessionIdentifier(date: $0) }
+    // A receipt timestamp is readable, but never an ownership key by itself: clocks can repeat
+    // across rapid handoffs, relaunches and booths. Recovery retains its original identifier.
+    var makeSessionIdentifier: @MainActor (Date) -> String = { "\(ReceiptComposer.makeSessionIdentifier(date: $0))-\(UUID().uuidString.lowercased())" }
     /// The event configuration a new session freezes. Qualification supplies its own scenario
     /// profile instead of editing the operator's saved event settings.
-    var eventProfileSource: @MainActor () -> EventProfile = { EventProfileStore.load() }
+    var eventProfileSource: @MainActor () -> EventProfile = { RegularBoothMode.isEnabled ? .pocketPixelsDefault : EventProfileStore.load() }
+    var regularBoothModeSource: @MainActor () -> Bool = { RegularBoothMode.isEnabled }
     var receiptPrintOptionsSource: @MainActor () -> ReceiptPrintOptions = { ReceiptPrintSettingsStore.load() }
     /// Sticker Studio settings a new session freezes. Qualification never shows the editor.
     var stickerConfigurationSource: @MainActor () -> StickerStudioSessionConfiguration = { StickerStudioSessionConfiguration.current() }

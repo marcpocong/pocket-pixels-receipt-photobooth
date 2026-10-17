@@ -20,9 +20,13 @@ struct ContentView: View {
             .persistentSystemOverlays(.hidden)
             .onAppear {
                 setIdleTimerDisabled(true)
+                try? DetachedCheckoutHandoff.recover()
                 operationalState.start()
+                BoothMonitoring.shared.start()
                 // Settles any print left in flight by a crash and reconciles interrupted checkouts.
                 PaymentRecoveryCoordinator.shared.launch()
+                try? RegularBoothMode.bootstrapIfSafe()
+                Task { await EventLifecycleCoordinator().refresh() }
                 Task { await EventRunStore.shared.reconcilePrintEvidence(PrintOutcomeOutbox.shared?.entries ?? []) }
             }
             .onDisappear {
@@ -33,6 +37,7 @@ struct ContentView: View {
                 if newPhase != .active { operationalState.invalidateCameraCheck() }
                 if newPhase == .active {
                     operationalState.handleScenePhaseActive()
+                    Task { await BoothMonitoring.shared.sendHeartbeat() }
                     Task { await PaymentRecoveryCoordinator.shared.refresh() }
                 }
             }

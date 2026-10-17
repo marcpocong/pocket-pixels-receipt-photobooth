@@ -46,6 +46,8 @@ nonisolated struct CheckoutCheckpoint: Codable, Equatable, Identifiable, Sendabl
     var resolvedAt: Date?
 
     var receiptPrintOptions: ReceiptPrintOptions? = nil
+    var detachedAt: Date? = nil
+    var recoveryReference: String? = nil
 
     var isResolved: Bool { resolution != nil }
 }
@@ -111,6 +113,11 @@ final class CheckoutCheckpointStore {
 
     var all: [CheckoutCheckpoint] { payload.checkpoints }
     var unresolved: [CheckoutCheckpoint] { payload.checkpoints.filter { !$0.isResolved } }
+
+    func verifyWritable() throws {
+        if let integrityFault { throw StoreError.integrityFault(integrityFault) }
+        try commit(payload)
+    }
 
     func checkpoint(id: String) -> CheckoutCheckpoint? { payload.checkpoints.first { $0.id == id } }
 
@@ -314,6 +321,10 @@ enum PrintReportSyncState: Equatable {
 nonisolated protocol CheckoutRecoveryReading: Sendable {
     var environment: String { get }
     func checkoutRecovery(checkoutSessionID: String) async throws -> CheckoutRecoveryResponse
+    func reconcileOriginalIfNeeded(orderID: String) async
+}
+extension CheckoutRecoveryReading {
+    func reconcileOriginalIfNeeded(orderID: String) async {}
 }
 extension PaymentsAPIClient: CheckoutRecoveryReading {}
 
@@ -332,6 +343,7 @@ final class PaymentRecoveryCoordinator: ObservableObject {
 
     @Published private(set) var lastRefreshCompletedAt: Date?
     private var launched = false
+    private var reconciliationTask: Task<Void, Never>?
     /// Refreshes are single-flight: one pass at a time, and requests made during a pass are
     /// coalesced into exactly one follow-up pass. An older pass can never publish over a newer one.
     private var refreshTask: Task<Void, Never>?
@@ -358,6 +370,13 @@ final class PaymentRecoveryCoordinator: ObservableObject {
         launched = true
         PrintOutcomeOutbox.shared?.recoverAfterLaunch()
         Task { await refresh() }
+        reconciliationTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                guard !Task.isCancelled, let self else { return }
+                await self.refresh()
+            }
+        }
     }
 
     /// Startup, foregrounding and operator actions may all ask at once. Callers wait for a pass
@@ -396,7 +415,10 @@ final class PaymentRecoveryCoordinator: ObservableObject {
             var server: CheckoutRecoveryResponse?
             if checkpoint.method != "OFFLINE_CASH", let client, client.environment == checkpoint.environment {
                 // A failed, timed-out or cancelled read proves nothing: the checkout stays pending.
-                do { server = try await client.checkoutRecovery(checkoutSessionID: checkpoint.id) } catch { unreachable = true }
+                do {
+                    if checkpoint.detachedAt != nil, let orderID = checkpoint.orderID { await client.reconcileOriginalIfNeeded(orderID: orderID) }
+                    server = try await client.checkoutRecovery(checkoutSessionID: checkpoint.id)
+                } catch { unreachable = true }
             }
             let offlineExists = await offlineRecordExists(checkpoint)
             // The operator may have resolved it while this pass was waiting; their decision stands.

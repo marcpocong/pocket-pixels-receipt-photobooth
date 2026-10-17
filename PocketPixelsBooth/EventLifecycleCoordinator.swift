@@ -25,6 +25,7 @@ nonisolated enum CommercialCheckState: Equatable, Sendable {
 /// treats a local `.active` run, or an active server event, as proof that guests are accepted.
 nonisolated enum EventOperatorStatus: Equatable, Sendable {
     case noEvent
+    case regular
     case draft
     case ready
     case starting
@@ -40,15 +41,16 @@ nonisolated enum EventOperatorStatus: Equatable, Sendable {
 
     var title: String {
         switch self {
-        case .noEvent: "No Event Configured"
+        case .noEvent: "Needs Attention"
+        case .regular: "Regular Booth"
         case .draft: "Draft — Not Started"
         case .ready: "Ready to Start"
         case .starting: "Starting…"
         case .accepting: "Accepting Guests"
         case .unconfirmed: "Server Status Not Confirmed"
-        case .pausedOnBooth: "Paused on This iPad"
-        case .serverPaused: "Paid Event Paused"
-        case .needsReview: "Needs Operator Review"
+        case .pausedOnBooth: "Booth Paused"
+        case .serverPaused: "Booth Paused"
+        case .needsReview: "Needs Attention"
         case .ending: "Ending…"
         case .completed: "Event Ended"
         case .archived: "Event Archived"
@@ -58,7 +60,8 @@ nonisolated enum EventOperatorStatus: Equatable, Sendable {
 
     var detail: String {
         switch self {
-        case .noEvent: "Set up an event to start accepting guests."
+        case .noEvent: "Review the saved booth configuration. Return to Regular Booth when no event is in control."
+        case .regular: "Ready for guests · No payment required · Standard Made to Keep branding"
         case .draft: "Setup changes are saved but not started. Guests can't start yet."
         case .ready: "Review the setup and start when you're ready."
         case .starting: "Checking every setting before guests can start."
@@ -68,14 +71,14 @@ nonisolated enum EventOperatorStatus: Equatable, Sendable {
         case .serverPaused: "The paid event is paused for every booth. Paid purchases remain recoverable."
         case .needsReview(let reason), .recoveryRequired(let reason): reason
         case .ending: "Closing guest admission and confirming the event has ended."
-        case .completed: "No new guests. History and reports are kept. Start a new occurrence to run again."
+        case .completed: "History and reports are kept. Choose Return to Regular Booth to finish the saved transition."
         case .archived: "Hidden from everyday use. Reports remain in Event History."
         }
     }
 
     var systemImage: String {
         switch self {
-        case .accepting: "checkmark.circle.fill"
+        case .accepting, .regular: "checkmark.circle.fill"
         case .pausedOnBooth, .serverPaused: "pause.circle.fill"
         case .starting, .ending: "hourglass"
         case .completed: "flag.checkered"
@@ -86,7 +89,7 @@ nonisolated enum EventOperatorStatus: Equatable, Sendable {
         }
     }
 
-    var isAccepting: Bool { self == .accepting }
+    var isAccepting: Bool { self == .accepting || self == .regular }
     var isWarning: Bool {
         switch self { case .needsReview, .recoveryRequired, .unconfirmed: true; default: false }
     }
@@ -109,6 +112,7 @@ nonisolated struct EventStatusInputs: Sendable {
     var operation: EventLifecycleCoordinator.Operation?
     /// The local prepaid policy is valid but paused (Pause This Booth before runs existed).
     var localPrepaidPaused = false
+    var regularMode = false
 }
 
 nonisolated enum EventStatusModel {
@@ -122,6 +126,10 @@ nonisolated enum EventStatusModel {
         if let pending = input.pendingTransition {
             let action = pending.kind == .endCommercialEvent ? "Ending the paid event" : "Pausing the paid event"
             return .recoveryRequired("\(action) was interrupted before it was confirmed. Check Status to finish it; nothing will be repeated automatically.")
+        }
+        if input.regularMode {
+            if let reason = input.recoveryReason { return .needsReview(reason) }
+            return input.barrierBlocked ? .pausedOnBooth : .regular
         }
         guard let run = input.run else { return withoutRun(input) }
         switch run.status {
@@ -245,6 +253,7 @@ nonisolated enum EventStatusModel {
     private let hasUnsavedSetup: @MainActor () -> Bool
     private let makeSetup: @MainActor () -> SessionSetupCoordinator
     private var checkRequest = UUID()
+    private let applyRegularConfiguration: @MainActor () throws -> Void
 
     init(runs: EventRunStore? = nil, acceptance: SessionAcceptanceStore? = nil,
          api: @escaping @MainActor () throws -> any SessionSetupAPI = {
@@ -260,7 +269,13 @@ nonisolated enum EventStatusModel {
          binding: @escaping @MainActor () -> String = { OperatorWorkspace.shared.serverBinding },
          appliedContext: @escaping @MainActor () -> EventRunContext = { EventRunStore.currentContext() },
          hasUnsavedSetup: @escaping @MainActor () -> Bool = { OperatorWorkspace.shared.hasUnsavedDrafts },
-         makeSetup: @escaping @MainActor () -> SessionSetupCoordinator = { SessionSetupCoordinator() }) {
+         makeSetup: @escaping @MainActor () -> SessionSetupCoordinator = { SessionSetupCoordinator() },
+         applyRegularConfiguration: @escaping @MainActor () throws -> Void = {
+             try EventDesignLibraryStore.shared.recordApplied(eventModeEnabled: false, eventID: nil)
+             EventProfileStore.save(.pocketPixelsDefault)
+             CommercialPolicySource.save(.localPrepaid)
+         }) {
+        self.applyRegularConfiguration = applyRegularConfiguration
         self.runs = runs ?? .shared; self.acceptance = acceptance ?? .shared
         self.api = api; self.authorized = authorized; self.blockingReason = blockingReason; self.recoveryReason = recoveryReason
         self.source = source; self.loadLocal = loadLocal; self.saveLocal = saveLocal; self.binding = binding
@@ -269,6 +284,9 @@ nonisolated enum EventStatusModel {
 
     var status: EventOperatorStatus {
         let local = loadLocal()
+        if acceptance.state.startingEventID != nil {
+            return .recoveryRequired("Starting the paid event was interrupted. Review and finish Start in Event Setup before changing operation. No free fallback is enabled.")
+        }
         // A failed statistics write is shown as a warning; only unreadable state blocks operation.
         let errors = [runs.historyUnreadable ? runs.storageError : nil, acceptance.storageError].compactMap { $0 }
         return EventStatusModel.derive(.init(run: runs.current, appliedContext: appliedContext(), barrierBlocked: acceptance.state.blocked,
@@ -276,7 +294,8 @@ nonisolated enum EventStatusModel {
             localPrepaidReady: SessionAdmission.localConfigurationIsReady(source: .localPrepaid, local: local),
             commercial: commercial, recoveryReason: recoveryReason(), storageErrors: errors,
             pendingTransition: runs.pendingTransition, hasUnsavedSetup: hasUnsavedSetup(), operation: operation,
-            localPrepaidPaused: SessionAdmission.localConfigurationIsPaused(local)))
+            localPrepaidPaused: SessionAdmission.localConfigurationIsPaused(local),
+            regularMode: RegularBoothMode.isEnabled(acceptance: acceptance, runs: runs)))
     }
 
     /// The paid event linked to the current occurrence, when it belongs to this connection. With
@@ -292,7 +311,7 @@ nonisolated enum EventStatusModel {
 
     /// An upgraded install that is running (or paused in) an event with no run recorded yet.
     var canRecordUpgradedRun: Bool {
-        guard runs.current == nil, runs.pendingTransition == nil, !runs.historyUnreadable else { return false }
+        guard acceptance.state.boothMode != .regular, runs.current == nil, runs.pendingTransition == nil, !runs.historyUnreadable else { return false }
         switch status { case .accepting, .unconfirmed, .pausedOnBooth, .serverPaused: return true; default: return false }
     }
 
@@ -308,6 +327,10 @@ nonisolated enum EventStatusModel {
     /// only from a confirmed read-back.
     func refresh() async {
         let request = UUID(); checkRequest = request
+        if let pending = runs.pendingTransition, pending.returnsToRegular == true, pending.serverConfirmed == true {
+            do { try commitRegular(pending) } catch { message = "Finish Ending Event: \(error.localizedDescription)" }
+            return
+        }
         guard let eventID = runs.pendingTransition?.commercialEventID ?? linkedCommercialEventID else {
             commercial = .notNeeded; return
         }
@@ -338,9 +361,20 @@ nonisolated enum EventStatusModel {
         do {
             switch (pending.kind, check.lifecycle) {
             case (.endCommercialEvent, .ended?), (.endCommercialEvent, .archived?):
-                try completeLocalRun(for: pending)
-                try runs.clearTransition(id: pending.id)
+                if pending.returnsToRegular == true {
+                    var confirmed = pending; confirmed.serverConfirmed = true
+                    try runs.beginTransition(confirmed); try commitRegular(confirmed)
+                } else {
+                    try completeLocalRun(for: pending)
+                    try runs.clearTransition(id: pending.id)
+                }
                 message = "Confirmed: the paid event has ended. This iPad's run is complete; history and reports are kept."
+            case (.returnToRegular, _):
+                // This intent records an explicit local-only end; a successful scoped read verifies
+                // the original event without changing it for the other booths.
+                guard check.lifecycle != nil else { throw SetupFailure("Paid event status is unknown.") }
+                var confirmed = pending; confirmed.serverConfirmed = true
+                try runs.beginTransition(confirmed); try commitRegular(confirmed)
             case (.pauseCommercialEvent, .paused?):
                 try runs.clearTransition(id: pending.id)
                 message = "Confirmed: the paid event is paused for every booth."
@@ -417,6 +451,11 @@ nonisolated enum EventStatusModel {
     /// policy and server lifecycle are revalidated before admission opens.
     func resume() async -> Bool {
         guard operation == nil else { return false }
+        if RegularBoothMode.isEnabled(acceptance: acceptance, runs: runs) {
+            guard authorized(), blockingReason() == nil else { message = blockingReason() ?? "Unlock Operator again before continuing."; return false }
+            do { try acceptance.save(.init(mode: .localPrepaid, boothMode: .regular)); message = "Regular Booth is ready for guests."; return true }
+            catch { message = error.localizedDescription; return false }
+        }
         guard runs.current?.status != .completed, runs.current?.status != .archived else {
             message = "An ended event isn't resumed. Use Start New Occurrence in Event Setup."; return false
         }
@@ -433,59 +472,104 @@ nonisolated enum EventStatusModel {
 
     // MARK: End
 
-    /// Ends the occurrence. With `.thisBoothAndCommercialEvent` the server transition is made and
-    /// read back first; the local run completes only after confirmation, guarded by a durable intent.
+    /// The operator's End confirmation explicitly switches this iPad to Regular Booth. The
+    /// journal survives every boundary: server mutation, local completion, design and barrier.
     func end(scope: EndScope) async -> Bool {
         guard operation == nil else { return false }
         guard authorized() else { message = "Unlock Operator again before continuing."; return false }
         if let reason = blockingReason() { message = reason; return false }
-        guard let run = runs.current, [.active, .paused].contains(run.status) else { message = "There is no active or paused event run to end."; return false }
+        guard runs.pendingTransition == nil else { message = "Finish Ending Event using Check Status first."; return false }
+        guard let run = runs.current, [.active, .paused, .completed, .archived].contains(run.status) else {
+            message = "There is no event run to end."; return false
+        }
         operation = .ending; defer { operation = nil }
         do {
+            let eventID = run.context.commercialEventID
+            if let starting = acceptance.state.startingEventID, starting != eventID {
+                throw SetupFailure("Finish reviewing the interrupted paid-event Start in Event Setup before ending this occurrence.")
+            }
+            if eventID != nil, run.context.serverBinding != binding() { throw SetupFailure("Restore the original payments connection before ending this event.") }
+            var intent = EventTransitionIntent(id: UUID().uuidString.lowercased(),
+                kind: scope == .thisBoothAndCommercialEvent ? .endCommercialEvent : .returnToRegular,
+                runID: run.id, commercialEventID: eventID ?? "", serverBinding: binding(), createdAt: Date(),
+                returnsToRegular: true, serverConfirmed: eventID == nil)
             try closeAdmission()
-            if scope == .thisBoothAndCommercialEvent {
-                guard let eventID = linkedCommercialEventID else { throw SetupFailure("This run has no paid event on this payments connection.") }
-                let intent = EventTransitionIntent(id: UUID().uuidString.lowercased(), kind: .endCommercialEvent, runID: run.id,
-                                                   commercialEventID: eventID, serverBinding: binding(), createdAt: Date())
-                try runs.beginTransition(intent)
+            try runs.beginTransition(intent)
+            if let eventID {
                 let client = try api()
                 let detail = try await client.eventDetail(id: eventID)
-                if [.active, .paused].contains(detail.event.lifecycle) {
+                if scope == .thisBoothAndCommercialEvent, [.active, .paused].contains(detail.event.lifecycle) {
                     _ = try await client.transitionEvent(id: eventID, action: "end", expectedVersion: detail.event.version, policyRevisionID: nil, acknowledgedUnitPriceCentavos: nil)
                 }
                 let confirmed = try await client.eventDetail(id: eventID)
-                commercial = .confirmed(.init(eventID: eventID, lifecycle: confirmed.event.lifecycle, isAccountActiveEvent: false, checkedAt: Date()))
-                guard [.ended, .archived].contains(confirmed.event.lifecycle) else {
-                    try? runs.clearTransition(id: intent.id)
-                    throw SetupFailure("The server reports the paid event is \(confirmed.event.lifecycle.displayName).")
+                guard scope == .thisBooth || [.ended, .archived].contains(confirmed.event.lifecycle) else {
+                    try runs.clearTransition(id: intent.id)
+                    throw SetupFailure("Ending the paid event was not confirmed.")
                 }
-                try runs.transition(id: run.id, to: .completed)
-                try runs.clearTransition(id: intent.id)
-                message = "Event ended on this iPad and for every booth. Sales, sessions, galleries and receipts are kept for reports."
-            } else {
-                try runs.transition(id: run.id, to: .completed)
-                message = linkedCommercialEventID == nil
-                    ? "Event ended on this iPad. History and reports are kept."
-                    : "Event ended on this iPad. The paid event stays open for other booths; end it separately when every booth is done."
+                guard authorized(), binding() == intent.serverBinding else { throw SetupFailure("Operator access or payments connection changed. Check Status to finish ending.") }
+                intent.serverConfirmed = true
+                try runs.beginTransition(intent)
             }
+            try commitRegular(intent)
+            message = scope == .thisBoothAndCommercialEvent
+                ? "Event ended for every booth. Regular Booth is ready here; history and payments are kept."
+                : "Regular Booth is ready. This event's history is kept; other booths are unchanged."
             return true
         } catch {
-            message = "Ending was not confirmed: \(error.localizedDescription) New sessions on this iPad stay paused. Check Status before trying again."
+            message = "Finish Ending Event: \(error.localizedDescription) New guests remain paused until the transition is verified."
             return false
         }
     }
 
-    /// When the paid event was ended elsewhere, this completes the local run to match.
-    func finishEndingLocally() async {
-        guard operation == nil else { return }
-        guard authorized() else { message = "Unlock Operator again before continuing."; return }
-        guard let run = runs.current, [.active, .paused].contains(run.status) else { return }
-        operation = .ending; defer { operation = nil }
+    private func commitRegular(_ intent: EventTransitionIntent) throws {
+        if let reason = blockingReason() { throw SetupFailure(reason) }
+        guard !runs.historyUnreadable, acceptance.storageError == nil else { throw SetupFailure("Recover event and admission storage before returning to Regular Booth.") }
+        try closeAdmission()
+        try runs.completeAndDetachForRegular(intentID: intent.id)
+        try applyRegularConfiguration()
+        // Keep the barrier closed until the journal is cleared. A crash on either side is
+        // recoverable; guests also check the pending journal before admission.
+        try acceptance.save(.init(blocked: true, mode: .localPrepaid, boothMode: .regular))
+        try runs.clearTransition(id: intent.id)
+        try acceptance.save(.init(mode: .localPrepaid, boothMode: .regular))
+        commercial = .notNeeded
+    }
+
+    /// Migration of an ended legacy pointer is explicit. For active/paused events the End
+    /// confirmation is required instead. No server failure can select free operation.
+    func returnToRegular() async -> Bool {
+        if let pending = runs.pendingTransition, pending.returnsToRegular == true {
+            await refresh()
+            return RegularBoothMode.isEnabled(acceptance: acceptance, runs: runs) && !acceptance.state.blocked
+        }
+        if let run = runs.current {
+            guard [.completed, .archived].contains(run.status) else { message = "Use End Event to leave an active or paused event."; return false }
+            return await end(scope: .thisBooth)
+        }
+        guard authorized(), operation == nil else { message = "Unlock Operator again before continuing."; return false }
+        if let reason = blockingReason() { message = reason; return false }
         do {
-            try closeAdmission()
-            try runs.transition(id: run.id, to: .completed)
-            message = "This iPad's run is complete. History and reports are kept."
-        } catch { message = "Not completed: \(error.localizedDescription)" }
+            let paidID = acceptance.state.startingEventID ?? acceptance.state.eventID
+            let paidBinding = acceptance.state.startingBinding ?? acceptance.state.serverBinding
+            guard (source() == .localPrepaid && paidID == nil) || (paidID != nil && paidBinding == binding()) else { throw SetupFailure("The paid event binding needs review in Event Setup before switching modes.") }
+            var intent = EventTransitionIntent(id: UUID().uuidString.lowercased(), kind: .returnToRegular, runID: nil,
+                commercialEventID: paidID ?? "", serverBinding: binding(), createdAt: Date(), returnsToRegular: true, serverConfirmed: paidID == nil)
+            try closeAdmission(); try runs.beginTransition(intent)
+            if let paidID {
+                _ = try await api().eventDetail(id: paidID)
+                guard authorized(), binding() == intent.serverBinding else { throw SetupFailure("Operator access or payments connection changed.") }
+                intent.serverConfirmed = true; try runs.beginTransition(intent)
+            }
+            try commitRegular(intent)
+            message = "Regular Booth is ready. Saved designs and drafts are kept."; return true
+        } catch { message = "Return to Regular Booth could not finish: \(error.localizedDescription)"; return false }
+    }
+
+    func finishEndingLocally() async {
+        guard case .confirmed(let check) = commercial, [.ended, .archived].contains(check.lifecycle) else {
+            message = "Check Status to confirm that the paid event has ended."; return
+        }
+        _ = await end(scope: .thisBooth)
     }
 
     // MARK: Upgrade bootstrap

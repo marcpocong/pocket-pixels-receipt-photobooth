@@ -212,6 +212,10 @@ struct SessionSetupView: View {
             }
             Divider()
             if setup.mode == .localPrepaid { freeSettings } else { paidSettings }
+            if setup.paymentChoice == .qrOnly {
+                Toggle("Unattended · QR Ph only", isOn: $setup.unattendedQR)
+                Text("Checks camera, printer, connection and checkout storage before issuing a payment QR. Guests can save an unresolved checkout for owner-assisted recovery.").font(.footnote).foregroundStyle(.secondary)
+            }
         }
     }
 

@@ -18,6 +18,7 @@ nonisolated struct OperatorSessionSetupDraft: Codable, Equatable {
     /// The paid methods the operator chose ("How will guests pay?"), applied to whichever
     /// server event carries the paid policy.
     var requestedMethods: GuestPaymentChoice?
+    var unattendedQR: Bool? = nil
 }
 
 /// A durable, fail-closed barrier around multi-step operator transitions. It never grants a
@@ -29,6 +30,10 @@ nonisolated struct OperatorSessionSetupDraft: Codable, Equatable {
         var eventID: String?
         var serverBinding: String?
         var mode: CommercialPolicySource?
+        var boothMode: BoothOperatingMode? = nil
+        var unattendedQR: Bool? = nil
+        var startingEventID: String? = nil
+        var startingBinding: String? = nil
     }
     @Published private(set) var state = State()
     @Published private(set) var storageError: String?
@@ -59,7 +64,7 @@ nonisolated struct OperatorSessionSetupDraft: Codable, Equatable {
         state = next
     }
     func permits(eventID: String, binding: String) -> Bool {
-        !state.blocked && (state.eventID == nil || (state.eventID == eventID && state.serverBinding == binding))
+        !state.blocked && state.startingEventID == nil && (state.eventID == nil || (state.eventID == eventID && state.serverBinding == binding))
     }
 }
 
@@ -104,6 +109,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
 @MainActor final class SessionSetupCoordinator: ObservableObject {
     nonisolated static let regularEventName = "Regular Sessions"
 
+    @Published var unattendedQR = false { didSet { persistSelection() } }
     @Published var mode: CommercialPolicySource { didSet { persistSelection() } }
     @Published var eventModeEnabled: Bool { didSet { persistSelection() } }
     @Published private(set) var designID: String?
@@ -175,6 +181,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         let saved = library.library
         mode = eventID != nil ? .serverManaged : (staged?.mode ?? source())
         requestedMethods = staged?.requestedMethods
+        unattendedQR = staged?.unattendedQR ?? self.acceptance.state.unattendedQR ?? false
         prepaid = workspace.snapshot.prepaidDraft ?? loadLocal()
         if let eventID {
             // Opened for one server event: Event Mode with that event's saved design.
@@ -219,6 +226,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     }
 
     func choosePayment(_ choice: GuestPaymentChoice) async {
+        if choice != .qrOnly { unattendedQR = false }
         guard choice != paymentChoice else { return }
         if choice == .noPayment { mode = .localPrepaid; return }
         requestedMethods = choice
@@ -450,6 +458,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         let samePaymentSelection = mode == source()
             && (mode != .serverManaged || (selectedID == acceptance.state.eventID
                 && acceptance.state.serverBinding == workspace.serverBinding
+                && unattendedQR == (acceptance.state.unattendedQR ?? false)
                 && (requestedMethods == nil || requestedMethods == detail?.activePolicy.map {
                     GuestPaymentChoice(qrPhEnabled: $0.qrphEnabled, cashEnabled: $0.cashEnabled)
                 })))
@@ -458,7 +467,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
             workspace.saveSessionSetup(nil)
         } else {
             workspace.saveSessionSetup(.init(mode: mode, eventID: selectedID, serverBinding: workspace.serverBinding,
-                                             eventModeEnabled: eventModeEnabled, designID: designID, requestedMethods: requestedMethods))
+                                             eventModeEnabled: eventModeEnabled, designID: designID, requestedMethods: requestedMethods, unattendedQR: unattendedQR))
         }
     }
     private func persistPaid() {
@@ -857,6 +866,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         defer { busy = false; operationBinding = nil }
         do {
             try checkPermit()
+            if unattendedQR && paymentChoice != .qrOnly { throw SetupFailure("Unattended operation requires QR Ph only. Choose QR Ph only or turn off Unattended.") }
             if eventModeEnabled, library.design(id: designID)?.archivedAt != nil { throw SetupFailure("The selected design was archived. Choose an active design before applying this setup.") }
             // Decide the occurrence before any change, so an ended run can't be silently reopened.
             let plannedContext = runContext
@@ -872,7 +882,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
                 workspace.saveDesignDraft(nil, id: design.id)
             }
             let profile = effectiveProfile
-            try acceptance.save(.init(blocked: true, eventID: acceptance.state.eventID, serverBinding: acceptance.state.serverBinding, mode: source()))
+            try acceptance.save(.init(blocked: true, eventID: acceptance.state.eventID, serverBinding: acceptance.state.serverBinding, mode: source(), startingEventID: mode == .serverManaged ? selectedID : nil, startingBinding: mode == .serverManaged ? workspace.serverBinding : nil))
             let nextAcceptance: SessionAcceptanceStore.State
             if mode == .localPrepaid {
                 // A paid → prepaid switch also pauses the current remote event; provider recovery stays live.
@@ -894,7 +904,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
                 run.lifecycle = .active; run.updatedAt = Date()
                 try saveLocal(run); try applyProfile(profile)
                 try checkPermit(); saveSource(.localPrepaid)
-                nextAcceptance = .init(mode: .localPrepaid)
+                nextAcceptance = .init(mode: .localPrepaid, boothMode: .event)
                 prepaid = run; workspace.savePrepaidDraft(nil)
             } else {
                 guard let id = selectedID, id == targetServerEventID, let expectedVersion = baseVersion else { throw SetupFailure("Choose an event.") }
@@ -916,7 +926,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
                 guard event.event.lifecycle == .active, event.activePolicy?.id == revision.id,
                       confirmed.event?.id == id, confirmed.event?.policyRevisionId == revision.id else { throw SetupFailure("Starting this event was not confirmed. Check Current Status.") }
                 try checkPermit(); try applyProfile(profile); saveSource(.serverManaged)
-                nextAcceptance = .init(blocked: false, eventID: id, serverBinding: workspace.serverBinding, mode: .serverManaged)
+                nextAcceptance = .init(blocked: false, eventID: id, serverBinding: workspace.serverBinding, mode: .serverManaged, boothMode: .event, unattendedQR: unattendedQR)
                 baseVersion = event.event.version; workspace.removeServerDraft(eventID: id)
             }
             // Applied identity now anchors durable run reports. Commit it before opening admission.

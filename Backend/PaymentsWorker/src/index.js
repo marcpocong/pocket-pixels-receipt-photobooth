@@ -35,6 +35,12 @@ export async function route(request, env) {
     if (request.method === "GET" && path === "/v1/health") {
         return json({ service: "pocket-pixels-payments", version: "3", environment: environment(env), liveEnabled: isLiveEnabled(env) });
     }
+    if (request.method === "GET" && path === "/v1/monitor-health") {
+        const value = request.headers.get("authorization") || "";
+        if (!env.MONITOR_READ_TOKEN || env.MONITOR_READ_TOKEN.length < 32 || await sha256Hex(value) !== await sha256Hex(`Bearer ${env.MONITOR_READ_TOKEN}`)) return json({error:"unauthorized"},401);
+        const run = await env.DB.prepare("SELECT finished_at FROM reconciliation_runs WHERE environment=? ORDER BY started_at DESC LIMIT 1").bind(environment(env)).first();
+        return json({environment:environment(env),liveEnabled:isLiveEnabled(env),reconciliationFresh:!!run?.finished_at && Date.now()-Date.parse(run.finished_at)<20*60_000});
+    }
     if (request.method === "POST" && path === "/v1/webhooks/paymongo/test") return paymongoWebhook(request, env, false);
     if (request.method === "POST" && path === "/v1/webhooks/paymongo/live") return paymongoWebhook(request, env, true);
 
@@ -47,6 +53,7 @@ export async function route(request, env) {
     if (request.method === "POST" && path === "/v1/orders") return createOrder(request, env, principal);
     if (request.method === "POST" && /^\/v1\/orders\/[^/]+\/qrph$/.test(path)) return createQR(request, env, principal, segment(path, 3));
     if (request.method === "POST" && /^\/v1\/orders\/[^/]+\/cash-declaration$/.test(path)) return declareCash(request, env, principal, segment(path, 3));
+    if (request.method === "POST" && /^\/v1\/orders\/[^/]+\/reconcile$/.test(path)) return reconcileOriginalOrder(env, principal, segment(path, 3));
     if (request.method === "GET" && /^\/v1\/orders\/[^/]+\/status$/.test(path)) return orderStatus(env, principal, segment(path, 3));
     if (request.method === "GET" && /^\/v1\/checkouts\/[^/]+$/.test(path)) return checkoutRecovery(env, principal, segment(path, 3));
     if (request.method === "POST" && /^\/v1\/entitlements\/[^/]+\/claim$/.test(path)) return claimEntitlement(request, env, principal, segment(path, 3));
@@ -583,6 +590,41 @@ async function orderStatus(env, principal, orderId) {
     return statusResponse(env, await ownedOrder(env, principal.id, orderId));
 }
 
+/// Authenticated, device-owned lookup of the ORIGINAL intent. Atomic per-attempt lease
+/// bounds concurrent guests, polls and operator rechecks; canonical verification alone authorizes.
+async function reconcileOriginalOrder(env, principal, orderId) {
+    const order = await ownedOrder(env, principal.id, orderId);
+    await enforceRateLimit(env, `provider-recheck:${principal.id}`, 12);
+    let attempt = await attemptForReconciliation(env, "a.order_id=?", orderId);
+    if (!attempt || attempt.method !== "QRPH" || !attempt.provider_payment_intent_id || attempt.state === "PAID_VERIFIED") return statusResponse(env, order);
+    const live = environment(env) === "live";
+    assertPaymentsEnvironment(env, live);
+    if (attempt.livemode !== +live) throw http(409, "Payment environment does not match.", "environment_mismatch");
+    const timestamp = now(), leaseUntil = new Date(Date.now() + 30_000).toISOString();
+    const lease = await env.DB.prepare(`UPDATE payment_attempts SET reconcile_lease_until=?,last_on_demand_at=?
+        WHERE id=? AND state<>'PAID_VERIFIED' AND (reconcile_lease_until IS NULL OR reconcile_lease_until<=?)
+        AND (last_on_demand_at IS NULL OR last_on_demand_at<?)`)
+        .bind(leaseUntil, timestamp, attempt.id, timestamp, new Date(Date.now() - 15_000).toISOString()).run();
+    if (changes(lease) !== 1) return statusResponse(env, await ownedOrder(env, principal.id, orderId));
+    try {
+        const payload = await retrievePaymongoIntent(env, attempt.provider_payment_intent_id, live);
+        // Re-read after suspension: webhook, supersession or another reconciler may have won.
+        attempt = await attemptForReconciliation(env, "a.order_id=?", orderId);
+        if (attempt.state !== "PAID_VERIFIED") {
+            const evidence = providerIntentEvidence(payload, { intentId: attempt.provider_payment_intent_id, amount: attempt.total_centavos, livemode: live });
+            await applyCanonicalProviderEvidence(env, attempt, evidence, payload?.data?.attributes?.payments?.[0]?.id || null);
+        }
+    } catch (error) {
+        // A transport failure never proves nonpayment or clears manual-review evidence.
+        await env.DB.prepare(`UPDATE payment_attempts SET state=CASE WHEN state='MANUAL_REVIEW' THEN state ELSE 'UNKNOWN_RECONCILIATION' END,
+            last_reconcile_error='provider_lookup_failed',reconcile_after=?,updated_at=? WHERE id=? AND state<>'PAID_VERIFIED'`)
+            .bind(new Date(Date.now() + 30_000).toISOString(), now(), attempt.id).run();
+    } finally {
+        await env.DB.prepare("UPDATE payment_attempts SET reconcile_lease_until=NULL WHERE id=? AND reconcile_lease_until=?").bind(attempt.id, leaseUntil).run();
+    }
+    return statusResponse(env, await ownedOrder(env, principal.id, orderId));
+}
+
 async function statusResponse(env, order) {
     const orderId = order.id;
     const attempt = await env.DB.prepare("SELECT * FROM payment_attempts WHERE order_id=?").bind(orderId).first();
@@ -857,12 +899,12 @@ async function applyFailureWebhook(env, type, resource, livemode) {
     if (!attempt || attempt.livemode !== +livemode) return "IGNORED_UNKNOWN_INTENT";
     if (attempt.state === "PAID_VERIFIED") return "IGNORED_FINAL";
     const state = type === "qrph.expired" ? "QR_EXPIRED_CONFIRMED" : "PAYMENT_FAILED";
-    const result = await env.DB.prepare("UPDATE payment_attempts SET state=?,updated_at=? WHERE id=? AND state NOT IN ('PAID_VERIFIED')").bind(state, now(), attempt.id).run();
+    const result = await env.DB.prepare("UPDATE payment_attempts SET state=?,updated_at=? WHERE id=? AND state NOT IN ('PAID_VERIFIED','MANUAL_REVIEW')").bind(state, now(), attempt.id).run();
     return changes(result) === 1 ? state : "IGNORED_FINAL";
 }
 
 async function deferToReconciliation(env, attemptId, error) {
-    await env.DB.prepare("UPDATE payment_attempts SET state='UNKNOWN_RECONCILIATION',reconcile_after=?,last_reconcile_error=?,updated_at=? WHERE id=? AND state NOT IN ('PAID_VERIFIED')")
+    await env.DB.prepare("UPDATE payment_attempts SET state='UNKNOWN_RECONCILIATION',reconcile_after=?,last_reconcile_error=?,updated_at=? WHERE id=? AND state NOT IN ('PAID_VERIFIED','MANUAL_REVIEW')")
         .bind(now(), safeError(error), now(), attemptId).run();
 }
 
@@ -877,17 +919,18 @@ async function applyCanonicalProviderEvidence(env, attempt, evidence, paymentId)
     const state = nextProviderState(attempt.state, evidence, { expiresAt: attempt.expires_at }), timestamp = now();
     if (state === "PAID_VERIFIED") {
         await env.DB.batch([
-            env.DB.prepare("UPDATE payment_attempts SET provider_payment_id=COALESCE(provider_payment_id,?),state='PAID_VERIFIED',last_reconcile_error=NULL,updated_at=? WHERE id=? AND method='QRPH' AND state<>'PAID_VERIFIED'").bind(paymentId, timestamp, attempt.id),
+            env.DB.prepare("UPDATE payment_attempts SET provider_payment_id=COALESCE(provider_payment_id,?),state='PAID_VERIFIED',last_reconcile_error=NULL,updated_at=? WHERE id=? AND method='QRPH' AND state NOT IN ('PAID_VERIFIED','MANUAL_REVIEW')").bind(paymentId, timestamp, attempt.id),
             env.DB.prepare(`INSERT OR IGNORE INTO entitlements(id,order_id,device_id,purchased_copies,authorization_source,state,created_at,updated_at)
-                SELECT ?,o.id,o.device_id,o.copies,'VERIFIED_QRPH',CASE WHEN o.superseded_by_order_id IS NULL THEN 'AUTHORIZED' ELSE 'REVIEW_REQUIRED' END,?,? FROM orders o WHERE o.id=? AND o.payment_method='QRPH'`)
+                SELECT ?,o.id,o.device_id,o.copies,'VERIFIED_QRPH',CASE WHEN o.superseded_by_order_id IS NULL THEN 'AUTHORIZED' ELSE 'REVIEW_REQUIRED' END,?,? FROM orders o WHERE o.id=? AND o.payment_method='QRPH' AND EXISTS (SELECT 1 FROM payment_attempts a WHERE a.order_id=o.id AND a.state='PAID_VERIFIED')`)
                 .bind(crypto.randomUUID(), timestamp, timestamp, attempt.order_id),
-            env.DB.prepare("UPDATE orders SET state=CASE WHEN superseded_by_order_id IS NULL THEN 'AUTHORIZED' ELSE 'LATE_PAID_REVIEW' END,updated_at=? WHERE id=? AND state IN ('PAYMENT_PENDING','SUPERSEDED','AWAITING_PAYMENT')").bind(timestamp, attempt.order_id)
+            env.DB.prepare("UPDATE orders SET state=CASE WHEN superseded_by_order_id IS NULL THEN 'AUTHORIZED' ELSE 'LATE_PAID_REVIEW' END,updated_at=? WHERE id=? AND state IN ('PAYMENT_PENDING','SUPERSEDED','AWAITING_PAYMENT') AND EXISTS (SELECT 1 FROM payment_attempts a WHERE a.order_id=orders.id AND a.state='PAID_VERIFIED')").bind(timestamp, attempt.order_id)
         ]);
     } else {
-        await env.DB.prepare("UPDATE payment_attempts SET state=?,reconcile_count=reconcile_count+1,reconcile_after=?,updated_at=? WHERE id=? AND state<>'PAID_VERIFIED'")
-            .bind(state, new Date(Date.now() + 60_000).toISOString(), timestamp, attempt.id).run();
+        await env.DB.prepare("UPDATE payment_attempts SET state=?,reconcile_count=reconcile_count+1,reconcile_after=?,updated_at=? WHERE id=? AND state<>'PAID_VERIFIED' AND (state<>'MANUAL_REVIEW' OR ?='MANUAL_REVIEW')")
+            .bind(state, new Date(Date.now() + 60_000).toISOString(), timestamp, attempt.id, state).run();
     }
-    return state;
+    const final = await env.DB.prepare("SELECT state FROM payment_attempts WHERE id=?").bind(attempt.id).first();
+    return final?.state || state;
 }
 
 export async function runScheduledReconciliation(env, scheduledTime = Date.now()) {
@@ -912,7 +955,7 @@ export async function runScheduledReconciliation(env, scheduledTime = Date.now()
         } catch (error) {
             failures++;
             const delay = Math.min(3600, 30 * (2 ** Math.min(Number(attempt.reconcile_count || 0), 7)));
-            await env.DB.prepare("UPDATE payment_attempts SET state='UNKNOWN_RECONCILIATION',reconcile_count=reconcile_count+1,last_reconcile_error=?,reconcile_after=?,updated_at=? WHERE id=? AND state<>'PAID_VERIFIED'")
+            await env.DB.prepare("UPDATE payment_attempts SET state=CASE WHEN state='MANUAL_REVIEW' THEN state ELSE 'UNKNOWN_RECONCILIATION' END,reconcile_count=reconcile_count+1,last_reconcile_error=?,reconcile_after=?,updated_at=? WHERE id=? AND state<>'PAID_VERIFIED'")
                 .bind(safeError(error), new Date(Date.now() + delay * 1000).toISOString(), now(), attempt.id).run();
         }
     }

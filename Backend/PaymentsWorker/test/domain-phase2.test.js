@@ -29,7 +29,7 @@ for (const [current, evidence, expected] of [
     ["QR_EXPIRED_CONFIRMED","paid","PAID_VERIFIED"], ["PAID_VERIFIED","expired","PAID_VERIFIED"],
     ["PAID_VERIFIED","failed","PAID_VERIFIED"], ["AWAITING_PAYMENT","expired","QR_EXPIRED_CONFIRMED"],
     ["AWAITING_PAYMENT","failed","PAYMENT_FAILED"], ["AWAITING_PAYMENT","pending","UNKNOWN_RECONCILIATION"],
-    ["UNKNOWN_RECONCILIATION","conflict","MANUAL_REVIEW"], ["MANUAL_REVIEW","pending","UNKNOWN_RECONCILIATION"]
+    ["UNKNOWN_RECONCILIATION","conflict","MANUAL_REVIEW"], ["MANUAL_REVIEW","pending","MANUAL_REVIEW"]
 ]) {
     test(`${current} plus ${evidence} converges to ${expected}`, () => assert.equal(nextProviderState(current,evidence),expected));
 }

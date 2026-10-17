@@ -40,16 +40,17 @@ export function csvRow(values) {
 }
 
 /// Converges a QR attempt state with provider evidence. `PAID_VERIFIED` is final. A plain
-/// "pending" answer keeps a live QR awaiting payment, and only becomes a confirmed expiry once
-/// the provider still reports nonpayment well after the QR code itself expired.
+/// "pending" answer keeps a live QR awaiting payment; after expiry it remains unknown. Only
+/// explicit provider failure/expiry evidence establishes nonpayment. Manual review is retained.
 export function nextProviderState(current, evidence, { expiresAt = null, nowMs = Date.now() } = {}) {
     if (current === "PAID_VERIFIED") return "PAID_VERIFIED";
+    if (current === "MANUAL_REVIEW") return "MANUAL_REVIEW";
     if (evidence === "paid") return "PAID_VERIFIED";
     if (evidence === "failed") return "PAYMENT_FAILED";
     if (evidence === "expired") return "QR_EXPIRED_CONFIRMED";
     if (evidence === "conflict") return "MANUAL_REVIEW";
     const expiry = expiresAt ? Date.parse(expiresAt) : NaN;
-    if (Number.isFinite(expiry) && nowMs > expiry + QR_EXPIRY_GRACE_MS) return "QR_EXPIRED_CONFIRMED";
+    // An elapsed timer plus pending provider evidence still does not prove nonpayment.
     if (current === "AWAITING_PAYMENT" && Number.isFinite(expiry) && nowMs <= expiry) return "AWAITING_PAYMENT";
     return "UNKNOWN_RECONCILIATION";
 }
