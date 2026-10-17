@@ -443,10 +443,11 @@ struct RecentSessionsView: View {
     }
 }
 
-private struct RecentSessionRow: View {
+struct RecentSessionRow: View {
     @ObservedObject private var operations = EventOperationalState.shared
     let summary: RecentSessionArchiveSummary
-    let viewModel: RecentSessionsViewModel
+    @ObservedObject var viewModel: RecentSessionsViewModel
+    var showsOperationalContext = true
 
     private let thumbnailCellWidth: CGFloat = 34
     private let thumbnailCellHeight: CGFloat = 54
@@ -469,8 +470,10 @@ private struct RecentSessionRow: View {
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
 
-                Text(operations.printContext(sessionID: summary.sessionIdentifier)).font(.caption)
-                Text(operations.galleryContext(sessionID: summary.sessionIdentifier)).font(.caption).foregroundStyle(.secondary)
+                if showsOperationalContext {
+                    Text(operations.printContext(sessionID: summary.sessionIdentifier)).font(.caption)
+                    Text(operations.galleryContext(sessionID: summary.sessionIdentifier)).font(.caption).foregroundStyle(.secondary)
+                }
 
                 if summary.rasterFingerprint == "CORRUPT" {
                     Text("Archive needs attention")
@@ -522,7 +525,7 @@ private struct RecentSessionRow: View {
     }
 }
 
-private struct ArchivedSessionDetailView: View {
+struct ArchivedSessionDetailView: View {
     @ObservedObject private var operations = EventOperationalState.shared
     @ObservedObject private var printer = PrinterCoordinator.shared
     let summary: RecentSessionArchiveSummary

@@ -1,15 +1,46 @@
 import Foundation
 import Combine
 
+/// Stable primary destinations. Existing typed detail routes remain decodable.
+nonisolated enum OperatorPrimaryDestination: String, Codable, CaseIterable, Identifiable, Sendable {
+    case home, events, reports, system
+    var id: String { rawValue }
+    var title: String { rawValue.capitalized }
+    var systemImage: String {
+        switch self {
+        case .home: "house"
+        case .events: "calendar"
+        case .reports: "chart.bar.xaxis"
+        case .system: "slider.horizontal.3"
+        }
+    }
+}
+
 nonisolated enum OperatorWorkspaceRoute: Codable, Hashable, Sendable {
     case manageEvent, payments, charging, eventSetup, boothCheck, receiptDesign, stickers, samplePrints
     case equipment, advanced, printer, recovery, camera, gallery, waitingGalleries, recentSessions, storage, printHistory
     case serverEvent(String)
     case sessionSetup, branding, sales, eventReport(String), eventMaintenance(String)
     case savedDrafts, draftReview(SavedDraftID)
+    case newEvent, savedEvent(String), eventHistory, eventLibrary, regularBooth, monitoring
+
+    var primaryDestination: OperatorPrimaryDestination {
+        switch self {
+        case .sales, .recentSessions, .eventReport: .reports
+        case .equipment, .advanced, .printer, .recovery, .camera, .gallery, .waitingGalleries,
+             .storage, .printHistory, .payments, .monitoring, .boothCheck: .system
+        default: .events
+        }
+    }
 
     var title: String {
         switch self {
+        case .newEvent: "New Event"
+        case .savedEvent: "Event Setup"
+        case .eventHistory: "Event History"
+        case .eventLibrary: "Saved Events"
+        case .regularBooth: "Regular Booth"
+        case .monitoring: "Monitoring"
         case .savedDrafts, .draftReview: "Saved Drafts"
         case .manageEvent: "Event Library & History"
         case .sales: "Reports & Statistics"
@@ -59,6 +90,12 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
         var schemaVersion = 1
         var resumeSetup = false
         var path: [OperatorWorkspaceRoute] = []
+        // Optional additions preserve the v1 file and every pre-dashboard route/draft.
+        var primaryDestination: OperatorPrimaryDestination?
+        var sectionPaths: [String: [OperatorWorkspaceRoute]]?
+        var setupStage: Int?
+        var reportTab: String?
+        var reportRunID: String?
         var serverDrafts: [String: OperatorServerSetupDraft] = [:]
         var brandingDraft: EventProfile?
         var prepaidDraft: CommercialEventRun?
@@ -70,7 +107,16 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
         var designDrafts: [String: SavedEventDesign]?
     }
 
-    @Published var path: [OperatorWorkspaceRoute] { didSet { snapshot.path = path; persist() } }
+    @Published private(set) var primaryDestination: OperatorPrimaryDestination
+    @Published var path: [OperatorWorkspaceRoute] {
+        didSet {
+            snapshot.path = path
+            var paths = snapshot.sectionPaths ?? [:]
+            paths[primaryDestination.rawValue] = path
+            snapshot.sectionPaths = paths
+            persist()
+        }
+    }
     @Published private(set) var snapshot: Snapshot
     @Published private(set) var persistenceError: String?
     private let file: URL
@@ -91,7 +137,16 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
                 persistenceError = "Saved setup could not be read. Its file is preserved; new edits remain in memory only."
             }
         }
+        let destination = loaded.primaryDestination ?? loaded.path.first?.primaryDestination ?? .home
+        // Older homes pushed Reports or Equipment as a detail. Those are primary roots now;
+        // retain any deeper route while removing the redundant back-to-the-same-screen step.
+        if loaded.primaryDestination == nil,
+           (destination == .reports && loaded.path.first == .sales) || (destination == .system && loaded.path.first == .equipment) {
+            loaded.path.removeFirst()
+        }
+        loaded.primaryDestination = destination
         snapshot = loaded
+        primaryDestination = destination
         path = loaded.path
     }
 
@@ -102,17 +157,43 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
             || !snapshot.newEventName.isEmpty || !snapshot.newEventVenue.isEmpty || snapshot.sessionSetup != nil
             || !(snapshot.designDrafts ?? [:]).isEmpty
     }
-    var currentSection: String { path.last?.title ?? "Operator" }
+    var currentSection: String { path.last?.title ?? primaryDestination.title }
     var serverBinding: String {
         guard let configuration = PaymentsConfiguration.current() else { return "unpaired" }
         return "\(configuration.environment):\(configuration.baseURL.absoluteString)"
     }
 
+    /// Changing sections checkpoints navigation only; draft and live event stores are untouched.
+    func select(_ destination: OperatorPrimaryDestination) {
+        guard destination != primaryDestination else { return }
+        var paths = snapshot.sectionPaths ?? [:]
+        paths[primaryDestination.rawValue] = path
+        snapshot.sectionPaths = paths
+        primaryDestination = destination
+        snapshot.primaryDestination = destination
+        path = paths[destination.rawValue] ?? []
+    }
+
+    func navigate(to route: OperatorWorkspaceRoute) {
+        select(route.primaryDestination)
+        path = route == .sales || route == .equipment ? [] : [route]
+    }
+
+    func showCurrentReport() {
+        saveReportSelection(tab: "Overview", runID: nil)
+        navigate(to: .sales)
+    }
+
     func open() { persist() }
     func checkpoint() { persist() }
+    func saveSetupStage(_ stage: Int) { snapshot.setupStage = stage; persist() }
+    func saveReportSelection(tab: String, runID: String?) {
+        snapshot.reportTab = tab; snapshot.reportRunID = runID; persist()
+    }
     func finish(keepingDrafts: Bool) {
         if keepingDrafts { persist(); return }
         snapshot = Snapshot()
+        primaryDestination = .home
         path = []
         persist()
     }

@@ -128,7 +128,10 @@ import XCTest
         let lines = csv.components(separatedBy: "\r\n").filter { !$0.isEmpty }
         XCTAssertEqual(lines.first, EventRunCSV.header)
         XCTAssertEqual(lines.count, 3, "Exactly this run's sessions, no others")
-        XCTAssertFalse(csv.contains("b1"))
+        // A random run UUID can itself contain "b1". Check the exported session column,
+        // so the assertion proves run isolation independently of generated identifiers.
+        let exportedSessions = Set(lines.dropFirst().map { $0.components(separatedBy: ",")[2] })
+        XCTAssertEqual(exportedSessions, Set(["\"a1\"", "\"a2\""]))
         XCTAssertFalse(csv.lowercased().contains("http"), "No gallery links or tokens")
         let hostile = EventRunRecord(id: "r", context: EventRunContext(designID: nil, commercialEventID: nil, serverBinding: nil, name: "=HYPERLINK(\"x\")"), createdAt: Date(), status: .active)
         XCTAssertTrue(EventRunCSV.make(run: hostile, sessions: [EventRunSession(sessionID: "s", runID: "r", createdAt: Date(), format: "solo")]).contains("\"'=HYPERLINK(\"\"x\"\")\""))

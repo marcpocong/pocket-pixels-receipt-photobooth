@@ -63,48 +63,11 @@ struct ContentView: View {
 }
 
 private struct PocketPixelsAdminView: View {
-    @ObservedObject private var operations = EventOperationalState.shared
-    @ObservedObject private var printer = PrinterCoordinator.shared
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var workspace = OperatorWorkspace.shared
-    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(MadeToKeepBrand.operatorHeaderTitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(workspace.currentSection)
-                        .font(.title3.bold())
-                }
-
-                Spacer()
-
-                Button("Return to Booth") {
-                    workspace.finish(keepingDrafts: true)
-                    dismiss()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(operations.isPreflightRunning || printer.isWorking)
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 12)
-            .background(.bar)
-
-            Divider()
-
-            if let error = workspace.persistenceError {
-                Text(error).font(.footnote).foregroundStyle(.red).padding(.horizontal)
-            }
-
-            NavigationStack(path: $workspace.path) {
-                OperatorDashboardView()
-                    .navigationDestination(for: OperatorWorkspaceRoute.self) { $0.destination }
-            }
-
-        }
+        OperatorWorkspaceView(workspace: workspace)
         .onReceive(NotificationCenter.default.publisher(for: OperatorWorkspace.didStartSessions)) { _ in
             workspace.finish(keepingDrafts: workspace.hasUnsavedDrafts)
             dismiss()

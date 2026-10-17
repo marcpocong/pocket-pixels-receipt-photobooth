@@ -228,7 +228,10 @@ nonisolated enum SavedDraftDiff {
                          "profile.receiptHeader.bottomSpacing": "Space below logo", "profile.receiptHeader.assetIdentifier": "Logo artwork",
                          "designID": "Selected event", "eventModeEnabled": "Event Mode", "mode": "Session mode",
                          "requestedMethods": "Payment methods", "paidEvent": "Paid event", "personalizeReceipt": "Personalize receipt",
-                         "guestScreensEnabled": "Custom welcome screens"]
+                         "guestScreensEnabled": "Custom welcome screens",
+                         "prepaidPolicy.defaultCopies": "Included copies", "prepaidPolicy.maxCopies": "Maximum copies",
+                         "prepaidPolicy.supportedFormatRawValues": "Available formats",
+                         "prepaidPolicy.prepaidGuestCopyChoice": "Guest copy selection"]
         if let label = overrides[key] { return label }
         return key.replacingOccurrences(of: "profile.", with: "").replacingOccurrences(of: ".", with: " · ")
             .replacingOccurrences(of: "([a-z])([A-Z])", with: "$1 $2", options: .regularExpression).capitalized

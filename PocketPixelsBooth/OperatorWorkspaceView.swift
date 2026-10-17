@@ -1,0 +1,191 @@
+import SwiftUI
+
+/// One authenticated workspace and one detail stack. Resizing never replaces the stack or drafts.
+struct OperatorWorkspaceView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var operations = EventOperationalState.shared
+    @ObservedObject private var printer = PrinterCoordinator.shared
+    @ObservedObject private var workspace: OperatorWorkspace
+    @StateObject private var lifecycle: EventLifecycleCoordinator
+    private let loadsRemote: Bool
+
+    init(workspace: OperatorWorkspace? = nil, lifecycle: EventLifecycleCoordinator? = nil, loadsRemote: Bool = true) {
+        _workspace = ObservedObject(wrappedValue: workspace ?? .shared)
+        _lifecycle = StateObject(wrappedValue: lifecycle ?? EventLifecycleCoordinator())
+        self.loadsRemote = loadsRemote
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            if let error = workspace.persistenceError {
+                Text(error).font(.footnote).foregroundStyle(OperatorPalette.danger).padding(.horizontal)
+            }
+            GeometryReader { geometry in
+                let sidebar = OperatorWorkspaceLayout.usesSidebar(width: geometry.size.width, height: geometry.size.height)
+                HStack(spacing: 0) {
+                    if sidebar {
+                        VStack(alignment: .leading, spacing: 24) {
+                            Text("OPERATOR\nWORKSPACE").font(.caption.weight(.semibold)).tracking(1.8)
+                                .foregroundStyle(OperatorPalette.ink.opacity(0.6)).padding(.horizontal, 16)
+                            navigation(vertical: true)
+                            Spacer()
+                            Text("Little moments,\nmade to keep.")
+                                .font(.system(.callout, design: .serif)).foregroundStyle(OperatorPalette.secondaryText).padding(16)
+                        }
+                        .padding(16).padding(.top, 12).frame(width: 212)
+                        .background(OperatorPalette.surface)
+                        Divider()
+                    }
+                    VStack(spacing: 0) {
+                        if !sidebar { navigation(vertical: false).padding(.horizontal, 16).padding(.vertical, 8); Divider() }
+                        NavigationStack(path: $workspace.path) {
+                            primaryContent
+                                .toolbar(.hidden, for: .navigationBar)
+                                .navigationDestination(for: OperatorWorkspaceRoute.self) { $0.destination.toolbar(.visible, for: .navigationBar) }
+                        }
+                    }
+                }
+            }
+        }
+        .background(OperatorPalette.canvas)
+        .tint(OperatorPalette.accent)
+        .environment(\.colorScheme, .light)
+    }
+
+    private var header: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 20) { identity; Spacer(minLength: 12); returnButton }
+            VStack(alignment: .leading, spacing: 12) { identity; returnButton }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 24).padding(.vertical, 12).background(OperatorPalette.surface)
+    }
+
+    private var identity: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(MadeToKeepBrand.operatorHeaderTitle).font(.caption).foregroundStyle(OperatorPalette.secondaryText)
+            Text(workspace.primaryDestination.title).font(.system(.title3, design: .serif).weight(.semibold))
+        }
+    }
+
+    private var returnButton: some View {
+        Button("Return to Booth") {
+            workspace.finish(keepingDrafts: true)
+            dismiss()
+        }
+        .buttonStyle(.borderedProminent).frame(minHeight: 48)
+        .disabled(operations.isPreflightRunning || printer.isWorking)
+        .accessibilityIdentifier("operator-return-to-booth")
+    }
+
+    @ViewBuilder private var primaryContent: some View {
+        switch workspace.primaryDestination {
+        case .home: OperatorDashboardView(lifecycle: lifecycle, workspace: workspace, loadsRemote: loadsRemote)
+        case .events: OperatorEventsView(workspace: workspace, runs: lifecycle.runs)
+        case .reports: EventRunReportingView(store: lifecycle.runs, loadsRemote: loadsRemote, workspace: workspace)
+        case .system: OperatorEquipmentView()
+        }
+    }
+
+    private func navigation(vertical: Bool) -> some View {
+        let layout = vertical ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
+        return layout {
+            ForEach(OperatorPrimaryDestination.allCases) { destination in
+                Button { workspace.select(destination) } label: {
+                    let selected = workspace.primaryDestination == destination
+                    let labelLayout = vertical ? AnyLayout(HStackLayout(spacing: 12)) : AnyLayout(VStackLayout(spacing: 4))
+                    labelLayout {
+                        Image(systemName: destination.systemImage).frame(width: 22)
+                        Text(destination.title).font(.callout.weight(selected ? .semibold : .medium))
+                        if vertical { Spacer(minLength: 0) }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .padding(.horizontal, vertical ? 14 : 6)
+                    .foregroundStyle(selected ? OperatorPalette.accent : OperatorPalette.ink)
+                    .background(selected ? OperatorPalette.selected : .clear, in: RoundedRectangle(cornerRadius: 10))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("operator-nav-\(destination.rawValue)")
+                .accessibilityLabel(destination.title)
+                .accessibilityAddTraits(workspace.primaryDestination == destination ? .isSelected : [])
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Operator navigation")
+    }
+}
+
+nonisolated enum OperatorWorkspaceLayout {
+    static func usesSidebar(width: CGFloat, height: CGFloat) -> Bool { width >= 1_000 && width > height }
+}
+
+struct OperatorEventsView: View {
+    @ObservedObject var workspace: OperatorWorkspace
+    @ObservedObject var runs: EventRunStore
+    @ObservedObject private var library = EventDesignLibraryStore.shared
+
+    var body: some View {
+        List {
+            Section("Current Event") {
+                Button { workspace.select(.home) } label: {
+                    Label {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(runs.historyUnreadable ? "Event status unavailable" : (runs.operational?.context.name ?? "Regular Booth")).font(.headline)
+                            Text("Status and safe event controls on Home").font(.callout).foregroundStyle(OperatorPalette.secondaryText)
+                        }
+                    } icon: { Image(systemName: "house") }
+                    .frame(minHeight: 52)
+                }
+                NavigationLink(value: OperatorWorkspaceRoute.sessionSetup) { Label("Review Current Setup", systemImage: "checklist") }
+            }
+            Section {
+                NavigationLink(value: OperatorWorkspaceRoute.newEvent) { Label("New Event", systemImage: "plus.circle") }
+                NavigationLink(value: OperatorWorkspaceRoute.savedDrafts) {
+                    Label("Saved Drafts · \(SavedDraftCatalog.entries(workspace: workspace, library: library.library).count)", systemImage: "doc.text")
+                }
+            } footer: { Text("Setup is staged. Guests keep their current configuration until an explicit Review & Start.") }
+            Section("Saved Events") {
+                if library.library.events.filter({ $0.archivedAt == nil }).isEmpty {
+                    Text("No saved events yet. Create an event once, then reuse its design and payment settings.").foregroundStyle(OperatorPalette.secondaryText)
+                }
+                ForEach(library.library.events.filter { $0.archivedAt == nil }.sorted { $0.updatedAt > $1.updatedAt }) { event in
+                    NavigationLink(value: OperatorWorkspaceRoute.savedEvent(event.id)) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(event.displayName).font(.headline)
+                            Text(event.venue.isEmpty ? "Reusable event setup" : event.venue).font(.callout).foregroundStyle(OperatorPalette.secondaryText)
+                        }.padding(.vertical, 4)
+                    }
+                }
+                NavigationLink("Event History & Earlier Sessions", value: OperatorWorkspaceRoute.eventHistory)
+                NavigationLink("Manage Saved Events & Archived Designs", value: OperatorWorkspaceRoute.eventLibrary)
+            }
+            Section("Guest Experience") {
+                NavigationLink(value: OperatorWorkspaceRoute.branding) { Label("Event Customization", systemImage: "paintpalette") }
+                NavigationLink(value: OperatorWorkspaceRoute.samplePrints) { Label("Preview & Sample Prints", systemImage: "printer.dotmatrix") }
+                NavigationLink(value: OperatorWorkspaceRoute.regularBooth) { Label("Regular Booth Configuration", systemImage: "camera") }
+            }
+            if let error = runs.storageError { Section { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.danger) } }
+            if let error = library.storageError { Section { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.danger) } }
+        }
+        .navigationTitle("Events").navigationBarTitleDisplayMode(.inline)
+        .scrollContentBackground(.hidden).background(OperatorPalette.canvas)
+        .environment(\.defaultMinListRowHeight, 52)
+    }
+}
+
+/// Opens a reusable setup through the existing staging coordinator, without activation.
+struct OperatorSavedEventSetupView: View {
+    let designID: String
+    @StateObject private var setup = SessionSetupCoordinator()
+    var body: some View {
+        SessionSetupView(coordinator: setup)
+            .task(id: designID) {
+                // setEventMode may pick a default design; chooseDesign then selects the requested one.
+                await setup.setEventMode(true)
+                await setup.chooseDesign(designID)
+            }
+    }
+}
