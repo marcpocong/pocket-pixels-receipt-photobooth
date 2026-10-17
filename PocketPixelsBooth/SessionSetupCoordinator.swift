@@ -117,7 +117,15 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     /// or Start Accepting Guests; nothing reaches guests before activation.
     @Published var design: SavedEventDesign? { didSet { designDidChange(oldValue) } }
     @Published private(set) var requestedMethods: GuestPaymentChoice? { didSet { persistSelection() } }
-    @Published var prepaid: CommercialEventRun { didSet { workspace.savePrepaidDraft(SavedDraftDiff.prepaid(prepaid, loadLocal()).isEmpty ? nil : prepaid) } }
+    @Published var prepaid: CommercialEventRun {
+        didSet {
+            workspace.savePrepaidDraft(SavedDraftDiff.prepaid(prepaid, loadLocal()).isEmpty ? nil : prepaid)
+            if !loading, mode == .localPrepaid, eventModeEnabled, var next = design, next.prepaidPolicy != prepaid.activePolicy {
+                next.prepaidPolicy = prepaid.activePolicy
+                design = next
+            }
+        }
+    }
     @Published var name = "" { didSet { persistPaid() } }
     @Published var venue = "" { didSet { persistPaid() } }
     @Published var policy = ServerPolicyDraft() { didSet { persistPaid() } }
@@ -211,6 +219,9 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         }
         design = designID.flatMap { workspace.designDraft(id: $0) ?? saved.design(id: $0) }
         if design == nil { designID = nil }
+        if mode == .localPrepaid, workspace.snapshot.prepaidDraft == nil, let policy = design?.prepaidPolicy {
+            loading = true; prepaid.activePolicy = policy; loading = false
+        }
         creationObserver = self.creations.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
@@ -228,7 +239,14 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     func choosePayment(_ choice: GuestPaymentChoice) async {
         if choice != .qrOnly { unattendedQR = false }
         guard choice != paymentChoice else { return }
-        if choice == .noPayment { mode = .localPrepaid; return }
+        if choice == .noPayment {
+            mode = .localPrepaid
+            if let policy = design?.prepaidPolicy {
+                let wasLoading = loading
+                loading = true; prepaid.activePolicy = policy; loading = wasLoading
+            }
+            return
+        }
         requestedMethods = choice
         let switching = mode != .serverManaged
         mode = .serverManaged
@@ -282,6 +300,10 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         guard let saved = library.design(id: id) else { return }
         designID = id
         design = workspace.designDraft(id: id) ?? saved
+        if mode == .localPrepaid, let policy = design?.prepaidPolicy {
+            let wasLoading = loading
+            loading = true; prepaid.activePolicy = policy; loading = wasLoading
+        }
         persistSelection()
     }
 
@@ -822,6 +844,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         guard !busy, authorized(), validation == nil else { return }
         busy = true; defer { busy = false }
         do {
+            stageReusablePrepaidPolicy()
             if eventModeEnabled, let design, designDirty {
                 try library.save(design)
                 self.design = library.design(id: design.id)
@@ -833,6 +856,12 @@ extension PaymentsAPIClient: SessionSetupAPI {}
             message = failure.localizedDescription
         } catch { await handleFailure(error) }
     }
+    private func stageReusablePrepaidPolicy() {
+        guard mode == .localPrepaid, eventModeEnabled, var next = design, next.prepaidPolicy != prepaid.activePolicy else { return }
+        next.prepaidPolicy = prepaid.activePolicy
+        design = next
+    }
+
     private func savePaid() async throws {
         guard let selectedID, let detail, let body = policy.requestBody(), let baseVersion else { throw SetupFailure("Review the event settings first.") }
         guard !conflict else { throw SetupFailure("Review changed server settings first.") }
@@ -876,6 +905,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
                 return false
             }
             // The reviewed design is saved first; saving never changes what guests receive.
+            stageReusablePrepaidPolicy()
             if eventModeEnabled, let design, designDirty {
                 try library.save(design)
                 self.design = library.design(id: design.id)

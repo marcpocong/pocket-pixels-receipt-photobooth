@@ -406,15 +406,9 @@ struct RecentSessionsView: View {
                 )
             } else {
                 ForEach(viewModel.groupedSummaries, id: \.0) { sectionTitle, summaries in
-                    Section(sectionTitle) {
-                        ForEach(summaries) { summary in
-                            NavigationLink {
-                                ArchivedSessionDetailView(summary: summary, rootViewModel: viewModel)
-                            } label: {
-                                RecentSessionRow(summary: summary, viewModel: viewModel)
-                            }
-                        }
-                    }
+                    SwiftUI.Section {
+                        ForEach(summaries, content: archivedSessionLink)
+                    } header: { Text(sectionTitle) }
                 }
             }
         }
@@ -441,12 +435,22 @@ struct RecentSessionsView: View {
             viewModel.refresh()
         }
     }
+    // Keep the collection row's type unambiguously in SwiftUI on older compilers.
+    private func archivedSessionLink(_ summary: RecentSessionArchiveSummary) -> some View {
+        NavigationLink {
+            ArchivedSessionDetailView(summary: summary, rootViewModel: viewModel)
+        } label: {
+            RecentSessionRow(summary: summary, viewModel: viewModel)
+        }
+    }
+
 }
 
-private struct RecentSessionRow: View {
+struct RecentSessionRow: View {
     @ObservedObject private var operations = EventOperationalState.shared
     let summary: RecentSessionArchiveSummary
-    let viewModel: RecentSessionsViewModel
+    @ObservedObject var viewModel: RecentSessionsViewModel
+    var showsOperationalContext = true
 
     private let thumbnailCellWidth: CGFloat = 34
     private let thumbnailCellHeight: CGFloat = 54
@@ -469,8 +473,10 @@ private struct RecentSessionRow: View {
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
 
-                Text(operations.printContext(sessionID: summary.sessionIdentifier)).font(.caption)
-                Text(operations.galleryContext(sessionID: summary.sessionIdentifier)).font(.caption).foregroundStyle(.secondary)
+                if showsOperationalContext {
+                    Text(operations.printContext(sessionID: summary.sessionIdentifier)).font(.caption)
+                    Text(operations.galleryContext(sessionID: summary.sessionIdentifier)).font(.caption).foregroundStyle(.secondary)
+                }
 
                 if summary.rasterFingerprint == "CORRUPT" {
                     Text("Archive needs attention")
@@ -522,7 +528,7 @@ private struct RecentSessionRow: View {
     }
 }
 
-private struct ArchivedSessionDetailView: View {
+struct ArchivedSessionDetailView: View {
     @ObservedObject private var operations = EventOperationalState.shared
     @ObservedObject private var printer = PrinterCoordinator.shared
     let summary: RecentSessionArchiveSummary

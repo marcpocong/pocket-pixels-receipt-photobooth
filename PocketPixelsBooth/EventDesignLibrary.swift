@@ -81,6 +81,9 @@ nonisolated struct SavedEventDesign: Codable, Equatable, Identifiable, Sendable 
     /// Binding → commercial events this design used for earlier, ended occurrences. Append-only:
     /// a new paid occurrence links a fresh commercial event, and the old one's orders stay with it.
     var retiredServerEvents: [String: [String]]? = nil
+    /// Reusable no-payment copy/format settings. Older saved events inherit device settings.
+    /// This is staged configuration; saving it never changes the active booth policy.
+    var prepaidPolicy: PaymentPolicySnapshot? = nil
 
     static func new(name: String, venue: String, now: Date = Date()) -> SavedEventDesign {
         var profile = EventProfile.pocketPixelsDefault

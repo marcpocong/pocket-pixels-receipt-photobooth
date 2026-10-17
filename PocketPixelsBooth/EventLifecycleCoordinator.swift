@@ -41,15 +41,15 @@ nonisolated enum EventOperatorStatus: Equatable, Sendable {
 
     var title: String {
         switch self {
-        case .noEvent: "Needs Attention"
+        case .noEvent: "No Event Configured"
         case .regular: "Regular Booth"
         case .draft: "Draft — Not Started"
         case .ready: "Ready to Start"
         case .starting: "Starting…"
         case .accepting: "Accepting Guests"
         case .unconfirmed: "Server Status Not Confirmed"
-        case .pausedOnBooth: "Booth Paused"
-        case .serverPaused: "Booth Paused"
+        case .pausedOnBooth: "Paused on This iPad"
+        case .serverPaused: "Commercial Event Paused"
         case .needsReview: "Needs Attention"
         case .ending: "Ending…"
         case .completed: "Event Ended"

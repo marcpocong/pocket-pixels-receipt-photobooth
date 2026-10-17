@@ -38,10 +38,12 @@ nonisolated struct EventRunFinancialTotals: Equatable, Sendable {
 /// authoritative server orders and is never inferred from names, dates or local guesses.
 struct EventRunReportingView: View {
     enum Tab: String, CaseIterable, Identifiable {
-        case overview = "Overview", activity = "Activity", sales = "Sales", history = "History", manage = "Manage"
+        case overview = "Overview", activity = "Sessions", sales = "Sales", history = "History", manage = "Manage"
+        static let reportSections: [Tab] = [.overview, .activity, .sales]
         var id: String { rawValue }
     }
 
+    @ObservedObject private var workspace: OperatorWorkspace
     @ObservedObject private var store: EventRunStore
     @ObservedObject private var library: EventDesignLibraryStore
     @ObservedObject private var attributionStore: LegacyAttributionStore
@@ -70,16 +72,28 @@ struct EventRunReportingView: View {
     @State private var exportURL: URL?
     @State private var financialRequest = UUID()
     @State private var selectedArchiveIDs: Set<String> = []
+    @State private var sessionSearch = ""
+    @State private var sessionFormat = "all"
+    @State private var sessionFilter = "all"
+    @StateObject private var archiveModel: RecentSessionsViewModel
     @State private var attributionSelection: AttributionSelection?
     private let archiveDirectory: URL?
     private let loadsRemote: Bool
 
     init(store: EventRunStore? = nil, library: EventDesignLibraryStore? = nil, archiveDirectory: URL? = nil, loadsRemote: Bool = true,
-         attributions: LegacyAttributionStore? = nil, initialTab: Tab = .overview) {
+         attributions: LegacyAttributionStore? = nil, initialTab: Tab? = nil, workspace: OperatorWorkspace? = nil) {
+        let workspace = workspace ?? .shared
+        let selectedStore = store ?? .shared
+        _workspace = ObservedObject(wrappedValue: workspace)
+        let restoredRun = selectedStore.runs.first { $0.id == workspace.snapshot.reportRunID }
+        _selectedRunID = State(initialValue: restoredRun?.id)
+        _showsArchived = State(initialValue: restoredRun?.status == .archived)
         _store = ObservedObject(wrappedValue: store ?? .shared)
         _library = ObservedObject(wrappedValue: library ?? .shared)
         _attributionStore = ObservedObject(wrappedValue: attributions ?? .shared)
-        _tab = State(initialValue: initialTab)
+        let restoredTab = Tab(rawValue: workspace.snapshot.reportTab ?? "")
+        _tab = State(initialValue: initialTab ?? restoredTab.flatMap { Tab.reportSections.contains($0) ? $0 : nil } ?? .overview)
+        _archiveModel = StateObject(wrappedValue: RecentSessionsViewModel(store: try? RecentSessionArchiveStore(directoryURL: archiveDirectory)))
         self.archiveDirectory = archiveDirectory
         self.loadsRemote = loadsRemote
     }
@@ -92,11 +106,32 @@ struct EventRunReportingView: View {
 
     var body: some View {
         List {
+            let storageErrors = [store.storageError, attributionStore.storageError, library.storageError].compactMap { $0 }
+            if !storageErrors.isEmpty {
+                Section("Records need review") {
+                    ForEach(Array(storageErrors.enumerated()), id: \.offset) { _, error in
+                        Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.danger)
+                    }
+                }
+            }
             Section {
-                Picker("Section", selection: $tab) { ForEach(Tab.allCases) { Text($0.rawValue).tag($0) } }
-                    .pickerStyle(.segmented)
-                    .accessibilityIdentifier("report-tabs")
+                if Tab.reportSections.contains(tab) {
+                    Picker("Section", selection: $tab) { ForEach(Tab.reportSections) { Text($0.rawValue).tag($0) } }
+                        .pickerStyle(.segmented).accessibilityIdentifier("report-tabs")
+                }
                 if tab != .manage { runPicker }
+                if Tab.reportSections.contains(tab) {
+                    Text("Scope: \(selected.map { "\($0.context.name.isEmpty ? "Regular Booth" : $0.context.name) · this iPad · one event run" } ?? (store.historyUnreadable ? "Event history unavailable" : "No current event run"))")
+                        .font(.callout).foregroundStyle(OperatorPalette.secondaryText).accessibilityIdentifier("report-scope")
+                    Toggle("Include archived runs", isOn: $showsArchived)
+                    if let run = selected, let eventID = run.context.commercialEventID {
+                        NavigationLink("Whole commercial event · all iPads & runs", value: OperatorWorkspaceRoute.eventReport(eventID))
+                            .disabled(run.context.serverBinding != OperatorWorkspace.shared.serverBinding)
+                        if run.context.serverBinding != OperatorWorkspace.shared.serverBinding {
+                            Text("Select this run's saved payments connection in System before opening whole-event sales.").font(.footnote).foregroundStyle(OperatorPalette.secondaryText)
+                        }
+                    }
+                }
             }
             switch tab {
             case .overview: overviewTab
@@ -107,9 +142,10 @@ struct EventRunReportingView: View {
             }
             if !message.isEmpty { Section { Text(message).font(.callout) } }
         }
-        .navigationTitle("Reports & Statistics")
+        .navigationTitle(tab == .history ? "Event History" : tab == .manage ? "Saved Events" : "Reports")
+        .navigationBarTitleDisplayMode(.inline)
         .scrollContentBackground(.hidden)
-        .background(MadeToKeepPaperBackground())
+        .background(OperatorPalette.canvas)
         .tint(MadeToKeepTheme.ColorPalette.burgundy)
         .task(id: store.revision) {
             // A burst of journal writes (gallery verification, print reconciliation) bumps the
@@ -120,7 +156,17 @@ struct EventRunReportingView: View {
             guard !Task.isCancelled else { return }
             await loadLocal()
         }
-        .onChange(of: selectedRunID) { _, _ in exportURL = nil; Task { await loadFinancials() } }
+        .onChange(of: tab) { _, value in
+            if Tab.reportSections.contains(value) { workspace.saveReportSelection(tab: value.rawValue, runID: selectedRunID) }
+        }
+        .onChange(of: showsArchived) { _, includesArchived in
+            if !includesArchived, selected?.status == .archived { selectedRunID = nil }
+        }
+        .onChange(of: selectedRunID) { _, _ in
+            workspace.saveReportSelection(tab: tab.rawValue, runID: selectedRunID)
+            exportURL = nil; financialLoadedAt = nil
+            Task { await loadFinancials() }
+        }
         .confirmationDialog(dialogTitle, isPresented: Binding(get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } }), titleVisibility: .visible) {
             Button(pendingAction == "delete" ? "Delete Unused Run" : "Archive Run", role: pendingAction == "delete" ? .destructive : nil) { perform() }
             Button("Cancel", role: .cancel) { }
@@ -160,9 +206,24 @@ struct EventRunReportingView: View {
 
     @ViewBuilder private var overviewTab: some View {
         if loading { Section { ProgressView("Reading saved activity…") } }
-        if let localError { Section { Label(localError, systemImage: "exclamationmark.triangle").foregroundStyle(.red) } }
+        if let localError { Section { Label(localError, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.danger) } }
         if let run = selected {
-            Section("Event") {
+            if !loading, localError == nil {
+                Section("At a glance · this run on this iPad") {
+                    OperatorRunMetricsView(statistics: run.isHistorical ? nil : stats).listRowBackground(Color.clear)
+                    if let attributed = history?.attributedByRun[run.id], attributed > 0 {
+                        LabeledContent("Earlier sessions attributed by operator (not exact)", value: String(attributed))
+                    }
+                    if run.isHistorical || run.recordedAfterUpgrade == true {
+                        Text("Earlier activity is incomplete. Operator-attributed history is separate from exact journal statistics.").font(.footnote).foregroundStyle(OperatorPalette.secondaryText)
+                    }
+                    Text("Copies are transport-delivered; paper output is not sensor-confirmed. Reprints are reported separately.").font(.footnote).foregroundStyle(OperatorPalette.secondaryText)
+                }
+                OperatorReportCharts(insights: OperatorRunInsights(runID: run.id, sessions: sessions))
+                exceptionsSection
+            }
+            Section("Event details") {
+                DisclosureGroup("Timing, design & payment") {
                 LabeledContent("Event", value: run.context.name.isEmpty ? "Regular Sessions" : run.context.name)
                 LabeledContent("Status", value: statusText(run).capitalized)
                 LabeledContent("Design", value: library.design(id: run.context.designID)?.displayName ?? "Studio branding")
@@ -173,23 +234,12 @@ struct EventRunReportingView: View {
                     LabeledContent("Follows", value: earlier.createdAt.formatted(date: .abbreviated, time: .shortened))
                 }
             }
-            if !loading, localError == nil {
-                Section("At a glance") {
-                    LabeledContent("Completed sessions", value: String(stats.completed))
-                    LabeledContent("Copies delivered to printer", value: String(stats.delivered))
-                    LabeledContent("Galleries verified", value: String(stats.galleriesVerified))
-                    LabeledContent("Galleries pending", value: String(stats.galleriesAwaitingVerification))
-                    if let attributed = history?.attributedByRun[run.id], attributed > 0 {
-                        LabeledContent("Earlier sessions attributed by operator", value: String(attributed))
-                    }
                 }
-                exceptionsSection
-            }
         } else if !loading {
-            Section { Text("No event run has started on this iPad. Earlier sessions are listed under History.").foregroundStyle(.secondary) }
+            Section { Text(store.historyUnreadable ? "Event-run history is unavailable. Existing records are retained for recovery in System." : "No event run has started on this iPad. Earlier sessions are listed under History.").foregroundStyle(OperatorPalette.secondaryText) }
         }
         Section {
-            NavigationLink("Event Setup", value: OperatorWorkspaceRoute.sessionSetup)
+            Button("Event Setup") { workspace.navigate(to: .sessionSetup) }
         } footer: { Text("Start, pause and end the event from Current Event on the operator home screen.") }
     }
 
@@ -201,7 +251,6 @@ struct EventRunReportingView: View {
                 if stats.uncertain > 0 { Label("\(stats.uncertain) copies have uncertain print output — check paper in Fix Printer.", systemImage: "printer.dotmatrix") }
                 if stats.notStarted > 0 { Label("\(stats.notStarted) copies never started printing.", systemImage: "exclamationmark.circle") }
                 if savedCheckouts > 0 { Label("\(savedCheckouts) saved checkout(s) still need Payment Recovery review.", systemImage: "creditcard.trianglebadge.exclamationmark") }
-                if let error = store.storageError { Label(error, systemImage: "externaldrive.badge.exclamationmark").foregroundStyle(.orange) }
             }
         }
     }
@@ -209,34 +258,71 @@ struct EventRunReportingView: View {
     // MARK: Activity
 
     @ViewBuilder private var activityTab: some View {
-        Section("Activity — this iPad") {
-            if loading { ProgressView("Reading saved activity…") }
-            if let localError { Label(localError, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
-            if !loading, localError == nil, let selected {
-                LabeledContent("Completed sessions", value: String(stats.completed))
-                ForEach(stats.completedByFormat.keys.sorted(), id: \.self) { format in
-                    LabeledContent("  \(BoothFormat(rawValue: format)?.displayName ?? format)", value: String(stats.completedByFormat[format] ?? 0))
+        if loading { Section { ProgressView("Reading saved sessions…") } }
+        if let localError { Section { Label(localError, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.danger) } }
+        if !loading, localError == nil, let selected {
+            Section {
+                TextField("Search session or receipt format", text: $sessionSearch)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .accessibilityIdentifier("report-session-search")
+                Picker("Receipt format", selection: $sessionFormat) {
+                    Text("All formats").tag("all")
+                    ForEach(BoothFormat.allCases, id: \.rawValue) { Text($0.displayName).tag($0.rawValue) }
                 }
-                LabeledContent("Copies transport-delivered", value: String(stats.delivered))
-                LabeledContent("Copies uncertain / in flight", value: String(stats.uncertain))
-                LabeledContent("Copies not started", value: String(stats.notStarted))
-                LabeledContent("Public galleries verified", value: String(stats.galleriesVerified))
-                LabeledContent("Galleries awaiting verification", value: String(stats.galleriesAwaitingVerification))
-                LabeledContent("Archive reprint requests", value: String(archives.filter { $0.eventRunID == selected.id }.reduce(0) { $0 + $1.reprintCount }))
-                if let attributed = history?.attributedByRun[selected.id], attributed > 0 {
-                    LabeledContent("Operator-attributed earlier sessions (not exact)", value: String(attributed))
+                Picker("Status", selection: $sessionFilter) {
+                    Text("All sessions").tag("all")
+                    Text("Completed").tag("completed")
+                    Text("Waiting gallery").tag("waiting")
+                    Text("Print needs review").tag("review")
                 }
-                if runSessions.isEmpty { Text("No sessions recorded for this run.").foregroundStyle(.secondary) }
+            }
+            Section("Sessions · newest first") {
+                let rows = filteredRunSessions
+                if rows.isEmpty { Text(runSessions.isEmpty ? "No sessions recorded for this run." : "No sessions match these filters.").foregroundStyle(OperatorPalette.secondaryText) }
+                ForEach(rows) { session in
+                    if let archive = archives.first(where: { $0.sessionIdentifier == session.sessionID && $0.eventRunID == selected.id }) {
+                        NavigationLink {
+                            ArchivedSessionDetailView(summary: archive, rootViewModel: archiveModel)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                RecentSessionRow(summary: archive, viewModel: archiveModel, showsOperationalContext: false)
+                                journalOutcome(session).font(.caption).foregroundStyle(OperatorPalette.secondaryText)
+                            }
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(BoothFormat(rawValue: session.format)?.displayName ?? session.format).font(.headline)
+                            Text(session.createdAt.formatted(date: .abbreviated, time: .shortened)).font(.callout)
+                            Text(session.sessionID).font(.caption.monospaced()).foregroundStyle(OperatorPalette.secondaryText)
+                            journalOutcome(session).font(.caption).foregroundStyle(OperatorPalette.secondaryText)
+                            Text("Receipt archive unavailable; reprint is unavailable here.").font(.caption).foregroundStyle(OperatorPalette.secondaryText)
+                        }.padding(.vertical, 6)
+                    }
+                }
+            }
+            Section {
                 Button("Prepare Run CSV") { export() }
                 if let exportURL { ShareLink("Share Run CSV", item: exportURL) }
-            } else if selected == nil, !loading { Text("No event run has started. Earlier sessions are listed under History.") }
+                LabeledContent("Archive reprint requests (separate)", value: String(archives.filter { $0.eventRunID == selected.id }.reduce(0) { $0 + $1.reprintCount }))
+                NavigationLink("Earlier & Unassigned Sessions", value: OperatorWorkspaceRoute.eventHistory)
+            } footer: { Text("Uncertain output is never retried automatically. Open a receipt for an intentional operator reprint after resolving recovery.") }
+        } else if selected == nil, !loading {
+            Section {
+                Text("No current event run. Select a previous run above, or open earlier sessions.").foregroundStyle(OperatorPalette.secondaryText)
+                NavigationLink("Earlier & Unassigned Sessions", value: OperatorWorkspaceRoute.eventHistory)
+                NavigationLink("All Recent Receipts & Reprints", value: OperatorWorkspaceRoute.recentSessions)
+            }
         }
-        Section {
-            NavigationLink("Recent Sessions, Receipts & Reprints", value: OperatorWorkspaceRoute.recentSessions)
-            NavigationLink("Waiting Galleries (\(operations.pendingUploadCount))", value: OperatorWorkspaceRoute.waitingGalleries)
-        } footer: {
-            Text("Completion is recorded after the original print batch succeeds. Transport delivery is not sensor-confirmed paper output. Reprints are listed separately.")
-        }
+        exceptionsSection
+    }
+
+    private var filteredRunSessions: [EventRunSession] {
+        OperatorSessionFilter.apply(runSessions, query: sessionSearch, format: sessionFormat, status: sessionFilter)
+    }
+    private func journalOutcome(_ session: EventRunSession) -> Text {
+        let counts = EventRunStatistics(sessions: [session])
+        let gallery = session.galleryVerifiedAt != nil ? "Gallery verified" : session.galleryPreparedAt != nil ? "Gallery waiting" : "Gallery not recorded"
+        return Text("\(session.completedAt == nil ? "In progress / incomplete" : "Completed") · \(counts.delivered) copies sent · \(counts.uncertain) uncertain · \(gallery)")
     }
 
     // MARK: Sales
@@ -244,8 +330,9 @@ struct EventRunReportingView: View {
     @ViewBuilder private var salesTab: some View {
         if let run = selected, let eventID = run.context.commercialEventID {
             Section {
+                LabeledContent("Environment", value: run.context.serverBinding?.hasPrefix("live:") == true ? "LIVE" : "TEST · excluded from revenue")
                 if financialLoading { ProgressView("Checking every order page…") }
-                if let financialError { Label(financialError, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
+                if let financialError { Label(financialError, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.danger) }
                 if let financials {
                     money("QR Ph verified — LIVE", financials.verifiedLive)
                     money("QR Ph verified — TEST (not revenue)", financials.verifiedTest)
@@ -255,10 +342,10 @@ struct EventRunReportingView: View {
                     LabeledContent("Held / replaced orders excluded", value: String(financials.review))
                 }
                 if offlineCashLoaded { money("Offline cash waiting to sync (unverified)", offlineCash.reduce(0) { $0 + $1.totalCentavos }) }
-                else if let offlineCashError { Label(offlineCashError, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
+                else if let offlineCashError { Label(offlineCashError, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.warning) }
                 else if !financialLoading { Text("Offline cash totals have not been loaded.").font(.footnote) }
-                if unassignedOfflineCount > 0 { Text("\(unassignedOfflineCount) legacy cash record(s) lack an environment and are excluded from the amount above.").foregroundStyle(.orange) }
-                if let financialLoadedAt { Text("Last refreshed \(financialLoadedAt.formatted(date: .omitted, time: .shortened)).").font(.footnote).foregroundStyle(.secondary) }
+                if unassignedOfflineCount > 0 { Text("\(unassignedOfflineCount) legacy cash record(s) lack an environment and are excluded from the amount above.").foregroundStyle(OperatorPalette.warning) }
+                if let financialLoadedAt { Text("Last refreshed \(financialLoadedAt.formatted(date: .omitted, time: .shortened)).").font(.footnote).foregroundStyle(OperatorPalette.secondaryText) }
                 Button("Refresh Sales") { Task { await loadFinancials() } }.disabled(financialLoading)
             } header: { Text("This run — exact order evidence") } footer: {
                 Text("Matches saved order IDs, original checkout IDs and claimed session IDs for this occurrence, never names or dates. Refunds, fees and payouts are not tracked.")
@@ -269,6 +356,7 @@ struct EventRunReportingView: View {
                     if unmatched > 0 { Text("These belong to other iPads or to sessions before runs were recorded. They stay in the paid event's totals and are never guessed into a run.").font(.footnote) }
                 }
                 NavigationLink("Paid Event Report — all runs and iPads", value: OperatorWorkspaceRoute.eventReport(eventID))
+                    .disabled(run.context.serverBinding != OperatorWorkspace.shared.serverBinding)
             } header: { Text("Whole paid event") } footer: {
                 Text("The paid event report includes physical cash counts, every order and the complete financial CSV.")
             }
@@ -277,16 +365,17 @@ struct EventRunReportingView: View {
                     ForEach(orders) { order in
                         VStack(alignment: .leading) {
                             Text("\(PHPPriceFormatter.string(centavos: order.totalCentavos)) · \(order.copies)× \(order.boothFormat)")
-                            Text("\(order.category) · \(order.state)").font(.caption).foregroundStyle(.secondary)
+                            Text("\(order.category) · \(order.state)").font(.caption).foregroundStyle(OperatorPalette.secondaryText)
                         }
                     }
                 }
             }
         } else if selected != nil {
-            Section { Text("This run didn't collect payments (prepaid or free). Its sessions and prints are under Activity.").foregroundStyle(.secondary) }
+            Section { Text("This run didn't collect payments (prepaid or free). Its sessions and prints are under Sessions.").foregroundStyle(OperatorPalette.secondaryText) }
         }
+        if selected == nil { Section { Text("Select an event run above, or open an authoritative whole-event report below.").foregroundStyle(OperatorPalette.secondaryText) } }
         Section {
-            NavigationLink("All Paid Events & Sales") { PaymentsOperatorView(salesOnly: true) }
+            NavigationLink("Whole Commercial Event · All iPads & Runs") { PaymentsOperatorView(salesOnly: true) }
         } footer: { Text("Uses the separate operator credential for this payments connection.") }
     }
 
@@ -303,18 +392,18 @@ struct EventRunReportingView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(run.context.name.isEmpty ? "Regular Sessions" : run.context.name).font(.headline).foregroundStyle(MadeToKeepTheme.ColorPalette.ink)
                         Text("\(run.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(statusText(run)) · \(sessions.filter { $0.runID == run.id && $0.completedAt != nil }.count) sessions")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.caption).foregroundStyle(OperatorPalette.secondaryText)
                     }
                     .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 }
             }
-            if pickerRuns.isEmpty { Text("No event runs yet.").foregroundStyle(.secondary) }
+            if pickerRuns.isEmpty { Text("No event runs yet.").foregroundStyle(OperatorPalette.secondaryText) }
         } header: { Text("Event runs") } footer: { Text("Tap a run to see its activity. Each new occurrence has its own run and statistics.") }
         Section {
             if let history {
                 LabeledContent("Earlier sessions without a run", value: String(history.unassignedCount))
                 if history.unassignedPrintCopies > 0 { LabeledContent("Print copies without a run", value: String(history.unassignedPrintCopies)) }
-                if history.corruptArchives > 0 { Label("\(history.corruptArchives) archived session(s) could not be read and are excluded.", systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
+                if history.corruptArchives > 0 { Label("\(history.corruptArchives) archived session(s) could not be read and are excluded.", systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.warning) }
                 ForEach(history.unassigned) { group in
                     DisclosureGroup {
                         ForEach(group.archives) { archive in
@@ -325,7 +414,7 @@ struct EventRunReportingView: View {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text("\(archive.createdAt.formatted(date: .omitted, time: .shortened)) · \(archive.format.displayName)")
                                             .foregroundStyle(MadeToKeepTheme.ColorPalette.ink)
-                                        Text(archive.eventName.flatMap { $0.isEmpty ? nil : "Receipt: \($0)" } ?? "No receipt event name").font(.caption).foregroundStyle(.secondary)
+                                        Text(archive.eventName.flatMap { $0.isEmpty ? nil : "Receipt: \($0)" } ?? "No receipt event name").font(.caption).foregroundStyle(OperatorPalette.secondaryText)
                                     }
                                 }
                                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
@@ -337,8 +426,8 @@ struct EventRunReportingView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(group.day.formatted(date: .complete, time: .omitted)).font(.headline).foregroundStyle(MadeToKeepTheme.ColorPalette.ink)
                             Text("\(group.archives.count) sessions · " + group.byFormat.keys.sorted().map { "\(group.byFormat[$0] ?? 0) \(BoothFormat(rawValue: $0)?.displayName ?? $0)" }.joined(separator: ", "))
-                                .font(.caption).foregroundStyle(.secondary)
-                            if !group.names.isEmpty { Text("Receipt names: \(group.names.joined(separator: ", "))").font(.caption2).foregroundStyle(.secondary) }
+                                .font(.caption).foregroundStyle(OperatorPalette.secondaryText)
+                            if !group.names.isEmpty { Text("Receipt names: \(group.names.joined(separator: ", "))").font(.caption2).foregroundStyle(OperatorPalette.secondaryText) }
                         }
                         .frame(minHeight: 44, alignment: .leading)
                     }
@@ -353,8 +442,8 @@ struct EventRunReportingView: View {
                     .accessibilityIdentifier("review-attribution")
                     if !selectedArchiveIDs.isEmpty { Button("Clear Selection") { selectedArchiveIDs = [] }.frame(minHeight: 44) }
                 }
-            } else if !loading, localError == nil { Text("Earlier sessions have not been checked.").foregroundStyle(.secondary) }
-            if let error = attributionStore.storageError { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
+            } else if !loading, localError == nil { Text("Earlier sessions have not been checked.").foregroundStyle(OperatorPalette.secondaryText) }
+            if let error = attributionStore.storageError { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.warning) }
         } header: { Text("Unassigned earlier activity") } footer: {
             Text(HistoricalActivityReport.unassignedReason + " Open a day and select the individual sessions you know belong to one event, then review and attribute them. Two events on the same day stay separate. Attributions are permanent, audited and shown separately. Sales are never attributed.")
         }
@@ -383,8 +472,8 @@ struct EventRunReportingView: View {
                 Text("Current run").tag(String?.none)
                 ForEach(pickerRuns) { Text(label($0)).tag(Optional($0.id)) }
             }
-            if let blocked { Text(blocked).font(.footnote).foregroundStyle(.orange) }
-            if let error = store.storageError { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
+            if let blocked { Text(blocked).font(.footnote).foregroundStyle(OperatorPalette.warning) }
+            if let error = store.storageError { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.danger) }
         } header: { Text("Event runs") } footer: {
             Text("Reports never change the running event. For fresh statistics, end the event from Current Event, then use Start New Occurrence in Event Setup: it reviews the design and payment setup and keeps the ended run's history. Archiving hides an ended run from everyday lists; its sessions, receipts, galleries, entitlements and reports stay saved.")
         }
@@ -393,7 +482,7 @@ struct EventRunReportingView: View {
                 HStack {
                     VStack(alignment: .leading) {
                         Text(design.displayName)
-                        Text(design.archivedAt == nil ? "Saved design" : "Archived design — history retained").font(.caption).foregroundStyle(.secondary)
+                        Text(design.archivedAt == nil ? "Saved design" : "Archived design — history retained").font(.caption).foregroundStyle(OperatorPalette.secondaryText)
                     }
                     Spacer()
                     Menu("Manage") {
@@ -432,6 +521,7 @@ struct EventRunReportingView: View {
             let saved = try await Task.detached { try RecentSessionArchiveStore(directoryURL: archiveDirectory).summaries() }.value
             guard !Task.isCancelled else { return }
             sessions = loaded; archives = saved; localError = nil; loading = false
+            archiveModel.refresh()
             history = HistoricalActivityReport(archives: saved, sessions: loaded, runs: store.runs, attributions: attributionStore.attributions, printEntries: entries)
             await loadFinancials()
         } catch { localError = "Operational history unavailable: \(error.localizedDescription)"; history = nil; loading = false }
@@ -439,7 +529,7 @@ struct EventRunReportingView: View {
 
     private func loadFinancials() async {
         let request = UUID(); financialRequest = request
-        financials = nil; financialError = nil; orders = []; offlineCash = []; financialLoading = false; unmatchedCommercialOrders = nil
+        financials = nil; financialError = nil; financialLoadedAt = nil; orders = []; offlineCash = []; financialLoading = false; unmatchedCommercialOrders = nil
         offlineCashLoaded = false; offlineCashError = nil; unassignedOfflineCount = 0
         guard let run = selected, let eventID = run.context.commercialEventID else { return }
         guard loadsRemote else { financialError = "Synthetic preview — remote reporting disabled."; return }
@@ -596,10 +686,10 @@ private struct LegacyAttributionSheet: View {
                         ForEach(sorted) { archive in
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("\(archive.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(archive.format.displayName)")
-                                Text(archive.eventName.flatMap { $0.isEmpty ? nil : "Receipt: \($0)" } ?? "No receipt event name").font(.caption).foregroundStyle(.secondary)
+                                Text(archive.eventName.flatMap { $0.isEmpty ? nil : "Receipt: \($0)" } ?? "No receipt event name").font(.caption).foregroundStyle(OperatorPalette.secondaryText)
                             }
                         }
-                        Text(HistoricalActivityReport.unassignedReason).font(.footnote).foregroundStyle(.secondary)
+                        Text(HistoricalActivityReport.unassignedReason).font(.footnote).foregroundStyle(OperatorPalette.secondaryText)
                     }
                     Section("Attribute to") {
                         Toggle("Create an earlier-event record", isOn: $createsRecord)
@@ -617,7 +707,7 @@ private struct LegacyAttributionSheet: View {
                         Button("Attribute \(archives.count) Session\(archives.count == 1 ? "" : "s")") { attribute() }
                             .disabled(note.trimmingCharacters(in: .whitespaces).isEmpty || (createsRecord ? name.trimmingCharacters(in: .whitespaces).isEmpty : targetRunID == nil))
                             .accessibilityIdentifier("confirm-attribution")
-                        if let error { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
+                        if let error { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.danger) }
                     } footer: {
                         Text("All selected sessions are saved together or not at all. Permanent and audited; counts appear separately as operator-attributed. Receipts, galleries and payment records are not changed, and no sales are attributed.")
                     }

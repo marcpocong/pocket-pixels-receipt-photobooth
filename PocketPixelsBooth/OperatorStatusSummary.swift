@@ -82,7 +82,9 @@ struct OperatorStatusSummary: Equatable {
         case .notReady: "NOT READY"
         }
 
-        if cameraNotAuthorized {
+        if report.checks.isEmpty {
+            camera = .attention("Not checked")
+        } else if cameraNotAuthorized {
             camera = .attention("Access needed")
         } else if cameraUnchecked {
             camera = .attention("Check needed")
@@ -90,7 +92,9 @@ struct OperatorStatusSummary: Equatable {
             camera = .ready
         }
 
-        if printNeedsConfirmation || printerLocked {
+        if report.checks.isEmpty {
+            printer = .attention("Not checked")
+        } else if printNeedsConfirmation || printerLocked {
             printer = .attention("Needs attention")
         } else if failing("Print Queue") {
             printer = .attention("Printing")
@@ -100,7 +104,9 @@ struct OperatorStatusSummary: Equatable {
             printer = .ready
         }
 
-        if galleryQueueProblem {
+        if report.checks.isEmpty {
+            gallery = .attention("Not checked")
+        } else if galleryQueueProblem {
             gallery = .attention("Needs review")
         } else if galleryNeedsSetup {
             gallery = .attention("Setup needed")
@@ -110,7 +116,7 @@ struct OperatorStatusSummary: Equatable {
             gallery = .ready
         }
 
-        internet = offline ? .offline("Offline") : .ready
+        internet = report.checks.isEmpty ? .attention("Not checked") : (offline ? .offline("Offline") : .ready)
 
         if report.checks.isEmpty {
             summary = "Run Booth Check before welcoming guests."

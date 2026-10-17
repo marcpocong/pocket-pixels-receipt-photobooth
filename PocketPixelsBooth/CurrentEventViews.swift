@@ -6,6 +6,7 @@ private typealias Brand = MadeToKeepTheme.ColorPalette
 /// attendant needs. Setup, reports and maintenance stay one tap away, not mixed in.
 struct CurrentEventCard: View {
     @StateObject private var lifecycle: EventLifecycleCoordinator
+    @ObservedObject private var workspace: OperatorWorkspace
     @ObservedObject private var runs: EventRunStore
     @ObservedObject private var acceptance = SessionAcceptanceStore.shared
     @ObservedObject private var library = EventDesignLibraryStore.shared
@@ -19,7 +20,8 @@ struct CurrentEventCard: View {
 
     enum Confirmation: String, Identifiable { case pauseBooth, pauseCommercial, resume, finishEnding, recordRun, regular; var id: String { rawValue } }
 
-    init(lifecycle: EventLifecycleCoordinator? = nil, loadsRemote: Bool = true) {
+    init(lifecycle: EventLifecycleCoordinator? = nil, loadsRemote: Bool = true, workspace: OperatorWorkspace? = nil) {
+        _workspace = ObservedObject(wrappedValue: workspace ?? .shared)
         let model = lifecycle ?? EventLifecycleCoordinator()
         _lifecycle = StateObject(wrappedValue: model)
         _runs = ObservedObject(wrappedValue: model.runs)
@@ -34,20 +36,21 @@ struct CurrentEventCard: View {
     private var busy: Bool { lifecycle.operation != nil }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 16) {
             header
             facts
             warnings
             actions
+            eventControls
             if !lifecycle.message.isEmpty {
-                Text(lifecycle.message).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(lifecycle.message).font(.callout).foregroundStyle(OperatorPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("current-event-message")
             }
         }
-        .padding(28)
+        .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Brand.ivoryLight, in: RoundedRectangle(cornerRadius: 22))
-        .overlay { RoundedRectangle(cornerRadius: 22).stroke(Brand.burgundy.opacity(0.18)) }
+        .background(Brand.ivoryLight, in: RoundedRectangle(cornerRadius: 16))
+        .overlay { RoundedRectangle(cornerRadius: 16).stroke(Brand.burgundy.opacity(0.18)) }
         // The ivory card keeps its editorial palette; system colors inside it stay legible.
         .environment(\.colorScheme, .light)
         .task { await refresh() }
@@ -64,8 +67,7 @@ struct CurrentEventCard: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("BOOTH STATUS").font(.caption.weight(.semibold)).tracking(2).foregroundStyle(Brand.burgundy)
-            Text(eventName).font(.system(.largeTitle, design: .serif).weight(.semibold)).foregroundStyle(Brand.ink)
+            Text(eventName).font(.system(.title2, design: .serif).weight(.semibold)).foregroundStyle(Brand.ink)
                 .accessibilityIdentifier("current-event-name")
             HStack(spacing: 10) {
                 Label(status.title, systemImage: status.systemImage)
@@ -76,7 +78,7 @@ struct CurrentEventCard: View {
                     .accessibilityIdentifier("current-event-status")
                 if busy { ProgressView() }
             }
-            Text(status.detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(status.detail).font(.callout).foregroundStyle(OperatorPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -86,9 +88,6 @@ struct CurrentEventCard: View {
             if let run { fact("Started", run.createdAt.formatted(date: .abbreviated, time: .shortened)) }
             else if lifecycle.canRecordUpgradedRun { fact("Event run", "Not recorded yet — statistics start with the first guest or Record Event Run") }
             fact("Payment", paymentLine)
-            fact("Guest admission", guestAdmissionLine)
-            fact("Printer", printer.requiresRecovery ? "Recovery required" : printer.state.message)
-            fact("Galleries waiting", "\(operations.pendingUploadCount)")
             if paid, let checked = lifecycle.lastCheckedAt { fact("Server checked", checked.formatted(date: .omitted, time: .shortened)) }
         }
         .font(.callout)
@@ -97,11 +96,11 @@ struct CurrentEventCard: View {
     @ViewBuilder private var warnings: some View {
         if let reason = SessionSetupSafety.recoveryReason {
             NavigationLink(value: printer.requiresRecovery || operations.hasUnresolvedPrint ? OperatorWorkspaceRoute.recovery : OperatorWorkspaceRoute.payments) {
-                Label(reason, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange).frame(minHeight: 44, alignment: .leading)
+                Label(reason, systemImage: "exclamationmark.triangle.fill").foregroundStyle(OperatorPalette.warning).frame(minHeight: 44, alignment: .leading)
             }
         }
         if let error = runs.storageError, !runs.historyUnreadable {
-            Label("Statistics could not be saved: \(error)", systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(.orange)
+            Label("Statistics could not be saved: \(error)", systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(OperatorPalette.warning)
         }
     }
 
@@ -109,29 +108,19 @@ struct CurrentEventCard: View {
         let columns = [GridItem(.adaptive(minimum: 200), spacing: 12)]
         LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
             primaryAction
-            if run == nil || run?.status == .active, !acceptance.state.blocked {
+            if OperatorHomeActionPolicy(status: status).showsPause, !acceptance.state.blocked {
                 actionButton("Pause Booth", systemImage: "pause.fill") { confirm = .pauseBooth }
                     .accessibilityIdentifier("pause-booth")
             }
-            if lifecycle.linkedCommercialEventID != nil, run == nil || [.active, .paused].contains(run?.status), lifecycle.confirmedCommercialLifecycle == .active {
-                actionButton("Pause Paid Event", systemImage: "pause.circle") { confirm = .pauseCommercial }
-            }
-            if lifecycle.canRecordUpgradedRun {
-                actionButton("Record Event Run", systemImage: "list.bullet.rectangle") { confirm = .recordRun }
-                    .accessibilityIdentifier("record-event-run")
-            }
-            if [.active, .paused].contains(run?.status) {
-                actionButton("End Event", systemImage: "flag.checkered", role: .destructive) { showsEnd = true }
-                    .accessibilityIdentifier("end-event")
-            }
-            NavigationLink(value: OperatorWorkspaceRoute.sales) {
+            Button { workspace.showCurrentReport() } label: {
                 Label("View Reports", systemImage: "chart.bar").frame(maxWidth: .infinity, minHeight: 48)
             }.buttonStyle(.bordered).accessibilityIdentifier("view-reports")
-            if paid || runs.pendingTransition != nil {
+            if paid || runs.pendingTransition != nil, !OperatorHomeActionPolicy(status: status).statusCheckIsPrimary {
                 actionButton("Check Status", systemImage: "arrow.clockwise") { Task { await refresh() } }
             }
-            actionButton("Booth Health", systemImage: "stethoscope") { showsHealth = true }
-                .accessibilityIdentifier("booth-health")
+            Button { workspace.navigate(to: .boothCheck) } label: {
+                Label("Check Booth", systemImage: "checkmark.shield").frame(maxWidth: .infinity, minHeight: 48)
+            }.buttonStyle(.bordered).accessibilityIdentifier("booth-check")
         }
         .controlSize(.large)
         .tint(Brand.burgundy)
@@ -140,9 +129,21 @@ struct CurrentEventCard: View {
 
     @ViewBuilder private var primaryAction: some View {
         switch status {
+        case .starting, .ending, .accepting:
+            EmptyView()
+        case .unconfirmed:
+            Button { Task { await refresh() } } label: { Label("Check Status", systemImage: "arrow.clockwise").frame(maxWidth: .infinity, minHeight: 48) }
+                .buttonStyle(.borderedProminent)
+        case .recoveryRequired:
+            Button { workspace.navigate(to: printer.requiresRecovery || operations.hasUnresolvedPrint ? .recovery : .payments) } label: {
+                Label("Review Recovery", systemImage: "exclamationmark.octagon").frame(maxWidth: .infinity, minHeight: 48)
+            }.buttonStyle(.borderedProminent)
         case .completed, .archived, .noEvent:
-            Button { confirm = .regular } label: { Label("Return to Regular Booth", systemImage: "camera.fill").frame(maxWidth: .infinity, minHeight: 48) }
-                .buttonStyle(.borderedProminent).accessibilityIdentifier("return-to-regular-booth")
+            Button { workspace.navigate(to: .sessionSetup) } label: {
+                Label("Set Up Event", systemImage: "calendar.badge.plus").frame(maxWidth: .infinity, minHeight: 48)
+            }.buttonStyle(.borderedProminent).accessibilityIdentifier("event-setup")
+            actionButton("Return to Regular Booth", systemImage: "camera.fill") { confirm = .regular }
+                .accessibilityIdentifier("return-to-regular-booth")
         case .pausedOnBooth, .serverPaused:
             Button { confirm = .resume } label: { Label(regular ? "Resume Booth" : "Resume Event", systemImage: "play.fill").frame(maxWidth: .infinity, minHeight: 48) }
                 .buttonStyle(.borderedProminent).accessibilityIdentifier("resume-event")
@@ -153,10 +154,34 @@ struct CurrentEventCard: View {
             Button { confirm = .finishEnding } label: { Label("Finish Ending on This iPad", systemImage: "flag.checkered").frame(maxWidth: .infinity, minHeight: 48) }
                 .buttonStyle(.borderedProminent)
         default:
-            NavigationLink(value: OperatorWorkspaceRoute.sessionSetup) {
+            Button { workspace.navigate(to: .sessionSetup) } label: {
                 Label(setupTitle, systemImage: "slider.horizontal.3").frame(maxWidth: .infinity, minHeight: 48)
             }
             .buttonStyle(.borderedProminent).accessibilityIdentifier("event-setup")
+        }
+    }
+
+    @ViewBuilder private var eventControls: some View {
+        if run != nil || lifecycle.canRecordUpgradedRun || lifecycle.linkedCommercialEventID != nil {
+            Divider()
+            DisclosureGroup("Event controls") {
+                VStack(alignment: .leading, spacing: 12) {
+                    actionButton("Detailed Booth Health", systemImage: "stethoscope") { showsHealth = true }
+                    if lifecycle.canRecordUpgradedRun {
+                        actionButton("Record Event Run", systemImage: "list.bullet.rectangle") { confirm = .recordRun }
+                            .accessibilityIdentifier("record-event-run")
+                    }
+                    if lifecycle.linkedCommercialEventID != nil, run == nil || [.active, .paused].contains(run?.status), lifecycle.confirmedCommercialLifecycle == .active {
+                        actionButton("Pause Paid Event for Every Booth", systemImage: "pause.circle") { confirm = .pauseCommercial }
+                    }
+                    if [.active, .paused].contains(run?.status) {
+                        actionButton("End Event…", systemImage: "flag.checkered", role: .destructive) { showsEnd = true }
+                            .disabled(SessionSetupSafety.blockingReason != nil).accessibilityIdentifier("end-event")
+                    }
+                    Text("Ending requires a separate review. Sessions, galleries, payment recovery and history are retained.")
+                        .font(.footnote).foregroundStyle(OperatorPalette.secondaryText)
+                }.padding(.top, 12)
+            }.font(.callout).tint(Brand.burgundy).disabled(busy)
         }
     }
 
@@ -176,7 +201,7 @@ struct CurrentEventCard: View {
 
     private func fact(_ title: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(title).foregroundStyle(.secondary)
+            Text(title).foregroundStyle(OperatorPalette.secondaryText)
             Spacer(minLength: 16)
             Text(value).multilineTextAlignment(.trailing).foregroundStyle(Brand.ink)
         }
@@ -211,9 +236,9 @@ struct CurrentEventCard: View {
     }
     private var statusColor: Color {
         switch status {
-        case .accepting, .regular: .green
-        case .recoveryRequired: .red
-        case .needsReview, .unconfirmed, .pausedOnBooth, .serverPaused: .orange
+        case .accepting, .regular: OperatorPalette.ready
+        case .recoveryRequired: OperatorPalette.danger
+        case .needsReview, .unconfirmed, .pausedOnBooth, .serverPaused: OperatorPalette.warning
         default: Brand.burgundy
         }
     }
@@ -316,7 +341,7 @@ struct EndEventSheet: View {
                     }
                 }
                 Section("Before ending") {
-                    if let reason = SessionSetupSafety.blockingReason { Label(reason, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
+                    if let reason = SessionSetupSafety.blockingReason { Label(reason, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.warning) }
                     else { Label("No guest, payment or print is in progress.", systemImage: "checkmark.circle") }
                     LabeledContent("Galleries still uploading", value: "\(operations.pendingUploadCount)")
                     if operations.pendingUploadCount > 0 { Text("Keep the app open online afterwards; waiting galleries keep uploading.").font(.footnote) }
@@ -338,7 +363,7 @@ struct EndEventSheet: View {
                     .disabled(lifecycle.operation != nil || SessionSetupSafety.blockingReason != nil)
                     .accessibilityIdentifier("confirm-end-event")
                     if lifecycle.operation == .ending { ProgressView("Confirming…") }
-                    if result == false { Label(lifecycle.message, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
+                    if result == false { Label(lifecycle.message, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.danger) }
                 }
             }
             .navigationTitle("End Event")
