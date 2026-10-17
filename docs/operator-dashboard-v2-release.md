@@ -28,7 +28,7 @@ An existing CSV test excluded the text `b1` using a substring assertion. A rando
 - Final gallery repair focused iOS 27: 19 passed, zero failed/skipped, no runtime warnings. Includes delayed image loading, mobile/desktop layout, gallery navigation, monochrome previews, original compatibility, and physical raster regression checks.
 - Refined dashboard focused setup/drafts/design suite: 63 passed, zero failed/skipped.
 - Backend: 223 payment tests, 9 monitoring tests, 29 gallery proxy tests, and Apps Script pure/fixture checks passed.
-- Final dashboard full iOS 26.5 suite: **697 passed, zero failed/skipped, no runtime warnings**. Rebuilt after copying onto integrated main; all app/test source bytes matched the full-suite source, and focused navigation/setup/history/authentication tests passed again (41 passed, zero failed/skipped).
+- Complete dashboard iOS 26.5 suite before the final Dynamic Type badge sizing adjustment: **697 passed, zero failed/skipped, no runtime warnings**. The final badge sizing builds and passes all 7 dashboard/navigation/render tests on iOS 27; the complete production suite is rerunning on the final source and must pass before merge. Rebuilt after copying onto integrated main; all app/test source bytes matched the full-suite source, and focused navigation/setup/history/authentication tests passed again (41 passed, zero failed/skipped).
 - Simulator rendering: actual SwiftUI UIHosting renders, 834×1194 and 1194×834, plus 700×1024 at Accessibility 3. Synthetic data only; no customer photos or tokens in committed evidence. Review includes all four sections, all setup stages, Reports/Sessions/Sales, empty/unavailable archives, and printer recovery.
 
 ## Production services

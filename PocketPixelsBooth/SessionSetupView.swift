@@ -608,13 +608,14 @@ struct SessionSetupReviewView: View {
 // MARK: Building blocks
 
 private struct SetupSection<Content: View>: View {
+    @ScaledMetric(relativeTo: .subheadline) private var markerSize = 28
     let number: Int
     let title: String
     @ViewBuilder let content: () -> Content
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                Text("\(number)").font(.subheadline.weight(.bold)).frame(width: 28, height: 28)
+                Text("\(number)").font(.subheadline.weight(.bold)).frame(width: markerSize, height: markerSize)
                     .background(OperatorPalette.ink, in: Circle()).foregroundStyle(Color(uiColor: .systemBackground))
                 Text(title.uppercased()).font(.subheadline.weight(.semibold)).tracking(1.6)
             }
