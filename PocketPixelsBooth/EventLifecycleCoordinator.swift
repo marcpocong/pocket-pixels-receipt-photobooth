@@ -178,7 +178,7 @@ nonisolated enum EventStatusModel {
     /// and an identity that can't be established is shown as needing review, never as success.
     private static func withoutRun(_ input: EventStatusInputs) -> EventOperatorStatus {
         if input.source == .localPrepaid {
-            if !input.barrierBlocked, input.localPrepaidReady { return .accepting }
+            if !input.barrierBlocked, input.localPrepaidReady { return input.recoveryReason.map { .needsReview($0) } ?? .accepting }
             if input.barrierBlocked, input.localPrepaidPaused { return .pausedOnBooth }
             return input.hasUnsavedSetup ? .draft : .noEvent
         }
@@ -200,6 +200,8 @@ nonisolated enum EventStatusModel {
             switch check.lifecycle {
             case .active?:
                 if input.barrierBlocked { return .pausedOnBooth }
+                // Same rule as with a run: preserved payment or print obligations need review first.
+                if let reason = input.recoveryReason { return .needsReview(reason) }
                 return check.isAccountActiveEvent ? .accepting : .needsReview("Another paid event is active for this account.")
             case .paused?: return .serverPaused
             case .ended?, .archived?: return .needsReview("The paid event this iPad was started for has ended. Set up the next event in Event Setup; its sales are kept.")

@@ -1,6 +1,9 @@
 # Environments are explicit. Every remote command MUST name one:
 #   --env test   TEST staging Worker + TEST D1 (PayMongo test keys only)
 #   --env live   LIVE Worker + LIVE D1 (inert: LIVE_PAYMENTS_ENABLED=false; Cron skips)
+# LIVE is enabled in production by a deploy-time override. Deploy LIVE ONLY with
+# `npm run deploy:live` (adds --var LIVE_PAYMENTS_ENABLED:true). A plain `wrangler deploy --env live`
+# turns LIVE payments off. Then check /v1/health reports "liveEnabled": true.
 # The top level is a local-development configuration only (`wrangler dev` / local tests). It has
 # a placeholder D1 ID and no Cron, so a remote command that forgets `--env` cannot reach TEST or LIVE data.
 # `vars`, `triggers` and `d1_databases` are not inherited by named environments; each is redeclared.

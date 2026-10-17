@@ -203,6 +203,21 @@ import XCTest
         XCTAssertNil(booth.runs.current)
     }
 
+    func testUnresolvedCheckoutNeedsReviewWithOrWithoutARun() {
+        let context = EventRunContext(designID: nil, commercialEventID: "e", serverBinding: "b", name: "Gala")
+        let check = CommercialCheckState.confirmed(.init(eventID: "e", lifecycle: .active, isAccountActiveEvent: true, checkedAt: Date()))
+        func status(run: EventRunRecord?, source: CommercialPolicySource = .serverManaged) -> EventOperatorStatus {
+            EventStatusModel.derive(.init(run: run, appliedContext: source == .serverManaged ? context : EventRunContext(designID: nil, commercialEventID: nil, serverBinding: nil, name: ""),
+                barrierBlocked: false, acceptanceEventID: source == .serverManaged ? "e" : nil, acceptanceBinding: "b", binding: "b", source: source, localPrepaidReady: true,
+                commercial: source == .serverManaged ? check : .notNeeded, recoveryReason: "Resolve interrupted checkouts in Payment Recovery before changing operation.",
+                storageErrors: [], pendingTransition: nil, hasUnsavedSetup: false, operation: nil))
+        }
+        let run = EventRunRecord(id: "r", context: context, createdAt: Date(), status: .active)
+        XCTAssertEqual(status(run: run), status(run: nil), "Recording a run never changes what an unresolved checkout means")
+        guard case .needsReview = status(run: nil) else { return XCTFail("paid, no run") }
+        guard case .needsReview = status(run: nil, source: .localPrepaid) else { return XCTFail("prepaid, no run") }
+    }
+
     func testOpenAdmissionWithNoCommittedPaidEventNeedsReview() {
         let context = EventRunContext(designID: nil, commercialEventID: nil, serverBinding: nil, name: "")
         let status = EventStatusModel.derive(.init(run: nil, appliedContext: context, barrierBlocked: false, acceptanceEventID: nil, acceptanceBinding: nil, binding: "b",

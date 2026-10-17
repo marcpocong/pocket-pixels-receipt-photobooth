@@ -8,7 +8,9 @@
     "test:routes": "node --test test/routes-*.test.js test/migrations.test.js",
     "check": "node --check src/index.js && node --check src/domain.js",
     "validate:config": "wrangler deploy --dry-run --env test --outdir .wrangler/dry-run-test && wrangler deploy --dry-run --env live --outdir .wrangler/dry-run-live",
-    "offline-key:generate": "node scripts/generate-offline-policy-keypair.mjs"
+    "offline-key:generate": "node scripts/generate-offline-policy-keypair.mjs",
+    "deploy:test": "wrangler deploy --env test",
+    "deploy:live": "wrangler deploy --env live --var LIVE_PAYMENTS_ENABLED:true"
   },
   "devDependencies": {
     "miniflare": "5.20261006.1-alpha",
