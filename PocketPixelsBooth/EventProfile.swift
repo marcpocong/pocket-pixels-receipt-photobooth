@@ -381,7 +381,7 @@ struct EventReceiptComposerPreview: View {
 
             Picker("Preview Type", selection: $showsThermal) {
                 Text("Receipt").tag(false)
-                Text("Thermal Print (1-bit)").tag(true)
+                Text("Exact Printer Raster").tag(true)
             }
             .pickerStyle(.segmented)
             .accessibilityHint("Thermal shows the exact black-and-white dots the printer receives.")

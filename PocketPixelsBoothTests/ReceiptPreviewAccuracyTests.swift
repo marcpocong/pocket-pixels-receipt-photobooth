@@ -2,20 +2,32 @@ import UIKit
 import XCTest
 @testable import PocketPixelsBooth
 
-/// The optional "As printed" preview must be the exact raster the printer receives, for every
-/// format, with and without Event Mode branding and the printed gallery QR.
+/// The exact printer raster preview (operator diagnostics, archives and reprints) must be the raster
+/// the printer receives, for every format, with and without Event Mode branding and the printed
+/// gallery QR. Guests see the smooth Black & White preview instead (MonochromeReceiptPreviewTests).
 final class ReceiptPreviewAccuracyTests: XCTestCase {
     private let date = Date(timeIntervalSince1970: 1_788_692_040)
     private let galleryURL = URL(string: "https://gallery.example.com/g/\(String(repeating: "d", count: 64))")!
 
-    func testPreviewModeDefaultsToKeepsakeAndFallsBackUntilThermalIsReady() {
-        let keepsake = UIImage()
-        let thermal = UIImage()
-        XCTAssertEqual(ReceiptPreviewMode.allCases.first, .keepsake)
-        XCTAssertTrue(ReceiptPreviewMode.keepsake.image(keepsake: keepsake, thermal: thermal) === keepsake)
-        XCTAssertTrue(ReceiptPreviewMode.thermal.image(keepsake: keepsake, thermal: thermal) === thermal)
-        XCTAssertTrue(ReceiptPreviewMode.thermal.image(keepsake: keepsake, thermal: nil) === keepsake)
-        XCTAssertNil(ReceiptPreviewMode.thermal.image(keepsake: nil, thermal: nil))
+    func testCustomerPreviewModesNeverExposeThePrinterRaster() throws {
+        let receipt = try ReceiptComposer.compose(
+            photos: (0..<2).map { ReliabilityFixtures.syntheticPhoto(session: 901, photo: $0 + 1, format: .duo) },
+            sessionIdentifier: "PP-PREVIEW-MODES",
+            date: date,
+            galleryURL: galleryURL,
+            format: .duo
+        )
+        let keepsake = try XCTUnwrap(UIImage(data: receipt.imagePNGData))
+        let raster = try ThermalImageRasterizer.rasterize(keepsake, purpose: .completeReceipt)
+        let monochrome = try MonochromeReceiptRenderer.render(keepsake).image
+        XCTAssertTrue(ReceiptPreviewMode.keepsake.image(keepsake: keepsake, monochrome: monochrome) === keepsake)
+        let shown = try XCTUnwrap(ReceiptPreviewMode.blackAndWhite.image(keepsake: keepsake, monochrome: monochrome))
+        XCTAssertTrue(shown === monochrome)
+        XCTAssertNotEqual(shown.pngData(), raster.previewPNGData)
+        let midTones = try gray(XCTUnwrap(shown.cgImage)).filter { $0 > 8 && $0 < 247 }.count
+        XCTAssertGreaterThan(midTones, 0, "Black & White is smooth grayscale, not the 1-bit raster")
+        XCTAssertNil(ReceiptPreviewMode.blackAndWhite.image(keepsake: keepsake, monochrome: nil))
+        XCTAssertNil(ReceiptPreviewMode.blackAndWhite.image(keepsake: nil, monochrome: nil))
     }
 
     func testThermalPreviewIsTheExactOneBitRasterForEveryConfiguration() throws {
@@ -71,7 +83,7 @@ final class ReceiptPreviewAccuracyTests: XCTestCase {
     private func assertOneBit(_ image: CGImage, context: String) throws {
         let pixels = try gray(image)
         let midTones = pixels.filter { $0 > 8 && $0 < 247 }.count
-        XCTAssertEqual(midTones, 0, "\(context): thermal preview must be pure black and white")
+        XCTAssertEqual(midTones, 0, "\(context): printer raster preview must be pure black and white")
     }
 
     /// Spot-checks rows of the preview against the raster bits actually sent to the printer.

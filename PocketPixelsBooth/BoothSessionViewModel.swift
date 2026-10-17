@@ -23,7 +23,10 @@ final class BoothSessionViewModel: ObservableObject {
     @Published var composedReceipt: ComposedReceipt?
     @Published var receiptImage: UIImage?
     @Published var receiptPhotoPreviewImage: UIImage?
+    /// Exact 1-bit printer raster preview. Operator diagnostics only; never shown to guests.
     @Published var thermalReceiptPreview: UIImage?
+    /// Smooth grayscale customer preview ("Black & White"). Presentation only; never printed.
+    @Published var monochromeReceiptPreview: UIImage?
     @Published var receiptRasterizedImage: ThermalRasterizedImage?
     @Published var galleryToken: String?
     @Published var galleryURL: URL?
@@ -1346,6 +1349,7 @@ final class BoothSessionViewModel: ObservableObject {
         receiptImage = nil
         receiptPhotoPreviewImage = nil
         thermalReceiptPreview = nil
+        monochromeReceiptPreview = nil
         receiptRasterizedImage = nil
         composedReceipt = nil
         samplePhotoCount = 0
@@ -1395,6 +1399,7 @@ final class BoothSessionViewModel: ObservableObject {
         receiptImage = nil
         receiptPhotoPreviewImage = nil
         thermalReceiptPreview = nil
+        monochromeReceiptPreview = nil
         receiptRasterizedImage = nil
         composedReceipt = nil
         startCameraForRetake(index: index)
@@ -1411,6 +1416,7 @@ final class BoothSessionViewModel: ObservableObject {
         receiptImage = nil
         receiptPhotoPreviewImage = nil
         thermalReceiptPreview = nil
+        monochromeReceiptPreview = nil
         receiptRasterizedImage = nil
         composedReceipt = nil
         // Every photo is replaced, so no sticker may carry over to the new pictures.
@@ -1722,6 +1728,7 @@ final class BoothSessionViewModel: ObservableObject {
             receiptImage = nil
             receiptPhotoPreviewImage = nil
             thermalReceiptPreview = nil
+            monochromeReceiptPreview = nil
             receiptRasterizedImage = nil
             composedReceipt = nil
             continueToReceipt()
@@ -1731,6 +1738,7 @@ final class BoothSessionViewModel: ObservableObject {
         receiptImage = nil
         receiptPhotoPreviewImage = nil
         thermalReceiptPreview = nil
+        monochromeReceiptPreview = nil
         receiptRasterizedImage = nil
         composedReceipt = nil
         composeReceipt(for: committedGallerySession, enqueueUpload: false)
@@ -1790,7 +1798,10 @@ final class BoothSessionViewModel: ObservableObject {
                         throw ThermalImageRasterizerError.renderFailed
                     }
                     try Task.checkCancellation()
-                    return (receipt, receiptImage, receiptPhotoPreviewImage, preview, rasterized, galleryReceiptImage)
+                    // Optional presentation copy: a failure here never blocks the print job.
+                    let monochromePreview = try? MonochromeReceiptRenderer.render(receiptImage).image
+                    try Task.checkCancellation()
+                    return (receipt, receiptImage, receiptPhotoPreviewImage, preview, rasterized, galleryReceiptImage, monochromePreview)
                 }
                 let result = try await withTaskCancellationHandler {
                     try await worker.value
@@ -1809,6 +1820,7 @@ final class BoothSessionViewModel: ObservableObject {
                 receiptPhotoPreviewImage = result.2
                 thermalReceiptPreview = result.3
                 receiptRasterizedImage = result.4
+                monochromeReceiptPreview = result.6
                 persistRecoverySnapshot(stage: .receiptComposed)
                 state = .receiptPreview
                 statusMessage = "Receipt ready: \(result.0.width) x \(result.0.height) pixels. Photo profile: \(result.0.photoQualityProfile.displayName)."
@@ -2480,6 +2492,7 @@ final class BoothSessionViewModel: ObservableObject {
         receiptImage = nil
         receiptPhotoPreviewImage = nil
         thermalReceiptPreview = nil
+        monochromeReceiptPreview = nil
         receiptRasterizedImage = nil
         sessionIdentifier = nil
         sessionCreatedAt = nil

@@ -98,7 +98,7 @@ struct StickerStudioPreviewView: View {
                 ScrollView {
                     HStack(alignment: .top, spacing: 24) {
                         previewColumn("Keepsake", image: result.0)
-                        previewColumn("As printed (1-bit thermal)", image: result.1)
+                        previewColumn("Exact Printer Raster — Diagnostic", image: result.1)
                     }
                     .padding(24)
                 }

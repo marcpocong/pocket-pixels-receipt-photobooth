@@ -37,7 +37,7 @@ For production updates, use the existing project and deployment described in [th
 29. Open the same Worker gallery link in Safari and confirm all gallery images appear.
 30. Tap `Retry Same Upload` in Cloud Test and confirm it returns an existing completed gallery without creating a second folder or changing the customer gallery URL.
 31. To update this Phase 6C backend, use `Deploy -> Manage deployments -> Edit -> New version -> Deploy`. Preserve the existing Web App deployment so the backend `/exec` URL does not change. Do not create a new deployment.
-32. Open `?diagnostic=phase6c` on the deployed `/exec` URL and confirm `backendVersion` is `made-to-keep-gallery-v5-fit-20261018`.
+32. Open `?diagnostic=phase6c` on the deployed `/exec` URL and confirm `backendVersion` is `made-to-keep-gallery-v6-monochrome-20261018`.
 33. Open a completed Worker gallery URL in iPhone Safari, iPhone Chrome, iPad Safari, iPad Chrome, desktop Safari, desktop Chrome signed out, desktop Chrome Incognito, Brave, and normal desktop Chrome with multiple Google accounts signed in.
 34. Confirm the browser address bar remains on the Worker/custom gallery domain and never navigates to `script.google.com/macros/u/<number>/`.
 

@@ -443,6 +443,72 @@ final class GalleryBrowserLayoutTests: XCTestCase {
         }
     }
 
+    /// Historical galleries stored the 1-bit printer raster as receipt-bw.png. Customers instead get a
+    /// smooth grayscale copy derived in the browser from the color receipt, and saving/sharing it
+    /// produces a genuinely monochrome PNG. New galleries keep the booth's grayscale bytes unchanged.
+    func testBlackAndWhiteReceiptIsSmoothForHistoricalAndNewGalleries() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("DerivedData/gallery-fixtures")
+        let configuration = WKWebViewConfiguration()
+        configuration.userContentController.addUserScript(WKUserScript(source: """
+        window.sharedFiles=[];
+        Object.defineProperty(navigator,'userAgent',{get:()=> 'iPhone Safari'});
+        Object.defineProperty(navigator,'canShare',{value:()=> true});
+        Object.defineProperty(navigator,'share',{value:async data=>{window.sharedFiles.push(data.files);}});
+        window.inspectGray=async function(blobOrImage){const image=blobOrImage instanceof Blob?await createImageBitmap(blobOrImage):blobOrImage;const c=document.createElement('canvas');c.width=image.naturalWidth||image.width;c.height=image.naturalHeight||image.height;const x=c.getContext('2d');x.drawImage(image,0,0);const d=x.getImageData(0,0,c.width,c.height).data;let colored=0;const levels=new Set();for(let i=0;i<d.length;i+=4){if(d[i]!==d[i+1]||d[i+1]!==d[i+2]){colored++;}levels.add(d[i]);}return {colored,levels:levels.size,width:c.width,height:c.height};};
+        """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        let (web, window) = hostedBrowser(configuration: configuration)
+        defer { web.stopLoading(); window.isHidden = true }
+
+        try await loadFixture(String(contentsOf: root.appendingPathComponent("gallery-historical-raster.html"), encoding: .utf8), in: web)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        var shown = false
+        repeat {
+            shown = try await web.evaluateJavaScript("(()=>{const i=document.getElementById('image-receipt-bw.png');return !i.hidden&&i.src.startsWith('blob:')&&i.complete&&i.naturalWidth>0;})()") as? Bool == true
+            if !shown { try await Task.sleep(for: .milliseconds(50)) }
+        } while !shown && ContinuousClock.now < deadline
+        XCTAssertTrue(shown, "Derived black & white receipt is displayed")
+        let card = try await web.evaluateJavaScript("""
+        (()=>{const cards=[...document.querySelectorAll('.receipt-card h3')].map(h=>h.textContent);return {cards, raster:typeof galleryData.thermalReceipt.base64Data, derive:galleryData.thermalReceipt.deriveFrom, fallback:document.querySelectorAll('.mono-fallback').length};})()
+        """) as! [String: Any]
+        XCTAssertEqual(card["cards"] as? [String], ["Color Receipt", "Black & White Receipt"])
+        XCTAssertEqual(card["raster"] as? String, "undefined", "The legacy raster is not embedded")
+        XCTAssertEqual(card["derive"] as? String, "receipt-color.jpg")
+        XCTAssertEqual(card["fallback"] as? Int, 0)
+        let displayed = try await web.callAsyncJavaScript("return await inspectGray(document.getElementById('image-receipt-bw.png'))", contentWorld: .page) as! [String: Any]
+        XCTAssertEqual(displayed["colored"] as? Int, 0, "Displayed receipt is pure grayscale")
+        XCTAssertGreaterThan(displayed["levels"] as? Int ?? 0, 32, "Smooth tones, not a 1-bit raster: \(displayed)")
+        XCTAssertEqual(displayed["width"] as? Int, 576)
+        XCTAssertEqual(displayed["height"] as? Int, 1112, "Same geometry as the color receipt")
+
+        _ = try await web.evaluateJavaScript("document.querySelector('[data-download=\"receipt-bw.png\"]').click()")
+        let saved = try await web.callAsyncJavaScript("""
+        for(let i=0;i<100&&!window.sharedFiles.length;i++){await new Promise(r=>setTimeout(r,30));}
+        const file=window.sharedFiles[0][0];const gray=await inspectGray(file);return {name:file.name,type:file.type,size:file.size,...gray};
+        """, contentWorld: .page) as! [String: Any]
+        XCTAssertEqual(saved["name"] as? String, "receipt-bw.png")
+        XCTAssertEqual(saved["type"] as? String, "image/png")
+        XCTAssertGreaterThan(saved["size"] as? Int ?? 0, 0)
+        XCTAssertEqual(saved["colored"] as? Int, 0, "Saved file is genuinely monochrome")
+        XCTAssertGreaterThan(saved["levels"] as? Int ?? 0, 32)
+
+        _ = try await web.evaluateJavaScript("document.querySelector('[data-open=\"receipt-bw.png\"]').click()")
+        let lightbox = try await web.evaluateJavaScript("[!document.getElementById('lightbox').hidden, document.getElementById('lightboxCount').textContent, document.getElementById('lightboxImage').alt]") as? [Any]
+        XCTAssertEqual(lightbox?[0] as? Bool, true)
+        XCTAssertEqual(lightbox?[1] as? String, "black & white receipt")
+        XCTAssertEqual(lightbox?[2] as? String, "Made to Keep Studios black and white receipt")
+        _ = try await web.evaluateJavaScript("document.getElementById('lightboxClose').click()")
+
+        // New gallery: the booth's smooth grayscale PNG is used byte-for-byte, with no derivation.
+        try await loadFixture(String(contentsOf: root.appendingPathComponent("gallery-2.html"), encoding: .utf8), in: web)
+        let fresh = try await web.callAsyncJavaScript("""
+        const item=galleryData.thermalReceipt;const file=fileForItem(item);const stored=atob(item.base64Data);const bytes=new Uint8Array(await file.arrayBuffer());let same=bytes.length===stored.length;for(let i=0;same&&i<bytes.length;i++){same=bytes[i]===stored.charCodeAt(i);}return {derive:item.deriveFrom||null,same,colorType:bytes[25],depth:bytes[24]};
+        """, contentWorld: .page) as! [String: Any]
+        XCTAssertTrue(fresh["derive"] is NSNull)
+        XCTAssertEqual(fresh["same"] as? Bool, true)
+        XCTAssertEqual(fresh["colorType"] as? Int, 0)
+        XCTAssertEqual(fresh["depth"] as? Int, 8)
+    }
+
     private func hostedBrowser(configuration: WKWebViewConfiguration? = nil) -> (WKWebView, UIWindow) {
         let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844), configuration: configuration ?? WKWebViewConfiguration())
         let controller = UIViewController()
@@ -458,10 +524,20 @@ final class GalleryBrowserLayoutTests: XCTestCase {
         let observer = GalleryFixtureNavigationObserver()
         web.navigationDelegate = observer
         defer { web.navigationDelegate = nil }
-        web.loadHTMLString(html, baseURL: URL(string: "https://gallery.example.test/?g=" + String(repeating: "c", count: 64) + "&ignored=private#photos"))
-        await fulfillment(of: [observer.finished], timeout: 45)
-        if let error = observer.error { throw error }
-        guard observer.didFinish else {
+        // Mark the current document so a stale page can never satisfy the readiness check below.
+        _ = try? await web.evaluateJavaScript("window.__previousFixture = true; true")
+        // A unique ignored parameter per load: the iOS 27 simulator's WebKit stalls when the same
+        // view reloads an identical fragment URL. The gallery drops every parameter except `g`.
+        web.loadHTMLString(html, baseURL: URL(string: "https://gallery.example.test/?g=" + String(repeating: "c", count: 64) + "&ignored=private&fixture=\(UUID().uuidString)#photos"))
+        // Poll the new document directly rather than relying only on didFinish.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(45))
+        var loadedNewDocument = false
+        repeat {
+            if let error = observer.error { throw error }
+            loadedNewDocument = (try? await web.evaluateJavaScript("window.__previousFixture !== true && document.readyState === 'complete'") as? Bool) == true
+            if !loadedNewDocument { try await Task.sleep(for: .milliseconds(50)) }
+        } while !loadedNewDocument && ContinuousClock.now < deadline
+        guard loadedNewDocument else {
             throw NSError(domain: "GalleryBrowserFixture", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "Visible gallery fixture navigation did not finish within 45 seconds."])
         }
