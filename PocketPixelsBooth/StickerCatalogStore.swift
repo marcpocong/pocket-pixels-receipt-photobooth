@@ -329,7 +329,8 @@ nonisolated struct StickerGuestCatalog: Sendable {
         case .operatorImport:
             guard let record = customRecords[asset.id], let store else { return nil }
             return store.image(for: record, frameIndex: frameIndex, maximumPixelDimension: maximumPixelDimension)
-        case .online:
+        case .online, .systemEmoji:
+            // Emoji are rendered from text by `EmojiStickerRenderer`, never decoded from files.
             return nil
         }
     }

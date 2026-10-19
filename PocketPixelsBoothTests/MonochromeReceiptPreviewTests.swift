@@ -143,16 +143,18 @@ final class MonochromeReceiptPreviewTests: XCTestCase {
 
     // MARK: Customer interface
 
-    func testBlackAndWhiteModeShowsOnlyTheSmoothPreview() throws {
+    func testGuestSeesOneBlackAndWhitePreviewWithoutAModeSwitch() throws {
         let keepsake = UIImage()
         let monochrome = UIImage()
-        XCTAssertEqual(ReceiptPreviewMode.allCases.first, .keepsake)
-        XCTAssertEqual(ReceiptPreviewMode.available(motion: false).map(\.title), ["Keepsake", "Black & White"])
-        XCTAssertTrue(ReceiptPreviewMode.keepsake.image(keepsake: keepsake, monochrome: monochrome) === keepsake)
-        XCTAssertTrue(ReceiptPreviewMode.blackAndWhite.image(keepsake: keepsake, monochrome: monochrome) === monochrome)
-        XCTAssertNil(ReceiptPreviewMode.blackAndWhite.image(keepsake: keepsake, monochrome: nil), "Loading state, never a raster or color fallback")
-        XCTAssertFalse(ReceiptPreviewMode.printNote.localizedCaseInsensitiveContains("as printed"))
-        XCTAssertFalse(ReceiptPreviewMode.allCases.map(\.title).contains { $0.localizedCaseInsensitiveContains("printed") })
+        let ready = GuestReceiptPreview.resolve(receipt: keepsake, monochrome: monochrome)
+        XCTAssertTrue(ready.image === monochrome, "The smooth monochrome render is the fixed guest preview")
+        XCTAssertFalse(ready.needsGrayscaleFilter)
+        let fallback = GuestReceiptPreview.resolve(receipt: keepsake, monochrome: nil)
+        XCTAssertTrue(fallback.image === keepsake)
+        XCTAssertTrue(fallback.needsGrayscaleFilter, "A failed render is still shown in black & white, never color")
+        XCTAssertNil(GuestReceiptPreview.resolve(receipt: nil, monochrome: nil).image, "Loading state")
+        XCTAssertEqual(GuestReceiptPreview.printNote, "Printed in black and white on thermal paper. Final print texture may vary.")
+        XCTAssertFalse(GuestReceiptPreview.printNote.localizedCaseInsensitiveContains("as printed"))
     }
 
     // MARK: Gallery upload

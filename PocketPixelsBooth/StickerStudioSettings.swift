@@ -68,7 +68,9 @@ nonisolated struct OnlineStickerRightsAcknowledgement: Codable, Equatable, Senda
 }
 
 nonisolated struct StickerStudioSettings: Codable, Equatable, Sendable {
-    static let currentSchemaVersion = 1
+    /// 2: native Unicode emoji became the primary guest collection and the original artwork
+    /// became an optional legacy source.
+    static let currentSchemaVersion = 2
     static let guestStickerLimitRange = 1...10
     static let defaultGuestStickerLimit = 6
     /// Printed edge length bounds for one sticker, in printer dots (8 dots per mm).
@@ -78,7 +80,10 @@ nonisolated struct StickerStudioSettings: Codable, Equatable, Sendable {
     var schemaVersion = currentSchemaVersion
     /// Master switch. OFF means the guest never sees, loads or fetches anything sticker related.
     var isEnabled = false
-    var builtInStickersEnabled = true
+    /// Native Unicode emoji drawn by the system font: the primary guest collection.
+    var emojiCollectionEnabled = true
+    /// The original Made to Keep artwork. Retired from the default palette; operators may opt in.
+    var builtInStickersEnabled = false
     var operatorCollectionEnabled = true
     /// Requested by the operator; only effective with a stored API key AND a rights acknowledgement.
     var onlineDiscoveryEnabled = false
@@ -94,9 +99,18 @@ nonisolated struct StickerStudioSettings: Codable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        schemaVersion = (try? container.decode(Int.self, forKey: .schemaVersion)) ?? Self.currentSchemaVersion
+        let storedSchema = (try? container.decode(Int.self, forKey: .schemaVersion)) ?? 1
+        schemaVersion = Self.currentSchemaVersion
         isEnabled = (try? container.decode(Bool.self, forKey: .isEnabled)) ?? false
-        builtInStickersEnabled = (try? container.decode(Bool.self, forKey: .builtInStickersEnabled)) ?? true
+        if storedSchema < 2 {
+            // Schema 1 had no emoji collection and showed the original artwork by default.
+            // Emoji now lead; the artwork stays installed as an optional legacy source.
+            emojiCollectionEnabled = true
+            builtInStickersEnabled = false
+        } else {
+            emojiCollectionEnabled = (try? container.decode(Bool.self, forKey: .emojiCollectionEnabled)) ?? true
+            builtInStickersEnabled = (try? container.decode(Bool.self, forKey: .builtInStickersEnabled)) ?? false
+        }
         operatorCollectionEnabled = (try? container.decode(Bool.self, forKey: .operatorCollectionEnabled)) ?? true
         onlineDiscoveryEnabled = (try? container.decode(Bool.self, forKey: .onlineDiscoveryEnabled)) ?? false
         onlineRightsAcknowledgement = try? container.decodeIfPresent(OnlineStickerRightsAcknowledgement.self, forKey: .onlineRightsAcknowledgement)
@@ -111,6 +125,7 @@ nonisolated struct StickerStudioSettings: Codable, Equatable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(schemaVersion, forKey: .schemaVersion)
         try container.encode(isEnabled, forKey: .isEnabled)
+        try container.encode(emojiCollectionEnabled, forKey: .emojiCollectionEnabled)
         try container.encode(builtInStickersEnabled, forKey: .builtInStickersEnabled)
         try container.encode(operatorCollectionEnabled, forKey: .operatorCollectionEnabled)
         try container.encode(onlineDiscoveryEnabled, forKey: .onlineDiscoveryEnabled)
@@ -121,7 +136,7 @@ nonisolated struct StickerStudioSettings: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, isEnabled, builtInStickersEnabled, operatorCollectionEnabled
+        case schemaVersion, isEnabled, emojiCollectionEnabled, builtInStickersEnabled, operatorCollectionEnabled
         case onlineDiscoveryEnabled, onlineRightsAcknowledgement, hiddenCategories
         case guestStickerLimit, minimumPrintedStickerDots
     }
@@ -142,7 +157,7 @@ nonisolated struct StickerStudioSettings: Codable, Equatable, Sendable {
 
     /// Whether any source could supply stickers. Online alone is only a source when ready.
     func hasAnyLocalSource() -> Bool {
-        builtInStickersEnabled || operatorCollectionEnabled
+        emojiCollectionEnabled || builtInStickersEnabled || operatorCollectionEnabled
     }
 
     func onlineAvailability(hasCredential: Bool) -> OnlineStickerAvailability {

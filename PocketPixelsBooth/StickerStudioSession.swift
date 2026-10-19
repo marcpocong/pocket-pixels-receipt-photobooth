@@ -37,13 +37,34 @@ final class StickerStudioSession {
 
     /// Print-prepared still artwork per placement — exactly what the receipt will draw.
     private(set) var artwork: [UUID: CGImage] = [:]
+    /// Editor-only colour artwork (native emoji). Same pixel size and framing as `artwork`, so
+    /// geometry is identical; it is never frozen, printed or uploaded.
+    private(set) var displayArtwork: [UUID: CGImage] = [:]
+    /// Per-placement print notes, e.g. a very light emoji.
+    private(set) var printWarnings: [UUID: String] = [:]
+    /// Emoji this guest used, most recent first. Lives and dies with this session only.
+    private(set) var recentEmoji: [String] = []
+    /// Which collection the palette shows.
+    var paletteSource: StickerPaletteSource = .emoji
+    /// Selected emoji group key, or `EmojiPaletteSection.recentKey`.
+    var selectedEmojiGroupKey: String = EmojiPaletteSection.recentKey
     private struct EditSnapshot {
         let placements: [StickerPlacement]
         let artwork: [UUID: CGImage]
+        let displayArtwork: [UUID: CGImage]
+        let printWarnings: [UUID: String]
     }
     private var snapshot: EditSnapshot {
-        EditSnapshot(placements: placements, artwork: artwork.filter { id, _ in placements.contains { $0.id == id } })
+        let live = Set(placements.map(\.id))
+        return EditSnapshot(
+            placements: placements,
+            artwork: artwork.filter { live.contains($0.key) },
+            displayArtwork: displayArtwork.filter { live.contains($0.key) },
+            printWarnings: printWarnings.filter { live.contains($0.key) }
+        )
     }
+    @ObservationIgnored private let emojiEnabled: Bool
+    @ObservationIgnored private let emojiCatalogOverride: EmojiCatalog?
     @ObservationIgnored private var undoStack: [EditSnapshot] = []
     @ObservationIgnored private var redoStack: [EditSnapshot] = []
     @ObservationIgnored private var thumbnailTasks: [String: Task<Void, Never>] = [:]
@@ -57,19 +78,65 @@ final class StickerStudioSession {
         catalog: StickerGuestCatalog,
         generation: Int,
         catalogStore: StickerCatalogStore?,
-        provider: OnlineStickerProvider? = nil
+        provider: OnlineStickerProvider? = nil,
+        emojiCatalog: EmojiCatalog? = nil
     ) {
         self.configuration = configuration
         self.catalog = catalog
         self.generation = generation
         self.catalogStore = catalogStore
         self.selectedCategory = catalog.categories.first
+        self.emojiEnabled = configuration.settings.emojiCollectionEnabled
+        self.emojiCatalogOverride = emojiCatalog
+        self.paletteSource = configuration.settings.emojiCollectionEnabled ? .emoji : .artwork
     }
 
     var limit: Int { configuration.settings.guestStickerLimit }
     var minimumPrintedDots: Int { configuration.settings.minimumPrintedStickerDots }
     var isAtLimit: Bool { placements.count + pendingInsertions >= limit }
-    var hasContent: Bool { !catalog.assets.isEmpty }
+    var hasContent: Bool { hasEmoji || !catalog.assets.isEmpty }
+
+    /// The Unicode emoji collection, when this session froze it ON and the data is readable.
+    var emojiCatalog: EmojiCatalog? {
+        guard emojiEnabled else { return nil }
+        let catalog = emojiCatalogOverride ?? EmojiCatalog.shared
+        return catalog.groups.isEmpty ? nil : catalog
+    }
+
+    var hasEmoji: Bool { emojiCatalog != nil }
+    var hasArtwork: Bool { !catalog.assets.isEmpty }
+    /// Both collections are on: the palette shows an Emoji / Stickers switch.
+    var offersSourceChoice: Bool { hasEmoji && hasArtwork }
+
+    var activePaletteSource: StickerPaletteSource {
+        if !hasEmoji { return .artwork }
+        if !hasArtwork { return .emoji }
+        return paletteSource
+    }
+
+    /// Emoji sections in display order: Recent (or Popular before first use) then Unicode groups.
+    var emojiSections: [EmojiPaletteSection] {
+        guard let emojiCatalog else { return [] }
+        // One stable lead tab: popular picks until this guest has used an emoji, then their recents.
+        let lead: EmojiPaletteSection = recentEmoji.isEmpty
+            ? .init(key: EmojiPaletteSection.recentKey, title: "Popular", systemImage: "star")
+            : .init(key: EmojiPaletteSection.recentKey, title: "Recent", systemImage: "clock")
+        return [lead] + emojiCatalog.groups.map { .init(key: $0.key, title: $0.displayName, systemImage: $0.systemImage) }
+    }
+
+    /// The emoji grid for the current section or search.
+    var visibleEmoji: [EmojiEntry] {
+        guard let emojiCatalog else { return [] }
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty { return emojiCatalog.search(query) }
+        switch selectedEmojiGroupKey {
+        case EmojiPaletteSection.recentKey:
+            let recent = recentEmoji.compactMap { glyph in emojiCatalog.entry(for: glyph).map { RecentEmoji(entry: $0, glyph: glyph).asEntry } }
+            return recent.isEmpty ? emojiCatalog.popularEntries : recent
+        default:
+            return emojiCatalog.group(key: selectedEmojiGroupKey)?.entries ?? []
+        }
+    }
 
     /// Non-empty offline collections in display order.
     var categories: [StickerCategory] {
@@ -101,6 +168,8 @@ final class StickerStudioSession {
         if valid != placements {
             placements = valid
             artwork = artwork.filter { id, _ in valid.contains { $0.id == id } }
+            displayArtwork = displayArtwork.filter { id, _ in valid.contains { $0.id == id } }
+            printWarnings = printWarnings.filter { id, _ in valid.contains { $0.id == id } }
         }
     }
 
@@ -138,7 +207,75 @@ final class StickerStudioSession {
         }
     }
 
-    private func insert(assetID: String, name: String, provenance: StickerProvenance, frameIndex: Int, aspectRatio: Double, image: CGImage) {
+    /// Adds one Unicode emoji (from the palette or the system keyboard). Validation is immediate;
+    /// glyph rendering and print preparation run off the main actor.
+    @discardableResult
+    func addEmoji(_ input: String) -> EmojiValidationError? {
+        guard !isClosed, layout != nil, hasEmoji else { return .renderFailed }
+        guard !isAtLimit else {
+            notice = "You've used all \(limit) stickers. Delete one to add another."
+            return nil
+        }
+        let glyph: String
+        switch EmojiGlyphValidator.validate(input) {
+        case .success(let value): glyph = value
+        case .failure(let error):
+            notice = error.localizedDescription
+            return error
+        }
+        let name = (emojiCatalog?.entry(for: glyph)?.displayName ?? "Emoji")
+        pendingInsertions += 1
+        Task {
+            let result = await Task.detached(priority: .userInitiated) { () -> Result<EmojiStickerArtwork, EmojiValidationError> in
+                do { return .success(try EmojiStickerRenderer.makeArtwork(for: glyph)) }
+                catch let error as EmojiValidationError { return .failure(error) }
+                catch { return .failure(.renderFailed) }
+            }.value
+            pendingInsertions = max(0, pendingInsertions - 1)
+            guard !isClosed else { return }
+            switch result {
+            case .failure(let error):
+                notice = error.localizedDescription
+            case .success(let artwork):
+                rememberEmoji(glyph)
+                insert(
+                    assetID: Self.emojiAssetID(for: glyph),
+                    name: name,
+                    provenance: .systemEmoji,
+                    frameIndex: 0,
+                    aspectRatio: artwork.aspectRatio,
+                    image: artwork.print,
+                    displayImage: artwork.display,
+                    printWarning: artwork.printWarning
+                )
+            }
+        }
+        return nil
+    }
+
+    /// Stable identifier for an emoji placement, e.g. `emoji.1f44d-1f3fd`.
+    nonisolated static func emojiAssetID(for glyph: String) -> String {
+        "emoji." + glyph.unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: "-")
+    }
+
+    static let recentEmojiLimit = 24
+
+    private func rememberEmoji(_ glyph: String) {
+        recentEmoji.removeAll { $0 == glyph }
+        recentEmoji.insert(glyph, at: 0)
+        if recentEmoji.count > Self.recentEmojiLimit { recentEmoji.removeLast(recentEmoji.count - Self.recentEmojiLimit) }
+    }
+
+    private func insert(
+        assetID: String,
+        name: String,
+        provenance: StickerProvenance,
+        frameIndex: Int,
+        aspectRatio: Double,
+        image: CGImage,
+        displayImage: CGImage? = nil,
+        printWarning: String? = nil
+    ) {
         guard placements.count < limit, let region = insertionTarget else {
             notice = "You've used all \(limit) stickers. Delete one to add another."
             return
@@ -166,6 +303,8 @@ final class StickerStudioSession {
         )
         recordUndo()
         artwork[placement.id] = image
+        displayArtwork[placement.id] = displayImage
+        printWarnings[placement.id] = printWarning
         placements.append(placement)
         selectedPlacementID = placement.id
         notice = nil
@@ -218,6 +357,8 @@ final class StickerStudioSession {
         recordUndo()
         placements.removeAll { $0.id == id }
         artwork[id] = nil
+        displayArtwork[id] = nil
+        printWarnings[id] = nil
         if selectedPlacementID == id { selectedPlacementID = nil }
     }
 
@@ -226,6 +367,8 @@ final class StickerStudioSession {
         recordUndo()
         placements.removeAll()
         artwork.removeAll()
+        displayArtwork.removeAll()
+        printWarnings.removeAll()
         selectedPlacementID = nil
     }
 
@@ -234,6 +377,8 @@ final class StickerStudioSession {
         redoStack.append(snapshot)
         placements = previous.placements
         artwork = previous.artwork
+        displayArtwork = previous.displayArtwork
+        printWarnings = previous.printWarnings
         if !placements.contains(where: { $0.id == selectedPlacementID }) { selectedPlacementID = nil }
         updateHistoryFlags()
     }
@@ -243,6 +388,8 @@ final class StickerStudioSession {
         undoStack.append(snapshot)
         placements = next.placements
         artwork = next.artwork
+        displayArtwork = next.displayArtwork
+        printWarnings = next.printWarnings
         if !placements.contains(where: { $0.id == selectedPlacementID }) { selectedPlacementID = nil }
         updateHistoryFlags()
     }
@@ -286,7 +433,7 @@ final class StickerStudioSession {
     func warning(for placement: StickerPlacement) -> String? {
         guard let region = layout?.region(for: placement.target),
               let frame = try? StickerGeometry.resolve(placement, in: region) else { return "This sticker can't be placed here" }
-        return StickerGeometry.legibilityWarning(for: frame, minimumPrintedDots: minimumPrintedDots)
+        return StickerGeometry.legibilityWarning(for: frame, minimumPrintedDots: minimumPrintedDots) ?? printWarnings[placement.id]
     }
 
     // MARK: Freezing
@@ -332,6 +479,9 @@ final class StickerStudioSession {
         thumbnailTasks.removeAll()
         placements.removeAll()
         artwork.removeAll()
+        displayArtwork.removeAll()
+        printWarnings.removeAll()
+        recentEmoji.removeAll()
         undoStack.removeAll()
         redoStack.removeAll()
         thumbnails.removeAll()
@@ -341,4 +491,35 @@ final class StickerStudioSession {
     }
 
     var isClosedForTesting: Bool { isClosed }
+}
+
+/// The two guest palettes. Emoji lead; the original artwork and operator imports share "Stickers".
+nonisolated enum StickerPaletteSource: String, CaseIterable, Sendable {
+    case emoji
+    case artwork
+
+    var title: String {
+        switch self {
+        case .emoji: "Emoji"
+        case .artwork: "Stickers"
+        }
+    }
+}
+
+nonisolated struct EmojiPaletteSection: Identifiable, Hashable, Sendable {
+    static let recentKey = "recent"
+    let key: String
+    let title: String
+    let systemImage: String
+    var id: String { key }
+}
+
+/// A recently used skin-tone form shown in place of its base glyph.
+private struct RecentEmoji {
+    let entry: EmojiEntry
+    let glyph: String
+
+    var asEntry: EmojiEntry {
+        glyph == entry.glyph ? entry : EmojiEntry(glyph: glyph, name: entry.name, subgroup: entry.subgroup, emojiVersion: entry.emojiVersion, skinToneVariants: [])
+    }
 }

@@ -85,7 +85,8 @@ struct StickerCanvasView: View {
 
     @ViewBuilder
     private func stickerLayer(_ placement: StickerPlacement) -> some View {
-        if let frame = resolvedFrame(placement), let artwork = session.artwork[placement.id] {
+        // Emoji show their native colour glyph here; the frozen print artwork is unchanged.
+        if let frame = resolvedFrame(placement), let artwork = session.displayArtwork[placement.id] ?? session.artwork[placement.id] {
             clippedSticker(artwork: artwork, frame: frame)
                 .modifier(StickerAccessibilityActions(
                     name: placement.assetName,

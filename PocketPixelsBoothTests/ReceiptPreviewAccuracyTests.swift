@@ -20,14 +20,19 @@ final class ReceiptPreviewAccuracyTests: XCTestCase {
         let keepsake = try XCTUnwrap(UIImage(data: receipt.imagePNGData))
         let raster = try ThermalImageRasterizer.rasterize(keepsake, purpose: .completeReceipt)
         let monochrome = try MonochromeReceiptRenderer.render(keepsake).image
-        XCTAssertTrue(ReceiptPreviewMode.keepsake.image(keepsake: keepsake, monochrome: monochrome) === keepsake)
-        let shown = try XCTUnwrap(ReceiptPreviewMode.blackAndWhite.image(keepsake: keepsake, monochrome: monochrome))
+        // Guests see one preview: the smooth monochrome render, never the color keepsake.
+        let preview = GuestReceiptPreview.resolve(receipt: keepsake, monochrome: monochrome)
+        let shown = try XCTUnwrap(preview.image)
         XCTAssertTrue(shown === monochrome)
+        XCTAssertFalse(preview.needsGrayscaleFilter)
         XCTAssertNotEqual(shown.pngData(), raster.previewPNGData)
         let midTones = try gray(XCTUnwrap(shown.cgImage)).filter { $0 > 8 && $0 < 247 }.count
         XCTAssertGreaterThan(midTones, 0, "Black & White is smooth grayscale, not the 1-bit raster")
-        XCTAssertNil(ReceiptPreviewMode.blackAndWhite.image(keepsake: keepsake, monochrome: nil))
-        XCTAssertNil(ReceiptPreviewMode.blackAndWhite.image(keepsake: nil, monochrome: nil))
+        // A failed optional render falls back to the same receipt through a grayscale filter.
+        let fallback = GuestReceiptPreview.resolve(receipt: keepsake, monochrome: nil)
+        XCTAssertTrue(fallback.image === keepsake)
+        XCTAssertTrue(fallback.needsGrayscaleFilter, "Never shown in color")
+        XCTAssertNil(GuestReceiptPreview.resolve(receipt: nil, monochrome: nil).image, "Loading state")
     }
 
     func testThermalPreviewIsTheExactOneBitRasterForEveryConfiguration() throws {

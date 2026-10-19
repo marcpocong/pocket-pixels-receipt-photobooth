@@ -32,8 +32,6 @@ struct BoothSessionView: View {
     @State private var showingEndNoPrintConfirmation = false
     @State private var showingReceiptDebugTools = false
 #endif
-    /// Customer-chosen preview of the exact 1-bit thermal raster. Always starts on the keepsake view.
-    @State private var receiptPreviewMode = ReceiptPreviewMode.keepsake
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("printerIP") private var printerIP = BoothConfiguration.defaultPrinterIP
@@ -428,7 +426,7 @@ struct BoothSessionView: View {
                         cameraPreviewSurface(width: layout.viewportSize.width, height: layout.viewportSize.height)
 
                         Text(cameraCustomerStatusText)
-                            .font(MadeToKeepTheme.Typography.italicSerif(size: 28))
+                            .font(MadeToKeepTheme.Typography.italicSerif(size: 34))
                             .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
                             .multilineTextAlignment(.center)
                             .lineLimit(2)
@@ -450,12 +448,14 @@ struct BoothSessionView: View {
                                 Button {
                                     viewModel.beginPhotoSequence()
                                 } label: {
-                                    Text("Start Photos")
+                                    Label("Start Photos", systemImage: "camera")
+                                        .labelStyle(ReceiptPrintLabelStyle())
                                         .frame(maxWidth: .infinity)
                                 }
-                                .buttonStyle(MadeToKeepPrimaryButtonStyle())
-                                .frame(width: contentWidth * 0.74)
+                                .buttonStyle(MadeToKeepFilledButtonStyle())
+                                .frame(width: min(contentWidth * 0.94, 580))
                                 .disabled(!viewModel.canBeginPhotos)
+                                .accessibilityHint("Starts the countdown for your first photo.")
                             }
 
                             #if DEBUG
@@ -475,30 +475,43 @@ struct BoothSessionView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(MadeToKeepTheme.Spacing.screenPadding)
+        .background { MadeToKeepScrapbookAccents() }
     }
 
+    /// Logo left, the current photo centered with the session's step marks, Cancel right. The
+    /// side columns share one width so the counter stays optically centered.
     private var cameraTopBar: some View {
-        HStack(alignment: .center) {
+        HStack(alignment: .center, spacing: 12) {
             MadeToKeepLockup(scale: .compact)
                 .frame(width: 180, alignment: .leading)
 
-            Spacer()
+            Spacer(minLength: 0)
 
-            MadeToKeepLabel(text: photoCounterText, size: 16)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .id(photoCounterText)
-                .transition(.opacity)
-                .animation(MadeToKeepTheme.Motion.quickAnimation, value: photoCounterText)
-
-            Spacer()
-
-            if viewModel.state.allowsCancellation {
-                Button("Cancel") {
-                    showingCancelConfirmation = true
-                }
-                .buttonStyle(MadeToKeepSecondaryButtonStyle())
+            VStack(spacing: 9) {
+                MadeToKeepLabel(text: photoCounterText, size: 17)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .id(photoCounterText)
+                    .transition(.opacity)
+                    .animation(MadeToKeepTheme.Motion.quickAnimation, value: photoCounterText)
+                CameraJourneyMarks()
             }
+            .accessibilityElement(children: .combine)
+
+            Spacer(minLength: 0)
+
+            Group {
+                if viewModel.state.allowsCancellation {
+                    Button("Cancel") {
+                        showingCancelConfirmation = true
+                    }
+                    .buttonStyle(MadeToKeepSecondaryButtonStyle())
+                    .accessibilityHint("Asks before ending this session.")
+                } else {
+                    Color.clear.frame(height: 48)
+                }
+            }
+            .frame(width: 180, alignment: .trailing)
         }
     }
 
@@ -553,9 +566,13 @@ struct BoothSessionView: View {
         .clipShape(RoundedRectangle(cornerRadius: MadeToKeepTheme.Radius.photo))
         // Printed-photo mount: ivory border around the live feed, never texture on top of it.
         .padding(10)
-        .background(MadeToKeepTheme.ColorPalette.ivoryLight)
-        .overlay(Rectangle().strokeBorder(MadeToKeepTheme.ColorPalette.hairline, lineWidth: 1))
-        .shadow(color: MadeToKeepTheme.ColorPalette.shadowTint.opacity(0.14), radius: 14, x: 0, y: 6)
+        .background(MadeToKeepTheme.ColorPalette.ivoryLight, in: RoundedRectangle(cornerRadius: 4))
+        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(MadeToKeepTheme.ColorPalette.hairline, lineWidth: 1))
+        .shadow(color: MadeToKeepTheme.ColorPalette.shadowTint.opacity(0.16), radius: 18, x: 0, y: 8)
+        .overlay(alignment: .topLeading) {
+            MadeToKeepSparkleMark(length: 30)
+                .offset(x: -46, y: -30)
+        }
     }
 
     /// Every format renders through the editorial review design (`MadeToKeepReviewDesign.swift`);
@@ -613,6 +630,12 @@ struct BoothSessionView: View {
         )
     }
 
+    /// The one receipt guests see before printing: the smooth black & white preview, because the
+    /// VOZY G80 prints monochrome. The color receipt stays in the QR gallery.
+    private var guestReceiptPreview: GuestReceiptPreview {
+        .resolve(receipt: viewModel.receiptImage, monochrome: viewModel.monochromeReceiptPreview)
+    }
+
     private var receiptScreen: some View {
         GeometryReader { proxy in
             let availableHeight = max(1, proxy.size.height - (MadeToKeepTheme.Spacing.screenPadding * 2))
@@ -620,7 +643,7 @@ struct BoothSessionView: View {
             let isPostPrintFlow = viewModel.state != .receiptPreview
             let statusCardWidth = min(contentWidth * 0.78, 560)
             let statusQRSize = min(max(contentWidth * 0.20, 150), 180)
-            let verticalSpacing: CGFloat = isPostPrintFlow ? 12 : 12
+            let verticalSpacing: CGFloat = 14
             let reservedHeight = receiptReservedScreenHeight(
                 statusQRSize: statusQRSize,
                 isPrinterWorking: viewModel.isPrintBatchActive,
@@ -628,10 +651,49 @@ struct BoothSessionView: View {
             )
             let receiptMaxWidth = isPostPrintFlow
                 ? min(contentWidth * 0.66, 480)
-                : min(contentWidth * 0.58, 420)
+                : min(contentWidth * 0.64, 440)
             let receiptAvailableHeight = max(220, availableHeight - reservedHeight - (verticalSpacing * 3))
-            let receiptMaxHeight = min(receiptAvailableHeight, isPostPrintFlow ? 480 : 560)
+            let receiptMaxHeight = min(receiptAvailableHeight, isPostPrintFlow ? 480 : 640)
+            // Landscape: the receipt gets nearly the full height on the left, so long formats
+            // (Strip, Grid Six) stay large; heading and actions sit on the right.
+            let isLandscape = proxy.size.width > proxy.size.height * 1.1
+            let sideWidth = min((proxy.size.width - MadeToKeepTheme.Spacing.screenPadding * 2) * 0.5, 560)
 
+            if isLandscape {
+                HStack(alignment: .center, spacing: 56) {
+                    customerReceiptPreview(
+                        maxWidth: min((proxy.size.width - MadeToKeepTheme.Spacing.screenPadding * 2) * 0.4, 460),
+                        maxHeight: availableHeight - 12,
+                        showsPrinterSlot: isPostPrintFlow
+                    )
+                    .pocketPixelsEntrance(
+                        active: receiptMotionActive,
+                        reduceMotion: reduceMotion,
+                        delay: 0,
+                        offset: MadeToKeepTheme.Motion.receiptOffset,
+                        scale: MadeToKeepTheme.Motion.subtleScale
+                    )
+
+                    VStack(spacing: 22) {
+                        receiptCustomerHeader
+                        receiptCustomerActions(width: sideWidth, preferredControlWidth: sideWidth)
+                            .pocketPixelsEntrance(active: receiptMotionActive, reduceMotion: reduceMotion, delay: 0.08, offset: 8)
+                        if isPostPrintFlow {
+                            receiptGalleryStatus(qrSize: min(statusQRSize, 150))
+                                .frame(width: sideWidth)
+                                .pocketPixelsEntrance(active: receiptMotionActive, reduceMotion: reduceMotion, delay: 0.12, offset: 8)
+                                .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .bottom)))
+                        }
+#if DEBUG
+                        if showsReceiptDebugTools {
+                            receiptDebugSection(width: sideWidth)
+                        }
+#endif
+                    }
+                    .frame(width: sideWidth)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
             VStack(spacing: verticalSpacing) {
                 receiptCustomerHeader
                     .frame(width: contentWidth)
@@ -645,11 +707,7 @@ struct BoothSessionView: View {
                         scale: MadeToKeepTheme.Motion.subtleScale
                     )
 
-                if !isPostPrintFlow {
-                    receiptPreviewModePicker(width: receiptMaxWidth)
-                }
-
-                receiptCustomerActions(width: contentWidth, preferredControlWidth: receiptMaxWidth)
+                receiptCustomerActions(width: contentWidth, preferredControlWidth: min(contentWidth * 0.86, 560))
                     .pocketPixelsEntrance(active: receiptMotionActive, reduceMotion: reduceMotion, delay: 0.08, offset: 8)
 
                 if isPostPrintFlow {
@@ -667,37 +725,45 @@ struct BoothSessionView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.vertical, 6)
+            }
         }
         .padding(MadeToKeepTheme.Spacing.screenPadding)
+        .background { MadeToKeepScrapbookAccents() }
         .onAppear {
-            receiptPreviewMode = .keepsake
             startReceiptMotion()
         }
     }
 
     private var receiptCustomerHeader: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             MadeToKeepLockup(scale: .compact)
+                .padding(.bottom, 4)
 
-            Text(receiptScreenTitle.lowercased())
-                .font(MadeToKeepTheme.Typography.italicSerif(size: 38))
+            Text(receiptScreenTitle)
+                .font(MadeToKeepTheme.Typography.italicSerif(size: Self.receiptTitleSize))
+                .tracking(Self.receiptTitleSize * -0.02)
                 .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
                 .multilineTextAlignment(.center)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
                 .accessibilityAddTraits(.isHeader)
 
             Text(receiptScreenSubtitle)
-                .font(MadeToKeepTheme.Typography.sans(size: 16, weight: .regular))
+                .font(MadeToKeepTheme.Typography.sans(size: 18, weight: .regular))
                 .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
+    static let receiptTitleSize: CGFloat = 58
+
     private func receiptReservedScreenHeight(statusQRSize: CGFloat, isPrinterWorking: Bool, showsGalleryStatus: Bool) -> CGFloat {
-        let headerEstimate: CGFloat = 126
-        let actionEstimate: CGFloat = isPrinterWorking ? 54 : 124
+        // Lockup, the editorial title and one supporting line.
+        let headerEstimate: CGFloat = 150
+        // Copies control, the filled print action and the thermal note (or the progress line).
+        let actionEstimate: CGFloat = isPrinterWorking ? 118 : (showsGalleryStatus ? 150 : 186)
         let galleryEstimate = showsGalleryStatus ? statusQRSize + 42 : 0
-        // The keepsake / black & white toggle only appears before printing.
-        let previewModeEstimate: CGFloat = showsGalleryStatus ? 0 : ReceiptPreviewMode.pickerHeightEstimate
         let debugDisclosureEstimate: CGFloat
 #if DEBUG
         debugDisclosureEstimate = showingReceiptDebugTools ? 292 : 36
@@ -705,93 +771,85 @@ struct BoothSessionView: View {
         debugDisclosureEstimate = 0
 #endif
 
-        return headerEstimate + actionEstimate + galleryEstimate + previewModeEstimate + debugDisclosureEstimate
+        return headerEstimate + actionEstimate + galleryEstimate + debugDisclosureEstimate
     }
 
+    /// Paper margin around the receipt image (sides/top, and the scalloped bottom tear).
+    private static let receiptPaperInset: CGFloat = 8
+    private static let receiptPaperTearInset: CGFloat = 16
+
+    @ViewBuilder
     private func customerReceiptPreview(maxWidth: CGFloat, maxHeight: CGFloat, showsPrinterSlot: Bool) -> some View {
-        VStack(spacing: 0) {
-
-            Group {
-                if let previewImage = viewModel.receiptImage, showsPrinterSlot {
-                    FeedingReceiptView(image: previewImage, maxWidth: maxWidth, maxHeight: maxHeight,
-                                       isPrinting: viewModel.state == .printing)
-                } else if let previewImage = receiptPreviewMode.image(
-                    keepsake: viewModel.receiptImage,
-                    monochrome: viewModel.monochromeReceiptPreview
-                ) {
-                    let previewLayout = receiptPreviewLayout(for: previewImage, maxWidth: maxWidth, maxHeight: maxHeight)
-                    Group {
-                        if previewLayout.requiresScrolling {
-                            ScrollView(.vertical) {
-                                receiptPreviewImage(previewImage, size: previewLayout.displaySize)
-                            }
-                            .scrollIndicators(.visible)
-                            .frame(width: previewLayout.displaySize.width, height: previewLayout.viewportHeight)
-                            .overlay(alignment: .bottom) {
-                                receiptScrollAffordance(width: previewLayout.displaySize.width)
-                            }
-                        } else {
-                            receiptPreviewImage(previewImage, size: previewLayout.displaySize)
+        let preview = guestReceiptPreview
+        Group {
+            if showsPrinterSlot, let image = preview.image {
+                FeedingReceiptView(image: image, grayscale: preview.needsGrayscaleFilter, maxWidth: maxWidth, maxHeight: maxHeight,
+                                   isPrinting: viewModel.state == .printing)
+                    .shadow(color: MadeToKeepTheme.ColorPalette.charcoal.opacity(0.10), radius: 14, x: 0, y: 7)
+            } else if let image = preview.image {
+                let inset = Self.receiptPaperInset
+                let previewLayout = receiptPreviewLayout(
+                    for: image,
+                    maxWidth: maxWidth - inset * 2,
+                    maxHeight: maxHeight - inset - Self.receiptPaperTearInset
+                )
+                Group {
+                    if previewLayout.requiresScrolling {
+                        ScrollView(.vertical) {
+                            receiptPreviewImage(image, size: previewLayout.displaySize, grayscale: preview.needsGrayscaleFilter)
                         }
+                        .scrollIndicators(.visible)
+                        .frame(width: previewLayout.displaySize.width, height: previewLayout.viewportHeight)
+                        .overlay(alignment: .bottom) {
+                            receiptScrollAffordance(width: previewLayout.displaySize.width)
+                        }
+                    } else {
+                        receiptPreviewImage(image, size: previewLayout.displaySize, grayscale: preview.needsGrayscaleFilter)
                     }
-                } else {
-                    Text("Receipt preview is getting ready.")
-                        .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
-                        .frame(width: maxWidth, height: min(maxHeight, 320))
-                        .background(MadeToKeepTheme.ColorPalette.surface)
                 }
+                .padding([.top, .horizontal], inset)
+                .padding(.bottom, Self.receiptPaperTearInset)
+                .background(Color.white, in: MadeToKeepReceiptPaperShape())
+                .shadow(color: MadeToKeepTheme.ColorPalette.amberGlow.opacity(0.16), radius: 20, x: 0, y: 10)
+                .shadow(color: MadeToKeepTheme.ColorPalette.charcoal.opacity(0.08), radius: 4, x: 0, y: 2)
+                .overlay(alignment: .topLeading) {
+                    MadeToKeepSparkleMark()
+                        .offset(x: -44, y: -10)
+                }
+            } else {
+                receiptPreparingPlaceholder(maxWidth: maxWidth, maxHeight: maxHeight)
             }
-            .background(showsPrinterSlot ? Color.clear : MadeToKeepTheme.ColorPalette.surface)
-            .overlay {
-                Rectangle()
-                    .strokeBorder(MadeToKeepTheme.ColorPalette.hairline.opacity(showsPrinterSlot ? 0 : 1), lineWidth: 1)
-            }
-            .shadow(color: MadeToKeepTheme.ColorPalette.amberGlow.opacity(0.12), radius: 18, x: 0, y: 8)
-            .shadow(color: MadeToKeepTheme.ColorPalette.charcoal.opacity(0.10), radius: 14, x: 0, y: 7)
         }
-        .accessibilityLabel(receiptPreviewMode == .blackAndWhite && !showsPrinterSlot ? "Black and white receipt preview" : "Receipt preview")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(showsPrinterSlot
+            ? (viewModel.state == .printing ? "Black and white receipt feeding out of the printer" : "Black and white receipt at the printer")
+            : (preview.image == nil ? "Preparing your black and white receipt preview" : "Black and white receipt preview"))
+        .accessibilityAddTraits(.isImage)
     }
 
-    /// A quiet toggle under the pre-print preview. "Black & White" shows a smooth grayscale digital
-    /// preview so guests know the keepsake prints in black and white; it is not the printer raster.
-    private func receiptPreviewModePicker(width: CGFloat) -> some View {
-        VStack(spacing: 5) {
-            HStack(spacing: 6) {
-                ForEach(ReceiptPreviewMode.available(motion: false), id: \.self) { mode in
-                    let isSelected = receiptPreviewMode == mode
-                    Button {
-                        receiptPreviewMode = mode
-                    } label: {
-                        Text(mode.title)
-                            .font(MadeToKeepTheme.Typography.sans(size: 13, weight: isSelected ? .semibold : .regular))
-                            .foregroundStyle(isSelected ? MadeToKeepTheme.ColorPalette.ivoryLight : MadeToKeepTheme.ColorPalette.burgundy)
-                            .padding(.horizontal, 14)
-                            .frame(minHeight: 32)
-                            .background(isSelected ? MadeToKeepTheme.ColorPalette.burgundy : Color.clear, in: Capsule())
-                            .overlay(Capsule().strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.45), lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(mode == .blackAndWhite && viewModel.monochromeReceiptPreview == nil)
-                    .accessibilityAddTraits(isSelected ? .isSelected : [])
-                    .accessibilityIdentifier("receiptPreviewMode.\(mode.rawValue)")
-                }
-            }
-
-            Text(ReceiptPreviewMode.printNote)
-                .font(MadeToKeepTheme.Typography.sans(size: 12, weight: .regular))
-                .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
+    /// Shown only until the black & white preview exists: never a sudden color receipt.
+    private func receiptPreparingPlaceholder(maxWidth: CGFloat, maxHeight: CGFloat) -> some View {
+        let width = min(maxWidth, 340)
+        return VStack(spacing: 14) {
+            ProgressView()
+                .tint(MadeToKeepTheme.ColorPalette.burgundy)
+                .scaleEffect(1.2)
+            Text("Preparing your black & white preview…")
+                .font(MadeToKeepTheme.Typography.italicSerif(size: 22))
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
                 .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .minimumScaleFactor(0.85)
         }
-        .frame(maxWidth: width)
+        .padding(24)
+        .frame(width: width, height: min(maxHeight, width * 1.45))
+        .background(Color.white, in: MadeToKeepReceiptPaperShape())
+        .shadow(color: MadeToKeepTheme.ColorPalette.amberGlow.opacity(0.14), radius: 18, x: 0, y: 8)
     }
 
-    private func receiptPreviewImage(_ image: UIImage, size: CGSize) -> some View {
+    private func receiptPreviewImage(_ image: UIImage, size: CGSize, grayscale: Bool) -> some View {
         Image(uiImage: image)
             .resizable()
             .interpolation(.high)
+            .grayscale(grayscale ? 1 : 0)
             .frame(width: size.width, height: size.height)
     }
 
@@ -878,9 +936,9 @@ struct BoothSessionView: View {
     }
 
     private func receiptCustomerActions(width: CGFloat, preferredControlWidth: CGFloat? = nil) -> some View {
-        let controlWidth = min(preferredControlWidth ?? width * 0.58, 420)
+        let controlWidth = min(preferredControlWidth ?? width * 0.86, 560)
 
-        return VStack(spacing: 9) {
+        return VStack(spacing: 12) {
             if viewModel.isPrintBatchActive {
                 HStack(spacing: 10) {
                     ProgressView()
@@ -894,31 +952,27 @@ struct BoothSessionView: View {
             }
 
             if !viewModel.isPrintBatchActive {
-                VStack(spacing: 6) {
-                    MadeToKeepLabel(text: "Copies", size: 12, color: MadeToKeepTheme.ColorPalette.mutedInk)
-
-                    if viewModel.commercialEvent.activePolicy.commercialMode == .payPerPrint {
-                        Text(viewModel.selectedPrintCopies, format: .number)
-                            .font(.title.bold())
-                            .accessibilityLabel("\(viewModel.selectedPrintCopies) purchased copies")
-                        Text("Purchased before the photo session")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        receiptCopyStepper
-                            .frame(width: min(controlWidth * 0.66, 210))
-                            .disabled(viewModel.isPrintBatchActive || viewModel.printerState.requiresPrinterRestart)
-                    }
+                // Same entitlement rules as before: pay-per-print copies are fixed at checkout.
+                if viewModel.commercialEvent.activePolicy.commercialMode == .payPerPrint {
+                    Text(viewModel.selectedPrintCopies == 1 ? "1 copy · purchased before your session" : "\(viewModel.selectedPrintCopies) copies · purchased before your session")
+                        .font(MadeToKeepTheme.Typography.sans(size: 16, weight: .medium))
+                        .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
+                        .accessibilityLabel("\(viewModel.selectedPrintCopies) purchased \(viewModel.selectedPrintCopies == 1 ? "copy" : "copies")")
+                } else {
+                    receiptCopyStepper
+                        .frame(width: min(controlWidth * 0.56, 300))
+                        .disabled(viewModel.isPrintBatchActive || viewModel.printerState.requiresPrinterRestart)
                 }
             }
 
             Button {
                 viewModel.printReceipt(host: printerIP, port: parsedPort)
             } label: {
-                Text(viewModel.printButtonTitle)
+                Label(viewModel.printButtonTitle, systemImage: "printer")
+                    .labelStyle(ReceiptPrintLabelStyle())
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(MadeToKeepPrimaryButtonStyle())
+            .buttonStyle(MadeToKeepFilledButtonStyle())
             .frame(width: controlWidth)
             // Keep the action tappable for recoverable problems so the view model can surface the
             // exact reason instead of leaving customers with a silently disabled control.
@@ -933,6 +987,21 @@ struct BoothSessionView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(width: controlWidth)
                     .transition(.opacity)
+            }
+
+            if viewModel.state == .receiptPreview {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 17))
+                        .accessibilityHidden(true)
+                    Text(GuestReceiptPreview.printNote)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .font(MadeToKeepTheme.Typography.sans(size: 15, weight: .regular))
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
+                .frame(maxWidth: min(controlWidth, 480))
+                .accessibilityElement(children: .combine)
             }
         }
         .frame(width: width)
@@ -954,7 +1023,7 @@ struct BoothSessionView: View {
             .accessibilityLabel("Decrease copies")
 
             Text("\(viewModel.selectedPrintCopies)")
-                .font(MadeToKeepTheme.Typography.serif(size: 28))
+                .font(MadeToKeepTheme.Typography.serif(size: 34))
                 .monospacedDigit()
                 .foregroundStyle(MadeToKeepTheme.ColorPalette.brandMaroon)
                 .frame(maxWidth: .infinity, minHeight: 48)
@@ -972,12 +1041,15 @@ struct BoothSessionView: View {
             .disabled(!viewModel.canIncreasePrintCopies)
             .accessibilityLabel("Increase copies")
         }
+        .frame(minHeight: 60)
         .background(Capsule().fill(MadeToKeepTheme.ColorPalette.ivoryLight.opacity(0.85)))
         .overlay {
             Capsule()
                 .strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.4), lineWidth: 1)
         }
         .clipShape(Capsule())
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Copies")
     }
 
     private func copyStepperControlColor(isEnabled: Bool) -> Color {
@@ -1761,6 +1833,20 @@ struct BoothSessionView: View {
     }
 }
 
+/// "Photos · review · print": where the guest is in the session, as in the reference camera
+/// screen. The first mark is current while the camera is open.
+private struct CameraJourneyMarks: View {
+    var body: some View {
+        HStack(spacing: 7) {
+            Circle().fill(MadeToKeepTheme.ColorPalette.burgundy).frame(width: 8, height: 8)
+            Capsule().fill(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.28)).frame(width: 26, height: 3)
+            Circle().fill(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.22)).frame(width: 8, height: 8)
+        }
+        .accessibilityElement()
+        .accessibilityLabel("Step 1 of 3, photos")
+    }
+}
+
 /// Geometry contract for the capture screen. The navigation region is separate; this solver
 /// centers one stable camera composition in the remaining safe-area height.
 struct CameraScreenLayout: Equatable {
@@ -1770,7 +1856,7 @@ struct CameraScreenLayout: Equatable {
     static let statusToProgress: CGFloat = 8
     static let progressHeight: CGFloat = 14
     static let progressToAction: CGFloat = 10
-    static let actionHeight: CGFloat = 54
+    static let actionHeight: CGFloat = 72
     static let mountInset: CGFloat = 20
     static let maximumViewportWidth: CGFloat = 580
 
@@ -1878,6 +1964,9 @@ nonisolated private func adminDebugLog(_ message: String) {
 /// Visual paper feed only; it never schedules or controls a physical print job.
 private struct FeedingReceiptView: View {
     let image: UIImage
+    /// True only when the smooth monochrome render failed and the composed receipt is shown
+    /// through a grayscale filter instead. Paper never appears in color.
+    var grayscale = false
     let maxWidth: CGFloat
     let maxHeight: CGFloat
     let isPrinting: Bool
@@ -1903,6 +1992,7 @@ private struct FeedingReceiptView: View {
                 Image(uiImage: image)
                     .resizable()
                     .interpolation(.high)
+                    .grayscale(grayscale ? 1 : 0)
                     .frame(width: width, height: height)
                     .offset(y: -height * (1 - visibleFraction))
                     .frame(width: width, height: height, alignment: .top)
@@ -1914,6 +2004,17 @@ private struct FeedingReceiptView: View {
             feedStartedAt = printing ? Date() : nil
         }
         .accessibilityLabel(isPrinting ? "Receipt feeding out of printer" : "Receipt ready at printer")
+    }
+}
+
+/// Icon and tracked title of the filled print action, with the icon sized to the capitals.
+private struct ReceiptPrintLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 18) {
+            configuration.icon
+                .font(.system(size: 26, weight: .regular))
+            configuration.title
+        }
     }
 }
 

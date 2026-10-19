@@ -21,6 +21,7 @@ struct StickerStudioView: View {
     @State private var isFinishing = false
     @State private var showingResetConfirmation = false
     @State private var showingSkipConfirmation = false
+    @State private var showingKeyboardEntry = false
     @FocusState private var searchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -69,6 +70,12 @@ struct StickerStudioView: View {
         }
         .onChange(of: session.searchQuery) { _, _ in
             onActivity()
+        }
+        .sheet(isPresented: $showingKeyboardEntry) {
+            EmojiKeyboardEntrySheet(isAtLimit: session.isAtLimit) { glyph in
+                session.addEmoji(glyph)
+                onActivity()
+            }
         }
     }
 
@@ -136,12 +143,136 @@ struct StickerStudioView: View {
 
     private var controlColumn: some View {
         VStack(spacing: 14) {
-            categoryTabs
-            searchField
-            palette
-                .frame(maxHeight: .infinity)
+            if session.offersSourceChoice {
+                sourcePicker
+            }
+            if session.activePaletteSource == .emoji {
+                emojiSectionTabs
+                searchField
+                emojiPalette
+                    .frame(maxHeight: .infinity)
+            } else {
+                categoryTabs
+                searchField
+                palette
+                    .frame(maxHeight: .infinity)
+            }
             editToolbar
             finishButtons
+        }
+    }
+
+    // MARK: Emoji
+
+    private var sourcePicker: some View {
+        HStack(spacing: 0) {
+            ForEach(StickerPaletteSource.allCases, id: \.self) { source in
+                let selected = session.activePaletteSource == source
+                Button {
+                    session.paletteSource = source
+                    session.searchQuery = ""
+                    searchFocused = false
+                    onActivity()
+                } label: {
+                    Text(source.title)
+                        .font(MadeToKeepTheme.Typography.sans(size: 16, weight: selected ? .semibold : .regular))
+                        .foregroundStyle(selected ? MadeToKeepTheme.ColorPalette.ivoryLight : MadeToKeepTheme.ColorPalette.burgundy)
+                        .frame(maxWidth: .infinity, minHeight: 46)
+                        .background(Capsule().fill(selected ? MadeToKeepTheme.ColorPalette.burgundy : Color.clear))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+        .padding(3)
+        .background(Capsule().fill(MadeToKeepTheme.ColorPalette.ivoryLight))
+        .overlay(Capsule().strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.35), lineWidth: 1))
+    }
+
+    private var emojiSectionTabs: some View {
+        ScrollViewReader { reader in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(session.emojiSections) { section in
+                        let selected = session.selectedEmojiGroupKey == section.key && session.searchQuery.isEmpty
+                        Button {
+                            session.selectedEmojiGroupKey = section.key
+                            session.searchQuery = ""
+                            searchFocused = false
+                            onActivity()
+                        } label: {
+                            Label(section.title, systemImage: section.systemImage)
+                                .font(MadeToKeepTheme.Typography.sans(size: 15, weight: selected ? .semibold : .regular))
+                                .foregroundStyle(selected ? MadeToKeepTheme.ColorPalette.ivoryLight : MadeToKeepTheme.ColorPalette.burgundy)
+                                .padding(.horizontal, 16)
+                                .frame(minHeight: 46)
+                                .background(Capsule().fill(selected ? MadeToKeepTheme.ColorPalette.burgundy : MadeToKeepTheme.ColorPalette.ivoryLight))
+                                .overlay(Capsule().strokeBorder(MadeToKeepTheme.ColorPalette.burgundy.opacity(0.4), lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                        .id(section.key)
+                        .accessibilityAddTraits(selected ? .isSelected : [])
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+            .onChange(of: session.selectedEmojiGroupKey) { _, key in
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) { reader.scrollTo(key, anchor: .center) }
+            }
+        }
+    }
+
+    private let emojiColumns = [GridItem(.adaptive(minimum: 66, maximum: 84), spacing: 6)]
+
+    private var emojiPalette: some View {
+        let entries = session.visibleEmoji
+        return VStack(spacing: 8) {
+            ScrollViewReader { reader in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Color.clear.frame(height: 0).id(Self.paletteTop)
+                        if isSearching {
+                            Text(entries.isEmpty
+                                 ? "No emoji match “\(session.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines))”. Try another word or the keyboard."
+                                 : (entries.count == 1 ? "1 emoji" : "\(entries.count) emoji"))
+                                .font(MadeToKeepTheme.Typography.sans(size: 14, weight: .medium))
+                                .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
+                                .padding(.horizontal, 12)
+                                .padding(.top, 8)
+                                .accessibilityAddTraits(.updatesFrequently)
+                        }
+                        LazyVGrid(columns: emojiColumns, spacing: 6) {
+                            ForEach(entries) { entry in
+                                EmojiPaletteCell(entry: entry, disabled: session.isAtLimit, reduceMotion: reduceMotion) { glyph in
+                                    session.addEmoji(glyph)
+                                    searchFocused = false
+                                    onActivity()
+                                }
+                            }
+                        }
+                        .padding(8)
+                    }
+                }
+                .scrollDismissesKeyboard(.interactively)
+                .onScrollPhaseChange { _, phase in if phase == .interacting { onActivity() } }
+                .onChange(of: session.selectedEmojiGroupKey) { _, _ in reader.scrollTo(Self.paletteTop, anchor: .top) }
+                .onChange(of: session.searchQuery) { _, _ in reader.scrollTo(Self.paletteTop, anchor: .top) }
+            }
+            .background(RoundedRectangle(cornerRadius: 12).fill(MadeToKeepTheme.ColorPalette.ivoryLight.opacity(0.6)))
+            .sensoryFeedback(.success, trigger: session.placements.count) { old, new in new > old }
+
+            Button {
+                searchFocused = false
+                showingKeyboardEntry = true
+                onActivity()
+            } label: {
+                Label("Choose from Keyboard", systemImage: "keyboard")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(MadeToKeepSecondaryButtonStyle())
+            .disabled(session.isAtLimit || isFinishing)
+            .accessibilityHint("Opens the keyboard so you can pick any emoji, including from the emoji keyboard.")
         }
     }
 
@@ -183,7 +314,7 @@ struct StickerStudioView: View {
     private var searchField: some View {
         HStack {
             Image(systemName: "magnifyingglass").foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
-            TextField("Search stickers", text: $session.searchQuery)
+            TextField(session.activePaletteSource == .emoji ? "Search emoji" : "Search stickers", text: $session.searchQuery)
                 .focused($searchFocused)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -366,6 +497,127 @@ struct StickerStudioView: View {
         searchFocused = false
         session.select(nil)
         skip ? onSkip() : onDone()
+    }
+}
+
+/// One native emoji. Tap adds it; emoji with skin tones offer them from a long-press menu,
+/// like the system keyboard.
+private struct EmojiPaletteCell: View {
+    let entry: EmojiEntry
+    let disabled: Bool
+    let reduceMotion: Bool
+    let add: (String) -> Void
+
+    var body: some View {
+        Button {
+            add(entry.glyph)
+        } label: {
+            Text(entry.glyph)
+                .font(.system(size: 42))
+                .frame(maxWidth: .infinity, minHeight: 66)
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.92)))
+                .overlay(alignment: .bottomTrailing) {
+                    if !entry.skinToneVariants.isEmpty {
+                        Image(systemName: "arrowtriangle.down.fill")
+                            .font(.system(size: 7))
+                            .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk.opacity(0.6))
+                            .rotationEffect(.degrees(-45))
+                            .padding(5)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .opacity(disabled ? 0.45 : 1)
+        }
+        .buttonStyle(StickerThumbnailButtonStyle(reduceMotion: reduceMotion))
+        .disabled(disabled)
+        .contextMenu {
+            if !entry.skinToneVariants.isEmpty {
+                Button(entry.glyph) { add(entry.glyph) }
+                ForEach(entry.skinToneVariants, id: \.self) { variant in
+                    Button(variant) { add(variant) }
+                }
+            }
+        }
+        .accessibilityLabel("Add \(entry.displayName)")
+        .accessibilityHint(entry.skinToneVariants.isEmpty ? "" : "Touch and hold for skin tones.")
+    }
+}
+
+/// "Choose from Keyboard": the ordinary system keyboard, including any installed emoji keyboard
+/// the guest switches to with the globe or emoji key. Only one validated emoji can be added.
+struct EmojiKeyboardEntrySheet: View {
+    let isAtLimit: Bool
+    let onAdd: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    private var validation: Result<String, EmojiValidationError> { EmojiGlyphValidator.validate(text) }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 22) {
+                Text("Tap the emoji key (☺︎) or globe on the keyboard, then pick any emoji.")
+                    .font(MadeToKeepTheme.Typography.sans(size: 17))
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                TextField("Your emoji", text: $text)
+                    .font(.system(size: 64))
+                    .multilineTextAlignment(.center)
+                    .focused($focused)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .frame(minHeight: 96)
+                    .background(RoundedRectangle(cornerRadius: 16).fill(Color.white))
+                    .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(MadeToKeepTheme.ColorPalette.hairline))
+                    .onChange(of: text) { _, value in
+                        // Keep the field to the newest emoji; huge pastes are cut before validation.
+                        if value.utf16.count > EmojiGlyphValidator.maximumInputUTF16Length {
+                            text = String(value.prefix(4))
+                        } else if value.count > 1, let last = value.last {
+                            text = String(last)
+                        }
+                    }
+                    .accessibilityLabel("Emoji")
+
+                Group {
+                    switch validation {
+                    case .success:
+                        Text(isAtLimit ? "You've used all your stickers." : "Ready to add.")
+                    case .failure(let error):
+                        Text(text.isEmpty ? " " : (error.errorDescription ?? ""))
+                    }
+                }
+                .font(MadeToKeepTheme.Typography.sans(size: 15, weight: .medium))
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
+                .accessibilityAddTraits(.updatesFrequently)
+
+                Button {
+                    if case .success(let glyph) = validation {
+                        onAdd(glyph)
+                        dismiss()
+                    }
+                } label: {
+                    Text("Add Emoji").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(MadeToKeepPrimaryButtonStyle())
+                .disabled(isAtLimit || (try? validation.get()) == nil)
+
+                Spacer(minLength: 0)
+            }
+            .padding(28)
+            .background(MadeToKeepPaperBackground())
+            .navigationTitle("Choose from Keyboard")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            }
+            .onAppear { focused = true }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 

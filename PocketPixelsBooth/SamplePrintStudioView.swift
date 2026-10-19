@@ -178,13 +178,8 @@ struct SamplePrintStudioView: View {
         StudioStep(number: 4, title: "Preview & Print") {
             ZStack {
                 if let image = model.previewImage {
-                    Image(uiImage: image)
-                        .resizable()
-                        .interpolation(.none)
-                        .scaledToFit()
+                    OperatorZoomableReceiptView(image: image, rendering: .exactRaster, accessibilityLabel: "Exact printer raster, diagnostic")
                         .opacity(model.previewState == .rendering ? 0.45 : 1)
-                        .overlay { Rectangle().stroke(Color.secondary.opacity(0.25)) }
-                        .accessibilityLabel("Exact printer raster, diagnostic")
                 }
                 switch model.previewState {
                 case .rendering, .idle:
@@ -195,9 +190,9 @@ struct SamplePrintStudioView: View {
                     EmptyView()
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 320)
-            .padding(12)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+            // Fixed viewer height: the whole receipt fits, with room for the zoom controls.
+            .frame(maxWidth: .infinity)
+            .frame(height: 640)
 
             if let receipt = model.printableSample?.receipt {
                 Text("Exact printer raster · diagnostic · \(String(format: "%.0f", receipt.estimatedLengthMillimeters)) mm long · no QR or session ID")

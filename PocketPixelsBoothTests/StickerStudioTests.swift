@@ -191,7 +191,9 @@ final class StickerStudioSettingsTests: XCTestCase {
         XCTAssertFalse(migrated.isEnabled)
         XCTAssertEqual(migrated.schemaVersion, StickerStudioSettings.currentSchemaVersion)
         XCTAssertEqual(migrated.guestStickerLimit, 6)
-        XCTAssertTrue(migrated.builtInStickersEnabled)
+        // Schema 2: emoji lead; the original artwork is kept but becomes an opt-in legacy source.
+        XCTAssertTrue(migrated.emojiCollectionEnabled)
+        XCTAssertFalse(migrated.builtInStickersEnabled)
         XCTAssertTrue(migrated.operatorCollectionEnabled)
         XCTAssertFalse(migrated.onlineDiscoveryEnabled)
     }
@@ -454,6 +456,8 @@ final class StickerCatalogTests: XCTestCase {
     private func enabledSettings() -> StickerStudioSettings {
         var settings = StickerStudioSettings()
         settings.isEnabled = true
+        // These tests exercise the original artwork, now an operator opt-in legacy collection.
+        settings.builtInStickersEnabled = true
         return settings
     }
 }
@@ -708,6 +712,7 @@ final class StickerStudioSessionTests: XCTestCase {
     private func makeSession(limit: Int = 6, online: OnlineStickerProvider? = nil) throws -> StickerStudioSession {
         var settings = StickerStudioSettings()
         settings.isEnabled = true
+        settings.builtInStickersEnabled = true
         settings.guestStickerLimit = limit
         let configuration = StickerStudioSessionConfiguration(settings: settings.normalized(), onlineReady: online != nil)
         let session = StickerStudioSession(configuration: configuration, catalog: StickerGuestCatalog.make(settings: settings, store: nil), generation: 1, catalogStore: nil, provider: online)
@@ -903,6 +908,8 @@ final class StickerStudioFlowTests: XCTestCase {
         environment.eventProfileSource = { EventProfile.pocketPixelsDefault }
         var settings = StickerStudioSettings()
         settings.isEnabled = enabled
+        // These flows add original-artwork stickers, now an operator opt-in legacy collection.
+        settings.builtInStickersEnabled = true
         environment.stickerConfigurationSource = configuration ?? { StickerStudioSessionConfiguration(settings: settings.normalized(), onlineReady: false) }
         environment.stickerCatalogStoreSource = {
             counter.catalogRequests += 1

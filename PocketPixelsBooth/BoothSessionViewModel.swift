@@ -1594,6 +1594,10 @@ final class BoothSessionViewModel: ObservableObject {
     /// Freezes Sticker Studio settings for this session (called when the session starts).
     func freezeSessionStickerConfiguration() {
         sessionStickerConfiguration = environment.isQualification ? .disabled : environment.stickerConfigurationSource()
+        if sessionStickerConfiguration.isGuestStepEnabled, sessionStickerConfiguration.settings.emojiCollectionEnabled {
+            // Decode the bundled emoji catalog in the background long before Sticker Studio opens.
+            Task.detached(priority: .utility) { _ = EmojiCatalog.shared }
+        }
     }
 
     private func openStickerStudio() {

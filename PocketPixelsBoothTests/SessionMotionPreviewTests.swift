@@ -10,9 +10,6 @@ final class SessionMotionPreviewTests: XCTestCase {
             XCTAssertFalse(SessionMotionPreview.isAvailable(format: format, photoCount: max(0, format.photoCount - 1)), "\(format.rawValue): incomplete sessions do not animate")
         }
         XCTAssertFalse(SessionMotionPreview.isAvailable(format: nil, photoCount: 4))
-        XCTAssertEqual(ReceiptPreviewMode.available(motion: false), [.keepsake, .blackAndWhite])
-        XCTAssertEqual(ReceiptPreviewMode.available(motion: true), [.keepsake, .blackAndWhite, .motion])
-        XCTAssertEqual(ReceiptPreviewMode.motion.title, "In Motion")
     }
 
     func testPreviewTimingMatchesTheGalleryGIFAndLoopsInOrder() {
