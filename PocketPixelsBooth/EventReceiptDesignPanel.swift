@@ -31,6 +31,12 @@ struct EventReceiptDesignPanel: View {
                 Label("Decorative barcode only: no printed gallery access. The iPad gallery QR remains available.", systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(.orange)
             }
 
+            Picker("Default QR Gallery Receipt Style", selection: $design.profile.galleryReceiptStyleOverride) {
+                Text("Use Device Default").tag(Optional<GalleryReceiptStyle>.none)
+                ForEach(GalleryReceiptStyle.allCases) { style in Text(style.title).tag(Optional(style)) }
+            }
+            Text("Customer Gallery only. Save Design, then Review & Start to apply.").font(.footnote).foregroundStyle(.secondary)
+
             Toggle(isOn: personalizeBinding) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Personalize Receipt with Event Logo").font(.headline)

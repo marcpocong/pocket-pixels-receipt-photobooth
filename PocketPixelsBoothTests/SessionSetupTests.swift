@@ -109,6 +109,24 @@ import SwiftUI
         let result = await model.startAccepting()
         XCTAssertEqual(result, expected, model.message, file: file, line: line)
     }
+    func testGalleryOverrideIsStagedSavedAndAppliedIndependentlyOfLogo() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        await f.model.createEvent(name: "Gallery Style", venue: "Cebu")
+        f.model.design?.profile.galleryReceiptStyleOverride = .asPrinted
+        XCTAssertTrue(f.model.designDirty)
+        XCTAssertNil(f.profile.galleryReceiptStyleOverride)
+        f.model.saveDesign()
+        XCTAssertFalse(f.model.designDirty)
+        XCTAssertNil(f.profile.galleryReceiptStyleOverride, "Save Design does not mutate the active profile")
+        await assertStart(f.model, expected: true)
+        XCTAssertEqual(f.profile.galleryReceiptStyleOverride, .asPrinted)
+        XCTAssertNil(f.profile.activeReceiptSnapshot, "Logo-off events still apply the gallery preference")
+        f.model.design?.profile.galleryReceiptStyleOverride = .shareFriendly
+        XCTAssertEqual(f.profile.galleryReceiptStyleOverride, .asPrinted)
+        f.model.saveDesign()
+        XCTAssertEqual(f.profile.galleryReceiptStyleOverride, .asPrinted, "Saved edits cannot leak into active sessions")
+    }
+
     func testModeSelectionIsStagedInBothDirectionsAndDraftsSurviveRelaunch() async {
         let f = SetupFixture(); defer { f.cleanup() }
         await f.paid(); f.model.policy.priceText = "35"; f.model.prepaid.activePolicy.maxCopies = 7

@@ -169,6 +169,8 @@ nonisolated struct GalleryPreparedUploadPayload: Codable, Equatable, Sendable {
     let photos: [GalleryStoredUploadImage]
     let colorReceipt: GalleryStoredUploadImage
     let thermalReceipt: GalleryStoredUploadImage?
+    let shareColorReceipt: GalleryStoredUploadImage?
+    let receiptVariants: GalleryReceiptVariants?
     let gif: GalleryStoredUploadImage?
     let metrics: GalleryPreparedUploadMetrics
     let deliveryState: GalleryDeliveryState
@@ -176,17 +178,19 @@ nonisolated struct GalleryPreparedUploadPayload: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, galleryToken, galleryURL, sessionID, createdAt, photos
-        case receipt, colorReceipt, thermalReceipt, gif, metrics, deliveryState
+        case receipt, colorReceipt, thermalReceipt, gif, metrics, deliveryState, shareColorReceipt, receiptVariants
     }
 
     init(schemaVersion: Int, galleryToken: String, galleryURL: URL, sessionID: String, createdAt: String,
          photos: [GalleryStoredUploadImage], colorReceipt: GalleryStoredUploadImage,
          thermalReceipt: GalleryStoredUploadImage?, gif: GalleryStoredUploadImage?,
-         metrics: GalleryPreparedUploadMetrics, deliveryState: GalleryDeliveryState) {
+         metrics: GalleryPreparedUploadMetrics, deliveryState: GalleryDeliveryState,
+         shareColorReceipt: GalleryStoredUploadImage? = nil, receiptVariants: GalleryReceiptVariants? = nil) {
         self.schemaVersion = schemaVersion; self.galleryToken = galleryToken; self.galleryURL = galleryURL
         self.sessionID = sessionID; self.createdAt = createdAt; self.photos = photos
         self.colorReceipt = colorReceipt; self.thermalReceipt = thermalReceipt; self.gif = gif
         self.metrics = metrics; self.deliveryState = deliveryState
+        self.shareColorReceipt = shareColorReceipt; self.receiptVariants = receiptVariants
     }
 
     init(schemaVersion: Int, galleryToken: String, galleryURL: URL, sessionID: String, createdAt: String,
@@ -207,6 +211,8 @@ nonisolated struct GalleryPreparedUploadPayload: Codable, Equatable, Sendable {
         photos = try values.decode([GalleryStoredUploadImage].self, forKey: .photos)
         colorReceipt = try values.decodeIfPresent(GalleryStoredUploadImage.self, forKey: .colorReceipt)
             ?? values.decode(GalleryStoredUploadImage.self, forKey: .receipt)
+        shareColorReceipt = try values.decodeIfPresent(GalleryStoredUploadImage.self, forKey: .shareColorReceipt)
+        receiptVariants = try values.decodeIfPresent(GalleryReceiptVariants.self, forKey: .receiptVariants)
         thermalReceipt = try values.decodeIfPresent(GalleryStoredUploadImage.self, forKey: .thermalReceipt)
         gif = try values.decodeIfPresent(GalleryStoredUploadImage.self, forKey: .gif)
         metrics = try values.decode(GalleryPreparedUploadMetrics.self, forKey: .metrics)
@@ -221,6 +227,8 @@ nonisolated struct GalleryPreparedUploadPayload: Codable, Equatable, Sendable {
         if schemaVersion == 1 { try values.encode(colorReceipt, forKey: .receipt) }
         else { try values.encode(colorReceipt, forKey: .colorReceipt) }
         try values.encodeIfPresent(thermalReceipt, forKey: .thermalReceipt); try values.encodeIfPresent(gif, forKey: .gif)
+        try values.encodeIfPresent(shareColorReceipt, forKey: .shareColorReceipt)
+        try values.encodeIfPresent(receiptVariants, forKey: .receiptVariants)
         try values.encode(metrics, forKey: .metrics); try values.encode(deliveryState, forKey: .deliveryState)
     }
 }

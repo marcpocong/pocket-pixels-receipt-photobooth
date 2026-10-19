@@ -84,7 +84,7 @@ assert.match(html, /showEmbeddedImages\(\)/);
 assert.match(html, /Color Receipt/);
 assert.match(html, /Black &amp; White Receipt/);
 assert.match(html, /A digital preview of your printed keepsake\./);
-assert.doesNotMatch(html, /Thermal Receipt|just like it came out|exact print|as printed/i);
+assert.doesNotMatch(html, /Thermal Receipt|just like it came out|exact print/i);
 assert.doesNotMatch(html, /good people|same energy|big memories|class="handwritten"/i);
 assert.equal(context.makeCompleteManifest_(context.makeSelfTestPayload_(2)).gif, 'session.gif');
 
@@ -289,10 +289,14 @@ function galleryFixture(photoCount, schemaVersion = 2, includeGIF = schemaVersio
   } else if (!includeGIF) {
     delete payload.gif;
   }
+  if (schemaVersion === 3) {
+    payload.receiptVariants = {originalFooterStyle:'integratedGalleryQR', defaultStyle:'shareFriendly'};
+    payload.shareColorReceipt = {...payload.colorReceipt, filename:'receipt-share-color.jpg'};
+  }
   assert.equal(context.validateUploadPayload_(payload).ok, true);
   const manifest = context.makeCompleteManifest_(payload);
-  const items = payload.photos.concat(schemaVersion === 2
-    ? [payload.colorReceipt, payload.thermalReceipt, payload.gif].filter(Boolean)
+  const items = payload.photos.concat(schemaVersion >= 2
+    ? [payload.colorReceipt, payload.thermalReceipt, payload.gif, payload.shareColorReceipt].filter(Boolean)
     : [payload.receipt]);
   const filesByName = Object.fromEntries(items.map(item => [item.filename, {
     getBlob: () => ({ getBytes: () => Array.from(Buffer.from(item.base64Data, 'base64')) }),
@@ -376,6 +380,24 @@ if (process.argv.includes('--fixtures')) {
     file.getBlob = () => ({getBytes: () => Array.from(bytes)});
   }
   fs.writeFileSync(path.join(output, 'gallery-historical-raster.html'), context.renderGalleryPage_(historicalFixture, {}, Date.now()).getContent());
+  for (const footer of ['integratedGalleryQR','classicBarcodeAndGalleryQR','decorativeBarcodeOnly']) {
+    for (const style of ['shareFriendly','asPrinted']) {
+      const variant = galleryFixture(6, 3, false);
+      variant.manifest.receiptVariants = {originalFooterStyle:footer, defaultStyle:style};
+      if(footer === 'decorativeBarcodeOnly') { delete variant.manifest.shareColorReceipt; delete variant.filesByName['receipt-share-color.jpg']; }
+      for(const [name,file] of Object.entries(variant.filesByName)) {
+        const isReceipt=name.startsWith('receipt');
+        const bytes=syntheticPNG(isReceipt?576:1056,isReceipt?(name.includes('share')?950:1112):1408,name==='receipt-bw.png'?'gray':'color');
+        file.getBlob=()=>({getBytes:()=>Array.from(bytes)});
+      }
+      fs.writeFileSync(path.join(output, `gallery-styles-${footer}-${style}.html`),context.renderGalleryPage_(variant,{},Date.now()).getContent());
+      if(footer==='integratedGalleryQR'&&style==='shareFriendly') {
+        const before={manifest:{...variant.manifest,schemaVersion:2},filesByName:{...variant.filesByName}};
+        delete before.manifest.receiptVariants;delete before.manifest.shareColorReceipt;delete before.filesByName['receipt-share-color.jpg'];
+        fs.writeFileSync(path.join(output,'gallery-styles-before.html'),context.renderGalleryPage_(before,{},Date.now()).getContent());
+      }
+    }
+  }
   fs.writeFileSync(path.join(output, 'legacy.html'), legacyHTML);
   fs.writeFileSync(path.join(output, 'pending.html'), pendingHTML);
   fs.writeFileSync(path.join(output, 'invalid.html'), invalidHTML);
@@ -400,3 +422,64 @@ assert.equal((soloHTML.match(/data-collage=/g) || []).length, 1);
 assert.equal((html.match(/data-collage=/g) || []).length, 2);
 assert.doesNotMatch(legacyHTML, /class="receipt-card"[^>]*[\s\S]*Black &amp; White Receipt/);
 console.log('Editorial collage, legacy receipt and concise UUID session reference checks passed.');
+
+// Schema 3 is explicit. Historical payloads/manifests remain unambiguous and unchanged.
+let styleCases=0;
+for(const footer of ['integratedGalleryQR','classicBarcodeAndGalleryQR','decorativeBarcodeOnly']) {
+ for(const style of ['shareFriendly','asPrinted']) {
+  for(const count of [1,6]) {
+   const payload=context.makeSelfTestPayload_(count); delete payload.gif;
+   payload.schemaVersion=3;payload.receiptVariants={originalFooterStyle:footer,defaultStyle:style};
+   if(footer!=='decorativeBarcodeOnly')payload.shareColorReceipt={...payload.colorReceipt,filename:'receipt-share-color.jpg'};
+   assert.equal(context.validateUploadPayload_(payload).ok,true);
+   const manifest=context.makeCompleteManifest_(payload);
+   assert.equal(context.manifestHasExpectedFiles_(manifest,count),true);
+   assert.equal(context.expectedFilenames_(count,3,false,!!payload.shareColorReceipt).length,count+2+(payload.shareColorReceipt?1:0));
+   assert.equal(context.galleryReceiptStyleHTML_(manifest).includes('data-receipt-style'),footer!=='decorativeBarcodeOnly');
+   const invalid=JSON.parse(JSON.stringify(payload));invalid.receiptVariants.defaultStyle='invalid';
+   assert.equal(context.validateUploadPayload_(invalid).code,'INVALID_RECEIPT_VARIANTS');
+   const badManifest=JSON.parse(JSON.stringify(manifest));badManifest.receiptVariants.originalFooterStyle='invalid';
+   assert.equal(context.manifestHasExpectedFiles_(badManifest,count),false);
+   const missing=JSON.parse(JSON.stringify(payload));
+   if(payload.shareColorReceipt) delete missing.shareColorReceipt; else missing.shareColorReceipt={...payload.colorReceipt,filename:'receipt-share-color.jpg'};
+   assert.equal(context.validateUploadPayload_(missing).code,'INVALID_RECEIPT_VARIANTS');
+   if(payload.shareColorReceipt){const bad=JSON.parse(JSON.stringify(payload));bad.shareColorReceipt.filename='../receipt.jpg';assert.equal(context.validateUploadPayload_(bad).ok,false);}
+   styleCases++;
+  }
+ }
+}
+const oversized=realisticBudgetPayload();oversized.schemaVersion=3;oversized.receiptVariants={originalFooterStyle:'integratedGalleryQR',defaultStyle:'shareFriendly'};oversized.shareColorReceipt=encodedImage('receipt-share-color.jpg','image/jpeg',1_100_000);
+assert.equal(context.validateUploadPayload_(oversized).code,'GALLERY_TOO_LARGE');
+console.log(`Receipt style schema matrix passed: ${styleCases} cases, invalid enums/assets/manifests and size rejection.`);
+
+// In-memory Drive contract: execute the real folder writer, inspection, manifest and retry code.
+context.Utilities.newBlob=(bytes,mimeType,name)=>({bytes,mimeType,name});
+function iterator(items){let i=0;return {hasNext:()=>i<items.length,next:()=>items[i++]};}
+function driveRoot(){return {folders:[],getFoldersByName(name){return iterator(this.folders.filter(f=>f.name===name));},createFolder(name){const folder={name,files:[],getId:()=>`synthetic-${this.folders.length}`,getFiles(){return iterator(this.files);},createFile(blob,text){const file=typeof blob==='string'?{name:blob,text}:{name:blob.name,bytes:blob.bytes};file.getName=()=>file.name;file.getBlob=()=>({getDataAsString:()=>file.text,getBytes:()=>file.bytes});this.files.push(file);return file;}};this.folders.push(folder);return folder;}};}
+for(const schema of [1,2,3]) {
+ const fixture=galleryFixture(6,schema,false);
+ const payload=context.makeSelfTestPayload_(6);delete payload.gif;payload.schemaVersion=schema;
+ if(schema===1){payload.receipt=payload.colorReceipt;delete payload.colorReceipt;delete payload.thermalReceipt;}
+ if(schema===3){payload.receiptVariants={originalFooterStyle:'integratedGalleryQR',defaultStyle:'shareFriendly'};payload.shareColorReceipt={...payload.colorReceipt,filename:'receipt-share-color.jpg'};}
+ assert.equal(context.validateUploadPayload_(payload).ok,true);
+ const root=driveRoot();const result=context.createOrReturnGallery_(root,payload);
+ assert.equal(result.status,'created');assert.equal(result.fileCount,6+(schema===1?2:schema===2?3:4));
+ assert.equal(context.createOrReturnGallery_(root,payload).status,'existingComplete');assert.equal(root.folders.length,1);
+ if(schema===3){
+  const altered=JSON.parse(JSON.stringify(payload));altered.receiptVariants.defaultStyle='asPrinted';
+  assert.throws(()=>context.createOrReturnGallery_(root,altered),/conflicting session/);
+  // Property order must not change idempotency after a queue restart.
+  const reordered=JSON.parse(JSON.stringify(payload));reordered.receiptVariants={defaultStyle:'shareFriendly',originalFooterStyle:'integratedGalleryQR'};
+  assert.equal(context.createOrReturnGallery_(root,reordered).status,'existingComplete');
+ }
+ const pending=driveRoot();const folder=pending.createFolder('gallery-'+payload.galleryToken);
+ context.saveExpectedImages_(folder,payload,{});
+ // Simulate an interrupted upload before the last image and manifest were committed.
+ folder.files.pop();
+ assert.equal(context.createOrReturnGallery_(pending,payload).status,'completedIncomplete');
+ assert.equal(folder.files.length,result.fileCount);
+ const completeManifest=folder.files.find(f=>f.name==='manifest.json');assert.ok(completeManifest);
+ folder.files=folder.files.filter(f=>f.name!=='photo-06.jpg');
+ assert.throws(()=>context.createOrReturnGallery_(pending,payload),/conflicting session/);
+}
+console.log('Drive storage/retry contract passed: v1/v2/v3, missing files, partial repair, completed retry, metadata conflict and property-order independence.');

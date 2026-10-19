@@ -79,7 +79,8 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         sessionID: String,
         createdAt: Date,
         galleryToken: String,
-        frozenGalleryURL: URL? = nil
+        frozenGalleryURL: URL? = nil,
+        shareFriendlyReceipt: UIImage? = nil, receiptVariants: GalleryReceiptVariants? = nil
     ) async throws -> GalleryPreparedUploadPayload {
         // A session's gallery URL is frozen when its token is minted and is already on the QR.
         // Reuse that front door so a config change mid-session or across recovery cannot make the
@@ -100,7 +101,8 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
                 sessionID: sessionID,
                 createdAt: createdAt,
                 galleryToken: galleryToken,
-                customerGalleryBaseURL: customerGalleryBaseURL
+                customerGalleryBaseURL: customerGalleryBaseURL,
+                shareFriendlyReceipt: shareFriendlyReceipt, receiptVariants: receiptVariants
             )
         }.value
 
@@ -282,11 +284,12 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         sessionID: String,
         createdAt: Date,
         galleryToken: String,
-        customerGalleryBaseURL: URL
+        customerGalleryBaseURL: URL,
+        shareFriendlyReceipt: UIImage? = nil, receiptVariants: GalleryReceiptVariants? = nil
     ) throws -> GalleryPreparedUploadPayload {
         let preparationStart = Date()
         guard Self.isSupportedPhotoCount(photos.count) else { throw GalleryUploadError.invalidPhotoCount }
-        guard sessionID.count <= 32, sessionID.hasPrefix("PP-") else { throw GalleryUploadError.invalidSessionID }
+        guard sessionID.count <= 64, sessionID.hasPrefix("PP-") else { throw GalleryUploadError.invalidSessionID }
 
         let createdAtString = makeWireCreatedAtString(from: createdAt)
         guard isValidWireCreatedAtString(createdAtString) else { throw GalleryUploadError.invalidDate }
@@ -323,8 +326,15 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         // Optional GIF fields remain supported for durable queues and historical manifests.
         let preparedGIF: GalleryStoredUploadImage? = nil
 
+        guard (receiptVariants?.hasAlternative ?? false) == (shareFriendlyReceipt != nil) else {
+            throw GalleryUploadError.missingReceipt
+        }
+        let preparedShareReceipt = try shareFriendlyReceipt.map {
+            GalleryStoredUploadImage(filename: "receipt-share-color.jpg", mimeType: "image/jpeg",
+                data: try GalleryUploadPreparation.preparedReceiptData(from: $0))
+        }
         let imagePreparationDuration = Date().timeIntervalSince(preparationStart)
-        let allAssets = preparedPhotos + [preparedReceipt, preparedThermalReceipt] + [preparedGIF].compactMap { $0 }
+        let allAssets = preparedPhotos + [preparedReceipt, preparedThermalReceipt] + [preparedGIF, preparedShareReceipt].compactMap { $0 }
         let decodedBytes = allAssets.reduce(0) { $0 + $1.data.count }
         let timing = GalleryUploadTimingMetrics(
             imagePreparationDuration: imagePreparationDuration,
@@ -336,7 +346,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         )
         let metrics = try validateMetrics(for: allAssets, originalDecodedBytes: originalDecodedBytes, timing: timing)
         return GalleryPreparedUploadPayload(
-            schemaVersion: 2,
+            schemaVersion: receiptVariants == nil ? 2 : 3,
             galleryToken: galleryToken,
             galleryURL: galleryURL,
             sessionID: sessionID,
@@ -346,7 +356,8 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             thermalReceipt: preparedThermalReceipt,
             gif: preparedGIF,
             metrics: metrics,
-            deliveryState: .notStarted
+            deliveryState: .notStarted,
+            shareColorReceipt: preparedShareReceipt, receiptVariants: receiptVariants
         )
     }
 
@@ -364,9 +375,10 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
                 GalleryUploadImage(filename: $0.filename, mimeType: $0.mimeType, base64Data: $0.data.base64EncodedString())
             },
             receipt: payload.schemaVersion == 1 ? uploadImage(payload.colorReceipt) : nil,
-            colorReceipt: payload.schemaVersion == 2 ? uploadImage(payload.colorReceipt) : nil,
+            colorReceipt: payload.schemaVersion >= 2 ? uploadImage(payload.colorReceipt) : nil,
             thermalReceipt: payload.thermalReceipt.map(uploadImage),
-            gif: payload.gif.map(uploadImage)
+            gif: payload.gif.map(uploadImage),
+            shareColorReceipt: payload.shareColorReceipt.map(uploadImage), receiptVariants: payload.receiptVariants
         )
     }
 
@@ -385,11 +397,11 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         expectedGalleryToken: String? = nil,
         expectedGalleryURL: URL? = nil,
         expectedPhotoCount: Int = BoothFormat.strip.photoCount,
-        expectedGIFIncluded: Bool = true
+        expectedGIFIncluded: Bool = true, expectedShareReceiptIncluded: Bool = false
     ) -> Bool {
         guard response.ok,
               Self.isSupportedPhotoCount(expectedPhotoCount),
-              response.fileCount == expectedPhotoCount + (response.schemaVersion == 2 ? (expectedGIFIncluded ? 4 : 3) : 2),
+              response.fileCount == expectedPhotoCount + ((response.schemaVersion ?? 1) >= 2 ? (3 + (expectedGIFIncluded ? 1 : 0) + (expectedShareReceiptIncluded ? 1 : 0)) : 2),
               let galleryToken = response.galleryToken,
               let galleryURL = response.galleryURL,
               Self.isConfirmedCompletionStatus(response.status),
@@ -558,7 +570,8 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             throw GalleryUploadError.server(Self.safeServerMessage(response: uploadResponse, fallback: "Gallery upload failed."))
         }
 
-        guard Self.validateSuccessfulResponse(uploadResponse, expectedGalleryToken: payload.galleryToken, expectedGalleryURL: payload.galleryURL, expectedPhotoCount: payload.photos.count, expectedGIFIncluded: payload.gif != nil),
+        guard Self.validateSuccessfulResponse(uploadResponse, expectedGalleryToken: payload.galleryToken, expectedGalleryURL: payload.galleryURL, expectedPhotoCount: payload.photos.count, expectedGIFIncluded: payload.gif != nil, expectedShareReceiptIncluded: payload.shareColorReceipt != nil),
+              uploadResponse.schemaVersion == payload.schemaVersion,
               let galleryToken = uploadResponse.galleryToken,
               let galleryURL = uploadResponse.galleryURL else {
             throw GalleryUploadError.deliveryUnknown

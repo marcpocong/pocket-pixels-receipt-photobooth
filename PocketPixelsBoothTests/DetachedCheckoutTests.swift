@@ -10,7 +10,7 @@ import XCTest
     private func snapshot(_ id: String, stage: AppRecoveryStage = .formatSelected) -> AppRecoverySnapshot {
         .init(schemaVersion:1,sessionIdentifier:id,createdAt:Date(),format:.solo,eventProfile:nil,galleryToken:String(repeating:"a",count:64),
               galleryURL:URL(string:"https://example.test/original-gallery"),photoJPEGData:[],receiptPreviewPNGData:nil,thermalPreviewPNGData:nil,
-              rasterFingerprint:nil,stage:stage,updatedAt:Date())
+              rasterFingerprint:nil,stage:stage,updatedAt:Date(),galleryReceiptStyle:.asPrinted)
     }
     func testDurableHandoffReleasesKioskAndPreservesOriginalOwnership() throws {
         let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -34,6 +34,7 @@ import XCTest
         XCTAssertFalse(try XCTUnwrap(checkpoints.checkpoint(id:original)).isResolved,"Unknown payment was not declared failed")
         let record=try XCTUnwrap(DetachedCheckoutStore(directory:env.detachedCheckoutDirectory).load(sessionID:original))
         XCTAssertEqual(record.checkpoint.orderID,"original-order")
+        XCTAssertEqual(record.snapshot.galleryReceiptStyle,.asPrinted)
         XCTAssertEqual(record.snapshot.galleryURL,snapshot(original).galleryURL)
         XCTAssertEqual(record.reference,reference)
         model.finishDetachedCheckout()

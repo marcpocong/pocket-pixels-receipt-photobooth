@@ -173,7 +173,7 @@ final class ReceiptFooterModeTests: XCTestCase {
     func testAdmissionFreezesFooterBeforeFormatSelectionAndRecoveryPersistsIt() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("FooterAdmission-\(UUID())")
         defer { try? FileManager.default.removeItem(at: directory) }
-        final class Source { var options = ReceiptPrintOptions(footerStyle: .classicBarcodeAndGalleryQR) }
+        final class Source { var options = ReceiptPrintOptions(footerStyle: .classicBarcodeAndGalleryQR); var galleryStyle = GalleryReceiptStyle.asPrinted }
         let source = Source()
         var environment = BoothSessionEnvironment.customer
         environment.archiveDirectory = directory.appendingPathComponent("archive")
@@ -181,6 +181,7 @@ final class ReceiptFooterModeTests: XCTestCase {
         environment.recordsCustomerSessionMetrics = false
         environment.deliversGallery = false
         environment.receiptPrintOptionsSource = { source.options }
+        environment.galleryReceiptStyleSource = { source.galleryStyle }
         environment.eventProfileSource = { .pocketPixelsDefault }
         let model = BoothSessionViewModel(environment: environment, captureConfirmationPause: {})
         model.state = .welcome
@@ -188,10 +189,13 @@ final class ReceiptFooterModeTests: XCTestCase {
         guard model.state == .choosingFormat else { throw XCTSkip("Admission blocked by simulator configuration: \(model.state)") }
         XCTAssertEqual(model.sessionPrintOptions.footerStyle, .classicBarcodeAndGalleryQR)
         source.options.footerStyle = .decorativeBarcodeOnly
+        source.galleryStyle = .shareFriendly
         model.selectBoothFormat(.solo)
         XCTAssertEqual(model.sessionPrintOptions.footerStyle, .classicBarcodeAndGalleryQR)
+        XCTAssertEqual(model.sessionGalleryReceiptStyle, .asPrinted)
         let recovery = try AppRecoveryStore(directoryURL: environment.recoveryDirectory)
         let snapshot = try XCTUnwrap(recovery.load())
+        XCTAssertEqual(snapshot.galleryReceiptStyle, .asPrinted)
         XCTAssertEqual(snapshot.receiptPrintOptions?.footerStyle, .classicBarcodeAndGalleryQR)
     }
 

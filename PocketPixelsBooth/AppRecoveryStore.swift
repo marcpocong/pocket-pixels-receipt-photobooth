@@ -33,6 +33,7 @@ nonisolated struct AppRecoverySnapshot: Codable, Sendable {
     /// Committed Passport keepsake data, retained only for the session that owns this snapshot.
     var passport: PassportSessionData? = nil
     var receiptPrintOptions: ReceiptPrintOptions? = nil
+    var galleryReceiptStyle: GalleryReceiptStyle? = nil
 }
 
 nonisolated enum AppRecoveryStoreError: Error, LocalizedError, Equatable {

@@ -378,6 +378,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         if eventModeEnabled, let design { return design.appliedProfile() }
         var studio = currentProfile()
         studio.receiptDesign.footerStyleOverride = nil
+        studio.galleryReceiptStyleOverride = nil
         studio.isEnabled = false
         studio.customerScreenEnabled = false
         return studio.normalized()

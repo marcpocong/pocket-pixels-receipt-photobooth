@@ -37,6 +37,7 @@ struct BoothSessionEnvironment {
     /// profile instead of editing the operator's saved event settings.
     var eventProfileSource: @MainActor () -> EventProfile = { RegularBoothMode.isEnabled ? .pocketPixelsDefault : EventProfileStore.load() }
     var regularBoothModeSource: @MainActor () -> Bool = { RegularBoothMode.isEnabled }
+    var galleryReceiptStyleSource: @MainActor () -> GalleryReceiptStyle = { GalleryReceiptSettingsStore.load() }
     var receiptPrintOptionsSource: @MainActor () -> ReceiptPrintOptions = { ReceiptPrintSettingsStore.load() }
     /// Sticker Studio settings a new session freezes. Qualification never shows the editor.
     var stickerConfigurationSource: @MainActor () -> StickerStudioSessionConfiguration = { StickerStudioSessionConfiguration.current() }

@@ -63,7 +63,8 @@ struct GalleryPendingUploadStore: Sendable {
             deliveryState: payload.deliveryState,
             retryAttemptCount: existingRetryAttemptCount(for: payload.galleryToken),
             lastAttemptAt: existingLastAttemptAt(for: payload.galleryToken),
-            lastSafeError: lastSafeError
+            lastSafeError: lastSafeError,
+            shareColorReceiptFilename: payload.shareColorReceipt?.filename, receiptVariants: payload.receiptVariants
         )
 
         if fileManager.fileExists(atPath: finalURL.path) {
@@ -81,7 +82,7 @@ struct GalleryPendingUploadStore: Sendable {
         try applyStorageAttributes(to: stagingURL)
 
         do {
-            for image in payload.photos + [payload.colorReceipt] + [payload.thermalReceipt, payload.gif].compactMap({ $0 }) {
+            for image in payload.photos + [payload.colorReceipt] + [payload.thermalReceipt, payload.gif, payload.shareColorReceipt].compactMap({ $0 }) {
                 try image.data.write(to: stagingURL.appendingPathComponent(image.filename), options: .atomic)
             }
 
@@ -135,7 +136,9 @@ struct GalleryPendingUploadStore: Sendable {
             thermalReceipt: thermalReceipt,
             gif: gif,
             metrics: metadata.metrics,
-            deliveryState: metadata.deliveryState
+            deliveryState: metadata.deliveryState,
+            shareColorReceipt: try metadata.shareColorReceiptFilename.map { try loadImage(filename: $0, from: baseURL) },
+            receiptVariants: metadata.receiptVariants
         )
     }
 
@@ -181,7 +184,8 @@ struct GalleryPendingUploadStore: Sendable {
             thermalReceipt: payload.thermalReceipt,
             gif: payload.gif,
             metrics: payload.metrics,
-            deliveryState: deliveryState
+            deliveryState: deliveryState,
+            shareColorReceipt: payload.shareColorReceipt, receiptVariants: payload.receiptVariants
         )
         try save(payload, lastSafeError: lastSafeError)
     }
@@ -269,12 +273,14 @@ struct GalleryPendingUploadStore: Sendable {
               metadata.createdAt == payload.createdAt,
               metadata.photoFilenames == payload.photos.map(\.filename),
               metadata.receiptFilename == payload.colorReceipt.filename,
+              metadata.shareColorReceiptFilename == payload.shareColorReceipt?.filename,
+              metadata.receiptVariants == payload.receiptVariants,
               metadata.thermalReceiptFilename == payload.thermalReceipt?.filename,
               metadata.gifFilename == payload.gif?.filename else {
             return false
         }
 
-        for image in payload.photos + [payload.colorReceipt] + [payload.thermalReceipt, payload.gif].compactMap({ $0 }) {
+        for image in payload.photos + [payload.colorReceipt] + [payload.thermalReceipt, payload.gif, payload.shareColorReceipt].compactMap({ $0 }) {
             let storedData = try Data(contentsOf: directory.appendingPathComponent(image.filename))
             guard storedData == image.data else {
                 return false
@@ -362,7 +368,8 @@ struct GalleryPendingUploadStore: Sendable {
             deliveryState: metadata.deliveryState,
             retryAttemptCount: metadata.retryAttemptCount,
             lastAttemptAt: metadata.lastAttemptAt,
-            lastSafeError: metadata.lastSafeError
+            lastSafeError: metadata.lastSafeError,
+            shareColorReceiptFilename: metadata.shareColorReceiptFilename, receiptVariants: metadata.receiptVariants
         )
         try JSONEncoder().encode(migratedMetadata).write(to: metadataURL, options: .atomic)
         return migratedMetadata
@@ -382,6 +389,8 @@ private struct GalleryPendingUploadMetadata: Codable {
     let createdAt: String
     let photoFilenames: [String]
     let receiptFilename: String
+    let shareColorReceiptFilename: String?
+    let receiptVariants: GalleryReceiptVariants?
     let thermalReceiptFilename: String?
     let gifFilename: String?
     let metrics: GalleryPreparedUploadMetrics
@@ -398,7 +407,7 @@ private struct GalleryPendingUploadMetadata: Codable {
         case createdAt
         case photoFilenames
         case receiptFilename
-        case thermalReceiptFilename
+        case thermalReceiptFilename, shareColorReceiptFilename, receiptVariants
         case gifFilename
         case metrics
         case deliveryState
@@ -421,7 +430,8 @@ private struct GalleryPendingUploadMetadata: Codable {
         deliveryState: GalleryDeliveryState,
         retryAttemptCount: Int,
         lastAttemptAt: Date?,
-        lastSafeError: String?
+        lastSafeError: String?,
+        shareColorReceiptFilename: String? = nil, receiptVariants: GalleryReceiptVariants? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.galleryToken = galleryToken
@@ -437,6 +447,7 @@ private struct GalleryPendingUploadMetadata: Codable {
         self.retryAttemptCount = retryAttemptCount
         self.lastAttemptAt = lastAttemptAt
         self.lastSafeError = lastSafeError
+        self.shareColorReceiptFilename = shareColorReceiptFilename; self.receiptVariants = receiptVariants
     }
 
     init(from decoder: Decoder) throws {
@@ -448,6 +459,8 @@ private struct GalleryPendingUploadMetadata: Codable {
         createdAt = try container.decode(String.self, forKey: .createdAt)
         photoFilenames = try container.decode([String].self, forKey: .photoFilenames)
         receiptFilename = try container.decode(String.self, forKey: .receiptFilename)
+        shareColorReceiptFilename = try container.decodeIfPresent(String.self, forKey: .shareColorReceiptFilename)
+        receiptVariants = try container.decodeIfPresent(GalleryReceiptVariants.self, forKey: .receiptVariants)
         thermalReceiptFilename = try container.decodeIfPresent(String.self, forKey: .thermalReceiptFilename)
         gifFilename = try container.decodeIfPresent(String.self, forKey: .gifFilename)
         metrics = try container.decode(GalleryPreparedUploadMetrics.self, forKey: .metrics)

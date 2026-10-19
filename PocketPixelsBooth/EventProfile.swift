@@ -32,6 +32,7 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
     var customerTheme: CustomerScreenTheme
     var passport: PassportConfiguration
     /// Typography and future receipt design modules. Artwork remains in `receiptHeader`.
+    var galleryReceiptStyleOverride: GalleryReceiptStyle?
     var receiptDesign: EventReceiptDesignConfiguration
 
     nonisolated init(
@@ -51,7 +52,8 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         customerThankYouMessage: String = "",
         customerTheme: CustomerScreenTheme = .classic,
         passport: PassportConfiguration = .default,
-        receiptDesign: EventReceiptDesignConfiguration = .default
+        receiptDesign: EventReceiptDesignConfiguration = .default,
+        galleryReceiptStyleOverride: GalleryReceiptStyle? = nil
     ) {
         self.isEnabled = isEnabled
         self.eventName = eventName
@@ -70,6 +72,7 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         self.customerTheme = customerTheme
         self.passport = passport
         self.receiptDesign = receiptDesign
+        self.galleryReceiptStyleOverride = galleryReceiptStyleOverride
     }
 
     enum CodingKeys: String, CodingKey {
@@ -90,6 +93,7 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         case customerTheme
         case passport
         case receiptDesign
+        case galleryReceiptStyleOverride
     }
 
     init(from decoder: Decoder) throws {
@@ -112,6 +116,7 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         passport = try container.decodeIfPresent(PassportConfiguration.self, forKey: .passport) ?? .default
         // Added after the first release. Missing or unreadable design data must never make the
         // whole profile unreadable, so it falls back to the Classic design the event used before.
+        galleryReceiptStyleOverride = try container.decodeIfPresent(GalleryReceiptStyle.self, forKey: .galleryReceiptStyleOverride)
         receiptDesign = (try? container.decodeIfPresent(EventReceiptDesignConfiguration.self, forKey: .receiptDesign)) ?? .default
     }
 
@@ -166,7 +171,8 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
             customerThankYouMessage: Self.normalizedSingleLine(customerThankYouMessage, limit: Self.customerMessageLimit),
             customerTheme: customerTheme,
             passport: passport.normalized(),
-            receiptDesign: receiptDesign.normalized()
+            receiptDesign: receiptDesign.normalized(),
+            galleryReceiptStyleOverride: galleryReceiptStyleOverride
         )
     }
 

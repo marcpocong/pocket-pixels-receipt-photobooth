@@ -266,6 +266,116 @@ final class EventFinalizationTests: XCTestCase {
 
 @MainActor
 final class GalleryBrowserLayoutTests: XCTestCase {
+    func testReceiptStylesSwitchBothCardsActionsAndLightboxAcrossWidths() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("DerivedData/gallery-fixtures")
+        let (web, window) = hostedBrowser()
+        defer { web.stopLoading(); window.isHidden = true }
+        for footer in ["integratedGalleryQR", "classicBarcodeAndGalleryQR", "decorativeBarcodeOnly"] {
+            for style in ["shareFriendly", "asPrinted"] {
+                let html = try String(contentsOf: root.appendingPathComponent("gallery-styles-\(footer)-\(style).html"), encoding: .utf8)
+                try await loadFixture(html, in: web)
+                try await waitForReceiptStyles(in: web)
+                let selectorCount = try await web.evaluateJavaScript("document.querySelectorAll('[data-receipt-style]').length") as? Int
+                XCTAssertEqual(selectorCount, footer == "decorativeBarcodeOnly" ? 0 : 2)
+                for width in [320,375,390,430,768,1024,1440] {
+                    window.frame.size = CGSize(width: width, height: 1000)
+                    web.frame = window.bounds
+                    web.superview?.layoutIfNeeded()
+                    try await waitForViewport(width, in: web)
+                    let valid = try await web.evaluateJavaScript("document.documentElement.scrollWidth<=innerWidth && document.querySelectorAll('.receipt-card').length===2 && [...document.querySelectorAll('[data-receipt-style]')].every(b=>b.getBoundingClientRect().height>=44)") as? Bool
+                    XCTAssertEqual(valid, true, "\(footer)/\(style)/\(width)")
+                }
+                guard footer != "decorativeBarcodeOnly" else { continue }
+                for selected in ["shareFriendly", "asPrinted", "shareFriendly"] {
+                    _ = try await web.evaluateJavaScript("document.querySelector('[data-receipt-style=\(selected)]').click(); true")
+                    try await waitForReceiptStyles(in: web)
+                    let share = selected == "shareFriendly"
+                    let color = share ? "receipt-share-color.jpg" : "receipt-color.jpg"
+                    let bw = share ? "receipt-share-bw.png" : "receipt-bw.png"
+                    let state = try await web.evaluateJavaScript("""
+                    (()=>{const cards=[...document.querySelectorAll('.receipt-card')];return cards.every((card,i)=>{
+                      const name=i===0?'\(color)':'\(bw)';return card.querySelector('img').id==='image-'+name && !card.querySelector('img').hidden && ['data-open','data-download','data-share'].every(key=>card.querySelector('['+key+']').getAttribute(key)===name);
+                    }) && document.getElementById('receiptPrivacy').hidden===\(share ? "true" : "false") && document.querySelector('[data-receipt-style=\(selected)]').getAttribute('aria-pressed')==='true';})()
+                    """) as? Bool
+                    XCTAssertEqual(state, true)
+                    _ = try await web.evaluateJavaScript("window.savedVariants=[];window.sharedVariants=[];saveItem=item=>savedVariants.push(fileForItem(item).name);shareItem=item=>sharedVariants.push(fileForItem(item).name);document.querySelector('.receipt-card [data-download]').click();document.querySelectorAll('.receipt-card [data-share]')[1].click();document.querySelectorAll('.receipt-card [data-open]')[1].click();true")
+                    let actionFiles = try await web.evaluateJavaScript("savedVariants[0]+'|'+sharedVariants[0]+'|'+lightboxItems[0].filename") as? String
+                    XCTAssertEqual(actionFiles, "\(color)|\(bw)|\(bw)")
+                    _ = try await web.evaluateJavaScript("closeLightbox();true")
+                }
+                // Several competing async preparations must leave the last selected style in control.
+                _ = try await web.evaluateJavaScript("['asPrinted','shareFriendly','asPrinted','shareFriendly'].forEach(s=>document.querySelector('[data-receipt-style='+s+']').click());true")
+                try await waitForReceiptStyles(in: web)
+                let finalImage = try await web.evaluateJavaScript("document.querySelector('.receipt-card img').id") as? String
+                XCTAssertEqual(finalImage, "image-receipt-share-color.jpg")
+            }
+        }
+    }
+
+    func testUnavailableShareFriendlyAssetNeverShowsOrSavesTheQRReceipt() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("DerivedData/gallery-fixtures")
+        let html = try String(contentsOf: root.appendingPathComponent("gallery-styles-integratedGalleryQR-shareFriendly.html"), encoding: .utf8)
+            .replacingOccurrences(of: "const startedAt=performance.now();", with: "galleryData.shareColorReceipt.base64Data='invalid-image';const startedAt=performance.now();")
+        let (web, window) = hostedBrowser()
+        defer { web.stopLoading(); window.isHidden = true }
+        try await loadFixture(html, in: web)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        var failed = false
+        repeat {
+            failed = try await web.evaluateJavaScript("document.getElementById('receiptStyleStatus').textContent.includes('Receipt unavailable')") as? Bool == true
+            if !failed { try await Task.sleep(for: .milliseconds(30)) }
+        } while !failed && ContinuousClock.now < deadline
+        XCTAssertTrue(failed)
+        let safe = try await web.evaluateJavaScript("[...document.querySelectorAll('.receipt-card img')].every(i=>i.hidden&&!i.getAttribute('src')) && [...document.querySelectorAll('.receipt-card button')].every(b=>b.disabled)") as? Bool
+        XCTAssertEqual(safe, true, "No QR-bearing fallback or enabled wrong-file actions")
+        _ = try await web.evaluateJavaScript("document.querySelector('[data-receipt-style=asPrinted]').click();true")
+        try await waitForReceiptStyles(in: web)
+    }
+
+    func testReceiptStyleBeforeAfterScreenshots() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let fixtures = root.appendingPathComponent("DerivedData/gallery-fixtures")
+        let output = root.appendingPathComponent("BuildArtifacts/GalleryReceiptStyles")
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let (web, window) = hostedBrowser()
+        defer { web.stopLoading(); window.isHidden = true }
+        for (name, file) in [("before", "gallery-styles-before.html"), ("after", "gallery-styles-integratedGalleryQR-shareFriendly.html")] {
+            try await loadFixture(String(contentsOf: fixtures.appendingPathComponent(file), encoding: .utf8), in: web)
+            try await waitForReceiptStyles(in: web)
+            for width in [320,375,390,430,768,1024,1440] {
+                window.frame.size = CGSize(width: width, height: 1000); web.frame = window.bounds
+                web.superview?.layoutIfNeeded()
+                try await waitForViewport(width, in: web)
+                for region in ["hero", "receipts"] {
+                    _ = try await web.evaluateJavaScript(region == "hero" ? "window.scrollTo({top:0,behavior:'instant'});true" : "window.scrollTo({top:document.getElementById('receipts').offsetTop-20,behavior:'instant'});true")
+                    _ = try await web.callAsyncJavaScript("await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));return true", arguments: [:], contentWorld: .page)
+                    let snapshotConfiguration = WKSnapshotConfiguration()
+                    snapshotConfiguration.afterScreenUpdates = true
+                    let image: UIImage = try await withCheckedThrowingContinuation { continuation in
+                        web.takeSnapshot(with: snapshotConfiguration) { image, error in
+                            if let image { continuation.resume(returning: image) }
+                            else { continuation.resume(throwing: error ?? NSError(domain: "GallerySnapshot", code: 1)) }
+                        }
+                    }
+                    let pixels = try XCTUnwrap(image.cgImage?.dataProvider?.data) as Data
+                    XCTAssertGreaterThan(Set(pixels).count, 16, "Screenshot must contain rendered content")
+                    try XCTUnwrap(image.pngData()).write(to: output.appendingPathComponent("\(name)-\(region)-\(width).png"))
+                }
+            }
+        }
+    }
+
+    private func waitForReceiptStyles(in web: WKWebView) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(15))
+        repeat {
+            let ready = try await web.evaluateJavaScript("[...document.querySelectorAll('.receipt-card img')].every(i=>!i.hidden&&i.complete&&i.naturalWidth>0) && [...document.querySelectorAll('.receipt-card button')].every(b=>!b.disabled)") as? Bool
+            if ready == true { return }
+            try await Task.sleep(for: .milliseconds(30))
+        } while ContinuousClock.now < deadline
+        XCTFail("Receipt variants failed to become ready")
+        throw NSError(domain: "GalleryReceiptStyles", code: 1)
+    }
+
     func testSlowImageDecodeKeepsPlaceholdersAndTouchTargetsUntilLoad() async throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("DerivedData/gallery-fixtures")
         let configuration = WKWebViewConfiguration()
@@ -559,7 +669,11 @@ final class GalleryBrowserLayoutTests: XCTestCase {
         let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844), configuration: configuration ?? WKWebViewConfiguration())
         let controller = UIViewController()
         controller.view = web
-        let window = UIWindow(frame: web.frame)
+        let window: UIWindow
+        if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
+            window = UIWindow(windowScene: scene)
+            window.frame = web.frame
+        } else { window = UIWindow(frame: web.frame) }
         window.rootViewController = controller
         window.makeKeyAndVisible()
         controller.view.layoutIfNeeded()

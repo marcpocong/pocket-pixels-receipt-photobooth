@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct OperatorBrandingView: View {
+    @State private var galleryStyle = GalleryReceiptSettingsStore.load()
     @State private var printOptions = ReceiptPrintSettingsStore.load()
 
     var body: some View {
@@ -28,13 +29,21 @@ struct OperatorBrandingView: View {
             } header: { Text("Physical Printing") } footer: {
                 Text("Device default for future sessions. Saved events can override it. The guest’s gallery QR always stays available on the iPad.")
             }
+            Section {
+                Picker("Default QR Gallery Receipt Style", selection: $galleryStyle) {
+                    ForEach(GalleryReceiptStyle.allCases) { style in Text(style.title).tag(style) }
+                }
+                .onChange(of: galleryStyle) { _, value in GalleryReceiptSettingsStore.save(value) }
+            } header: { Text("Customer Gallery") } footer: {
+                Text("Default digital receipt style for future guests. Saved events may inherit or override it.")
+            }
             Section("Preview") {
                 NavigationLink("Preview Guest Experience") {
                     ScrollView { CustomerExperiencePreviewView(profile: EventProfileStore.load()).padding() }.navigationTitle("Guest Preview")
                 }
             }
         }
-        .onAppear { printOptions = ReceiptPrintSettingsStore.load() }
+        .onAppear { printOptions = ReceiptPrintSettingsStore.load(); galleryStyle = GalleryReceiptSettingsStore.load() }
         .onReceive(NotificationCenter.default.publisher(for: ReceiptPrintSettingsStore.didChangeNotification)) { _ in
             printOptions = ReceiptPrintSettingsStore.load()
         }

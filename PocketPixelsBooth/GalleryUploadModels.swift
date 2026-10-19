@@ -24,14 +24,18 @@ struct GalleryUploadRequest: Codable, Sendable {
     let colorReceipt: GalleryUploadImage?
     let thermalReceipt: GalleryUploadImage?
     let gif: GalleryUploadImage?
+    let shareColorReceipt: GalleryUploadImage?
+    let receiptVariants: GalleryReceiptVariants?
 
     nonisolated init(schemaVersion: Int, deviceToken: String, galleryToken: String, sessionID: String, createdAt: String,
          photos: [GalleryUploadImage], receipt: GalleryUploadImage? = nil,
          colorReceipt: GalleryUploadImage? = nil, thermalReceipt: GalleryUploadImage? = nil,
-         gif: GalleryUploadImage? = nil) {
+         gif: GalleryUploadImage? = nil, shareColorReceipt: GalleryUploadImage? = nil,
+         receiptVariants: GalleryReceiptVariants? = nil) {
         self.schemaVersion = schemaVersion; self.deviceToken = deviceToken; self.galleryToken = galleryToken
         self.sessionID = sessionID; self.createdAt = createdAt; self.photos = photos; self.receipt = receipt
         self.colorReceipt = colorReceipt; self.thermalReceipt = thermalReceipt; self.gif = gif
+        self.shareColorReceipt = shareColorReceipt; self.receiptVariants = receiptVariants
     }
 }
 

@@ -28,6 +28,7 @@ const RFC3339_UTC_SECONDS_PATTERN = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{
 
 const RECEIPT_FILENAME = 'receipt-color.jpg';
 const THERMAL_RECEIPT_FILENAME = 'receipt-bw.png';
+const SHARE_RECEIPT_FILENAME = 'receipt-share-color.jpg';
 const GIF_FILENAME = 'session.gif';
 
 const MANIFEST_FILENAME = 'manifest.json';
@@ -38,7 +39,7 @@ const MAX_GALLERY_DECODED_BYTES = 6 * 1024 * 1024;
 
 const MAX_GALLERY_BASE64_CHARS = 9 * 1024 * 1024;
 
-const BACKEND_VERSION = 'made-to-keep-gallery-v6-monochrome-20261018';
+const BACKEND_VERSION = 'made-to-keep-gallery-v7-receipt-styles-20261018';
 
 // Customer-visible Made to Keep Studios identity. Script Property names, the completed-gallery
 // marker and self-test entry points keep their legacy Pocket Pixels identifiers for compatibility.
@@ -356,7 +357,7 @@ function runPhase6CBackendSelfChecks() {
 
   const wrongSchema = JSON.parse(JSON.stringify(validPayload));
 
-  wrongSchema.schemaVersion = 3;
+  wrongSchema.schemaVersion = 4;
 
   assertValidationCode_(wrongSchema, 'INVALID_SCHEMA_VERSION');
 
@@ -523,7 +524,7 @@ function getGalleryImage(token, filename) {
 
   }
 
-  if (expectedFilenames_(MAX_PHOTO_COUNT, 2).indexOf(String(filename || '')) === -1) {
+  if (expectedFilenames_(MAX_PHOTO_COUNT, 3, true, true).indexOf(String(filename || '')) === -1) {
 
     throw new Error('Image not found.');
 
@@ -545,7 +546,7 @@ function getGalleryImage(token, filename) {
 
   }
 
-  return 'data:image/jpeg;base64,' + Utilities.base64Encode(file.getBlob().getBytes());
+  return 'data:' + (filename.endsWith('.png') ? 'image/png' : filename.endsWith('.gif') ? 'image/gif' : 'image/jpeg') + ';base64,' + Utilities.base64Encode(file.getBlob().getBytes());
 
 }
 
@@ -621,12 +622,19 @@ function validateUploadPayload_(body) {
 
   }
 
-  if (body.schemaVersion !== 1 && body.schemaVersion !== 2) {
+  if (body.schemaVersion !== 1 && body.schemaVersion !== 2 && body.schemaVersion !== 3) {
 
     return validationError_('INVALID_SCHEMA_VERSION', 'Unsupported schema version.', 'schemaVersion');
 
   }
 
+  if (body.schemaVersion === 3) {
+    if (!validReceiptVariants_(body.receiptVariants)) return validationError_('INVALID_RECEIPT_VARIANTS', 'Invalid receipt styles.', 'receiptVariants');
+    const hasAlternative = body.receiptVariants.originalFooterStyle !== 'decorativeBarcodeOnly';
+    if (hasAlternative !== !!body.shareColorReceipt) return validationError_('INVALID_RECEIPT_VARIANTS', 'Receipt alternative does not match physical footer.', 'shareColorReceipt');
+  } else if (body.receiptVariants !== undefined || body.shareColorReceipt !== undefined) {
+    return validationError_('INVALID_RECEIPT_VARIANTS', 'Receipt styles require schema 3.', 'receiptVariants');
+  }
   const versionFields = body.schemaVersion === 1 ? ['receipt'] : ['colorReceipt', 'thermalReceipt'];
   for (let i = 0; i < versionFields.length; i++) {
     if (!Object.prototype.hasOwnProperty.call(body, versionFields[i])) {
@@ -705,7 +713,7 @@ function validateUploadPayload_(body) {
     validatedImages.push(receiptError.image);
   }
 
-  if (body.schemaVersion === 2) {
+  if (body.schemaVersion >= 2) {
     const colorError = validateImage_(body.colorReceipt, RECEIPT_FILENAME, 'colorReceipt', 'image/jpeg');
     if (!colorError.ok) return colorError;
     const thermalError = validateImage_(body.thermalReceipt, THERMAL_RECEIPT_FILENAME, 'thermalReceipt', 'image/png');
@@ -718,6 +726,11 @@ function validateUploadPayload_(body) {
     }
   }
 
+  if (body.schemaVersion === 3 && body.shareColorReceipt) {
+    const shareError = validateImage_(body.shareColorReceipt, SHARE_RECEIPT_FILENAME, 'shareColorReceipt', 'image/jpeg');
+    if (!shareError.ok) return shareError;
+    validatedImages.push(shareError.image);
+  }
   const renderBudget = validateUploadGalleryBudget_(validatedImages, body);
   if (!renderBudget.ok) return renderBudget;
 
@@ -753,8 +766,8 @@ function validateUploadGalleryBudget_(validatedImages, body) {
   let decodedBytes = 0;
   let base64Chars = 0;
   for (let i = 0; i < validatedImages.length; i++) decodedBytes += validatedImages[i].bytes.length;
-  const wireImages = body.photos.concat(body.schemaVersion === 2
-    ? [body.colorReceipt, body.thermalReceipt].concat(body.gif ? [body.gif] : [])
+  const wireImages = body.photos.concat(body.schemaVersion >= 2
+    ? [body.colorReceipt, body.thermalReceipt].concat(body.gif ? [body.gif] : []).concat(body.shareColorReceipt ? [body.shareColorReceipt] : [])
     : [body.receipt]);
   for (let i = 0; i < wireImages.length; i++) base64Chars += String(wireImages[i].base64Data || '').length;
   if (decodedBytes > MAX_GALLERY_DECODED_BYTES || base64Chars > MAX_GALLERY_BASE64_CHARS) {
@@ -851,7 +864,7 @@ function validateImage_(image, expectedFilename, field, expectedMimeType) {
 function createOrReturnGallery_(root, body) {
 
   const folderName = 'gallery-' + body.galleryToken;
-  const expected = expectedFilenames_(body.photos.length, body.schemaVersion, !!body.gif);
+  const expected = expectedFilenames_(body.photos.length, body.schemaVersion, !!body.gif, !!body.shareColorReceipt);
   const expectedFileCount = expected.length + 1;
 
   const folders = collectFoldersByName_(root, folderName);
@@ -912,7 +925,7 @@ function createOrReturnGallery_(root, body) {
 
     if (manifest.status === 'complete') {
 
-      if (manifest.galleryToken === body.galleryToken && manifest.sessionID === body.sessionID && manifestHasExpectedFiles_(manifest, body.photos.length) && hasExactlyExpectedImages_(inspection, expected)) {
+      if (manifest.galleryToken === body.galleryToken && manifest.sessionID === body.sessionID && manifest.schemaVersion === body.schemaVersion && (body.schemaVersion !== 3 || (manifest.receiptVariants && manifest.receiptVariants.originalFooterStyle === body.receiptVariants.originalFooterStyle && manifest.receiptVariants.defaultStyle === body.receiptVariants.defaultStyle)) && manifestHasExpectedFiles_(manifest, body.photos.length) && hasExactlyExpectedImages_(inspection, expected)) {
 
         console.log('Returned existing Pocket Pixels gallery for session ' + body.sessionID + ' with token ' + redactToken_(body.galleryToken));
 
@@ -982,8 +995,8 @@ function createOrReturnGallery_(root, body) {
 
 function saveExpectedImages_(folder, body, existingCounts) {
 
-  const images = body.schemaVersion === 2
-    ? body.photos.concat([body.colorReceipt, body.thermalReceipt]).concat(body.gif ? [body.gif] : [])
+  const images = body.schemaVersion >= 2
+    ? body.photos.concat([body.colorReceipt, body.thermalReceipt]).concat(body.gif ? [body.gif] : []).concat(body.shareColorReceipt ? [body.shareColorReceipt] : [])
     : body.photos.concat([body.receipt]);
 
   const validatedImages = body._validatedImages || [];
@@ -1159,11 +1172,17 @@ function manifestHasExpectedFiles_(manifest, expectedPhotoCount) {
 
   const rolesOK = manifest.schemaVersion === 1
     ? manifest.receipt === RECEIPT_FILENAME
-    : manifest.schemaVersion === 2 && manifest.colorReceipt === RECEIPT_FILENAME &&
+    : (manifest.schemaVersion === 2 || manifest.schemaVersion === 3) && manifest.colorReceipt === RECEIPT_FILENAME &&
       manifest.thermalReceipt === THERMAL_RECEIPT_FILENAME &&
       (manifest.gif === undefined || manifest.gif === null || manifest.gif === GIF_FILENAME);
 
-  return rolesOK &&
+  const variantsOK = manifest.schemaVersion === 3
+    ? validReceiptVariants_(manifest.receiptVariants) &&
+      (manifest.receiptVariants.originalFooterStyle === 'decorativeBarcodeOnly'
+        ? manifest.shareColorReceipt === undefined || manifest.shareColorReceipt === null
+        : manifest.shareColorReceipt === SHARE_RECEIPT_FILENAME)
+    : manifest.receiptVariants === undefined && manifest.shareColorReceipt === undefined;
+  return rolesOK && variantsOK &&
 
     GALLERY_TOKEN_PATTERN.test(String(manifest.galleryToken || '')) &&
 
@@ -1224,7 +1243,7 @@ function findCompleteGalleryByToken_(token, timings) {
 
   const inspectionStartedAt = Date.now();
 
-  const inspection = inspectGalleryFolder_(folder, expectedFilenames_(MAX_PHOTO_COUNT, 2));
+  const inspection = inspectGalleryFolder_(folder, expectedFilenames_(MAX_PHOTO_COUNT, 3, true, true));
 
   if (timings) {
 
@@ -1264,7 +1283,7 @@ function findCompleteGalleryByToken_(token, timings) {
 
   }
 
-  const expected = expectedFilenames_(manifest.photos.length, manifest.schemaVersion, !!manifest.gif);
+  const expected = expectedFilenames_(manifest.photos.length, manifest.schemaVersion, !!manifest.gif, !!manifest.shareColorReceipt);
   const exactInspection = inspectGalleryFolder_(folder, expected);
 
   if (!exactInspection.safe || !hasExactlyExpectedImages_(exactInspection, expected) || exactInspection.manifests.length !== 1) {
@@ -1319,7 +1338,7 @@ function findCompleteGalleryByNameFallback_(root, token, timings) {
   }
 
   const folder = folders[0];
-  const inspection = inspectGalleryFolder_(folder, expectedFilenames_(MAX_PHOTO_COUNT, 2));
+  const inspection = inspectGalleryFolder_(folder, expectedFilenames_(MAX_PHOTO_COUNT, 3, true, true));
   if (!inspection.safe || inspection.manifests.length !== 1) {
     return null;
   }
@@ -1329,7 +1348,7 @@ function findCompleteGalleryByNameFallback_(root, token, timings) {
     return null;
   }
 
-  const expected = expectedFilenames_(manifest.photos.length, manifest.schemaVersion, !!manifest.gif);
+  const expected = expectedFilenames_(manifest.photos.length, manifest.schemaVersion, !!manifest.gif, !!manifest.shareColorReceipt);
   const exactInspection = inspectGalleryFolder_(folder, expected);
   if (!exactInspection.safe || !hasExactlyExpectedImages_(exactInspection, expected) || exactInspection.manifests.length !== 1) {
     return null;
@@ -1455,6 +1474,22 @@ function galleryPhotoCardHTML_(item, index, total, createdAt) {
 
 // `thermal` is the legacy name of the manifest slot. Customers always see a smooth black & white
 // digital preview there, never the 1-bit printer raster (see customerMonochromeReceipt_).
+function validReceiptVariants_(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value) &&
+    Object.keys(value).sort().join(',') === 'defaultStyle,originalFooterStyle' &&
+    ['integratedGalleryQR','classicBarcodeAndGalleryQR','decorativeBarcodeOnly'].indexOf(value.originalFooterStyle) !== -1 &&
+    ['shareFriendly','asPrinted'].indexOf(value.defaultStyle) !== -1;
+}
+
+function galleryReceiptStyleHTML_(manifest) {
+  if (manifest.schemaVersion !== 3 || !manifest.shareColorReceipt) return '';
+  return '<div class="receipt-style" role="group" aria-label="Receipt style">' +
+    '<button type="button" class="btn-small" data-receipt-style="shareFriendly" aria-pressed="false">Share-Friendly</button>' +
+    '<button type="button" class="btn-small" data-receipt-style="asPrinted" aria-pressed="false">As Printed</button></div>' +
+    '<p id="receiptPrivacy" class="receipt-privacy" hidden>This receipt includes your gallery QR. Anyone who scans it can view your photos. Choose Share-Friendly for public posts.</p>' +
+    '<p id="receiptStyleStatus" class="receipt-style-status" role="status" aria-live="polite"></p>';
+}
+
 function galleryReceiptCardHTML_(item, thermal) {
   const name = escapeHTML(item.filename);
   const title = thermal ? 'Black &amp; White Receipt' : 'Color Receipt';
@@ -1513,7 +1548,9 @@ function renderGalleryPage_(gallery, timings, startedAt) {
     photos: assets.photos,
 
     receipt: assets.receipt,
-    thermalReceipt: assets.thermalReceipt
+    thermalReceipt: assets.thermalReceipt,
+    shareColorReceipt: assets.shareColorReceipt,
+    receiptVariants: gallery.manifest.schemaVersion === 3 ? gallery.manifest.receiptVariants : null
 
   }).replace(/</g, '\\u003c');
 
@@ -1532,7 +1569,7 @@ function renderGalleryPage_(gallery, timings, startedAt) {
     body += galleryPhotoCardHTML_(assets.photos[i], i, photoCount, createdAt);
   }
   body += '</div></section>';
-  body += '<section class="receipt-section" id="receipts" aria-labelledby="receiptTitle"><div class="section-heading"><h2 id="receiptTitle">Receipt Copy</h2><p>Your keepsake</p></div><div class="receipt-layout' + (assets.thermalReceipt ? '' : ' receipt-layout-single') + '">' + galleryReceiptCardHTML_(assets.receipt, false);
+  body += '<section class="receipt-section" id="receipts" aria-labelledby="receiptTitle"><div class="section-heading"><h2 id="receiptTitle">Receipt Copy</h2><p>Your keepsake</p></div>' + galleryReceiptStyleHTML_(gallery.manifest) + '<div class="receipt-layout' + (assets.thermalReceipt ? '' : ' receipt-layout-single') + '">' + galleryReceiptCardHTML_(assets.receipt, false);
   if (assets.thermalReceipt) { body += galleryReceiptCardHTML_(assets.thermalReceipt, true); }
   body += '</div></section>';
   body += '<aside class="instagram-card" aria-labelledby="instagramTitle"><div class="instagram-emblem">' + galleryIcon_('instagram') + '</div><div class="instagram-copy"><p class="eyebrow">A little more of us</p><h2 id="instagramTitle">the moments continue.</h2><p>Tag us in your favorites, or stay for more little moments.</p></div>' + galleryInstagramLink_('btn instagram-cta', galleryIcon_('instagram') + '<span>Find us on Instagram</span>' + galleryIcon_('arrow')) + '</aside>';
@@ -1604,9 +1641,10 @@ function loadGalleryAssets_(filesByName, manifest, includeGIF) {
 
     photos: photos,
 
-    receipt: loadGalleryAsset_(filesByName, manifest.schemaVersion === 2 ? manifest.colorReceipt : manifest.receipt, 'colorReceipt'),
-    thermalReceipt: manifest.schemaVersion === 2 ? loadGalleryAsset_(filesByName, manifest.thermalReceipt, 'thermalReceipt') : null,
-    gif: includeGIF !== false && manifest.schemaVersion === 2 && manifest.gif ? loadGalleryAsset_(filesByName, manifest.gif, 'gif') : null
+    receipt: loadGalleryAsset_(filesByName, manifest.schemaVersion >= 2 ? manifest.colorReceipt : manifest.receipt, 'colorReceipt'),
+    thermalReceipt: manifest.schemaVersion >= 2 ? loadGalleryAsset_(filesByName, manifest.thermalReceipt, 'thermalReceipt') : null,
+    shareColorReceipt: manifest.schemaVersion === 3 && manifest.shareColorReceipt ? loadGalleryAsset_(filesByName, manifest.shareColorReceipt, 'colorReceipt') : null,
+    gif: includeGIF !== false && manifest.schemaVersion >= 2 && manifest.gif ? loadGalleryAsset_(filesByName, manifest.gif, 'gif') : null
 
   };
 
@@ -1673,7 +1711,7 @@ function loadGalleryAsset_(filesByName, filename, role) {
 
 function validateGalleryRenderSize_(assets) {
 
-  const items = assets.photos.concat([assets.receipt, assets.thermalReceipt, assets.gif].filter(Boolean));
+  const items = assets.photos.concat([assets.receipt, assets.thermalReceipt, assets.gif, assets.shareColorReceipt].filter(Boolean));
 
   let base64Chars = 0;
 
@@ -1748,7 +1786,7 @@ function galleryCSS_() {
 *{box-sizing:border-box}html{background:var(--paper);-webkit-text-size-adjust:100%;scroll-behavior:smooth;scroll-padding-top:20px}body{margin:0;color:var(--accent);font:15px/1.45 var(--sans);background:radial-gradient(ellipse at 78% 18%,#e7daca66,transparent 36%),radial-gradient(ellipse at 15% 58%,#eee3d54d,transparent 45%),var(--paper);-webkit-font-smoothing:antialiased}p,h1,h2,h3,figure{margin:0}p{color:var(--muted)}button,a{-webkit-tap-highlight-color:transparent}button{font:inherit;color:inherit;cursor:pointer}a{color:inherit;text-decoration:none}img{display:block;max-width:100%}[hidden]{display:none!important}:focus-visible{outline:2px solid var(--accent);outline-offset:4px}.icon{width:19px;height:19px;flex-shrink:0;vertical-align:middle}.btn,.btn-small{display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:44px;padding:8px 21px;border:1px solid #af8185;border-radius:99px;background:transparent;color:var(--accent);font:500 13px/1.2 var(--sans);text-align:center;cursor:pointer}.primary{background:linear-gradient(145deg,#80151a,#690b10);border-color:var(--accent);color:#fff9f3;box-shadow:0 3px 9px #74151b20}.btn-small{font-size:12px;gap:7px;padding:7px 14px}.btn-small .icon{width:16px;height:16px}.btn:hover,.btn-small:hover{background:#74151b0a}.primary:hover{background:#611017}.image-button{min-height:44px;border:0;padding:0;background:transparent;display:block;min-width:0;cursor:zoom-in}.eyebrow{text-transform:uppercase;letter-spacing:.25em;color:#91585d;font-size:10px;font-weight:600}.brand-lockup{display:inline-grid;justify-items:center;flex-shrink:0;color:var(--accent);line-height:1}.brand-descriptor,.brand-rule{display:none}.brand-wordmark{font:italic 34px/.95 var(--serif);letter-spacing:-.055em;white-space:nowrap}.brand-secondary{font:500 8px/1.8 var(--serif);letter-spacing:.5em;padding-left:.5em}.site-header{border-bottom:1px solid #dfcfc766;background:#fdfaf68c;padding:16px var(--gutter)}.header-inner{position:relative;max-width:1200px;margin:auto;display:flex;align-items:center;gap:28px}.header-divider{height:33px;width:1px;background:var(--line)}.header-label{font-size:10px;letter-spacing:.2em;white-space:nowrap}.header-privacy{display:flex;align-items:center;gap:12px;margin-left:auto}.header-privacy p{font-size:10px;line-height:1.4}.header-privacy strong,.header-privacy span{display:block}.header-privacy strong{color:var(--accent);font-weight:500}.header-share{font-size:12px;padding-inline:18px}.menu-toggle{display:none;border:0;background:transparent;width:44px;height:44px;padding:10px}.gallery-menu{position:absolute;right:0;top:calc(100% + 14px);z-index:10;min-width:220px;padding:10px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 35px #4b332020}.gallery-menu a,.gallery-menu button{display:flex;align-items:center;text-align:left;width:100%;min-height:44px;padding:10px 14px;border:0;border-radius:5px;background:transparent;font:14px var(--sans)}.gallery-menu a:hover,.gallery-menu button:hover{background:#74151b08}
 .gallery-shell{max-width:1100px;margin:auto;padding:0 var(--gutter) 0}.intro{display:grid;grid-template-columns:1fr 1fr;position:relative;min-height:465px;align-items:center;gap:10px;padding:38px 0 32px}.gallery-hero{position:relative;z-index:2;max-width:530px}.gallery-hero h1{font:400 clamp(46px,5.3vw,70px)/.92 var(--serif);letter-spacing:-.055em;margin:23px 0 18px}.gallery-hero h1 em{font-weight:400}.lede{max-width:335px;font-size:17px;letter-spacing:.01em;line-height:1.45}.hero-actions{margin-top:26px;display:grid;justify-items:start;gap:12px}.hero-actions>.primary{min-width:294px;font-size:15px;gap:16px;min-height:48px}.secondary-actions{display:flex;gap:10px}.secondary-actions .btn{font-size:12px;padding-inline:20px}.action-hint{font-size:11px;max-width:340px;line-height:1.5;min-height:0}.action-hint:empty{display:none}
 .hero-collage{position:relative;height:400px;width:100%;min-width:0;align-self:center;pointer-events:none}.polaroid{position:absolute;background:#fffdf8;padding:11px 11px 32px;box-shadow:0 8px 20px #5d422423;width:220px;height:304px;z-index:2}.polaroid img{width:100%;height:100%;object-fit:cover;background:#e7ded1}.polaroid-0{left:5px;top:-6px;transform:rotate(-10deg)}.polaroid-1{left:186px;top:112px;width:208px;height:278px;transform:rotate(10deg);z-index:3}.paper-strip{position:absolute;right:35px;top:18px;display:grid;gap:6px;width:116px;padding:22px 10px 12px;background:#fffdf8;box-shadow:0 7px 20px #5d42241c;transform:rotate(13deg)}.paper-strip i{height:82px;background:linear-gradient(145deg,#ac9785,#e7ded3 55%,#b6a390)}.tape{position:absolute;width:82px;height:26px;background:#dec8a382;clip-path:polygon(4% 0,96% 3%,100% 95%,0 100%);z-index:1}.tape-one{top:64px;left:225px;transform:rotate(35deg)}.tape-two{top:305px;left:308px;transform:rotate(36deg)}.botanical{position:absolute;right:-18px;top:110px;width:110px;height:230px;color:#ad8d5c;transform:rotate(8deg)}.collage-count-1 .polaroid-0{left:70px;top:35px;width:230px;height:310px;transform:rotate(-7deg)}
-.section-heading{display:flex;gap:16px;align-items:center;margin:0 0 14px;min-width:0}.section-heading:after{content:"";height:1px;background:#bb8f926e;flex:1;margin-left:5px}.section-heading h2{font:400 23px/1 var(--serif);letter-spacing:-.035em;text-transform:uppercase;white-space:nowrap}.section-heading p{font-size:9px;letter-spacing:.2em;text-transform:uppercase;white-space:nowrap}.photo-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px}.photo-count-1{max-width:650px;margin:auto}.photo-count-1{grid-template-columns:1fr}.shot{min-width:0;padding:9px 9px 4px;background:#fffdf8cc;border:1px solid #eee6dd;border-radius:8px;box-shadow:var(--shadow)}.shot-frame{width:100%;border-radius:4px;overflow:hidden;background:#eee5d9}.shot-frame img{width:100%;height:auto;max-height:480px;object-fit:contain}.image-placeholder{display:grid;place-items:center;aspect-ratio:4/3;background:linear-gradient(110deg,#eee4d8 30%,#faf5ec 50%,#eee4d8 70%);background-size:220% 100%;animation:shimmer 1.6s ease-in-out infinite;color:#9a8976;font:italic 17px var(--serif)}.shot-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:55px;padding:3px 2px}.shot-meta{display:grid;gap:3px;min-width:0}.shot-label{font-size:10px;letter-spacing:.18em;text-transform:uppercase;font-weight:600}.shot-date{font-size:8px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.shot-buttons{display:flex;gap:7px;flex-shrink:0}.shot-buttons .btn-small{padding-inline:15px}.receipt-section{margin-top:26px}.receipt-layout{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.receipt-layout-single{grid-template-columns:1fr;max-width:540px}.receipt-card{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,44%);align-items:center;gap:16px;padding:10px 16px 10px 24px;min-width:0;border:1px solid #eee5dd;border-radius:7px;background:#fbf7f16b}.receipt-copy h3{font:400 26px/1.05 var(--serif);letter-spacing:-.04em;margin-bottom:12px}.receipt-copy>p{font-size:12px;max-width:190px;line-height:1.5}.receipt-actions{display:flex;gap:7px;margin-top:20px;flex-wrap:wrap}.receipt-actions .btn-small{padding-inline:13px;font-size:11px;gap:6px}.receipt-frame{justify-self:end;max-width:200px;box-shadow:0 5px 20px #5d42241a;background:white}.receipt-frame img{width:100%;max-height:270px;object-fit:contain}.receipt-frame img.mono-fallback{filter:grayscale(1)}.receipt-placeholder{aspect-ratio:3/5}
+.section-heading{display:flex;gap:16px;align-items:center;margin:0 0 14px;min-width:0}.section-heading:after{content:"";height:1px;background:#bb8f926e;flex:1;margin-left:5px}.section-heading h2{font:400 23px/1 var(--serif);letter-spacing:-.035em;text-transform:uppercase;white-space:nowrap}.section-heading p{font-size:9px;letter-spacing:.2em;text-transform:uppercase;white-space:nowrap}.photo-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px}.photo-count-1{max-width:650px;margin:auto}.photo-count-1{grid-template-columns:1fr}.shot{min-width:0;padding:9px 9px 4px;background:#fffdf8cc;border:1px solid #eee6dd;border-radius:8px;box-shadow:var(--shadow)}.shot-frame{width:100%;border-radius:4px;overflow:hidden;background:#eee5d9}.shot-frame img{width:100%;height:auto;max-height:480px;object-fit:contain}.image-placeholder{display:grid;place-items:center;aspect-ratio:4/3;background:linear-gradient(110deg,#eee4d8 30%,#faf5ec 50%,#eee4d8 70%);background-size:220% 100%;animation:shimmer 1.6s ease-in-out infinite;color:#9a8976;font:italic 17px var(--serif)}.shot-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:55px;padding:3px 2px}.shot-meta{display:grid;gap:3px;min-width:0}.shot-label{font-size:10px;letter-spacing:.18em;text-transform:uppercase;font-weight:600}.shot-date{font-size:8px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.shot-buttons{display:flex;gap:7px;flex-shrink:0}.shot-buttons .btn-small{padding-inline:15px}.receipt-style-status{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.receipt-style{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}.receipt-style button{min-height:44px}.receipt-style [aria-pressed="true"]{background:var(--accent);color:#fffdf8}.receipt-privacy{font-size:12px;line-height:1.5;margin:0 0 14px;color:var(--muted)}.receipt-section{margin-top:26px}.receipt-layout{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.receipt-layout-single{grid-template-columns:1fr;max-width:540px}.receipt-card{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,44%);align-items:center;gap:16px;padding:10px 16px 10px 24px;min-width:0;border:1px solid #eee5dd;border-radius:7px;background:#fbf7f16b}.receipt-copy h3{font:400 26px/1.05 var(--serif);letter-spacing:-.04em;margin-bottom:12px}.receipt-copy>p{font-size:12px;max-width:190px;line-height:1.5}.receipt-actions{display:flex;gap:7px;margin-top:20px;flex-wrap:wrap}.receipt-actions .btn-small{padding-inline:13px;font-size:11px;gap:6px}.receipt-frame{justify-self:end;max-width:200px;box-shadow:0 5px 20px #5d42241a;background:white}.receipt-frame img{width:100%;max-height:270px;object-fit:contain}.receipt-frame img.mono-fallback{filter:grayscale(1)}.receipt-placeholder{aspect-ratio:3/5}
 .instagram-card{display:flex;align-items:center;gap:22px;margin-top:16px;padding:18px 25px;border:1px solid #d9c4bc;border-radius:9px;background:#f6ece65c}.instagram-emblem{border-right:1px solid #dac6be;padding:2px 23px 2px 7px}.instagram-emblem .icon{width:48px;height:48px;stroke-width:1.5}.instagram-copy{min-width:0}.instagram-copy .eyebrow{font-size:9px}.instagram-copy h2{font:italic 40px/1.05 var(--serif);letter-spacing:-.045em}.instagram-copy>p:last-child{font-size:12px;margin-top:2px}.instagram-cta{margin-left:auto;flex-shrink:0;gap:11px;min-height:44px;padding-inline:22px}.instagram-cta .icon-instagram{display:none}.instagram-cta .icon-arrow{width:16px}.information-strip{display:grid;grid-template-columns:1fr 1fr;gap:28px;padding:15px 45px;margin-top:8px;background:#eee4d855;border-radius:8px}.information-strip>div{display:flex;align-items:center;gap:22px}.information-strip>div+div{border-left:1px solid #bd9895;padding-left:45px}.information-strip .icon{width:25px;height:25px}.information-strip p{font-size:10px;line-height:1.5}.information-strip span,.information-strip strong{display:block}.information-strip strong{color:#905357;font-weight:500}.site-footer{margin-top:0;border-top:1px solid #dfcfc766;padding:16px var(--gutter) calc(16px + env(safe-area-inset-bottom))}.footer-inner{max-width:1200px;margin:auto;display:flex;align-items:center;gap:24px}.site-footer .brand-wordmark{font-size:27px}.site-footer .brand-secondary{font-size:6px}.footer-tagline{border-left:1px solid #c7a6a3;padding-left:24px;font:500 10px var(--serif);letter-spacing:.09em}.reference{margin-left:auto;font-size:8px;letter-spacing:.08em;color:#a19b90}.site-footer .icon-heart{width:13px;height:13px;fill:var(--accent);stroke:0}
 .toast{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom));left:50%;transform:translate(-50%,12px);z-index:50;width:max-content;max-width:calc(100% - 32px);padding:14px 20px;border-radius:12px;background:#fffdf8;color:var(--accent);box-shadow:0 5px 30px #3d261b33;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s}.toast.visible{opacity:1;transform:translate(-50%,0)}.lightbox{position:fixed;inset:0;width:100%;z-index:40;background:#271c19f5;color:#fff9f3;padding:calc(12px + env(safe-area-inset-top)) var(--gutter) calc(18px + env(safe-area-inset-bottom));display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:12px}.lightbox-bar{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:48px;font-size:13px}.lightbox-bar button{min-height:44px;padding:8px 20px;border:1px solid #fff9f388;border-radius:99px;color:inherit;background:transparent}.lightbox-actions{justify-content:center}.lightbox-stage{position:relative;min-width:0;min-height:0;overflow:hidden}.lightbox-stage img{position:absolute;inset:0;width:100%;height:100%;min-width:0;min-height:0;object-fit:contain;object-position:center}.lightbox-nav{position:absolute;z-index:1;top:50%;transform:translateY(-50%);width:48px;height:64px;border:0;border-radius:99px;background:#fff9f324;color:inherit;font-size:34px}#lightboxPrev{left:0}#lightboxNext{right:0}.center-page{min-height:100vh;display:grid;place-items:center;padding:var(--gutter)}.notice{max-width:460px;display:grid;justify-items:center;gap:18px;text-align:center;padding:38px 26px;background:#fffaf4;border:1px solid var(--line);border-radius:8px}.notice h1{font:italic 38px/1.05 var(--serif)}.notice-footnote{font-size:13px}.loader{width:30px;height:30px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@keyframes shimmer{from{background-position:120% 0}to{background-position:-120% 0}}
 @media(min-width:1200px){.photo-count-3,.photo-count-6{grid-template-columns:repeat(3,minmax(0,1fr))}.photo-count-3 .shot-actions,.photo-count-6 .shot-actions{flex-wrap:wrap}.photo-count-3 .shot-buttons,.photo-count-6 .shot-buttons{margin-left:auto}}
@@ -1767,8 +1805,11 @@ function galleryClientScript_() {
   // saves retain original image bytes. Unsupported browser features get honest, actionable fallbacks.
   return `
 const startedAt=performance.now();
-const files=[...galleryData.photos,galleryData.receipt,galleryData.thermalReceipt].filter(Boolean);
+const files=[...galleryData.photos,galleryData.receipt,galleryData.thermalReceipt,galleryData.shareColorReceipt].filter(Boolean);
 const assetMap=new Map(files.map(function(item){return [item.filename,item];}));
+const shareBW=galleryData.shareColorReceipt?{filename:"receipt-share-bw.png",mimeType:"image/png",role:"thermalReceipt",deriveFrom:galleryData.shareColorReceipt.filename}:null;
+if(shareBW){assetMap.set(shareBW.filename,shareBW);}
+let receiptSelectionRevision=0;
 const realFileCache=new Map();
 const photoItems=galleryData.photos.slice();
 const ua=navigator.userAgent||"";
@@ -1783,14 +1824,17 @@ function dataURL(item){return "data:"+item.mimeType+";base64,"+item.base64Data;}
 // using the booth's luma weights and tone curve. The legacy printer raster never reaches the page.
 const monoCurve=(function(){const curve=new Uint8ClampedArray(256);for(let v=0;v<256;v++){curve[v]=Math.round((v-127.5)*1.05+127.5);}return curve;})();
 const derivedFiles=new Map();
+const receiptPreviewURLs=new Map();
+function receiptPreviewURL(item,file){if(!receiptPreviewURLs.has(item.filename)){receiptPreviewURLs.set(item.filename,URL.createObjectURL(file));}return receiptPreviewURLs.get(item.filename);}
+window.addEventListener("pagehide",function(){receiptPreviewURLs.forEach(function(url){URL.revokeObjectURL(url);});receiptPreviewURLs.clear();});
 function needsDerivation(item){return !!(item&&item.deriveFrom&&!item.base64Data);}
 function isReady(item){return !needsDerivation(item)||realFileCache.has(item.filename);}
 function deriveMonochrome(item){if(derivedFiles.has(item.filename)){return derivedFiles.get(item.filename);}const source=findItem(item.deriveFrom);const promise=new Promise(function(resolve,reject){if(!source||!source.base64Data){reject(new Error("Color receipt unavailable"));return;}const image=new Image();image.onload=function(){try{const width=image.naturalWidth;const height=image.naturalHeight;const canvas=document.createElement("canvas");canvas.width=width;canvas.height=height;const context=canvas.getContext("2d",{willReadFrequently:true});context.fillStyle="#fff";context.fillRect(0,0,width,height);context.drawImage(image,0,0);const pixels=context.getImageData(0,0,width,height);const data=pixels.data;for(let i=0;i<data.length;i+=4){const gray=monoCurve[Math.min(255,(54*data[i]+183*data[i+1]+19*data[i+2]+128)>>8)];data[i]=gray;data[i+1]=gray;data[i+2]=gray;data[i+3]=255;}context.putImageData(pixels,0,0);canvas.toBlob(function(blob){canvas.width=0;canvas.height=0;if(!blob){reject(new Error("PNG encoding failed"));return;}const file=new File([blob],item.filename,{type:"image/png"});realFileCache.set(item.filename,file);resolve(file);},"image/png");}catch(error){reject(error);}};image.onerror=function(){reject(new Error("Color receipt decode failed"));};image.src=dataURL(source);});derivedFiles.set(item.filename,promise);return promise;}
-function whenReady(item,action){if(isReady(item)){action();return;}if(item.unavailable){setMessage("The black & white receipt couldn’t be prepared on this device. Please save the color receipt instead.");return;}setMessage("Preparing your black & white receipt…");deriveMonochrome(item).then(function(){setMessage("");action();},function(){setMessage("The black & white receipt couldn’t be prepared on this device. Please save the color receipt instead.");});}
+function whenReady(item,action){const revision=receiptSelectionRevision;const originalAction=action;action=function(){if(item.role==="photo"||revision===receiptSelectionRevision){originalAction();}};if(isReady(item)){action();return;}if(item.unavailable){setMessage("The black & white receipt couldn’t be prepared on this device. Please save the color receipt instead.");return;}setMessage("Preparing your black & white receipt…");deriveMonochrome(item).then(function(){setMessage("");action();},function(){setMessage("The black & white receipt couldn’t be prepared on this device. Please save the color receipt instead.");});}
 // Keep the measured placeholder until the actual image loads. A data/blob URL is still
 // decoded asynchronously; removing the placeholder on src assignment collapses touch targets.
 function showLoadedImage(image,placeholder,source){let shown=false;function show(){if(shown){return;}shown=true;image.hidden=false;if(placeholder){placeholder.remove();}}image.addEventListener("load",show,{once:true});image.addEventListener("error",function(){if(placeholder){placeholder.textContent="Preview unavailable — use Save.";}},{once:true});image.loading="eager";image.src=source;if(image.complete&&image.naturalWidth>0){show();}}
-function revealDerived(item,image,placeholder){deriveMonochrome(item).then(function(file){showLoadedImage(image,placeholder,URL.createObjectURL(file));},function(){item.unavailable=true;const source=findItem(item.deriveFrom);if(source&&source.base64Data){image.classList.add("mono-fallback");showLoadedImage(image,placeholder,dataURL(source));}document.querySelectorAll('[data-download="'+item.filename+'"],[data-share="'+item.filename+'"]').forEach(function(button){button.hidden=true;});});}
+function revealDerived(item,image,placeholder){deriveMonochrome(item).then(function(file){showLoadedImage(image,placeholder,receiptPreviewURL(item,file));},function(){item.unavailable=true;const source=findItem(item.deriveFrom);if(source&&source.base64Data){image.classList.add("mono-fallback");showLoadedImage(image,placeholder,dataURL(source));}document.querySelectorAll('[data-download="'+item.filename+'"],[data-share="'+item.filename+'"]').forEach(function(button){button.hidden=true;});});}
 function fileForItem(item){if(realFileCache.has(item.filename)){return realFileCache.get(item.filename);}if(needsDerivation(item)){throw new Error("Black & white receipt is still being prepared");}const binary=atob(item.base64Data);const bytes=new Uint8Array(binary.length);for(let i=0;i<binary.length;i++){bytes[i]=binary.charCodeAt(i);}const file=new File([bytes],item.filename,{type:item.mimeType});realFileCache.set(item.filename,file);return file;}
 function objectURLFor(item){return URL.createObjectURL(fileForItem(item));}
 function findItem(filename){return assetMap.get(filename);}
@@ -1810,7 +1854,7 @@ function closeLightbox(){const lightbox=document.getElementById("lightbox");cons
 function wireLightbox(){const lightbox=document.getElementById("lightbox");if(!lightbox){return;}window.addEventListener("resize",fitLightboxViewport);if(window.visualViewport){window.visualViewport.addEventListener("resize",fitLightboxViewport);}document.getElementById("lightboxClose").addEventListener("click",closeLightbox);document.getElementById("lightboxPrev").addEventListener("click",function(){stepLightbox(-1);});document.getElementById("lightboxNext").addEventListener("click",function(){stepLightbox(1);});document.getElementById("lightboxSave").addEventListener("click",function(){const item=lightboxItems[lightboxIndex];if(item){saveItem(item);}});document.getElementById("lightboxShare").addEventListener("click",function(){const item=lightboxItems[lightboxIndex];if(item){shareItem(item);}});lightbox.addEventListener("click",function(event){if(event.target===lightbox||event.target.classList.contains("lightbox-stage")){closeLightbox();}});lightbox.addEventListener("touchstart",function(event){touchStartX=event.touches[0].clientX;},{passive:true});lightbox.addEventListener("touchend",function(event){if(touchStartX===null){return;}const dx=event.changedTouches[0].clientX-touchStartX;touchStartX=null;if(Math.abs(dx)>50){stepLightbox(dx<0?1:-1);}},{passive:true});document.addEventListener("keydown",function(event){if(lightbox.hidden){return;}if(event.key==="Tab"){const controls=Array.from(lightbox.querySelectorAll("button:not([hidden])")).filter(function(b){return b.getBoundingClientRect().width>0;});const first=controls[0];const last=controls[controls.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}else if(event.key==="Escape"){closeLightbox();}else if(event.key==="ArrowLeft"){stepLightbox(-1);}else if(event.key==="ArrowRight"){stepLightbox(1);}});}
 function wireOpenButtons(){document.querySelectorAll("[data-open]").forEach(function(button){button.addEventListener("click",function(){const item=findItem(button.getAttribute("data-open"));if(item){whenReady(item,function(){openFullSize(item);});}});});}
 function wireSaveButtons(){document.querySelectorAll("[data-download]").forEach(function(button){button.addEventListener("click",function(){const item=findItem(button.getAttribute("data-download"));if(item){whenReady(item,function(){saveItem(item);});}});});}
-function wireShareButtons(){document.querySelectorAll("[data-share]").forEach(function(button){const item=findItem(button.getAttribute("data-share"));if(!item){button.hidden=true;return;}button.addEventListener("click",function(){whenReady(item,function(){shareItem(item);});});});}
+function wireShareButtons(){document.querySelectorAll("[data-share]").forEach(function(button){const item=findItem(button.getAttribute("data-share"));if(!item){button.hidden=true;return;}button.addEventListener("click",function(){const selected=findItem(button.getAttribute("data-share"));whenReady(selected,function(){shareItem(selected);});});});}
 function wireShareAll(){const shareAll=document.getElementById("shareAll");const allHint=document.getElementById("allHint");if(!shareAll){return;}const photos=photoItems.map(function(file){return findItem(file.filename);}).filter(Boolean);const count=photos.length;if(count===1){shareAll.addEventListener("click",function(){saveItem(photos[0]);});return;}if(count<1){shareAll.hidden=true;return;}if((isIOS||isAndroid)&&supportsMultipleFileShare()){if(allHint){allHint.textContent=isIOS?"Opens the share sheet. Choose Save "+count+" Images to add them to Photos.":"Opens the share sheet to save or send all "+count+" photos.";}shareAll.addEventListener("click",function(){shareFiles(photos,true);});return;}if(!isIOS){if(allHint){allHint.textContent="Downloads all "+count+" photos to this device.";}shareAll.addEventListener("click",function(){setMessage("Downloading "+count+" photos. Your browser may ask to allow multiple downloads.");photos.forEach(function(item,index){setTimeout(function(){downloadItem(item,true);},index*450);});});return;}if(allHint){allHint.textContent="Use Save under each photo to add it to Photos.";}shareAll.addEventListener("click",function(){document.getElementById("photos").scrollIntoView({behavior:prefersReducedMotion?"auto":"smooth"});const first=document.querySelector("[data-download]");if(first){first.focus({preventScroll:true});}setMessage("This browser saves one photo at a time. Use Save under each photo.");});}
 
 
@@ -1818,7 +1862,40 @@ function currentGalleryURL(){const url=new URL(window.location.href);const token
 async function shareGallery(){const url=currentGalleryURL();const privacy="Anyone with this link can view your gallery.";if(navigator.share){try{await navigator.share({title:"Made to Keep Studios",text:privacy,url:url});return;}catch(error){if(error&&error.name==="AbortError"){return;}}}try{if(!navigator.clipboard||!navigator.clipboard.writeText){throw new Error("Clipboard unavailable");}await navigator.clipboard.writeText(url);setMessage("Gallery link copied. "+privacy);}catch(error){window.prompt("Copy your gallery link. "+privacy,url);}}
 function wireGalleryNavigation(){const toggle=document.getElementById("menuToggle");const menu=document.getElementById("galleryMenu");function closeMenu(returnFocus){if(!toggle||!menu){return;}menu.hidden=true;toggle.setAttribute("aria-expanded","false");toggle.setAttribute("aria-label","Open gallery menu");if(returnFocus){toggle.focus();}}if(toggle&&menu){toggle.addEventListener("click",function(){const open=menu.hidden;menu.hidden=!open;toggle.setAttribute("aria-expanded",String(open));toggle.setAttribute("aria-label",open?"Close gallery menu":"Open gallery menu");if(open){menu.querySelector("a").focus();}});menu.addEventListener("click",function(event){if(event.target.closest("a,button")){closeMenu(false);}});document.addEventListener("click",function(event){if(!menu.hidden&&!menu.contains(event.target)&&!toggle.contains(event.target)){closeMenu(false);}});document.addEventListener("keydown",function(event){if(event.key==="Escape"&&!menu.hidden){event.preventDefault();closeMenu(true);}});document.addEventListener("focusin",function(event){if(!menu.hidden&&!menu.contains(event.target)&&!toggle.contains(event.target)){closeMenu(false);}});}document.querySelectorAll("[data-share-gallery]").forEach(function(button){button.addEventListener("click",shareGallery);});}
 
-function showEmbeddedImages(){try{const ordered=photoItems.concat([galleryData.receipt,galleryData.thermalReceipt].filter(Boolean));if(ordered.length){revealItem(ordered[0]);}const remaining=ordered.slice(1);const reveal=function(){remaining.forEach(revealItem);};if("requestIdleCallback" in window){requestIdleCallback(reveal,{timeout:1200});}else{setTimeout(reveal,40);}wireOpenButtons();wireSaveButtons();wireShareButtons();wireShareAll();wireLightbox();wireGalleryNavigation();logSafeBrowserTiming();}catch(error){setMessage("Some images didn’t load. Refresh this page to try again.");}}
+function wireReceiptStyles(){
+ if(!galleryData.receiptVariants){return;}
+ const cards=Array.from(document.querySelectorAll(".receipt-layout article"));
+ const slots=cards.map(function(card){return {card:card,placeholder:card.querySelector(".image-placeholder").cloneNode(true)};});
+ const buttons=Array.from(document.querySelectorAll("[data-receipt-style]"));
+ async function select(style){
+  const revision=++receiptSelectionRevision;
+  const useShare=style==="shareFriendly"&&!!galleryData.shareColorReceipt;
+  const items=useShare?[galleryData.shareColorReceipt,shareBW]:[galleryData.receipt,galleryData.thermalReceipt];
+  buttons.forEach(function(button){button.setAttribute("aria-pressed",String(button.dataset.receiptStyle===style));});
+  const privacy=document.getElementById("receiptPrivacy");if(privacy){privacy.hidden=useShare;}
+  const status=document.getElementById("receiptStyleStatus");if(status){status.textContent="Preparing receipt previews…";}
+  slots.forEach(function(slot,index){
+   const item=items[index];if(!item){return;}
+   const old=slot.card.querySelector("img");const image=old.cloneNode(false);image.removeAttribute("src");image.hidden=true;image.id="image-"+item.filename;old.replaceWith(image);
+   const existing=slot.card.querySelector(".image-placeholder");if(existing){existing.remove();}
+   const placeholder=slot.placeholder.cloneNode(true);placeholder.id="placeholder-"+item.filename;image.before(placeholder);
+   slot.card.querySelectorAll("[data-open],[data-download],[data-share]").forEach(function(button){["data-open","data-download","data-share"].forEach(function(key){if(button.hasAttribute(key)){button.setAttribute(key,item.filename);}});button.disabled=true;});
+  });
+  try{
+   await Promise.all(items.filter(Boolean).map(function(item){return needsDerivation(item)?deriveMonochrome(item):Promise.resolve(fileForItem(item));}));
+   if(revision!==receiptSelectionRevision){return;}
+   await Promise.all(items.filter(Boolean).map(function(item){return new Promise(function(resolve,reject){const preview=new Image();preview.onload=resolve;preview.onerror=reject;preview.src=needsDerivation(item)?URL.createObjectURL(fileForItem(item)):dataURL(item);preview.addEventListener("load",function(){if(needsDerivation(item)){URL.revokeObjectURL(preview.src);}}, {once:true});});}));
+   if(revision!==receiptSelectionRevision){return;}
+   items.forEach(function(item){if(item){revealItem(item);}});
+   slots.forEach(function(slot){slot.card.querySelectorAll("button").forEach(function(button){button.disabled=false;});});
+   if(status){status.textContent=(useShare?"Share-Friendly":"As Printed")+" receipts selected.";}
+  }catch(error){if(revision!==receiptSelectionRevision){return;}slots.forEach(function(slot){const placeholder=slot.card.querySelector(".image-placeholder");if(placeholder){placeholder.textContent="This receipt preview is unavailable. Try selecting the style again.";}});if(status){status.textContent="Receipt unavailable. Please try again.";}}
+ }
+ buttons.forEach(function(button){button.addEventListener("click",function(){select(button.dataset.receiptStyle);});});
+ select(galleryData.receiptVariants.defaultStyle);
+}
+
+function showEmbeddedImages(){try{const ordered=photoItems.concat(galleryData.receiptVariants?[]:[galleryData.receipt,galleryData.thermalReceipt].filter(Boolean));if(ordered.length){revealItem(ordered[0]);}const remaining=ordered.slice(1);const reveal=function(){remaining.forEach(revealItem);};if("requestIdleCallback" in window){requestIdleCallback(reveal,{timeout:1200});}else{setTimeout(reveal,40);}wireOpenButtons();wireSaveButtons();wireShareButtons();wireShareAll();wireLightbox();wireGalleryNavigation();wireReceiptStyles();logSafeBrowserTiming();}catch(error){setMessage("Some images didn’t load. Refresh this page to try again.");}}
 function logSafeBrowserTiming(){setTimeout(function(){console.log("Made to Keep gallery timing: imageInitializationMs="+Math.round(performance.now()-startedAt)+" webShare="+!!navigator.share+" singleFileShare="+supportsFileShare(photoItems[0])+" multiFileShare="+supportsMultipleFileShare()+" realFileConversionsAtInit=0");},0);}
 showEmbeddedImages();
 `;
@@ -1843,13 +1920,15 @@ function makeCompleteManifest_(body) {
   };
 
   return {
-    schemaVersion: 2,
+    schemaVersion: body.schemaVersion,
     galleryToken: body.galleryToken,
     sessionID: body.sessionID,
     createdAt: body.createdAt,
     photos: body._expectedPhotoFilenames || expectedPhotoFilenames_(body.photos.length),
     colorReceipt: RECEIPT_FILENAME,
     thermalReceipt: THERMAL_RECEIPT_FILENAME,
+    ...(body.schemaVersion === 3 ? {receiptVariants: body.receiptVariants,
+      ...(body.shareColorReceipt ? {shareColorReceipt: SHARE_RECEIPT_FILENAME} : {})} : {}),
     gif: body.gif ? GIF_FILENAME : undefined,
     status: 'complete'
   };
@@ -2076,10 +2155,10 @@ function expectedPhotoFilenames_(photoCount) {
 
 }
 
-function expectedFilenames_(photoCount, schemaVersion, hasGIF) {
+function expectedFilenames_(photoCount, schemaVersion, hasGIF, hasShareReceipt) {
 
-  return expectedPhotoFilenames_(photoCount).concat(schemaVersion === 2
-    ? [RECEIPT_FILENAME, THERMAL_RECEIPT_FILENAME].concat(hasGIF === false ? [] : [GIF_FILENAME])
+  return expectedPhotoFilenames_(photoCount).concat(schemaVersion >= 2
+    ? [RECEIPT_FILENAME, THERMAL_RECEIPT_FILENAME].concat(hasGIF === false ? [] : [GIF_FILENAME]).concat(schemaVersion === 3 && hasShareReceipt ? [SHARE_RECEIPT_FILENAME] : [])
     : [RECEIPT_FILENAME]);
 
 }

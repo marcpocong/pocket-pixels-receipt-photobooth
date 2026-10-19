@@ -46,6 +46,7 @@ nonisolated struct CheckoutCheckpoint: Codable, Equatable, Identifiable, Sendabl
     var resolvedAt: Date?
 
     var receiptPrintOptions: ReceiptPrintOptions? = nil
+    var galleryReceiptStyle: GalleryReceiptStyle? = nil
     var detachedAt: Date? = nil
     var recoveryReference: String? = nil
 

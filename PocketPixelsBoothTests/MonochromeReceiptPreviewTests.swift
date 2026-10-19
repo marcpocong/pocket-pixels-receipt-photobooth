@@ -186,6 +186,17 @@ final class MonochromeReceiptPreviewTests: XCTestCase {
         XCTAssertLessThan(bw.data.count, 1_500_000)
         XCTAssertLessThanOrEqual(payload.metrics.totalDecodedBytes, GalleryPreparedUploadBudget.maximumPreparedDecodedBytes)
         print("[MonochromeReceipt] noisy gridSix bw=\(bw.data.count)B total=\(payload.metrics.totalDecodedBytes)B")
+        let session = CommittedGallerySession(sessionIdentifier: "PP-20261018-120001", createdAt: date, galleryToken: token,
+            galleryURL: galleryURL, photos: photos, format: .gridSix, eventProfile: longEventProfile())
+        let alternative = try BoothSessionViewModel.shareFriendlyGalleryReceiptImage(for: session, photoQualityProfile: .customerPrintDefault)
+        let variants = try GoogleDriveGalleryUploadService.preparePayload(photos: photos, composedReceipt: try XCTUnwrap(UIImage(data: receipt.imagePNGData)),
+            sessionID: session.sessionIdentifier, createdAt: date, galleryToken: token, customerGalleryBaseURL: URL(string: "https://example.com/")!,
+            shareFriendlyReceipt: alternative, receiptVariants: GalleryReceiptVariants(originalFooterStyle: .integratedGalleryQR, defaultStyle: .shareFriendly))
+        let body = try JSONEncoder().encode(GoogleDriveGalleryUploadService.makeRequestBody(payload: variants, deviceToken: String(repeating: "test", count: 8)))
+        XCTAssertEqual(variants.photos.map(\.data), payload.photos.map(\.data), "Digital variants leave the prepared photos byte-identical")
+        XCTAssertLessThanOrEqual(variants.metrics.totalDecodedBytes, GalleryPreparedUploadBudget.maximumPreparedDecodedBytes)
+        print("[GalleryStylesWorstCase] decoded=\(variants.metrics.totalDecodedBytes)B json=\(body.count)B share=\(variants.shareColorReceipt?.data.count ?? 0)B preparation=\(variants.metrics.timing?.imagePreparationDuration ?? 0)s")
+
     }
 
     func testPhotoPassGalleryMonochromeComesFromTheRedactedReceipt() throws {

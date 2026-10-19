@@ -131,6 +131,7 @@ final class BoothSessionViewModel: ObservableObject {
     private var retakeIndex: Int?
     private var isOperatorCameraRestartRunning = false
     private var sessionCreatedAt: Date?
+    private(set) var sessionGalleryReceiptStyle: GalleryReceiptStyle = .shareFriendly
     private(set) var sessionPrintOptions: ReceiptPrintOptions = .default
     private var sessionEventProfile: EventProfile?
     private var committedGallerySession: CommittedGallerySession?
@@ -370,6 +371,7 @@ final class BoothSessionViewModel: ObservableObject {
         customerPrintPhotoProfile = CustomerReceiptPhotoToneStore.load().profile
         beginNewCustomerSession()
         sessionPrintOptions = environment.receiptPrintOptionsSource().resolved(for: environment.eventProfileSource().normalized())
+        sessionGalleryReceiptStyle = .resolve(device: environment.galleryReceiptStyleSource(), profile: environment.eventProfileSource().normalized())
         freezeSessionStickerConfiguration()
         errorMessage = nil
         statusMessage = "Choose your format."
@@ -785,7 +787,7 @@ final class BoothSessionViewModel: ObservableObject {
             id: sessionID, environment: environment, deviceID: identity?.deviceID, accountID: identity?.accountID,
             eventID: eventID, policyRevisionID: policyRevisionID, unitPriceCentavos: unitPriceCentavos, copies: copies,
             format: format.rawValue, method: method, orderID: nil, entitlementID: nil, offlineRecordID: nil,
-            phase: .orderRequested, lastServerState: nil, createdAt: now, updatedAt: now, resolution: nil, resolvedAt: nil, receiptPrintOptions: sessionPrintOptions))
+            phase: .orderRequested, lastServerState: nil, createdAt: now, updatedAt: now, resolution: nil, resolvedAt: nil, receiptPrintOptions: sessionPrintOptions, galleryReceiptStyle: sessionGalleryReceiptStyle))
     }
 
     /// Retries a write whose outcome is unknown with the same idempotent request.
@@ -1164,6 +1166,7 @@ final class BoothSessionViewModel: ObservableObject {
                     startsAt: nil, endsAt: nil, updatedAt: Date())
                 sessionRunID = try eventRunStore?.session(id: checkpoint.id)?.runID
                 sessionPrintOptions = checkpoint.receiptPrintOptions ?? recovery?.receiptPrintOptions ?? ReceiptPrintOptions(footerStyle: .classicBarcodeAndGalleryQR)
+                sessionGalleryReceiptStyle = checkpoint.galleryReceiptStyle ?? recovery?.galleryReceiptStyle ?? .shareFriendly
                 guard prepareSessionContext(format: format, sessionIdentifier: checkpoint.id, createdAt: recovery?.createdAt ?? checkpoint.createdAt) else { return }
                 checkoutGuard = CheckoutGuard(serverCheckoutStarted: true, qrAttemptUnresolved: false, newCheckoutAllowed: false)
                 checkoutEntitlement = entitlement
@@ -1571,6 +1574,7 @@ final class BoothSessionViewModel: ObservableObject {
             eventProfile: sessionEventProfile,
             passport: selectedBoothFormat == .passport ? passportDraft.committed(at: receiptDate) : nil,
             printOptions: sessionPrintOptions,
+            galleryReceiptStyle: sessionGalleryReceiptStyle,
             stickers: stickers
         )
         passportPreviewTask?.cancel()
@@ -2843,7 +2847,8 @@ final class BoothSessionViewModel: ObservableObject {
             updatedAt: Date(),
             // Only committed Passport data is persisted; in-progress drafts never touch disk.
             passport: committedGallerySession?.passport,
-            receiptPrintOptions: sessionPrintOptions
+            receiptPrintOptions: sessionPrintOptions,
+            galleryReceiptStyle: sessionGalleryReceiptStyle
         )
         return snapshot
     }
@@ -2929,6 +2934,21 @@ final class BoothSessionViewModel: ObservableObject {
             + ThermalImageRasterizer.photoTestFinishing()
     }
 
+    nonisolated static func shareFriendlyGalleryReceiptImage(for session: CommittedGallerySession,
+        photoQualityProfile: PocketPixelsThermalPhotoProfile) throws -> UIImage? {
+        guard session.printOptions.includesPrintedGalleryQR else { return nil }
+        var publicSession = session
+        publicSession.printOptions = ReceiptPrintOptions(footerStyle: .decorativeBarcodeOnly)
+        let receipt = try ReceiptComposer.compose(photos: publicSession.photos,
+            sessionIdentifier: publicSession.sessionIdentifier, date: publicSession.createdAt,
+            galleryURL: publicSession.galleryURL, format: publicSession.format,
+            eventProfile: publicSession.eventProfile, passport: publicSession.passport?.redactedForGallery(),
+            photoQualityProfile: photoQualityProfile, printOptions: publicSession.printOptions,
+            stickers: publicSession.stickers)
+        guard let image = UIImage(data: receipt.imagePNGData) else { throw ReceiptComposerError.renderFailed }
+        return image
+    }
+
     private func startGalleryUpload(committedSession: CommittedGallerySession, receiptImage: UIImage) {
         // Qualification sessions never prepare, queue or upload a gallery.
         guard environment.deliversGallery else {
@@ -2944,19 +2964,25 @@ final class BoothSessionViewModel: ObservableObject {
         if environment.recordsCustomerSessionMetrics {
             eventRunStore?.updateSession(id: committedSession.sessionIdentifier) { if $0.galleryPreparedAt == nil { $0.galleryPreparedAt = Date() } }
         }
+        let frozenPhotoProfile = customerPrintPhotoProfile
         setUploadPhase(.preparing, message: "Preparing your gallery...", for: committedSession.galleryToken)
         galleryUploadTasks[committedSession.galleryToken] = Task {
             defer {
                 galleryUploadTasks[committedSession.galleryToken] = nil
             }
             do {
+                let shareReceipt = try await Task.detached(priority: .userInitiated) {
+                    try Self.shareFriendlyGalleryReceiptImage(for: committedSession, photoQualityProfile: frozenPhotoProfile)
+                }.value
                 let payload = try await uploadService.prepareAndPersistGallery(
                     photos: committedSession.photos,
                     composedReceipt: receiptImage,
                     sessionID: committedSession.sessionIdentifier,
                     createdAt: committedSession.createdAt,
                     galleryToken: committedSession.galleryToken,
-                    frozenGalleryURL: committedSession.galleryURL
+                    frozenGalleryURL: committedSession.galleryURL,
+                    shareFriendlyReceipt: shareReceipt,
+                    receiptVariants: GalleryReceiptVariants(originalFooterStyle: committedSession.printOptions.footerStyle, defaultStyle: committedSession.galleryReceiptStyle)
                 )
                 refreshPendingUploads()
 
@@ -3039,6 +3065,7 @@ struct CommittedGallerySession {
     var passport: PassportSessionData? = nil
     /// Frozen physical-print choices. Gallery delivery and the iPad QR remain independent.
     var printOptions: ReceiptPrintOptions = .default
+    var galleryReceiptStyle: GalleryReceiptStyle = .shareFriendly
     /// Guest stickers frozen on Done (empty for Skip or when Sticker Studio is off). Every
     /// rebuild, copy and the gallery receipt draw these exact pixels.
     var stickers: [FrozenStickerDecoration] = []
