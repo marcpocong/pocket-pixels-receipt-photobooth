@@ -398,18 +398,15 @@ struct EventReceiptComposerPreview: View {
                     .foregroundStyle(.orange)
             }
 
-            ScrollView(.vertical) {
+            Group {
                 if let previewImage = showsThermal ? previewImage : normalImage {
-                    Image(uiImage: previewImage)
-                        .resizable()
-                        .interpolation(showsThermal ? .none : .high)
-                        .scaledToFit()
-                        .frame(maxWidth: maximumPreviewWidth)
-                        .overlay {
-                            Rectangle()
-                                .stroke(Color.secondary.opacity(0.24), lineWidth: 1)
-                        }
-                        .frame(maxWidth: .infinity)
+                    OperatorZoomableReceiptView(
+                        image: previewImage,
+                        rendering: showsThermal ? .exactRaster : .smooth,
+                        accessibilityLabel: showsThermal ? "Exact printer raster preview" : "Receipt preview"
+                    )
+                    .frame(maxWidth: max(maximumPreviewWidth, 360))
+                    .frame(maxWidth: .infinity)
                 } else if let previewError {
                     Text(previewError)
                         .font(.footnote)
@@ -420,7 +417,7 @@ struct EventReceiptComposerPreview: View {
                         .frame(maxWidth: .infinity, minHeight: 260)
                 }
             }
-            .frame(maxHeight: 520)
+            .frame(height: 580)
 
             if let previewReceipt {
                 Text("\(previewReceipt.format.displayName) • \(previewReceipt.width)x\(previewReceipt.height) px • \(String(format: "%.1f", previewReceipt.estimatedLengthMillimeters)) mm")

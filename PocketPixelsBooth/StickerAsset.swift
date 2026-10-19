@@ -16,6 +16,8 @@ nonisolated enum StickerSourceKind: String, Codable, Sendable {
     case builtIn
     case operatorImport
     case online
+    /// A Unicode emoji drawn on this iPad by the system emoji font at insert time.
+    case systemEmoji
 }
 
 /// Where a sticker came from and why it may be printed. Kept with each frozen placement.
@@ -30,6 +32,7 @@ nonisolated struct StickerProvenance: Codable, Hashable, Sendable {
 
     static let builtIn = StickerProvenance(source: .builtIn, rightsBasis: "Original Made to Keep Studios artwork")
     static let operatorImport = StickerProvenance(source: .operatorImport, rightsBasis: "Operator-approved import")
+    static let systemEmoji = StickerProvenance(source: .systemEmoji, provider: "Unicode", rightsBasis: "Unicode emoji rendered by the iPad's system font")
 }
 
 nonisolated struct StickerAsset: Identifiable, Equatable, Sendable {

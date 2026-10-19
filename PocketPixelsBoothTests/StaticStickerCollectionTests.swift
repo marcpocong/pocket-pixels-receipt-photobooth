@@ -10,6 +10,8 @@ import XCTest
     private func settings() -> StickerStudioSettings {
         var settings = StickerStudioSettings()
         settings.isEnabled = true
+        // The original 200-sticker artwork is now an opt-in legacy collection.
+        settings.builtInStickersEnabled = true
         return settings
     }
 

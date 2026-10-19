@@ -155,39 +155,37 @@ nonisolated enum CustomerExperiencePreviewPolicy {
     static let changesEventCounters = false
 }
 
-/// Which rendering the pre-print receipt preview shows. The keepsake view is the composed receipt;
-/// "Black & White" is a smooth grayscale digital preview (`MonochromeReceiptRenderer`). Guests never
-/// see the 1-bit printer raster: that stays in operator diagnostics only.
-enum ReceiptPreviewMode: String, CaseIterable, Sendable {
-    case keepsake
-    case blackAndWhite
-    /// The guest's photos played in order, like the gallery GIF. Multi-photo formats only.
-    case motion
+/// The single receipt guests see before printing. The VOZY G80 prints black and white, so the
+/// guest sees the smooth grayscale digital preview (`MonochromeReceiptRenderer`) — never a color
+/// keepsake that implies colored paper, and never the 1-bit printer raster (operator diagnostics
+/// only). The color receipt and other digital variants stay in the QR gallery. There is no
+/// guest-facing switch.
+enum GuestReceiptPreview {
+    /// The smooth monochrome render produced with the receipt in the composition task.
+    case monochrome(UIImage)
+    /// That optional render failed: the composed receipt shown through a display-only grayscale
+    /// filter, so the guest still sees black & white and printing is unaffected.
+    case grayscaleFallback(UIImage)
+    /// Nothing composed yet: a polished loading state, never a color stand-in.
+    case preparing
 
     static let printNote = "Printed in black and white on thermal paper. Final print texture may vary."
-    /// Reserved vertical space for the toggle and note on the receipt screen.
-    static let pickerHeightEstimate: CGFloat = 62
 
-    var title: String {
+    static func resolve(receipt: UIImage?, monochrome: UIImage?) -> GuestReceiptPreview {
+        if let monochrome { return .monochrome(monochrome) }
+        if let receipt { return .grayscaleFallback(receipt) }
+        return .preparing
+    }
+
+    var image: UIImage? {
         switch self {
-        case .keepsake: "Keepsake"
-        case .blackAndWhite: "Black & White"
-        case .motion: "In Motion"
+        case .monochrome(let image), .grayscaleFallback(let image): image
+        case .preparing: nil
         }
     }
 
-    /// Modes offered for a session. Solo has nothing to animate.
-    static func available(motion: Bool) -> [ReceiptPreviewMode] {
-        motion ? allCases : allCases.filter { $0 != .motion }
-    }
-
-    /// Black & White shows only the smooth monochrome preview. While it is still rendering this
-    /// returns nil (a loading state), never the keepsake or the printer raster.
-    func image(keepsake: UIImage?, monochrome: UIImage?) -> UIImage? {
-        switch self {
-        case .keepsake: keepsake
-        case .blackAndWhite: monochrome
-        case .motion: keepsake
-        }
+    var needsGrayscaleFilter: Bool {
+        if case .grayscaleFallback = self { return true }
+        return false
     }
 }
