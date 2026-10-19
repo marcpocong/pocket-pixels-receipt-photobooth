@@ -75,3 +75,11 @@ Used in: Recent Sessions detail and its full-screen sheet, Sample Print Studio, 
 - The emoji list is Unicode's RGI set, not Apple's keyboard order or Apple-only symbols. Search uses CLDR short names plus a small synonym list, not the full CLDR keyword annotations.
 - Very long receipts on the guest screen still scroll when the fitted width would be under 250 pt (the existing `ReceiptPreviewLayout` rule). Landscape now gives them nearly the full height.
 - Simulator verification only. A physical VOZY G80 print of emoji stickers, and the camera screen with a live feed, still need checking on Carlo.
+
+## Verification (simulator, iPad Pro 11-inch, iOS 26.5)
+
+- Full XCTest production suite: **648/648 XCTests** and **89/89 Swift Testing tests** pass. The first full run found 5 `StickerStudioFlowTests` that relied on the old default (original artwork on). They now opt in explicitly, and all sticker suites pass.
+- New suites: `EmojiStickerTests` (17) and `CustomerOperatorUIReleaseTests` (14). They include screenshots of every receipt format in portrait and landscape, plus printing, fallback and preparing states, camera, Recent Sessions, zoom viewer and emoji studio. All screenshots use synthetic photos.
+- `node Backend/GoogleAppsScript/GridSixValidation.test.cjs` passes. There is no backend diff.
+- Signed Release archive: bundle `com.pocketpixels.PocketPixelsBooth`, team `PQ26682725`. The team provisioning profile expires **2026-10-26 17:17 UTC**. The archive was not installed on any device.
+- Not device-verified: a physical VOZY G80 emoji print, and the camera screen with a live feed.
