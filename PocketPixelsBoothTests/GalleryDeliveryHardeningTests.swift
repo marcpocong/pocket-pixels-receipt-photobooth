@@ -44,7 +44,7 @@ final class GalleryDeliveryHardeningTests: XCTestCase {
             }
             if scenario == .pendingPage {
                 XCTAssertEqual(DeliveryProtocol.requests.map(\.httpMethod), ["POST", "GET"])
-                XCTAssertEqual(DeliveryProtocol.requests.last?.url, payload.galleryURL)
+                XCTAssertEqual(URLComponents(url: try XCTUnwrap(DeliveryProtocol.requests.last?.url), resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "galleryStatus" })?.value, "1")
                 XCTAssertNil(DeliveryProtocol.requests.last?.value(forHTTPHeaderField: "Authorization"))
                 XCTAssertEqual(DeliveryProtocol.requests.last?.timeoutInterval, 30)
             }

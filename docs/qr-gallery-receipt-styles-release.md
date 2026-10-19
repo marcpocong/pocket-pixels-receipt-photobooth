@@ -1,5 +1,7 @@
 # QR gallery receipt styles — October 20, 2026
 
+Follow-up: the [upload speed release](gallery-upload-speed-release.md) adds schema 4, Apps Script version 29 and the lightweight readiness route. This report records the preceding schema-3 release.
+
 Backend support is deployed and the signed app is installed in place on Carlo. The implementation is on `feat/qr-gallery-receipt-styles`. A new production synthetic-gallery round trip remains unverified, so this is not full production sign-off.
 
 ## Source and scope

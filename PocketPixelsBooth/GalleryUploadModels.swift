@@ -40,6 +40,7 @@ struct GalleryUploadRequest: Codable, Sendable {
 }
 
 struct GalleryUploadResponse: Codable, Sendable {
+    var serverTiming: [String: Double]? = nil
     let ok: Bool
     let schemaVersion: Int?
     let galleryToken: String?

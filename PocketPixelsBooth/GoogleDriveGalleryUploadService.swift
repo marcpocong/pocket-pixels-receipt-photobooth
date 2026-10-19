@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import OSLog
 import UIKit
 
 struct GalleryPendingQueueFailure: Error, LocalizedError {
@@ -19,6 +20,7 @@ struct GalleryPendingQueueFailure: Error, LocalizedError {
 
 @MainActor
 final class GoogleDriveGalleryUploadService: GalleryUploadService {
+    private static let performanceLogger = Logger(subsystem: "com.pocketpixels.PocketPixelsBooth", category: "GalleryPerformance")
     private let configurationProvider: () throws -> GoogleDriveGalleryConfiguration
     private let customerGalleryConfigurationProvider: () throws -> CustomerGalleryConfiguration
     private let urlSession: URLSession
@@ -126,14 +128,14 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         guard let pendingStore else { throw GalleryUploadError.configuration("Gallery storage is unavailable.") }
         guard let payload = try pendingStore.load(galleryToken: payload.galleryToken) else {
             // A preceding owner cleared it only after verifying this exact public URL.
-            try await verifyPublicGallery(at: payload.galleryURL)
+            try await verifyPublicGallery(payload)
             recordVerifiedDelivery(sessionID: payload.sessionID)
             return GalleryUploadResult(galleryToken: payload.galleryToken, galleryURL: payload.galleryURL, status: .existingComplete)
         }
         // A previous POST may already have completed. Reconcile the frozen public QR first;
         // otherwise the backend's same-token idempotent POST reconciles incomplete delivery.
         if payload.deliveryState == .deliveryUnknown,
-           (try? await verifyPublicGallery(at: payload.galleryURL)) != nil {
+           (try? await verifyPublicGallery(payload)) != nil {
             recordVerifiedDelivery(sessionID: payload.sessionID)
             try pendingStore.clear(galleryToken: payload.galleryToken)
             return GalleryUploadResult(galleryToken: payload.galleryToken, galleryURL: payload.galleryURL, status: .existingComplete)
@@ -216,7 +218,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         defer { endUpload(galleryToken: galleryToken) }
         guard let payload = try pendingStore?.load(galleryToken: galleryToken) else { return nil }
         do {
-            try await verifyPublicGallery(at: payload.galleryURL)
+            try await verifyPublicGallery(payload)
         } catch {
             try Task.checkCancellation()
             return nil // Public delay/offline is not permission to discard the payload.
@@ -295,9 +297,8 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         guard isValidWireCreatedAtString(createdAtString) else { throw GalleryUploadError.invalidDate }
         let galleryURL = try GalleryURLBuilder.makeGalleryURL(customerGalleryBaseURL: customerGalleryBaseURL, galleryToken: galleryToken)
 
-        let originalDecodedBytes = photos.reduce(0) { partial, image in
-            partial + (image.jpegData(compressionQuality: 0.95)?.count ?? 0)
-        } + (composedReceipt.jpegData(compressionQuality: 0.95)?.count ?? 0)
+        // Avoid re-encoding full-resolution originals just to estimate a diagnostic size.
+        let originalDecodedBytes: Int? = nil
 
         let preparedPhotos = try photos.enumerated().map { index, image in
             GalleryStoredUploadImage(
@@ -317,12 +318,12 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         // session model. The black & white copy must be derived from that image, never from the
         // private physical print. The legacy `thermalReceipt` / `receipt-bw.png` slot now carries a
         // smooth 8-bit grayscale customer preview, not the 1-bit printer raster.
-        let preparedThermalReceipt = GalleryStoredUploadImage(
+        let preparedThermalReceipt: GalleryStoredUploadImage? = receiptVariants == nil ? GalleryStoredUploadImage(
             filename: "receipt-bw.png",
             mimeType: "image/png",
             data: try GalleryUploadPreparation.preparedMonochromeReceiptData(from: composedReceipt)
-        )
-        // New galleries contain approved still photos and both receipt representations only.
+        ) : nil
+        // Schema 4 derives both B&W variants in the browser from privacy-safe color assets.
         // Optional GIF fields remain supported for durable queues and historical manifests.
         let preparedGIF: GalleryStoredUploadImage? = nil
 
@@ -334,7 +335,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
                 data: try GalleryUploadPreparation.preparedReceiptData(from: $0))
         }
         let imagePreparationDuration = Date().timeIntervalSince(preparationStart)
-        let allAssets = preparedPhotos + [preparedReceipt, preparedThermalReceipt] + [preparedGIF, preparedShareReceipt].compactMap { $0 }
+        let allAssets = preparedPhotos + [preparedReceipt] + [preparedThermalReceipt, preparedGIF, preparedShareReceipt].compactMap { $0 }
         let decodedBytes = allAssets.reduce(0) { $0 + $1.data.count }
         let timing = GalleryUploadTimingMetrics(
             imagePreparationDuration: imagePreparationDuration,
@@ -346,7 +347,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         )
         let metrics = try validateMetrics(for: allAssets, originalDecodedBytes: originalDecodedBytes, timing: timing)
         return GalleryPreparedUploadPayload(
-            schemaVersion: receiptVariants == nil ? 2 : 3,
+            schemaVersion: receiptVariants == nil ? 2 : 4,
             galleryToken: galleryToken,
             galleryURL: galleryURL,
             sessionID: sessionID,
@@ -401,7 +402,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
     ) -> Bool {
         guard response.ok,
               Self.isSupportedPhotoCount(expectedPhotoCount),
-              response.fileCount == expectedPhotoCount + ((response.schemaVersion ?? 1) >= 2 ? (3 + (expectedGIFIncluded ? 1 : 0) + (expectedShareReceiptIncluded ? 1 : 0)) : 2),
+              response.fileCount == expectedPhotoCount + ((response.schemaVersion ?? 1) >= 2 ? ((response.schemaVersion == 4 ? 2 : 3) + (expectedGIFIncluded ? 1 : 0) + (expectedShareReceiptIncluded ? 1 : 0)) : 2),
               let galleryToken = response.galleryToken,
               let galleryURL = response.galleryURL,
               Self.isConfirmedCompletionStatus(response.status),
@@ -440,7 +441,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             // delivery through the exact front door printed on this guest's receipt. This bounded
             // read runs in the gallery task and never gates physical receipt printing.
             Self.currentActivity = "Verifying public delivery · \(payload.sessionID)"
-            try await verifyPublicGallery(at: payload.galleryURL)
+            try await verifyPublicGallery(payload)
             recordVerifiedDelivery(sessionID: payload.sessionID)
             try pendingStore?.clear(galleryToken: payload.galleryToken)
             return result
@@ -463,19 +464,39 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         onPublicGalleryVerified(sessionID)
     }
 
-    private func verifyPublicGallery(at url: URL) async throws {
+    private func verifyPublicGallery(_ payload: GalleryPreparedUploadPayload) async throws {
+        let startedAt = Date()
+        var components = URLComponents(url: payload.galleryURL, resolvingAgainstBaseURL: false)
+        let queryItems = components?.queryItems ?? []
+        components?.queryItems = queryItems.filter { $0.name != "galleryStatus" } + [URLQueryItem(name: "galleryStatus", value: "1")]
+        guard let url = components?.url else { throw GalleryUploadError.invalidGalleryURL }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
-        request.setValue("text/html", forHTTPHeaderField: "Accept")
+        request.setValue("application/json,text/html;q=0.9", forHTTPHeaderField: "Accept")
         do {
             let (data, response) = try await verificationSession.data(for: request)
-            guard let response = response as? HTTPURLResponse, response.statusCode == 200,
-                  let html = String(data: data, encoding: .utf8),
-                  html.contains("data-pocket-pixels-gallery-status=\"complete\"") else {
-                throw GalleryUploadError.deliveryUnknown
+            guard let response = response as? HTTPURLResponse, response.statusCode == 200 else { throw GalleryUploadError.deliveryUnknown }
+            if let status = try? JSONDecoder().decode(GalleryPublicReadiness.self, from: data) {
+                guard status.statusVersion == 1, status.ok, status.status == "complete",
+                      status.galleryToken == payload.galleryToken, status.sessionID == payload.sessionID,
+                      status.schemaVersion == payload.schemaVersion,
+                      status.fileCount == payload.photos.count + 2 + (payload.thermalReceipt == nil ? 0 : 1) + (payload.gif == nil ? 0 : 1) + (payload.shareColorReceipt == nil ? 0 : 1)
+                else { throw GalleryUploadError.deliveryUnknown }
+            } else {
+                // Historical front doors ignore the status query and still serve their full page.
+                guard let html = String(data: data, encoding: .utf8), html.contains("data-pocket-pixels-gallery-status=\"complete\"") else { throw GalleryUploadError.deliveryUnknown }
             }
-        } catch {
-            throw GalleryUploadError.deliveryUnknown
-        }
+            Self.performanceLogger.info("Public gallery verified: elapsedMs=\(Int(Date().timeIntervalSince(startedAt)*1000)) responseBytes=\(data.count)")
+        } catch { throw GalleryUploadError.deliveryUnknown }
+    }
+
+    private struct GalleryPublicReadiness: Decodable {
+        let statusVersion: Int
+        let ok: Bool
+        let status: String
+        let galleryToken: String?
+        let sessionID: String?
+        let schemaVersion: Int?
+        let fileCount: Int?
     }
 
     private func post(
@@ -484,9 +505,11 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         configuration: GoogleDriveGalleryConfiguration
     ) async throws -> GalleryUploadResult {
         let totalStart = Date()
-        let requestBody = try Self.makeRequestBody(payload: payload, deviceToken: deviceToken)
         let jsonStart = Date()
-        let encodedBody = try JSONEncoder().encode(requestBody)
+        let (requestBody, encodedBody) = try await Task.detached(priority: .userInitiated) {
+            let body = try Self.makeRequestBody(payload: payload, deviceToken: deviceToken)
+            return (body, try JSONEncoder().encode(body))
+        }.value
         let jsonDuration = Date().timeIntervalSince(jsonStart)
 #if DEBUG
         debugLog(Self.makeSanitizedRequestDiagnostics(requestBody, encodedBody: encodedBody).description)
@@ -525,6 +548,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             throw GalleryUploadError.deliveryUnknown
         }
         let networkDuration = Date().timeIntervalSince(networkStart)
+        Self.performanceLogger.info("Gallery POST: elapsedMs=\(Int(networkDuration*1000)) imagePreparationMs=\(Int((payload.metrics.timing?.imagePreparationDuration ?? 0)*1000)) jsonEncodingMs=\(Int(jsonDuration*1000)) requestBytes=\(encodedBody.count)")
 
         guard let httpResponse = response as? HTTPURLResponse else { throw GalleryUploadError.deliveryUnknown }
         guard (200...299).contains(httpResponse.statusCode) else {
@@ -557,6 +581,9 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             throw GalleryUploadError.deliveryUnknown
         }
 
+        if let timing = uploadResponse.serverTiming {
+            Self.performanceLogger.info("Gallery server: validationMs=\(timing["validationMs"] ?? 0) lockWaitMs=\(timing["lockWaitMs"] ?? 0) driveWriteMs=\(timing["driveWriteMs"] ?? 0) totalMs=\(timing["totalMs"] ?? 0)")
+        }
         guard uploadResponse.ok else {
             if Self.isAuthenticationFailure(uploadResponse) {
                 throw GalleryUploadError.unauthorized

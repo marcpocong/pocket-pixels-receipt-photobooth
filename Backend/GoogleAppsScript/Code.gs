@@ -39,7 +39,7 @@ const MAX_GALLERY_DECODED_BYTES = 6 * 1024 * 1024;
 
 const MAX_GALLERY_BASE64_CHARS = 9 * 1024 * 1024;
 
-const BACKEND_VERSION = 'made-to-keep-gallery-v7-receipt-styles-20261018';
+const BACKEND_VERSION = 'made-to-keep-gallery-v8-fast-upload-20261020';
 
 // Customer-visible Made to Keep Studios identity. Script Property names, the completed-gallery
 // marker and self-test entry points keep their legacy Pocket Pixels identifiers for compatibility.
@@ -53,6 +53,8 @@ const MADE_TO_KEEP_BRAND = Object.freeze({
 });
 
 function doPost(e) {
+  const requestStartedAt = Date.now();
+  const serverTiming = {};
   let stage = 'START';
   let lock = null;
   let lockHeld = false;
@@ -77,7 +79,9 @@ function doPost(e) {
     }
 
     stage = 'VALIDATE_PAYLOAD';
+    const validationStartedAt = Date.now();
     const validation = validateUploadPayload_(body);
+    serverTiming.validationMs = Date.now() - validationStartedAt;
     if (!validation.ok) {
       console.log('Upload validation failed: ' + validation.code + ' field=' + validation.field);
       return jsonResponse(400, {
@@ -96,6 +100,7 @@ function doPost(e) {
 
     // Serialize only the Drive/idempotency mutation section.
     stage = 'ACQUIRE_GALLERY_LOCK';
+    const lockStartedAt = Date.now();
     lock = LockService.getScriptLock();
     if (!lock.tryLock(20000)) {
       return jsonResponse(429, {
@@ -108,9 +113,12 @@ function doPost(e) {
       });
     }
     lockHeld = true;
+    serverTiming.lockWaitMs = Date.now() - lockStartedAt;
 
     stage = 'CREATE_OR_RETURN_GALLERY';
+    const writeStartedAt = Date.now();
     const result = createOrReturnGallery_(root, body);
+    serverTiming.driveWriteMs = Date.now() - writeStartedAt;
 
     // Release before URL construction/response work so a configuration
     // error cannot unnecessarily block the next upload.
@@ -118,12 +126,15 @@ function doPost(e) {
     lockHeld = false;
 
     stage = 'MAKE_SUCCESS_RESPONSE';
+    serverTiming.totalMs = Date.now() - requestStartedAt;
+    console.log('Upload server timing: ' + JSON.stringify(serverTiming));
     return jsonResponse(200, {
       ok: true,
       schemaVersion: body.schemaVersion,
       galleryToken: body.galleryToken,
       galleryURL: makeGalleryURL_(body.galleryToken),
       fileCount: result.fileCount,
+      serverTiming: serverTiming,
       status: result.status
     });
   } catch (error) {
@@ -150,6 +161,7 @@ function doPost(e) {
 }
 
 function doGet(e) {
+  if (e && e.parameter && e.parameter.galleryStatus === '1') return galleryStatusResponse_(e);
 
   if (e && e.parameter && (e.parameter.diagnostic === 'phase6c' || e.parameter.diagnostic === 'phase6b')) {
 
@@ -357,7 +369,7 @@ function runPhase6CBackendSelfChecks() {
 
   const wrongSchema = JSON.parse(JSON.stringify(validPayload));
 
-  wrongSchema.schemaVersion = 4;
+  wrongSchema.schemaVersion = 5;
 
   assertValidationCode_(wrongSchema, 'INVALID_SCHEMA_VERSION');
 
@@ -622,20 +634,21 @@ function validateUploadPayload_(body) {
 
   }
 
-  if (body.schemaVersion !== 1 && body.schemaVersion !== 2 && body.schemaVersion !== 3) {
+  if (body.schemaVersion !== 1 && body.schemaVersion !== 2 && body.schemaVersion !== 3 && body.schemaVersion !== 4) {
 
     return validationError_('INVALID_SCHEMA_VERSION', 'Unsupported schema version.', 'schemaVersion');
 
   }
 
-  if (body.schemaVersion === 3) {
+  if (body.schemaVersion >= 3) {
     if (!validReceiptVariants_(body.receiptVariants)) return validationError_('INVALID_RECEIPT_VARIANTS', 'Invalid receipt styles.', 'receiptVariants');
     const hasAlternative = body.receiptVariants.originalFooterStyle !== 'decorativeBarcodeOnly';
     if (hasAlternative !== !!body.shareColorReceipt) return validationError_('INVALID_RECEIPT_VARIANTS', 'Receipt alternative does not match physical footer.', 'shareColorReceipt');
   } else if (body.receiptVariants !== undefined || body.shareColorReceipt !== undefined) {
-    return validationError_('INVALID_RECEIPT_VARIANTS', 'Receipt styles require schema 3.', 'receiptVariants');
+    return validationError_('INVALID_RECEIPT_VARIANTS', 'Receipt styles require schema 3 or 4.', 'receiptVariants');
   }
-  const versionFields = body.schemaVersion === 1 ? ['receipt'] : ['colorReceipt', 'thermalReceipt'];
+  const versionFields = body.schemaVersion === 1 ? ['receipt'] : body.schemaVersion === 4 ? ['colorReceipt'] : ['colorReceipt', 'thermalReceipt'];
+  if (body.schemaVersion === 4 && body.thermalReceipt !== undefined) return validationError_('INVALID_RECEIPT_VARIANTS', 'Schema 4 derives the black and white receipt.', 'thermalReceipt');
   for (let i = 0; i < versionFields.length; i++) {
     if (!Object.prototype.hasOwnProperty.call(body, versionFields[i])) {
       return validationError_('MISSING_FIELD', 'Missing required field.', versionFields[i]);
@@ -716,9 +729,12 @@ function validateUploadPayload_(body) {
   if (body.schemaVersion >= 2) {
     const colorError = validateImage_(body.colorReceipt, RECEIPT_FILENAME, 'colorReceipt', 'image/jpeg');
     if (!colorError.ok) return colorError;
-    const thermalError = validateImage_(body.thermalReceipt, THERMAL_RECEIPT_FILENAME, 'thermalReceipt', 'image/png');
-    if (!thermalError.ok) return thermalError;
-    validatedImages.push(colorError.image, thermalError.image);
+    validatedImages.push(colorError.image);
+    if (body.schemaVersion !== 4) {
+      const thermalError = validateImage_(body.thermalReceipt, THERMAL_RECEIPT_FILENAME, 'thermalReceipt', 'image/png');
+      if (!thermalError.ok) return thermalError;
+      validatedImages.push(thermalError.image);
+    }
     if (body.gif !== undefined && body.gif !== null) {
       const gifError = validateImage_(body.gif, GIF_FILENAME, 'gif', 'image/gif');
       if (!gifError.ok) return gifError;
@@ -726,7 +742,7 @@ function validateUploadPayload_(body) {
     }
   }
 
-  if (body.schemaVersion === 3 && body.shareColorReceipt) {
+  if (body.schemaVersion >= 3 && body.shareColorReceipt) {
     const shareError = validateImage_(body.shareColorReceipt, SHARE_RECEIPT_FILENAME, 'shareColorReceipt', 'image/jpeg');
     if (!shareError.ok) return shareError;
     validatedImages.push(shareError.image);
@@ -767,7 +783,7 @@ function validateUploadGalleryBudget_(validatedImages, body) {
   let base64Chars = 0;
   for (let i = 0; i < validatedImages.length; i++) decodedBytes += validatedImages[i].bytes.length;
   const wireImages = body.photos.concat(body.schemaVersion >= 2
-    ? [body.colorReceipt, body.thermalReceipt].concat(body.gif ? [body.gif] : []).concat(body.shareColorReceipt ? [body.shareColorReceipt] : [])
+    ? [body.colorReceipt].concat(body.schemaVersion === 4 ? [] : [body.thermalReceipt]).concat(body.gif ? [body.gif] : []).concat(body.shareColorReceipt ? [body.shareColorReceipt] : [])
     : [body.receipt]);
   for (let i = 0; i < wireImages.length; i++) base64Chars += String(wireImages[i].base64Data || '').length;
   if (decodedBytes > MAX_GALLERY_DECODED_BYTES || base64Chars > MAX_GALLERY_BASE64_CHARS) {
@@ -925,7 +941,7 @@ function createOrReturnGallery_(root, body) {
 
     if (manifest.status === 'complete') {
 
-      if (manifest.galleryToken === body.galleryToken && manifest.sessionID === body.sessionID && manifest.schemaVersion === body.schemaVersion && (body.schemaVersion !== 3 || (manifest.receiptVariants && manifest.receiptVariants.originalFooterStyle === body.receiptVariants.originalFooterStyle && manifest.receiptVariants.defaultStyle === body.receiptVariants.defaultStyle)) && manifestHasExpectedFiles_(manifest, body.photos.length) && hasExactlyExpectedImages_(inspection, expected)) {
+      if (manifest.galleryToken === body.galleryToken && manifest.sessionID === body.sessionID && manifest.schemaVersion === body.schemaVersion && (body.schemaVersion < 3 || (manifest.receiptVariants && manifest.receiptVariants.originalFooterStyle === body.receiptVariants.originalFooterStyle && manifest.receiptVariants.defaultStyle === body.receiptVariants.defaultStyle)) && manifestHasExpectedFiles_(manifest, body.photos.length) && hasExactlyExpectedImages_(inspection, expected)) {
 
         console.log('Returned existing Pocket Pixels gallery for session ' + body.sessionID + ' with token ' + redactToken_(body.galleryToken));
 
@@ -996,7 +1012,7 @@ function createOrReturnGallery_(root, body) {
 function saveExpectedImages_(folder, body, existingCounts) {
 
   const images = body.schemaVersion >= 2
-    ? body.photos.concat([body.colorReceipt, body.thermalReceipt]).concat(body.gif ? [body.gif] : []).concat(body.shareColorReceipt ? [body.shareColorReceipt] : [])
+    ? body.photos.concat([body.colorReceipt].concat(body.schemaVersion === 4 ? [] : [body.thermalReceipt])).concat(body.gif ? [body.gif] : []).concat(body.shareColorReceipt ? [body.shareColorReceipt] : [])
     : body.photos.concat([body.receipt]);
 
   const validatedImages = body._validatedImages || [];
@@ -1172,11 +1188,11 @@ function manifestHasExpectedFiles_(manifest, expectedPhotoCount) {
 
   const rolesOK = manifest.schemaVersion === 1
     ? manifest.receipt === RECEIPT_FILENAME
-    : (manifest.schemaVersion === 2 || manifest.schemaVersion === 3) && manifest.colorReceipt === RECEIPT_FILENAME &&
-      manifest.thermalReceipt === THERMAL_RECEIPT_FILENAME &&
+    : [2,3,4].indexOf(manifest.schemaVersion) !== -1 && manifest.colorReceipt === RECEIPT_FILENAME &&
+      (manifest.schemaVersion === 4 ? manifest.thermalReceipt === undefined && manifest.thermalReceiptDerivedFrom === RECEIPT_FILENAME : manifest.thermalReceipt === THERMAL_RECEIPT_FILENAME && manifest.thermalReceiptDerivedFrom === undefined) &&
       (manifest.gif === undefined || manifest.gif === null || manifest.gif === GIF_FILENAME);
 
-  const variantsOK = manifest.schemaVersion === 3
+  const variantsOK = manifest.schemaVersion >= 3
     ? validReceiptVariants_(manifest.receiptVariants) &&
       (manifest.receiptVariants.originalFooterStyle === 'decorativeBarcodeOnly'
         ? manifest.shareColorReceipt === undefined || manifest.shareColorReceipt === null
@@ -1284,7 +1300,7 @@ function findCompleteGalleryByToken_(token, timings) {
   }
 
   const expected = expectedFilenames_(manifest.photos.length, manifest.schemaVersion, !!manifest.gif, !!manifest.shareColorReceipt);
-  const exactInspection = inspectGalleryFolder_(folder, expected);
+  const exactInspection = restrictGalleryInspection_(inspection, expected);
 
   if (!exactInspection.safe || !hasExactlyExpectedImages_(exactInspection, expected) || exactInspection.manifests.length !== 1) {
 
@@ -1301,6 +1317,30 @@ function findCompleteGalleryByToken_(token, timings) {
 
   return { folder: folder, manifest: manifest, filesByName: exactInspection.filesByName };
 
+}
+
+function restrictGalleryInspection_(inspection, expected) {
+  const safe = inspection.safe && Object.keys(inspection.fileCounts).every(function(name) {
+    return expected.indexOf(name) !== -1 || inspection.fileCounts[name] === 0;
+  });
+  return {safe: safe, fileCounts: inspection.fileCounts, filesByName: inspection.filesByName, manifests: inspection.manifests};
+}
+
+function galleryStatusResponse_(e) {
+  const startedAt = Date.now();
+  const token = String((e && e.parameter && e.parameter.g) || '');
+  if (!GALLERY_TOKEN_PATTERN.test(token)) return jsonResponse(200, {ok:false, status:'invalid', statusVersion:1});
+  const gallery = findCompleteGalleryByToken_(token);
+  if (!gallery) return jsonResponse(200, {ok:false, status:'pending', statusVersion:1});
+  let decodedBytes = 0, base64Chars = 0;
+  const names = expectedFilenames_(gallery.manifest.photos.length, gallery.manifest.schemaVersion, !!gallery.manifest.gif, !!gallery.manifest.shareColorReceipt);
+  for (let i = 0; i < names.length; i++) {
+    const bytes = gallery.filesByName[names[i]].getSize();
+    if (bytes <= 0 || bytes > MAX_IMAGE_DECODED_BYTES) return jsonResponse(200, {ok:false, status:'unavailable', statusVersion:1});
+    decodedBytes += bytes; base64Chars += Math.ceil(bytes / 3) * 4;
+  }
+  if (decodedBytes > MAX_GALLERY_DECODED_BYTES || base64Chars > MAX_GALLERY_BASE64_CHARS) return jsonResponse(200, {ok:false, status:'unavailable', statusVersion:1});
+  return jsonResponse(200, {ok:true, status:'complete', statusVersion:1, galleryToken:token, sessionID:gallery.manifest.sessionID, schemaVersion:gallery.manifest.schemaVersion, fileCount:names.length+1, verificationMs:Date.now()-startedAt});
 }
 
 function galleryFolderIndexKey_(token) {
@@ -1349,7 +1389,7 @@ function findCompleteGalleryByNameFallback_(root, token, timings) {
   }
 
   const expected = expectedFilenames_(manifest.photos.length, manifest.schemaVersion, !!manifest.gif, !!manifest.shareColorReceipt);
-  const exactInspection = inspectGalleryFolder_(folder, expected);
+  const exactInspection = restrictGalleryInspection_(inspection, expected);
   if (!exactInspection.safe || !hasExactlyExpectedImages_(exactInspection, expected) || exactInspection.manifests.length !== 1) {
     return null;
   }
@@ -1482,7 +1522,7 @@ function validReceiptVariants_(value) {
 }
 
 function galleryReceiptStyleHTML_(manifest) {
-  if (manifest.schemaVersion !== 3 || !manifest.shareColorReceipt) return '';
+  if (manifest.schemaVersion < 3 || !manifest.shareColorReceipt) return '';
   return '<div class="receipt-style" role="group" aria-label="Receipt style">' +
     '<button type="button" class="btn-small" data-receipt-style="shareFriendly" aria-pressed="false">Share-Friendly</button>' +
     '<button type="button" class="btn-small" data-receipt-style="asPrinted" aria-pressed="false">As Printed</button></div>' +
@@ -1550,7 +1590,7 @@ function renderGalleryPage_(gallery, timings, startedAt) {
     receipt: assets.receipt,
     thermalReceipt: assets.thermalReceipt,
     shareColorReceipt: assets.shareColorReceipt,
-    receiptVariants: gallery.manifest.schemaVersion === 3 ? gallery.manifest.receiptVariants : null
+    receiptVariants: gallery.manifest.schemaVersion >= 3 ? gallery.manifest.receiptVariants : null
 
   }).replace(/</g, '\\u003c');
 
@@ -1642,8 +1682,8 @@ function loadGalleryAssets_(filesByName, manifest, includeGIF) {
     photos: photos,
 
     receipt: loadGalleryAsset_(filesByName, manifest.schemaVersion >= 2 ? manifest.colorReceipt : manifest.receipt, 'colorReceipt'),
-    thermalReceipt: manifest.schemaVersion >= 2 ? loadGalleryAsset_(filesByName, manifest.thermalReceipt, 'thermalReceipt') : null,
-    shareColorReceipt: manifest.schemaVersion === 3 && manifest.shareColorReceipt ? loadGalleryAsset_(filesByName, manifest.shareColorReceipt, 'colorReceipt') : null,
+    thermalReceipt: manifest.schemaVersion === 4 ? {filename: THERMAL_RECEIPT_FILENAME, role: 'thermalReceipt', mimeType: 'image/png', deriveFrom: manifest.colorReceipt} : manifest.schemaVersion >= 2 ? loadGalleryAsset_(filesByName, manifest.thermalReceipt, 'thermalReceipt') : null,
+    shareColorReceipt: manifest.schemaVersion >= 3 && manifest.shareColorReceipt ? loadGalleryAsset_(filesByName, manifest.shareColorReceipt, 'colorReceipt') : null,
     gif: includeGIF !== false && manifest.schemaVersion >= 2 && manifest.gif ? loadGalleryAsset_(filesByName, manifest.gif, 'gif') : null
 
   };
@@ -1926,8 +1966,8 @@ function makeCompleteManifest_(body) {
     createdAt: body.createdAt,
     photos: body._expectedPhotoFilenames || expectedPhotoFilenames_(body.photos.length),
     colorReceipt: RECEIPT_FILENAME,
-    thermalReceipt: THERMAL_RECEIPT_FILENAME,
-    ...(body.schemaVersion === 3 ? {receiptVariants: body.receiptVariants,
+    ...(body.schemaVersion === 4 ? {thermalReceiptDerivedFrom: RECEIPT_FILENAME} : {thermalReceipt: THERMAL_RECEIPT_FILENAME}),
+    ...(body.schemaVersion >= 3 ? {receiptVariants: body.receiptVariants,
       ...(body.shareColorReceipt ? {shareColorReceipt: SHARE_RECEIPT_FILENAME} : {})} : {}),
     gif: body.gif ? GIF_FILENAME : undefined,
     status: 'complete'
@@ -2158,7 +2198,7 @@ function expectedPhotoFilenames_(photoCount) {
 function expectedFilenames_(photoCount, schemaVersion, hasGIF, hasShareReceipt) {
 
   return expectedPhotoFilenames_(photoCount).concat(schemaVersion >= 2
-    ? [RECEIPT_FILENAME, THERMAL_RECEIPT_FILENAME].concat(hasGIF === false ? [] : [GIF_FILENAME]).concat(schemaVersion === 3 && hasShareReceipt ? [SHARE_RECEIPT_FILENAME] : [])
+    ? [RECEIPT_FILENAME].concat(schemaVersion === 4 ? [] : [THERMAL_RECEIPT_FILENAME]).concat(hasGIF === false ? [] : [GIF_FILENAME]).concat(schemaVersion >= 3 && hasShareReceipt ? [SHARE_RECEIPT_FILENAME] : [])
     : [RECEIPT_FILENAME]);
 
 }

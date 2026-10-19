@@ -274,7 +274,7 @@ test("diagnostic route expects raw proxy backend", async () => {
     const response = await worker.fetch(new Request("https://gallery.example.com/?diagnostic=proxy"), env);
     const body = await response.json();
     assert.equal(body.ok, true);
-    assert.equal(body.proxyVersion, "phase6c-worker-raw-html-20260831");
+    assert.equal(body.proxyVersion, "gallery-worker-readiness-20261020");
     assert.equal(body.backendVersion, "phase6c-worker-raw-html-proxy-20260831");
     assert.equal(body.rawProxyExpected, true);
   });
@@ -470,4 +470,57 @@ test("both front doors reject malformed tokens and Google sign-in pages identica
       assert.match(response.headers.get("Cache-Control"), /no-store/);
     });
   }
+});
+
+test("readiness bypasses HTML cache and proxies only whitelisted validated JSON", async () => {
+  const status = {statusVersion:1, ok:true, status:"complete", galleryToken:token, sessionID:"PP-20261020-120000", schemaVersion:4, fileCount:9, privateField:"must not escape"};
+  await withMockFetch([new Response(JSON.stringify(status))], async calls => {
+    const response = await worker.fetch(new Request(`https://gallery.example.com/?g=${token}&galleryStatus=1`), env);
+    assert.equal(response.status,200);
+    assert.match(response.headers.get('content-type'),/application\/json/);
+    assert.match(response.headers.get('cache-control'),/no-store/);
+    const value=await response.json();assert.equal(value.status,'complete');assert.equal(value.privateField,undefined);
+    const upstream=new URL(calls[0].url);assert.equal(upstream.searchParams.get('galleryStatus'),'1');assert.equal(upstream.searchParams.has('proxy'),false);
+  });
+});
+for (const status of [
+ {statusVersion:1,ok:false,status:'pending'},
+ {statusVersion:1,ok:false,status:'unavailable'}
+]) test(`readiness preserves ${status.status} without caching`,async()=>{
+ await withMockFetch([new Response(JSON.stringify(status))],async()=>{
+  const response=await worker.fetch(new Request(`https://gallery.example.com/?g=${token}&galleryStatus=1`),env);
+  assert.deepEqual(await response.json(),status);assert.match(response.headers.get('cache-control'),/no-store/);
+ });
+});
+for (const invalid of [
+ {statusVersion:1,ok:true,status:'complete',galleryToken:'b'.repeat(64),sessionID:'PP-20261020-120000',schemaVersion:4,fileCount:9},
+ {statusVersion:2,ok:false,status:'pending'},
+ {statusVersion:1,ok:true,status:'pending'},
+ {statusVersion:1,ok:true,status:'complete',galleryToken:token,sessionID:'not-a-session',schemaVersion:4,fileCount:9},
+ {statusVersion:1,ok:true,status:'complete',galleryToken:token,sessionID:'PP-20261020-120000',schemaVersion:5,fileCount:9},
+]) test(`readiness rejects invalid identity/protocol ${JSON.stringify(invalid)}`,async()=>{
+ await withMockFetch([new Response(JSON.stringify(invalid))],async()=>{
+  const response=await worker.fetch(new Request(`https://gallery.example.com/?g=${token}&galleryStatus=1`),env);
+  assert.equal(response.status,503);assert.match(response.headers.get('cache-control'),/no-store/);
+ });
+});
+test('readiness rejects Google login HTML and supports HEAD without a body',async()=>{
+ await withMockFetch([new Response('<html>Sign in with Google</html>')],async()=>{
+  const response=await worker.fetch(new Request(`https://gallery.example.com/?g=${token}&galleryStatus=1`),env);assert.equal(response.status,503);
+ });
+ await withMockFetch([new Response(JSON.stringify({statusVersion:1,ok:false,status:'pending'}))],async()=>{
+  const response=await worker.fetch(new Request(`https://gallery.example.com/?g=${token}&galleryStatus=1`,{method:'HEAD'}),env);assert.equal(await response.text(),'');
+ });
+});
+test('readiness schedules public HTML warming outside the completion response',async()=>{
+ const tasks=[];
+ await withMockFetch([
+  new Response(JSON.stringify({statusVersion:1,ok:true,status:'complete',galleryToken:token,sessionID:'PP-20261020-120000',schemaVersion:4,fileCount:3})),
+  new Response('<main data-pocket-pixels-gallery-status="complete">Made to Keep Studios</main>')
+ ],async calls=>{
+  const response=await worker.fetch(new Request(`https://gallery.example.com/?g=${token}&galleryStatus=1`),env,{waitUntil:task=>tasks.push(task)});
+  assert.equal((await response.json()).status,'complete');assert.equal(tasks.length,1);
+  await Promise.all(tasks);assert.equal(calls.length,2);
+  assert.equal(new URL(calls[1].url).searchParams.get('proxy'),'raw');
+ });
 });

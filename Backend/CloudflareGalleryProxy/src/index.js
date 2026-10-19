@@ -21,8 +21,8 @@ export function isRecognisedGalleryHTML(html) {
   return RECOGNISED_GALLERY_TEXT.some((marker) => html.includes(marker));
 }
 
-export default {
-  async fetch(request, env) {
+const galleryWorker = {
+  async fetch(request, env, context) {
     const requestURL = new URL(request.url);
 
     // Safe proxy health check. Does not require or expose a gallery token.
@@ -50,6 +50,9 @@ export default {
         "INVALID_GALLERY_TOKEN"
       );
     }
+
+    // Readiness is isolated from the HTML cache and traverses the same validated origin.
+    if (requestURL.searchParams.get("galleryStatus") === "1") return galleryReadiness(request, env, token, context);
 
     const cache = globalThis.caches && globalThis.caches.default;
     const cacheKey = canonicalCacheRequest(requestURL, token);
@@ -129,6 +132,44 @@ export default {
     return responseForMethod(response, request.method, headers.get("X-Pocket-Pixels-Cache"));
   },
 };
+
+export default galleryWorker;
+
+async function galleryReadiness(request, env, token, context) {
+  const origin = validateOrigin(env.APPS_SCRIPT_GALLERY_ORIGIN);
+  if (!origin.ok) return temporaryError(request.method, origin.code);
+  const url = new URL(origin.url);
+  url.searchParams.set("galleryStatus", "1");
+  url.searchParams.set("g", token);
+  const result = await fetchGoogleWithSafeRedirects(url.toString());
+  if (!result.ok) return temporaryError(request.method, result.code);
+  let status;
+  try { status = await result.response.json(); } catch { return temporaryError(request.method, "INVALID_READINESS_RESPONSE"); }
+  const supported = status && status.statusVersion === 1 && typeof status.ok === "boolean" &&
+    ["complete", "pending", "invalid", "unavailable"].includes(status.status);
+  const complete = status && status.ok === true && status.status === "complete";
+  if (!supported || (status.ok !== complete) || (complete && (status.galleryToken !== token ||
+      !/^PP-[0-9]{8}-[0-9]{6}(?:-[0-9a-f-]{36})?$/.test(status.sessionID || "") ||
+      ![1,2,3,4].includes(status.schemaVersion) || !Number.isInteger(status.fileCount) || status.fileCount < 3 || status.fileCount > 11))) {
+    return temporaryError(request.method, "INVALID_READINESS_RESPONSE");
+  }
+  // Whitelist response fields; no upstream configuration or arbitrary data can leak through.
+  const value = {statusVersion:1, ok:complete, status:status.status};
+  if (complete) Object.assign(value, {galleryToken:token, sessionID:status.sessionID, schemaVersion:status.schemaVersion, fileCount:status.fileCount});
+  // Keep first customer scans warm without making the iPad download embedded photos.
+  if (complete && request.method === "GET" && context?.waitUntil) {
+    const pageURL = new URL(request.url); pageURL.search = ""; pageURL.searchParams.set("g", token);
+    const warm = async () => {
+      const cache = globalThis.caches && globalThis.caches.default;
+      if (cache && await cache.match(canonicalCacheRequest(pageURL, token))) return;
+      await galleryWorker.fetch(new Request(pageURL), env);
+    };
+    context.waitUntil(warm().catch(() => console.log("Gallery cache warm deferred.")));
+  }
+  const response = jsonResponse(value);
+  response.headers.set("X-Pocket-Pixels-Readiness", "1");
+  return request.method === "HEAD" ? new Response(null, {status:response.status, headers:response.headers}) : response;
+}
 
 function canonicalCacheRequest(requestURL, token) {
   const canonical = new URL(requestURL.origin + requestURL.pathname);
@@ -276,7 +317,7 @@ async function proxyDiagnostic(env) {
   if (!originCheck.ok) {
     return jsonResponse({
       ok: false,
-      proxyVersion: "phase6c-worker-raw-html-20260831",
+      proxyVersion: "gallery-worker-readiness-20261020",
       configPresent: !!String(env.APPS_SCRIPT_GALLERY_ORIGIN || "").trim(),
       configValid: false,
       stage: originCheck.code,
@@ -310,7 +351,7 @@ async function proxyDiagnostic(env) {
 
   return jsonResponse({
     ok: result.ok && bodyLooksLikeBackendDiagnostic,
-    proxyVersion: "phase6c-worker-raw-html-20260831",
+    proxyVersion: "gallery-worker-readiness-20261020",
     configPresent: true,
     configValid: true,
     upstreamStatus: result.status || 0,

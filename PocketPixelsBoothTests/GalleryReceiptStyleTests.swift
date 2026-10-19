@@ -59,8 +59,8 @@ final class GalleryReceiptStyleTests: XCTestCase {
                     let payload = try GoogleDriveGalleryUploadService.preparePayload(photos: photos, composedReceipt: original,
                         sessionID: session.sessionIdentifier, createdAt: date, galleryToken: token, customerGalleryBaseURL: base,
                         shareFriendlyReceipt: alternative, receiptVariants: GalleryReceiptVariants(originalFooterStyle: footer, defaultStyle: style))
-                    XCTAssertEqual(payload.schemaVersion, 3)
-                    XCTAssertTrue(MonochromeReceiptRenderer.isSmoothMonochromePNG(try XCTUnwrap(payload.thermalReceipt).data))
+                    XCTAssertEqual(payload.schemaVersion, 4)
+                    XCTAssertNil(payload.thermalReceipt, "Schema 4 derives smooth B&W from the public color receipt")
                     let request = try GoogleDriveGalleryUploadService.makeRequestBody(payload: payload, deviceToken: String(repeating: "test", count: 8))
                     XCTAssertEqual(request.receiptVariants?.defaultStyle, style)
                     XCTAssertEqual(request.shareColorReceipt != nil, alternative != nil)
@@ -101,7 +101,7 @@ final class GalleryReceiptStyleTests: XCTestCase {
         let output = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("DerivedData/gallery-release-synthetic.json")
         try JSONEncoder().encode(request).write(to: output, options: .atomic)
-        XCTAssertEqual(payload.schemaVersion, 3)
+        XCTAssertEqual(payload.schemaVersion, 4)
         XCTAssertGreaterThan(id.count, 32, "Production UUID session identifiers must survive preparation")
     }
 
