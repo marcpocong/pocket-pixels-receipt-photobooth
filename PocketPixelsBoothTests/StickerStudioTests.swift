@@ -908,6 +908,8 @@ final class StickerStudioFlowTests: XCTestCase {
         environment.eventProfileSource = { EventProfile.pocketPixelsDefault }
         var settings = StickerStudioSettings()
         settings.isEnabled = enabled
+        // These flows add original-artwork stickers, now an operator opt-in legacy collection.
+        settings.builtInStickersEnabled = true
         environment.stickerConfigurationSource = configuration ?? { StickerStudioSessionConfiguration(settings: settings.normalized(), onlineReady: false) }
         environment.stickerCatalogStoreSource = {
             counter.catalogRequests += 1
