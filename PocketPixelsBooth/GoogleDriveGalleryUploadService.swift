@@ -476,10 +476,16 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             let (data, response) = try await verificationSession.data(for: request)
             guard let response = response as? HTTPURLResponse, response.statusCode == 200 else { throw GalleryUploadError.deliveryUnknown }
             if let status = try? JSONDecoder().decode(GalleryPublicReadiness.self, from: data) {
+                // Photos, the color receipt and the manifest, plus each optional asset. Typed
+                // steps keep older compilers from timing out on one long expression.
+                var expectedFileCount: Int = payload.photos.count + 2
+                if payload.thermalReceipt != nil { expectedFileCount += 1 }
+                if payload.gif != nil { expectedFileCount += 1 }
+                if payload.shareColorReceipt != nil { expectedFileCount += 1 }
                 guard status.statusVersion == 1, status.ok, status.status == "complete",
                       status.galleryToken == payload.galleryToken, status.sessionID == payload.sessionID,
                       status.schemaVersion == payload.schemaVersion,
-                      status.fileCount == payload.photos.count + 2 + (payload.thermalReceipt == nil ? 0 : 1) + (payload.gif == nil ? 0 : 1) + (payload.shareColorReceipt == nil ? 0 : 1)
+                      status.fileCount == expectedFileCount
                 else { throw GalleryUploadError.deliveryUnknown }
             } else {
                 // Historical front doors ignore the status query and still serve their full page.

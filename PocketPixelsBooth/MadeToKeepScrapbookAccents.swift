@@ -101,7 +101,7 @@ struct MadeToKeepScrapbookAccents: View {
     static func sparkle(at point: CGPoint, length: CGFloat, angle: Double) -> Path {
         var path = Path()
         for spread in [-38.0, 0, 38] {
-            let radians = (angle + spread) * .pi / 180
+            let radians = CGFloat((angle + spread) * .pi / 180)
             let start = CGPoint(x: point.x + cos(radians) * length * 0.25, y: point.y + sin(radians) * length * 0.25)
             let end = CGPoint(x: point.x + cos(radians) * length, y: point.y + sin(radians) * length)
             path.move(to: start)
