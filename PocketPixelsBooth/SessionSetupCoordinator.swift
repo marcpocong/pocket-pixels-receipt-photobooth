@@ -430,12 +430,11 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     /// Recovery and active-session barriers apply only when publishing/activating it.
     var saveValidation: String? {
         if let error = library.storageError { return error }
-        if needsRefresh { return "Check Current Status before saving paid settings again." }
+        if mode == .serverManaged, needsRefresh { return "Check Current Status before saving paid settings again." }
         if eventModeEnabled {
             guard let design else { return "Choose or create an event, or turn off Event Mode." }
             if design.archivedAt != nil { return "This design is archived. Choose an active design." }
             if design.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Enter an event name." }
-
         }
         if mode == .localPrepaid { return prepaid.activePolicy.validationMessage }
         if conflict { return "Server Settings Changed — Review Required." }

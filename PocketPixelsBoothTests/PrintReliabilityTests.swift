@@ -32,7 +32,7 @@ final class PrintReliabilityTests: XCTestCase {
 
     func testBusyPrinterSummaryDoesNotTellOperatorToRecoverOrReconnect() {
         let report = EventReadinessReport(checks: [
-            .init(severity: .critical, title: "Printer", status: .pass, detail: "Connected"),
+            .init(severity: .critical, title: "Printer", status: .warning, detail: "Printing"),
             .init(severity: .critical, title: "Print Queue", status: .fail, detail: "Busy")
         ], generatedAt: Date())
         let summary = OperatorStatusSummary(report: report, hasUnresolvedPrint: false,

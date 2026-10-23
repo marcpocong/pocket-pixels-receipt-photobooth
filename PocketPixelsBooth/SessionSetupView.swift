@@ -576,7 +576,7 @@ struct SetupSummaryRows: View {
         LabeledContent("Status", value: setup.isCurrentlyApplied ? "Currently applied" : (setup.hasUnsavedChanges ? "Unsaved changes" : "Saved — not yet applied"))
         Divider()
         LabeledContent("Camera check", value: operations.cameraCheckPassed ? "Checked this foreground session" : "Not checked — use Booth Check")
-        LabeledContent("Printer", value: printer.state.message)
+        LabeledContent("Printer", value: printer.operatorState.label)
         LabeledContent("Gallery connectivity", value: operations.queueError != nil ? "Upload storage needs review" : "\(operations.networkPathStatus) · \(operations.pendingUploadCount) waiting on this iPad")
         if let reason = SessionSetupSafety.blockingReason {
             Label(reason, systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(OperatorPalette.warning)

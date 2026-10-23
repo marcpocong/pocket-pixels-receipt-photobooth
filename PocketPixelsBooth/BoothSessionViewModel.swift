@@ -203,7 +203,7 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     var canDecreasePrintCopies: Bool {
-        checkoutEntitlement?.authorizationSource == .privatePrepaid && !isPrintBatchActive && selectedPrintCopies > 1
+        checkoutEntitlement?.authorizationSource == .privatePrepaid && commercialEvent.activePolicy.prepaidGuestCopyChoice && !isPrintBatchActive && selectedPrintCopies > 1
     }
 
     var canIncreasePrintCopies: Bool {
@@ -1150,6 +1150,10 @@ final class BoothSessionViewModel: ObservableObject {
         cancelTasks()
         clearCustomerData()
         beginNewCustomerSession()
+        // Resuming the original checkout must use its receipt profile, including an original
+        // standard (nil) profile, rather than inheriting the current event or another guest.
+        customerEventProfile = recovery.map { $0.eventProfile ?? .pocketPixelsDefault }
+            ?? environment.eventProfileSource().normalized()
         galleryToken = recovery?.galleryToken
         galleryURL = recovery?.galleryURL
         let generation = customerSessionGeneration

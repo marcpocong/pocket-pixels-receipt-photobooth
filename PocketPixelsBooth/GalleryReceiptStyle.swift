@@ -20,7 +20,14 @@ nonisolated enum GalleryReceiptSettingsStore {
     static func load(defaults: UserDefaults = .standard) -> GalleryReceiptStyle {
         defaults.string(forKey: key).flatMap(GalleryReceiptStyle.init(rawValue:)) ?? .shareFriendly
     }
+    static func loadIssue(defaults: UserDefaults = .standard) -> String? {
+        guard let raw = defaults.string(forKey: key), GalleryReceiptStyle(rawValue: raw) == nil else { return nil }
+        return "The saved digital receipt style is not recognized. Review the replacement below; the original is retained when you save."
+    }
     static func save(_ style: GalleryReceiptStyle, defaults: UserDefaults = .standard) {
+        if loadIssue(defaults: defaults) != nil, let original = defaults.string(forKey: key) {
+            defaults.set(original, forKey: key + ".preserved." + UUID().uuidString)
+        }
         defaults.set(style.rawValue, forKey: key)
     }
 }

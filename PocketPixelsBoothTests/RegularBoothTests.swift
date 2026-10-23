@@ -164,4 +164,20 @@ import XCTest
         XCTAssertEqual(frozen.profile.receiptDesign.footerStyleOverride, .decorativeBarcodeOnly)
     }
 
+    func testUnknownDeviceFooterAndGalleryDefaultsAreReportedAndPreservedOnRepair() throws {
+        let name = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set("future-footer", forKey: ReceiptPrintSettingsStore.footerStyleKey)
+        defaults.set("future-gallery", forKey: GalleryReceiptSettingsStore.key)
+        XCTAssertNotNil(ReceiptPrintSettingsStore.loadIssue(defaults: defaults))
+        XCTAssertNotNil(GalleryReceiptSettingsStore.loadIssue(defaults: defaults))
+        ReceiptPrintSettingsStore.save(.default, defaults: defaults)
+        GalleryReceiptSettingsStore.save(.shareFriendly, defaults: defaults)
+        XCTAssertNil(ReceiptPrintSettingsStore.loadIssue(defaults: defaults))
+        XCTAssertNil(GalleryReceiptSettingsStore.loadIssue(defaults: defaults))
+        let preserved = defaults.dictionaryRepresentation().filter { $0.key.contains(".preserved.") }.values.compactMap { $0 as? String }
+        XCTAssertEqual(Set(preserved), ["future-footer", "future-gallery"])
+    }
+
 }

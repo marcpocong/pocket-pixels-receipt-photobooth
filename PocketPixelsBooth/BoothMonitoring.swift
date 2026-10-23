@@ -60,6 +60,13 @@ nonisolated struct BoothTelemetry: Codable, Equatable, Sendable {
     func sendHeartbeat() async {
         guard !sending, let token=token(), let base=URL(string:endpoint), !endpoint.isEmpty else { return }
         sending=true; defer { sending=false }
+        let printer = PrinterCoordinator.shared
+        // Refresh Wi-Fi observations before an idle owner heartbeat. An unused Bluetooth
+        // radio is not evidence of printer failure; never interrupt a guest to probe a socket.
+        if printer.preferredMode != .bluetooth, !PrinterBluetoothService.shared.isConnectedAndReady || printer.preferredMode == .wifi,
+           !printer.isWorking, !printer.requiresRecovery, !EventOperationalState.shared.customerSessionActive {
+            _ = await printer.checkWiFiConnection()
+        }
         var request=URLRequest(url:base.appendingPathComponent("v1/heartbeat"),timeoutInterval:10)
         request.httpMethod="POST";request.setValue("Bearer "+token,forHTTPHeaderField:"Authorization")
         request.setValue("application/json",forHTTPHeaderField:"Content-Type")

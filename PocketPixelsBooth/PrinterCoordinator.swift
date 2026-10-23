@@ -215,7 +215,11 @@ final class PrinterCoordinator: ObservableObject {
     }
     var wifiConnectionVerified: Bool {
         guard let wifiCheckedAt else { return false }
-        return wifiCheckedEndpoint == wifiEndpoint && Date().timeIntervalSince(wifiCheckedAt) < 60
+        return wifiCheckedEndpoint == wifiEndpoint && wifiCheckedAt <= Date()
+    }
+    func invalidateWiFiConnectionCheck() {
+        objectWillChange.send()
+        wifiCheckedAt = nil
     }
     var operatorState: OperatorPrinterState {
         OperatorPrinterState.resolve(mode: preferredMode, bluetoothConnected: bluetoothService.isConnectedAndReady,
@@ -277,10 +281,10 @@ final class PrinterCoordinator: ObservableObject {
     }
 
     func prepare() {
-        guard preferredMode != .wifi else {
+        if preferredMode == .wifi {
+            if !EventOperationalState.shared.customerSessionActive { Task { _ = await checkWiFiConnection() } }
             return
         }
-
         bluetoothService.prepareSavedPrinter()
     }
 

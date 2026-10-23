@@ -23,7 +23,7 @@ struct EventReceiptDesignPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Picker("Event Gallery Code Style", selection: $design.profile.receiptDesign.footerStyleOverride) {
+            Picker(isRegularBooth ? "Printed Gallery Code" : "Event Gallery Code Style", selection: $design.profile.receiptDesign.footerStyleOverride) {
                 Text("Inherit Device Default").tag(Optional<ReceiptFooterStyle>.none)
                 ForEach(ReceiptFooterStyle.allCases) { style in Text(style.displayName).tag(Optional(style)) }
             }

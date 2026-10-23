@@ -12,6 +12,7 @@ struct RegularBoothSettingsView: View {
     }()
     var body: some View {
         Form {
+            if !message.isEmpty { Section { Text(message).accessibilityIdentifier("regular-defaults-save-result") } }
             if let loadIssue {
                 Section("Review saved settings") { Text(loadIssue).foregroundStyle(.orange) }
             }
@@ -23,7 +24,7 @@ struct RegularBoothSettingsView: View {
             }
             Section("Available formats") {
                 ForEach(BoothFormat.allCases, id: \.rawValue) { format in
-                    Toggle(format.rawValue, isOn: Binding(get: { settings.formats.contains(format.rawValue) }, set: { enabled in
+                    Toggle(format.displayName, isOn: Binding(get: { settings.formats.contains(format.rawValue) }, set: { enabled in
                         if enabled { settings.formats.append(format.rawValue) }
                         else { settings.formats.removeAll { $0 == format.rawValue } }
                     }))
@@ -46,20 +47,25 @@ struct RegularBoothSettingsView: View {
                 NavigationLink("Device Footer & Gallery Defaults", value: OperatorWorkspaceRoute.branding)
             }
             Section {
-                Button("Save Regular Booth Defaults") {
-                    guard OperatorAccessPermit.shared.isAuthorized else { message = "Unlock Operator again before saving."; return }
-                    do {
-                        settings.receiptProfile = regularProfile
-                        try RegularBoothSettings.save(settings)
-                        loadIssue = nil
-                        message = "Saved for the next Regular Booth guest."
-                    }
-                    catch { message = error.localizedDescription }
-                }.disabled(settings.formats.isEmpty)
-                if !message.isEmpty { Text(message) }
+                Button("Save Regular Booth Defaults", action: saveDefaults).disabled(settings.formats.isEmpty)
             }
         }.navigationTitle("Regular Booth Settings")
         .environment(\.defaultMinListRowHeight, 52)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save", action: saveDefaults).font(.headline).disabled(settings.formats.isEmpty)
+                    .accessibilityIdentifier("save-regular-defaults")
+            }
+        }
+    }
+    private func saveDefaults() {
+        guard OperatorAccessPermit.shared.isAuthorized else { message = "Unlock Operator again before saving."; return }
+        do {
+            settings.receiptProfile = regularProfile
+            try RegularBoothSettings.save(settings)
+            loadIssue = nil
+            message = "Saved for the next Regular Booth guest."
+        } catch { message = error.localizedDescription }
     }
     private var regularProfile: EventProfile {
         var profile = design.profile

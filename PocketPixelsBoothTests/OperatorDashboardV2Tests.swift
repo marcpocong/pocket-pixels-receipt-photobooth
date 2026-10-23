@@ -189,10 +189,24 @@ import SwiftUI
                     name: "reports-\(tab.rawValue.lowercased())", size: size, scene: scene)
             }
             try await render(AnyView(NavigationStack { OperatorRecoveryView() }), name: "printer-recovery", size: size, scene: scene)
+            let everyday: [(String, AnyView)] = [
+                ("regular-defaults", AnyView(RegularBoothSettingsView())),
+                ("printer-setup", AnyView(OperatorPrinterSetupView())),
+                ("branding-defaults", AnyView(OperatorBrandingView())),
+                ("recent-sessions", AnyView(RecentSessionsView())),
+                ("retained-sessions", AnyView(RetainedRecoverySessionsView()))
+            ]
+            for (name, view) in everyday {
+                try await render(AnyView(NavigationStack { view }), name: name, size: size, scene: scene)
+            }
         }
         workspace.select(.home); workspace.path = []
         try await render(AnyView(OperatorWorkspaceView(workspace: workspace, lifecycle: lifecycle, loadsRemote: false)
             .environment(\.dynamicTypeSize, .accessibility3)), name: "home-accessibility", size: CGSize(width: 700, height: 1_024), scene: scene)
+        try await render(AnyView(NavigationStack { RegularBoothSettingsView() }.environment(\.dynamicTypeSize, .accessibility3)),
+            name: "regular-accessibility", size: CGSize(width: 700, height: 1_024), scene: scene)
+        try await render(AnyView(NavigationStack { OperatorPrinterSetupView() }.environment(\.dynamicTypeSize, .accessibility3)),
+            name: "printer-accessibility", size: CGSize(width: 700, height: 1_024), scene: scene)
         workspace.saveSetupStage(3)
         try await render(AnyView(NavigationStack { SessionSetupView(coordinator: setup) }.environment(\.dynamicTypeSize, .accessibility3)),
             name: "setup-accessibility", size: CGSize(width: 700, height: 1_024), scene: scene)

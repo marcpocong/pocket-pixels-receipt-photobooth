@@ -35,7 +35,7 @@ nonisolated enum OperatorWorkspaceRoute: Codable, Hashable, Sendable {
 
     var title: String {
         switch self {
-        case .newEvent: "New Event"
+        case .newEvent: "Quick Start Event"
         case .savedEvent: "Event Setup"
         case .eventHistory: "Event History"
         case .eventLibrary: "Saved Events"
@@ -54,7 +54,7 @@ nonisolated enum OperatorWorkspaceRoute: Codable, Hashable, Sendable {
         case .equipment: "Equipment"
         case .advanced: "Advanced"
         case .printer: "Printer Setup"
-        case .recovery: "Fix Printer"
+        case .recovery: "Help & Recovery"
         case .camera: "Camera Check"
         case .gallery: "Gallery Setup"
         case .waitingGalleries: "Waiting Galleries"

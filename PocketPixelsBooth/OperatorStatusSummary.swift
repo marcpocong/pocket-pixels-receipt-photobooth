@@ -159,7 +159,7 @@ struct OperatorStatusSummary: Equatable {
                 actionTitle: "Fix Printer",
                 destination: .recovery
             ))
-        } else if failing("Printer") {
+        } else if failing("Printer") && !failing("Print Queue") {
             items.append(AttentionItem(
                 id: "printer-connection",
                 message: "Printer is not connected",

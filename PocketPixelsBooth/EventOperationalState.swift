@@ -388,6 +388,7 @@ final class EventOperationalState: ObservableObject {
     }
 
     func invalidateCameraCheck(message: String = "Run preflight after returning to the app.") {
+        PrinterCoordinator.shared.invalidateWiFiConnectionCheck()
         preflightGeneration += 1
         isPreflightRunning = false
         cameraCheckPassed = false

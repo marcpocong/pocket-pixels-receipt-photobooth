@@ -18,10 +18,6 @@ struct PrinterSetupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Printer Setup")
-                .font(.title2)
-                .fontWeight(.semibold)
-
             if advancedOnly {
                 modeSection
                 bluetoothSection
