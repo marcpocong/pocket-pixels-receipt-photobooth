@@ -257,7 +257,7 @@ final class OperatorExperienceTests: XCTestCase {
         XCTAssertEqual(summary.readiness, .notReady)
         XCTAssertEqual(summary.headline, "NOT READY")
         XCTAssertEqual(summary.summary, "Previous print result needs confirmation before continuing.")
-        XCTAssertEqual(summary.printer, .attention("Needs attention"))
+        XCTAssertEqual(summary.printer, .attention("Check previous receipt"))
         XCTAssertEqual(summary.attentionItems.first?.destination, .recovery)
         XCTAssertEqual(summary.attentionItems.first?.actionTitle, "Open Recovery")
     }
@@ -265,7 +265,7 @@ final class OperatorExperienceTests: XCTestCase {
     func testPrinterRecoveryLockOffersFixPrinter() {
         let summary = makeSummary(report(failing: ["Printer Recovery": .fail]), printerRequiresRecovery: true)
         XCTAssertEqual(summary.attentionItems.first?.actionTitle, "Fix Printer")
-        XCTAssertEqual(summary.summary, "Printer needs attention before starting.")
+        XCTAssertEqual(summary.summary, "Check the previous receipt before continuing.")
     }
 
     func testWaitingGalleriesAndOfflineAreAttentionNotFailure() {

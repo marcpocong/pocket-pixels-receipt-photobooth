@@ -6,6 +6,8 @@
 import SwiftUI
 
 struct PrinterSetupView: View {
+    var advancedOnly = false
+    @State private var changingPrinter = false
     @StateObject private var printerCoordinator = PrinterCoordinator.shared
     @StateObject private var bluetoothService = PrinterBluetoothService.shared
     @AppStorage("printerIP") private var printerIP = BoothConfiguration.defaultPrinterIP
@@ -13,7 +15,6 @@ struct PrinterSetupView: View {
     @State private var wifiState = PrinterConnectionState.disconnected
     @State private var customerPhotoTone = CustomerReceiptPhotoToneStore.load()
 
-    private let wifiService = PrinterNetworkService()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -21,11 +22,41 @@ struct PrinterSetupView: View {
                 .font(.title2)
                 .fontWeight(.semibold)
 
-            modeSection
-            bluetoothSection
-            receiptOutputSection
-            wifiSection
-            activeTransportSection
+            if advancedOnly {
+                modeSection
+                bluetoothSection
+                receiptOutputSection
+                wifiSection
+                activeTransportSection
+            } else {
+                Label(printerCoordinator.currentPrinterLabel, systemImage: "printer.fill").font(.headline)
+                Text(printerCoordinator.operatorState.label).font(.title3)
+                if printerCoordinator.operatorState == .unresolved {
+                    Text("A receipt may already have printed. Check the paper before continuing.")
+                    NavigationLink("Check Previous Receipt") { OperatorRecoveryView() }.buttonStyle(.borderedProminent)
+                } else {
+                    Button("Reconnect") { printerCoordinator.reconnectSelectedPrinter() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(printerCoordinator.isWorking || printerCoordinator.checkingWiFi)
+                    if printerCoordinator.preferredMode == .wifi { Text(printerCoordinator.wifiCheckMessage).font(.callout) }
+                    if printerCoordinator.operatorState == .awaitingTest {
+                        NavigationLink("Complete Paper Test") { OperatorRecoveryView() }.buttonStyle(.bordered)
+                    }
+                }
+                DisclosureGroup("Change Printer", isExpanded: $changingPrinter) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        modeSection
+                        if printerCoordinator.preferredMode != .wifi { bluetoothSection }
+                        else { wifiSection }
+                    }.padding(.vertical, 12)
+                }
+                NavigationLink("Manual Test Print · Uses Paper") { SamplePrintStudioView() }
+                    .buttonStyle(.bordered)
+                    .disabled(printerCoordinator.isWorking || printerCoordinator.requiresRecovery)
+                Text("Manual tests open a preview first. Nothing prints until you choose Print. A connection check does not prove paper output.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                NavigationLink("Advanced Printer Settings") { ScrollView { PrinterSetupView(advancedOnly: true).padding() }.navigationTitle("Advanced Printer") }
+            }
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -92,6 +123,7 @@ struct PrinterSetupView: View {
             }
             .pickerStyle(.segmented)
             .frame(maxWidth: 420)
+            .disabled(printerCoordinator.isWorking)
         }
     }
 
@@ -103,13 +135,6 @@ struct PrinterSetupView: View {
             Label(bluetoothStatusText, systemImage: bluetoothService.isConnectedAndReady ? "checkmark.circle.fill" : "printer")
                 .foregroundStyle(bluetoothService.isConnectedAndReady ? .green : .secondary)
 
-            if !bluetoothService.canPrintRaster {
-                Text(bluetoothService.readinessMessage)
-                    .font(.subheadline)
-                    .foregroundStyle(.orange)
-                NavigationLink("Open Printer Recovery") { OperatorRecoveryView() }
-                    .buttonStyle(.bordered)
-            }
 
             if printerCoordinator.preferredMode == .wifi {
                 Button("Use Bluetooth Printer") {
@@ -120,7 +145,7 @@ struct PrinterSetupView: View {
                 .disabled(printerCoordinator.isWorking)
             }
 
-            HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 12) {
                 Button {
                     printerCoordinator.reconnectBluetoothPrinter()
                 } label: {
@@ -137,11 +162,13 @@ struct PrinterSetupView: View {
                 .buttonStyle(.bordered)
                 .disabled(!bluetoothService.canScan)
 
+                if advancedOnly {
                 Button("Forget Printer", role: .destructive) {
                     printerCoordinator.forgetBluetoothPrinter()
                 }
                 .buttonStyle(.bordered)
                 .disabled(printerCoordinator.isWorking || bluetoothService.jobState.isWorking || (!bluetoothService.hasSavedPrinter && !bluetoothService.isConnectedAndReady))
+                }
             }
 
             if !bluetoothService.candidates.isEmpty {
@@ -151,9 +178,9 @@ struct PrinterSetupView: View {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(candidate.name)
                                     .font(.headline)
-                                Text("RSSI \(candidate.rssi)")
+                                if advancedOnly { Text("RSSI \(candidate.rssi)")
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(.secondary) }
                             }
 
                             if candidate.isLikelyPrinter {
@@ -242,13 +269,14 @@ struct PrinterSetupView: View {
     }
 
     private func testWiFi() {
-        guard let parsedPort else {
+        guard parsedPort != nil else {
             wifiState = .failure("Enter a valid TCP port from 1 to 65535.")
             return
         }
 
-        wifiService.testConnection(host: printerIP, port: parsedPort) { state in
-            wifiState = state
-        } completion: { _ in }
+        Task {
+            let connected = await printerCoordinator.checkWiFiConnection()
+            wifiState = connected ? .success(printerCoordinator.wifiCheckMessage) : .failure(printerCoordinator.wifiCheckMessage)
+        }
     }
 }

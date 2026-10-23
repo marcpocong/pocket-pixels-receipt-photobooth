@@ -89,7 +89,7 @@ nonisolated struct BoothTelemetry: Codable, Equatable, Sendable {
         }
         let uncertain=operations.hasUnresolvedPrint || recovery.outboxSummary.uncertain>0
         if uncertain { incidents.append("uncertain_print") }
-        if printer.requiresRecovery || !printer.isBluetoothReady || !PrinterBluetoothService.shared.canPrintRaster { incidents.append("printer") }
+        if printer.operatorState == .unresolved || printer.operatorState == .disconnected || printer.operatorState == .awaitingTest { incidents.append("printer") }
         let storage=acceptance.storageError != nil || runs.storageError != nil || operations.queueError != nil
             || CheckoutCheckpointStore.shared?.integrityFault != nil || PrintOutcomeOutbox.shared?.integrityFault != nil
             || CheckoutCheckpointStore.shared == nil || PrintOutcomeOutbox.shared == nil
@@ -99,7 +99,7 @@ nonisolated struct BoothTelemetry: Codable, Equatable, Sendable {
         if CommercialPolicySource.load() == .serverManaged, operations.networkPathStatus != "Online" { payment="unavailable" }
         return BoothTelemetry(mode:runs.pendingTransition != nil ? "recovery" : (paused ? "paused" : (RegularBoothMode.isEnabled ? "regular" : "event")),
             network:operations.networkPathStatus=="Online" ? "online" : (operations.networkPathStatus=="Offline" ? "offline" : "unknown"),
-            payment:payment,printer:uncertain ? "uncertain" : (printer.requiresRecovery ? "recovery" : (printer.isBluetoothReady && PrinterBluetoothService.shared.canPrintRaster ? "ready" : "unavailable")),storage:storage ? "error" : "ready",
+            payment:payment,printer:uncertain ? "uncertain" : (printer.requiresRecovery ? "recovery" : printer.operatorState.rawValue),storage:storage ? "error" : "ready",
             incidents:Array(Set(incidents)).sorted(),eventReference:runs.operational?.id)
     }
 }

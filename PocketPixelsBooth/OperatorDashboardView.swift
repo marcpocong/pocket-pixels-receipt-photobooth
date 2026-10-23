@@ -59,7 +59,7 @@ struct OperatorDashboardView: View {
             Text("Equipment").font(.headline)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
                 equipmentButton("Camera", detail: status.camera.label, symbol: "camera", route: .camera, ready: status.camera.isReady)
-                equipmentButton("Printer", detail: status.printer.isReady ? "Connected · check paper" : status.printer.label,
+                equipmentButton("Printer", detail: printer.operatorState.label,
                     symbol: "printer", route: printer.requiresRecovery || operations.hasUnresolvedPrint ? .recovery : .printer, ready: status.printer.isReady)
                 equipmentButton("Gallery / connectivity", detail: status.internet.isReady ? (status.gallery.isReady ? "Configured · online" : status.gallery.label) : status.internet.label,
                     symbol: "icloud", route: operations.pendingUploadCount > 0 ? .waitingGalleries : .gallery,
@@ -132,12 +132,10 @@ struct OperatorEquipmentView: View {
             Section {
                 EquipmentDestination(
                     title: "Printer",
-                    status: printer.requiresRecovery ? "Needs attention" : (bluetooth.canPrintRaster ? "Connected — physical output not verified" : "Not connected / not verified"),
+                    status: printer.operatorState.label,
                     systemImage: "printer.fill",
-                    ready: !printer.requiresRecovery && bluetooth.canPrintRaster
+                    ready: printer.operatorState.acceptsJobs
                 )
-                LabeledContent("Receipt transfer", value: printer.receiptBluetoothTransferMode.operatorSummary)
-                    .font(.subheadline)
                 NavigationLink("Printer Setup", value: OperatorWorkspaceRoute.printer)
                     .disabled(printer.isWorking)
                 if printer.requiresRecovery || operations.hasUnresolvedPrint {
@@ -240,6 +238,7 @@ struct OperatorAdvancedView: View {
             }
 
             Section("Diagnostics") {
+                NavigationLink("Printer Transport & Diagnostics") { ScrollView { PrinterSetupView(advancedOnly: true).padding() }.navigationTitle("Advanced Printer") }
                 Button(copied ? "Diagnostic Report Copied" : "Copy Diagnostic Report") {
                     operations.refresh()
                     UIPasteboard.general.string = operations.diagnosticReport

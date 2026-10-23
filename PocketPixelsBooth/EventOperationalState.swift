@@ -96,6 +96,7 @@ final class EventOperationalState: ObservableObject {
     private var retryRequested = false
     private var didStart = false
     private var printerStatusSubscription: AnyCancellable?
+    private var selectedPrinterSubscription: AnyCancellable?
 
     private init() {}
 
@@ -121,6 +122,14 @@ final class EventOperationalState: ObservableObject {
             // Chunk progress can publish hundreds of times; only a readiness change
             // should rerun storage/camera checks on the main actor.
             .map { _ in PrinterBluetoothService.shared.readinessMessage }
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.readinessReport = self.makeReadinessReport()
+            }
+        selectedPrinterSubscription = PrinterCoordinator.shared.objectWillChange
+            .receive(on: RunLoop.main)
+            .map { PrinterCoordinator.shared.operatorState }
             .removeDuplicates()
             .sink { [weak self] _ in
                 guard let self else { return }
@@ -357,6 +366,12 @@ final class EventOperationalState: ObservableObject {
     func runEventPreflight() {
         guard !isPreflightRunning, !customerSessionActive, !PrinterCoordinator.shared.isWorking else { return }
         PrinterCoordinator.shared.prepare()
+        if PrinterCoordinator.shared.preferredMode != .bluetooth {
+            Task { [weak self] in
+                _ = await PrinterCoordinator.shared.checkWiFiConnection()
+                self?.refresh()
+            }
+        }
         isPreflightRunning = true
         cameraCheckPassed = false
         cameraCheckMessage = "Checking camera initialization…"
@@ -418,8 +433,8 @@ final class EventOperationalState: ObservableObject {
         checks.append(EventReadinessCheck(
             severity: .critical,
             title: "Printer",
-            status: printerCoordinator.preferredMode != .wifi && PrinterBluetoothService.shared.canPrintRaster ? .pass : .fail,
-            detail: printerCoordinator.preferredMode == .wifi ? "Wi-Fi readiness is not verified by this preflight." : (PrinterBluetoothService.shared.canPrintRaster ? printerCoordinator.bluetoothSummary : PrinterBluetoothService.shared.readinessMessage)
+            status: printerCoordinator.operatorState.acceptsJobs ? .pass : (printerCoordinator.operatorState == .busy ? .warning : .fail),
+            detail: printerCoordinator.operatorState.label
         ))
         checks.append(EventReadinessCheck(
             severity: .critical,

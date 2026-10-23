@@ -95,7 +95,7 @@ struct OperatorStatusSummary: Equatable {
         if report.checks.isEmpty {
             printer = .attention("Not checked")
         } else if printNeedsConfirmation || printerLocked {
-            printer = .attention("Needs attention")
+            printer = .attention("Check previous receipt")
         } else if failing("Print Queue") {
             printer = .attention("Printing")
         } else if failing("Printer") {
@@ -122,8 +122,12 @@ struct OperatorStatusSummary: Equatable {
             summary = "Run Booth Check before welcoming guests."
         } else if printNeedsConfirmation {
             summary = "Previous print result needs confirmation before continuing."
-        } else if printerLocked || failing("Printer") || failing("Print Queue") {
-            summary = "Printer needs attention before starting."
+        } else if printerLocked {
+            summary = "Check the previous receipt before continuing."
+        } else if failing("Print Queue") {
+            summary = "Printer is busy. Wait for the current receipt."
+        } else if failing("Printer") {
+            summary = "Connect the selected printer in Printer Setup."
         } else if cameraNotAuthorized {
             summary = "Camera access is needed before starting."
         } else if cameraUnchecked {

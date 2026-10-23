@@ -11,11 +11,8 @@ import Foundation
         guard !PrinterCoordinator.shared.requiresRecovery, !EventOperationalState.shared.hasUnresolvedPrint else {
             throw SetupFailure("The printer needs a paper check in Operator → Recovery. No payment QR was issued.")
         }
-        guard PrinterCoordinator.shared.preferredMode != .wifi else {
-            throw SetupFailure("Select Bluetooth or Auto in Operator → Printer Setup for Bluetooth checkout. No payment QR was issued.")
-        }
-        guard try await PrinterBluetoothService.shared.waitUntilReady() else {
-            throw SetupFailure("\(PrinterBluetoothService.shared.readinessMessage) Open Operator → Printer Setup or Recovery. No payment QR was issued.")
+        guard try await PrinterCoordinator.shared.waitForSelectedPrinter() else {
+            throw SetupFailure("The selected printer is unavailable or needs a test. Open Operator → Printer Setup. No payment QR was issued.")
         }
         guard camera.authorizationStatus() == .authorized else { throw SetupFailure("Camera permission needs operator attention. No payment QR was issued.") }
         try await withCheckedThrowingContinuation { continuation in

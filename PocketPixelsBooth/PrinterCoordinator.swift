@@ -89,6 +89,35 @@ nonisolated enum ProductionReceiptTransportDecision {
     nonisolated static let safeFallbackMode: ReceiptBluetoothTransferMode = .compatibility
 }
 
+/// Shared presentation/readiness vocabulary for Home, setup, checkout and owner monitoring.
+nonisolated enum OperatorPrinterState: String, Equatable {
+    case disconnected, connected, ready, busy, awaitingTest, unresolved
+    var label: String {
+        switch self {
+        case .disconnected: "Not connected"
+        case .connected: "Connected · check paper"
+        case .ready: "Ready · check paper"
+        case .busy: "Printing · please wait"
+        case .awaitingTest: "Connected · test print needed"
+        case .unresolved: "Check the previous receipt"
+        }
+    }
+    var acceptsJobs: Bool { self == .ready || self == .connected }
+    static func resolve(mode: PrinterConnectionMode, bluetoothConnected: Bool, bluetoothReady: Bool,
+                        bluetoothNeedsTest: Bool, wifiConnected: Bool, busy: Bool, unresolved: Bool) -> Self {
+        if unresolved { return .unresolved }
+        if busy { return .busy }
+        if mode != .wifi {
+            if bluetoothReady { return .ready }
+            // Auto selects a connected Bluetooth printer before trying Wi-Fi, so its text-test
+            // requirement must not be hidden by a previous Wi-Fi connection check.
+            if bluetoothConnected { return bluetoothNeedsTest ? .awaitingTest : .connected }
+        }
+        if mode != .bluetooth && wifiConnected { return .connected }
+        return .disconnected
+    }
+}
+
 @MainActor
 final class PrinterCoordinator: ObservableObject {
     typealias StateHandler = (PrinterConnectionState) -> Void
@@ -99,6 +128,10 @@ final class PrinterCoordinator: ObservableObject {
     @Published private(set) var state = PrinterConnectionState.disconnected
     @Published private(set) var activeTransport = PrinterTransportSelection.none
     @Published private(set) var fallbackReason: String?
+    @Published private(set) var wifiCheckMessage = "Reconnect to check the Wi-Fi printer."
+    @Published private(set) var checkingWiFi = false
+    private var wifiCheckedAt: Date?
+    private var wifiCheckedEndpoint: String?
     @Published var receiptBluetoothTransferMode: ReceiptBluetoothTransferMode {
         didSet {
             UserDefaults.standard.set(receiptBluetoothTransferMode.rawValue, forKey: Self.receiptBluetoothTransferModeKey)
@@ -132,6 +165,9 @@ final class PrinterCoordinator: ObservableObject {
             return mode
         }
         set {
+            guard !isWorking else { return }
+            objectWillChange.send()
+            wifiCheckedAt = nil
             UserDefaults.standard.set(newValue.rawValue, forKey: Self.modeKey)
             fallbackReason = nil
         }
@@ -158,11 +194,74 @@ final class PrinterCoordinator: ObservableObject {
     }
 
     var isWorking: Bool {
-        spooler.isWorking || state.isWorking
+        spooler.isWorking || state.isWorking || checkingWiFi
     }
 
     var requiresRecovery: Bool {
         state.requiresPrinterRestart || spooler.requiresRecovery
+    }
+
+    private var wifiEndpoint: String {
+        let defaults = UserDefaults.standard
+        return "\(defaults.string(forKey: "printerIP") ?? BoothConfiguration.defaultPrinterIP):\(defaults.string(forKey: "printerPort") ?? BoothConfiguration.defaultPrinterPort)"
+    }
+    var wifiConnectionVerified: Bool {
+        guard let wifiCheckedAt else { return false }
+        return wifiCheckedEndpoint == wifiEndpoint && Date().timeIntervalSince(wifiCheckedAt) < 60
+    }
+    var operatorState: OperatorPrinterState {
+        OperatorPrinterState.resolve(mode: preferredMode, bluetoothConnected: bluetoothService.isConnectedAndReady,
+            bluetoothReady: bluetoothService.canPrintRaster, bluetoothNeedsTest: bluetoothService.needsDiagnosticTextTest,
+            wifiConnected: wifiConnectionVerified, busy: isWorking || checkingWiFi, unresolved: requiresRecovery || EventOperationalState.shared.hasUnresolvedPrint)
+    }
+    var currentPrinterLabel: String {
+        if preferredMode == .wifi || (preferredMode == .auto && !bluetoothService.isConnectedAndReady && wifiConnectionVerified) {
+            return "Wi-Fi · \(wifiEndpoint)"
+        }
+        return bluetoothSummary
+    }
+    /// A bounded connection-only probe using the same network service that prints receipts.
+    /// This clears its post-restart connection-test gate without sending receipt bytes.
+    func checkWiFiConnection() async -> Bool {
+        guard !isWorking, !checkingWiFi, !requiresRecovery else { return false }
+        let endpoint = wifiEndpoint
+        let defaults = UserDefaults.standard
+        let host = defaults.string(forKey: "printerIP") ?? BoothConfiguration.defaultPrinterIP
+        guard let port = UInt16(defaults.string(forKey: "printerPort") ?? BoothConfiguration.defaultPrinterPort), port > 0 else {
+            wifiCheckMessage = "Enter a Wi-Fi printer port from 1 to 65535 in Advanced."
+            return false
+        }
+        checkingWiFi = true; wifiCheckedAt = nil
+        defer { checkingWiFi = false }
+        return await withCheckedContinuation { continuation in
+            wifiService.testConnection(host: host, port: port, onStateChange: { _ in }) { [weak self] result in
+                Task { @MainActor in
+                    guard let self else { continuation.resume(returning: false); return }
+                    if case .success = result, endpoint == self.wifiEndpoint {
+                        self.wifiCheckedAt = Date(); self.wifiCheckedEndpoint = endpoint
+                        self.wifiCheckMessage = "Wi-Fi connected. Check paper; connection alone cannot confirm a printed receipt."
+                        continuation.resume(returning: true)
+                    } else {
+                        self.wifiCheckedAt = nil
+                        self.wifiCheckMessage = "Wi-Fi printer unavailable. Check its power, network and address in Advanced."
+                        continuation.resume(returning: false)
+                    }
+                }
+            }
+        }
+    }
+    func waitForSelectedPrinter() async throws -> Bool {
+        try Task.checkCancellation()
+        if preferredMode != .wifi {
+            if try await bluetoothService.waitUntilReady() { return true }
+            if preferredMode == .bluetooth || bluetoothService.isConnectedAndReady { return false }
+        }
+        try Task.checkCancellation()
+        return await checkWiFiConnection()
+    }
+    func reconnectSelectedPrinter() {
+        if preferredMode == .wifi { Task { _ = await checkWiFiConnection() } }
+        else { reconnectBluetoothPrinter() }
     }
 
     var auditExportText: String {
@@ -190,6 +289,7 @@ final class PrinterCoordinator: ObservableObject {
     }
 
     func confirmPrinterRestarted() {
+        wifiCheckedAt = nil
         spooler.confirmPrinterRestarted()
         bluetoothService.confirmPrinterRestarted()
         wifiService.confirmPrinterRestarted { [weak self] state in
@@ -482,6 +582,9 @@ final class PrinterCoordinator: ObservableObject {
             ) { [weak self] state in
                 self?.publish(state, onStateChange: onStateChange)
             } completion: { result, transmission in
+                Task { @MainActor in
+                    if case .failure = result { self.wifiCheckedAt = nil }
+                }
                 continuation.resume(returning: Self.wifiTransportOutcome(result: result, transmission: transmission))
             }
         }
