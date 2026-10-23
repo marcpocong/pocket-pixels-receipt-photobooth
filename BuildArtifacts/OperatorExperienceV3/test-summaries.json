@@ -426,5 +426,58 @@
       }
     ],
     "totalTestCount": 92
+  },
+  "historical_warning_complete_ios26": {
+    "devicesAndConfigurations": [
+      {
+        "device": {
+          "architecture": "arm64",
+          "deviceId": "643C1CF2-771A-4553-B562-869E09E571B1",
+          "deviceName": "PocketPixels Gallery Validation",
+          "modelName": "iPad Pro (11-inch) (4th generation)",
+          "osBuildNumber": "23F77",
+          "osVersion": "26.5",
+          "platform": "iOS Simulator"
+        },
+        "expectedFailures": 0,
+        "failedTests": 0,
+        "passedTests": 792,
+        "skippedTests": 0,
+        "testPlanConfiguration": {
+          "configurationId": "1",
+          "configurationName": "Test Scheme Action"
+        }
+      }
+    ],
+    "environmentDescription": "PocketPixelsBooth \u00b7 Built with macOS 27.0.1",
+    "expectedFailures": 0,
+    "failedTests": 0,
+    "finishTime": 1792771002.57,
+    "passedTests": 757,
+    "result": "Passed",
+    "runtimeWarnings": [
+      {
+        "issueType": "Runtime Warning",
+        "message": "[Internal] Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Utility quality-of-service class. Investigate ways to avoid priority inversions"
+      }
+    ],
+    "skippedTests": 0,
+    "startTime": 1792770327.17,
+    "statistics": [
+      {
+        "subtitle": "42 test runs",
+        "title": "7 tests ran with dynamic parameters"
+      }
+    ],
+    "testFailures": [],
+    "title": "Test - PocketPixelsBooth",
+    "topInsights": [
+      {
+        "category": "Longest Test Runs",
+        "impact": "54% of duration",
+        "text": "13 longest test runs with outlier durations exceeding 13.14s (three standard deviations)"
+      }
+    ],
+    "totalTestCount": 757
   }
 }
