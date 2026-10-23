@@ -248,6 +248,16 @@ final class LiveEventPaymentRecoveryTests: XCTestCase {
     func testOperatorArmedResumeFromReconciliationRevalidatesAndClaimsSameCheckout() async throws {
         let checkpoint = try XCTUnwrap(store.unresolved.first)
         let session = checkpoint.id
+        var originalProfile = EventProfile.pocketPixelsDefault
+        originalProfile.isEnabled = true
+        originalProfile.eventName = "Original Paid Event"
+        originalProfile.receiptDesign.editorialCaption = "ORIGINAL RECEIPT"
+        let saved = AppRecoverySnapshot(schemaVersion: 1, sessionIdentifier: session, createdAt: checkpoint.createdAt,
+            format: .solo, eventProfile: originalProfile, galleryToken: String(repeating: "a", count: 64),
+            galleryURL: URL(string: "https://example.test/?g=" + String(repeating: "a", count: 64)),
+            photoJPEGData: [], receiptPreviewPNGData: nil, thermalPreviewPNGData: nil,
+            rasterFingerprint: nil, stage: .formatSelected, updatedAt: Date())
+        try AppRecoveryStore(directoryURL: directory).saveCritical(saved)
         func entitlement(_ state: String) -> String {
             #"{"id":"original-entitlement","orderId":"original-order","eventId":"ev","policyRevisionId":"r1","sessionId":"\#(session)","selectedFormat":"solo","purchasedCopies":2,"unitPriceCentavos":2500,"totalCentavos":5000,"authorizationSource":"VERIFIED_QRPH","authorizedAt":"2026-10-16T04:00:00.000Z","state":"\#(state)"}"#
         }
@@ -263,6 +273,8 @@ final class LiveEventPaymentRecoveryTests: XCTestCase {
         model.state = .paymentReconciliation
         model.resumeArmedCheckoutForCurrentGuest()
         await model.activeTaskForTesting?.value
+        XCTAssertEqual(model.customerEventProfile.eventName, "Original Paid Event")
+        XCTAssertEqual(model.customerEventProfile.receiptDesign.editorialCaption, "ORIGINAL RECEIPT")
         XCTAssertNil(recovery.armedResume)
         XCTAssertEqual(model.checkoutEntitlement?.id, "original-entitlement")
         XCTAssertEqual(model.sessionIdentifier, session)

@@ -281,13 +281,13 @@ final class ArchivedReceiptReprintController: ObservableObject {
     }
 
     var buttonTitle: String {
-        quantity == 1 ? "Operator Reprint" : "Operator Reprint \(quantity) Copies"
+        quantity == 1 ? "Print 1 Extra Copy" : "Print \(quantity) Extra Copies"
     }
 
     var reprintUnavailableMessage: String? {
         guard !isReprinting else { return nil }
         if printerState.requiresPrinterRestart || printerCoordinator.requiresRecovery || EventOperationalState.shared.hasUnresolvedPrint {
-            return "Printer recovery is required before reprinting."
+            return "Check the previous receipt in Help & Recovery before printing another copy."
         }
         if printerCoordinator.isWorking || PrinterBluetoothService.shared.jobState.isWorking {
             return "Printer is busy. Wait for the current job to finish."
@@ -372,7 +372,9 @@ final class ArchivedReceiptReprintController: ObservableObject {
                     self.completedCopies = copy
                     completion(1)
                 case .failure:
-                    self.statusMessage = "\(self.completedCopies) of \(copies) copies completed. Printer needs attention."
+                    self.statusMessage = self.printerState.requiresPrinterRestart
+                        ? "\(self.completedCopies) of \(copies) copies sent. The last receipt may have printed; check the paper in Help & Recovery."
+                        : "\(self.completedCopies) of \(copies) copies sent. The next copy failed before it was sent. Check the printer connection."
                     debugLog("[RecentSessions] reprint stopped session=\(sessionID) completed=\(self.completedCopies) requested=\(copies)")
                     return
                 }
@@ -537,7 +539,7 @@ struct RecentSessionsView: View {
             .font(.subheadline.weight(selected ? .semibold : .regular))
             .foregroundStyle(selected ? MadeToKeepTheme.ColorPalette.ivoryLight : OperatorPalette.accent)
             .padding(.horizontal, 14)
-            .frame(minHeight: 40)
+            .frame(minHeight: 48)
             .background(Capsule().fill(selected ? OperatorPalette.accent : OperatorPalette.surface))
             .overlay(Capsule().strokeBorder(OperatorPalette.accent.opacity(0.25)))
             .contentShape(Capsule())

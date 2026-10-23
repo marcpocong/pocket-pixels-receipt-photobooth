@@ -109,6 +109,44 @@ import SwiftUI
         let result = await model.startAccepting()
         XCTAssertEqual(result, expected, model.message, file: file, line: line)
     }
+    func testSavingAnEventDuringRecoveryPreservesAdmissionAndActiveProfile() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        await f.model.createEvent(name: "Later event", venue: "Garden")
+        let before = f.acceptance.state
+        let active = f.profile
+        f.blockedReason = "Check the previous receipt"
+        f.model.prepaid.activePolicy.defaultCopies = 2
+        f.model.design?.profile.receiptDesign.editorialCaption = "SAVED FOR LATER"
+        XCTAssertNil(f.model.saveValidation)
+        XCTAssertEqual(f.model.validation, f.blockedReason)
+        await f.model.saveOnly()
+        let id = try XCTUnwrap(f.model.designID)
+        XCTAssertEqual(f.library.design(id: id)?.prepaidPolicy?.defaultCopies, 2)
+        XCTAssertEqual(f.library.design(id: id)?.profile.receiptDesign.editorialCaption, "SAVED FOR LATER")
+        XCTAssertEqual(f.acceptance.state, before)
+        XCTAssertEqual(f.profile, active)
+        XCTAssertTrue(f.runs.runs.isEmpty)
+        await assertStart(f.model, expected: false)
+        XCTAssertTrue(f.api.calls.isEmpty)
+        let restored = f.makeModel()
+        XCTAssertEqual(restored.design?.id, id)
+        XCTAssertEqual(restored.prepaid.activePolicy.defaultCopies, 2)
+    }
+
+    func testUnfinishedLogoCanBeSavedButCannotBeActivated() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        await f.model.createEvent(name: "Design in progress", venue: "")
+        f.model.design?.personalizeReceipt = true
+        XCTAssertNil(f.model.saveValidation)
+        XCTAssertNotNil(f.model.validation)
+        await f.model.saveOnly()
+        XCTAssertTrue(f.library.design(id: f.model.designID)?.personalizeReceipt == true)
+        await assertStart(f.model, expected: false)
+        XCTAssertFalse(f.model.requiresPaymentReview)
+        await f.paid()
+        XCTAssertTrue(f.model.requiresPaymentReview)
+    }
+
     func testGalleryOverrideIsStagedSavedAndAppliedIndependentlyOfLogo() async throws {
         let f = SetupFixture(); defer { f.cleanup() }
         await f.model.createEvent(name: "Gallery Style", venue: "Cebu")

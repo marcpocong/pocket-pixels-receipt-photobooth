@@ -11,6 +11,37 @@ final class PrintReliabilityTests: XCTestCase {
             .appendingPathComponent("print-audit-\(UUID().uuidString).json")
     }
 
+    func testOperatorStatusRespectsSelectedTransportAndDoesNotCallBusyAFailure() {
+        func status(_ mode: PrinterConnectionMode, bt: Bool = false, ready: Bool = false,
+                    test: Bool = false, wifi: Bool = false, busy: Bool = false, uncertain: Bool = false) -> OperatorPrinterState {
+            .resolve(mode: mode, bluetoothConnected: bt, bluetoothReady: ready, bluetoothNeedsTest: test,
+                     wifiConnected: wifi, busy: busy, unresolved: uncertain)
+        }
+        XCTAssertEqual(status(.wifi, wifi: true), .connected)
+        XCTAssertTrue(status(.wifi, wifi: true).acceptsJobs)
+        XCTAssertEqual(status(.wifi, bt: true, ready: true), .disconnected)
+        XCTAssertEqual(status(.bluetooth, wifi: true), .disconnected)
+        XCTAssertEqual(status(.bluetooth, bt: true, ready: true), .ready)
+        XCTAssertEqual(status(.auto, bt: true, test: true, wifi: true), .awaitingTest)
+        XCTAssertEqual(status(.auto, wifi: true), .connected)
+        XCTAssertEqual(status(.auto, bt: true, ready: true, busy: true), .busy)
+        XCTAssertEqual(status(.wifi, wifi: true, busy: true, uncertain: true), .unresolved)
+        XCTAssertFalse(OperatorPrinterState.awaitingTest.acceptsJobs)
+        XCTAssertFalse(OperatorPrinterState.unresolved.acceptsJobs)
+    }
+
+    func testBusyPrinterSummaryDoesNotTellOperatorToRecoverOrReconnect() {
+        let report = EventReadinessReport(checks: [
+            .init(severity: .critical, title: "Printer", status: .warning, detail: "Printing"),
+            .init(severity: .critical, title: "Print Queue", status: .fail, detail: "Busy")
+        ], generatedAt: Date())
+        let summary = OperatorStatusSummary(report: report, hasUnresolvedPrint: false,
+            printerRequiresRecovery: false, pendingUploadCount: 0, galleryStorageError: false)
+        XCTAssertEqual(summary.printer.label, "Printing")
+        XCTAssertTrue(summary.summary.contains("busy"))
+        XCTAssertTrue(summary.attentionItems.isEmpty)
+    }
+
     func testRecoveryDiagnosticTextCanStartBeforeTextVerification() {
         let service = PrinterBluetoothService()
         service.confirmPrinterRestarted()

@@ -56,6 +56,65 @@ final class EventOperationsTests: XCTestCase {
         XCTAssertFalse(OperatorPrintPolicy.requiresAcknowledgement(stage: .receiptComposed, snapshotIdentity: "session-1", acknowledgedIdentity: nil))
     }
 
+    func testAcknowledgementRetainsExactPhotosAndSurvivesRelaunchForOnlyThatCheckpoint() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let name = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { try? FileManager.default.removeItem(at: root); defaults.removePersistentDomain(forName: name) }
+        let store = try AppRecoveryStore(directoryURL: root)
+        let snapshot = AppRecoverySnapshot(schemaVersion: 1, sessionIdentifier: "RETAINED-ONLY", createdAt: Date(),
+            format: .solo, eventProfile: nil, galleryToken: nil, galleryURL: nil,
+            photoJPEGData: [Data([1, 2, 3])], receiptPreviewPNGData: Data([4, 5]), thermalPreviewPNGData: nil,
+            rasterFingerprint: "original", stage: .printStatusUnknown, updatedAt: Date())
+        try store.saveCritical(snapshot)
+        let identity = try OperatorRecoveryAcknowledgement.retainAndAcknowledge(snapshot, store: store, defaults: defaults)
+        let relaunched = try AppRecoveryStore(directoryURL: root)
+        let retained = try XCTUnwrap(relaunched.retainedSessions().first)
+        XCTAssertEqual(retained.photoJPEGData, snapshot.photoJPEGData)
+        XCTAssertEqual(retained.receiptPreviewPNGData, snapshot.receiptPreviewPNGData)
+        XCTAssertEqual(retained.stage, .printStatusUnknown, "Acknowledgement must not relabel an uncertain print as success or failure")
+        XCTAssertEqual(relaunched.load()?.rasterFingerprint, "original", "The active checkpoint stays untouched")
+        XCTAssertEqual(UserDefaults(suiteName: name)?.string(forKey: OperatorRecoveryAcknowledgement.key), identity)
+        XCTAssertFalse(OperatorPrintPolicy.requiresAcknowledgement(stage: .printStatusUnknown,
+            snapshotIdentity: OperatorRecoveryAcknowledgement.identity(snapshot), acknowledgedIdentity: identity))
+        let blockedRoot = root.appendingPathComponent("blocked")
+        let blockedStore = try AppRecoveryStore(directoryURL: blockedRoot)
+        try blockedStore.saveCritical(snapshot)
+        try Data([0]).write(to: blockedRoot.appendingPathComponent("RetainedSessions"))
+        XCTAssertThrowsError(try OperatorRecoveryAcknowledgement.retainAndAcknowledge(snapshot, store: blockedStore, defaults: defaults))
+        XCTAssertEqual(defaults.string(forKey: OperatorRecoveryAcknowledgement.key), identity)
+        XCTAssertEqual(blockedStore.load()?.photoJPEGData, snapshot.photoJPEGData)
+        let next = AppRecoverySnapshot(schemaVersion: 1, sessionIdentifier: "NEW-GUEST", createdAt: Date(), format: .solo,
+            eventProfile: nil, galleryToken: nil, galleryURL: nil, photoJPEGData: [], receiptPreviewPNGData: nil,
+            thermalPreviewPNGData: nil, rasterFingerprint: nil, stage: .printStatusUnknown, updatedAt: Date())
+        XCTAssertTrue(OperatorPrintPolicy.requiresAcknowledgement(stage: .printStatusUnknown,
+            snapshotIdentity: OperatorRecoveryAcknowledgement.identity(next), acknowledgedIdentity: identity))
+    }
+
+    func testOwnerMonitoringKeepsDeployedProtocolForEveryPrinterState() {
+        XCTAssertEqual(OperatorPrinterState.connected.telemetryValue, "ready")
+        XCTAssertEqual(OperatorPrinterState.busy.telemetryValue, "ready")
+        XCTAssertEqual(OperatorPrinterState.awaitingTest.telemetryValue, "unavailable")
+        XCTAssertEqual(OperatorPrinterState.disconnected.telemetryValue, "unavailable")
+        XCTAssertEqual(OperatorPrinterState.unresolved.telemetryValue, "recovery")
+    }
+
+    func testEditingDefaultsCannotRefreshAnAlreadyStartedGuestsProfile() {
+        var profile = EventProfile.pocketPixelsDefault
+        profile.receiptDesign.editorialCaption = "FIRST GUEST"
+        var environment = BoothSessionEnvironment.customer
+        environment.eventProfileSource = { profile }
+        let model = BoothSessionViewModel(environment: environment)
+        model.refreshCustomerExperience()
+        model.state = .choosingFormat
+        profile.receiptDesign.editorialCaption = "NEXT GUEST"
+        model.refreshCustomerExperience()
+        XCTAssertEqual(model.customerEventProfile.receiptDesign.editorialCaption, "FIRST GUEST")
+        model.state = .welcome
+        model.refreshCustomerExperience()
+        XCTAssertEqual(model.customerEventProfile.receiptDesign.editorialCaption, "NEXT GUEST")
+    }
+
     func testRequestedCopiesCountBatchesOnceIncludingFailedBatch() {
         let batch = UUID()
         let records = [audit(batch: batch, copies: 5), audit(batch: batch, copies: 5), audit(batch: UUID(), copies: 2, result: .failedBeforeBytes)]

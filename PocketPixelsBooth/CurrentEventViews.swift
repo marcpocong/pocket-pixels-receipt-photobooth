@@ -108,6 +108,10 @@ struct CurrentEventCard: View {
         let columns = [GridItem(.adaptive(minimum: 200), spacing: 12)]
         LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
             primaryAction
+            if [.active, .paused].contains(run?.status) {
+                actionButton("End Event", systemImage: "flag.checkered", role: .destructive) { showsEnd = true }
+                    .disabled(SessionSetupSafety.blockingReason != nil).accessibilityIdentifier("end-event")
+            }
             if OperatorHomeActionPolicy(status: status).showsPause, !acceptance.state.blocked {
                 actionButton("Pause Booth", systemImage: "pause.fill") { confirm = .pauseBooth }
                     .accessibilityIdentifier("pause-booth")
@@ -145,7 +149,10 @@ struct CurrentEventCard: View {
             actionButton("Return to Regular Booth", systemImage: "camera.fill") { confirm = .regular }
                 .accessibilityIdentifier("return-to-regular-booth")
         case .pausedOnBooth, .serverPaused:
-            Button { confirm = .resume } label: { Label(regular ? "Resume Booth" : "Resume Event", systemImage: "play.fill").frame(maxWidth: .infinity, minHeight: 48) }
+            Button {
+                if paid { confirm = .resume }
+                else { Task { await perform(.resume) } }
+            } label: { Label(regular ? "Resume Booth" : "Resume Event", systemImage: "play.fill").frame(maxWidth: .infinity, minHeight: 48) }
                 .buttonStyle(.borderedProminent).accessibilityIdentifier("resume-event")
         case .needsReview where run == nil && [.ended, .archived].contains(lifecycle.confirmedCommercialLifecycle):
             Button { confirm = .regular } label: { Label("Return to Regular Booth", systemImage: "camera").frame(maxWidth: .infinity, minHeight: 48) }
@@ -173,10 +180,6 @@ struct CurrentEventCard: View {
                     }
                     if lifecycle.linkedCommercialEventID != nil, run == nil || [.active, .paused].contains(run?.status), lifecycle.confirmedCommercialLifecycle == .active {
                         actionButton("Pause Paid Event for Every Booth", systemImage: "pause.circle") { confirm = .pauseCommercial }
-                    }
-                    if [.active, .paused].contains(run?.status) {
-                        actionButton("End Event…", systemImage: "flag.checkered", role: .destructive) { showsEnd = true }
-                            .disabled(SessionSetupSafety.blockingReason != nil).accessibilityIdentifier("end-event")
                     }
                     Text("Ending requires a separate review. Sessions, galleries, payment recovery and history are retained.")
                         .font(.footnote).foregroundStyle(OperatorPalette.secondaryText)
@@ -300,7 +303,7 @@ struct CurrentEventCard: View {
         case .finishEnding:
             return "The paid event has already ended. This completes this iPad's run; its sessions, galleries and reports are kept."
         case .regular:
-            return "Verify the previous event and recovery records, then enable local no-payment sessions with standard Made to Keep branding. Other booths are unchanged. History, saved designs and drafts are kept."
+            return "Verify the previous event and recovery records, then enable local no-payment sessions with your Regular Booth defaults. Other booths are unchanged. History, saved designs and drafts are kept."
         case .recordRun:
             return "This event was running before this iPad recorded event runs. After the paid event is confirmed, a run is recorded so statistics start now. Guest admission, prices, payments and earlier sessions are not changed."
         }
@@ -347,7 +350,7 @@ struct EndEventSheet: View {
                     if operations.pendingUploadCount > 0 { Text("Keep the app open online afterwards; waiting galleries keep uploading.").font(.footnote) }
                 }
                 Section("Kept after ending") {
-                    Text("Sessions, receipts, photos, galleries, print history, payment orders and entitlements, and this run's reports. This iPad returns to Regular Booth with standard branding and no payment required.")
+                    Text("Sessions, receipts, photos, galleries, print history, payment orders and entitlements, and this run's reports. This iPad returns to Regular Booth with your saved defaults and no payment required.")
                         .font(.callout)
                 }
                 Section {

@@ -98,6 +98,73 @@ private func stubClient() -> PaymentsAPIClient {
 @Suite("Durable print outbox", .serialized)
 @MainActor
 struct PrintOutboxTests {
+    @Test func historicalUnknownOutcomeDoesNotFreezeOperationAfterRelaunch() throws {
+        let root = tempDirectory("historical-outcome")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let outbox = try PrintOutcomeOutbox(directory: root)
+        try beginCopy(outbox, 1, of: 1, entitlement: nil)
+        #expect(outbox.finishCopy(batchID: "batch-1", copyIndex: 1, state: .uncertain))
+        let file = root.appendingPathComponent("PaymentState/print-outbox.json")
+        let original = try Data(contentsOf: file)
+        let relaunched = try PrintOutcomeOutbox(directory: root)
+        let checkpoints = try CheckoutCheckpointStore(directory: root)
+        #expect(relaunched.recoverAfterLaunch() == 0)
+        #expect(relaunched.summary.uncertain == 1)
+        #expect(SessionSetupSafety.recoveryReason(needsReceiptCheck: false, hasPendingSession: false, checkpoints: checkpoints, outbox: relaunched) == nil)
+        #expect(try Data(contentsOf: file) == original, "Reading status must not clear or rewrite print evidence")
+        #expect(throws: PrintOutcomeOutbox.OutboxError.copyAlreadyAttempted(1)) { try beginCopy(relaunched, 1, of: 1, entitlement: nil) }
+        #expect(relaunched.nextCopyToPrint(batchID: "batch-1", copyCount: 1) == nil)
+        try beginCopy(relaunched, 1, of: 1, batch: "new-guest", entitlement: nil)
+        #expect(relaunched.entries.count == 2, "A different guest has an independent print record")
+    }
+
+    @Test func currentReceiptAndGuestRecoveryStillBlockSwitchingSetup() throws {
+        let root = tempDirectory("current-recovery")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let outbox = try PrintOutcomeOutbox(directory: root)
+        let checkpoints = try CheckoutCheckpointStore(directory: root)
+        #expect(SessionSetupSafety.recoveryReason(needsReceiptCheck: true, hasPendingSession: false, checkpoints: checkpoints, outbox: outbox)?.contains("Fix Printer") == true)
+        #expect(SessionSetupSafety.recoveryReason(needsReceiptCheck: false, hasPendingSession: true, checkpoints: checkpoints, outbox: outbox)?.contains("Help & Recovery") == true)
+        try beginCopy(outbox, 1)
+        #expect(SessionSetupSafety.recoveryReason(needsReceiptCheck: false, hasPendingSession: false, checkpoints: checkpoints, outbox: outbox) != nil, "An unfinished physical send still blocks operation changes")
+    }
+
+    @Test func reportSyncAndConflictRemainDurableWithoutBlockingDifferentEvents() async throws {
+        let root = tempDirectory("report-not-operation")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let outbox = try PrintOutcomeOutbox(directory: root)
+        let checkpoints = try CheckoutCheckpointStore(directory: root)
+        try beginCopy(outbox, 1)
+        #expect(outbox.finishCopy(batchID: "batch-1", copyIndex: 1, state: .uncertain))
+        let entry = try #require(outbox.entries.first)
+        #expect(outbox.summary.pending == 1)
+        #expect(SessionSetupSafety.recoveryReason(needsReceiptCheck: false, hasPendingSession: false, checkpoints: checkpoints, outbox: outbox) == nil)
+        let client = stubClient()
+        Phase4StubProtocol.handler = { _ in (409, Data(#"{"error":"print_batch_conflict","message":"conflict"}"#.utf8)) }
+        let result = await outbox.sync(using: client)
+        #expect(result.conflicts == 1)
+        let relaunched = try PrintOutcomeOutbox(directory: root)
+        #expect(SessionSetupSafety.recoveryReason(needsReceiptCheck: false, hasPendingSession: false, checkpoints: checkpoints, outbox: relaunched) == nil)
+        let conflict = try #require(relaunched.conflicts.first)
+        #expect(conflict.entitlementID == entry.entitlementID && conflict.sessionID == entry.sessionID)
+        #expect(conflict.idempotencyKey == entry.idempotencyKey && conflict.localState == .uncertain)
+        #expect(relaunched.dueReports().isEmpty, "A server conflict stays quarantined")
+        #expect(throws: PrintOutcomeOutbox.OutboxError.copyAlreadyAttempted(1)) { try beginCopy(relaunched, 1) }
+    }
+
+    @Test func missingOrCorruptRecoveryStorageStillBlocksOperation() throws {
+        let root = tempDirectory("storage-recovery")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let checkpoints = try CheckoutCheckpointStore(directory: root)
+        #expect(SessionSetupSafety.recoveryReason(needsReceiptCheck: false, hasPendingSession: false, checkpoints: checkpoints, outbox: nil) != nil)
+        let file = root.appendingPathComponent("PaymentState/print-outbox.json")
+        try Data("corrupt".utf8).write(to: file)
+        let outbox = try PrintOutcomeOutbox(directory: root)
+        #expect(outbox.integrityFault != nil)
+        #expect(SessionSetupSafety.recoveryReason(needsReceiptCheck: false, hasPendingSession: false, checkpoints: checkpoints, outbox: outbox) != nil)
+        #expect(throws: PrintOutcomeOutbox.OutboxError.self) { try beginCopy(outbox, 1) }
+    }
+
     @Test func crashBeforeJournalWriteSendsNothing() throws {
         let root = tempDirectory("outbox")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -295,6 +362,20 @@ struct PrintOutboxTests {
 @Suite("Checkout checkpoint recovery")
 @MainActor
 struct CheckoutCheckpointTests {
+    @Test func unresolvedPaymentStillBlocksSwitchingWithNoPrintReports() throws {
+        let root = tempDirectory("unresolved-payment-operation")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try CheckoutCheckpointStore(directory: root)
+        let outbox = try PrintOutcomeOutbox(directory: root)
+        let original = checkpoint(phase: .claimed, orderID: "original-order")
+        try store.begin(original)
+        let restarted = try CheckoutCheckpointStore(directory: root)
+        let before = restarted.unresolved
+        #expect(SessionSetupSafety.recoveryReason(needsReceiptCheck: false, hasPendingSession: false, checkpoints: restarted, outbox: outbox)?.contains("Payment Recovery") == true)
+        #expect(restarted.unresolved == before, "A status check cannot resolve or authorize payment")
+        #expect(restarted.unresolved.first?.orderID == original.orderID && restarted.unresolved.first?.id == original.id)
+    }
+
     @Test func successfulCashResponseReopensAnEarlyEmptyRecoveryResolution() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cash-recovery-race-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }

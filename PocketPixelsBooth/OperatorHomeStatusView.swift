@@ -3,10 +3,22 @@ import SwiftUI
 struct OperatorBrandingView: View {
     @State private var galleryStyle = GalleryReceiptSettingsStore.load()
     @State private var printOptions = ReceiptPrintSettingsStore.load()
+    @State private var defaultIssues = [ReceiptPrintSettingsStore.loadIssue(), GalleryReceiptSettingsStore.loadIssue()].compactMap { $0 }
 
     var body: some View {
         List {
+            if !defaultIssues.isEmpty {
+                Section("Review saved defaults") {
+                    ForEach(defaultIssues, id: \.self) { Text($0).foregroundStyle(.orange) }
+                    Button("Save Shown Replacement Defaults") {
+                        ReceiptPrintSettingsStore.save(printOptions)
+                        GalleryReceiptSettingsStore.save(galleryStyle)
+                        defaultIssues = []
+                    }
+                }
+            }
             Section {
+                NavigationLink("Regular Booth Footer, Logo & Branding", value: OperatorWorkspaceRoute.regularBooth)
                 Text("Event logos and receipt layouts are part of each event's setup. Branding never starts or pauses sessions; changes reach guests after Review & Start.")
                 NavigationLink(value: OperatorWorkspaceRoute.sessionSetup) { Label("Session Setup", systemImage: "slider.horizontal.3") }
             }
@@ -21,7 +33,10 @@ struct OperatorBrandingView: View {
                 }
                 .pickerStyle(.menu)
                 .accessibilityIdentifier("device-gallery-code-style")
-                .onChange(of: printOptions) { _, value in ReceiptPrintSettingsStore.save(value) }
+                .onChange(of: printOptions) { _, value in
+                    ReceiptPrintSettingsStore.save(value)
+                    refreshDefaultIssues()
+                }
                 Button("Restore Default") { printOptions = .default }
                 if printOptions.footerStyle == .decorativeBarcodeOnly {
                     Label("The barcode is decorative and does not provide gallery access.", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
@@ -33,7 +48,10 @@ struct OperatorBrandingView: View {
                 Picker("Default QR Gallery Receipt Style", selection: $galleryStyle) {
                     ForEach(GalleryReceiptStyle.allCases) { style in Text(style.title).tag(style) }
                 }
-                .onChange(of: galleryStyle) { _, value in GalleryReceiptSettingsStore.save(value) }
+                .onChange(of: galleryStyle) { _, value in
+                    GalleryReceiptSettingsStore.save(value)
+                    refreshDefaultIssues()
+                }
             } header: { Text("Customer Gallery") } footer: {
                 Text("Default digital receipt style for future guests. Saved events may inherit or override it.")
             }
@@ -43,10 +61,15 @@ struct OperatorBrandingView: View {
                 }
             }
         }
-        .onAppear { printOptions = ReceiptPrintSettingsStore.load(); galleryStyle = GalleryReceiptSettingsStore.load() }
+        .onAppear { printOptions = ReceiptPrintSettingsStore.load(); galleryStyle = GalleryReceiptSettingsStore.load(); refreshDefaultIssues() }
         .onReceive(NotificationCenter.default.publisher(for: ReceiptPrintSettingsStore.didChangeNotification)) { _ in
             printOptions = ReceiptPrintSettingsStore.load()
+            refreshDefaultIssues()
         }
         .navigationTitle("Branding & Design").tint(OperatorPalette.ink)
     }
+    private func refreshDefaultIssues() {
+        defaultIssues = [ReceiptPrintSettingsStore.loadIssue(), GalleryReceiptSettingsStore.loadIssue()].compactMap { $0 }
+    }
+
 }

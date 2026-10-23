@@ -114,4 +114,70 @@ import XCTest
         settings.formats = []
         XCTAssertThrowsError(try RegularBoothSettings.save(settings, defaults: defaults))
     }
+    func testInvalidDefaultsStayVisibleAndCannotAdmitUntilExplicitlyRepaired() throws {
+        let name = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        var invalid = RegularBoothSettings()
+        invalid.maxCopies = 0
+        let original = try JSONEncoder().encode(invalid)
+        defaults.set(original, forKey: RegularBoothSettings.storageKey)
+        XCTAssertEqual(RegularBoothSettings.load(defaults: defaults).maxCopies, 0)
+        XCTAssertNotNil(RegularBoothSettings.loadIssue(defaults: defaults))
+        XCTAssertThrowsError(try RegularBoothSettings.loadForSession(defaults: defaults))
+        XCTAssertThrowsError(try RegularBoothSettings.save(invalid, defaults: defaults))
+        XCTAssertEqual(defaults.data(forKey: RegularBoothSettings.storageKey), original)
+        try RegularBoothSettings.save(.init(), defaults: defaults)
+        XCTAssertNil(RegularBoothSettings.loadIssue(defaults: defaults))
+        XCTAssertTrue(defaults.dictionaryRepresentation().contains { $0.key.hasPrefix(RegularBoothSettings.storageKey + ".preserved.") && ($0.value as? Data) == original })
+    }
+
+    func testUnreadableDefaultsAreRetainedAndReportedRatherThanSilentlyUsed() throws {
+        let name = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let bytes = Data("unreadable original".utf8)
+        defaults.set(bytes, forKey: RegularBoothSettings.storageKey)
+        XCTAssertNotNil(RegularBoothSettings.loadIssue(defaults: defaults))
+        XCTAssertThrowsError(try RegularBoothSettings.loadForSession(defaults: defaults))
+        XCTAssertEqual(defaults.data(forKey: RegularBoothSettings.storageKey), bytes)
+    }
+
+    func testRegularReceiptAndCopyDefaultsPersistWithoutMutatingFrozenValues() throws {
+        let name = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        var value = RegularBoothSettings()
+        var profile = EventProfile.pocketPixelsDefault
+        profile.isEnabled = true; profile.showEventTextBlock = false
+        profile.receiptDesign.footerStyleOverride = .decorativeBarcodeOnly
+        profile.receiptDesign.editorialCaption = "THANK YOU"
+        value.receiptProfile = profile
+        try RegularBoothSettings.save(value, defaults: defaults)
+        let frozen = try RegularBoothSettings.loadForSession(defaults: defaults)
+        value.defaultCopies = 2
+        value.receiptProfile?.receiptDesign.editorialCaption = "SEE YOU AGAIN"
+        try RegularBoothSettings.save(value, defaults: defaults)
+        XCTAssertEqual(RegularBoothSettings.load(defaults: defaults), value)
+        XCTAssertEqual(frozen.defaultCopies, 1)
+        XCTAssertEqual(frozen.profile.receiptDesign.editorialCaption, "THANK YOU")
+        XCTAssertEqual(frozen.profile.receiptDesign.footerStyleOverride, .decorativeBarcodeOnly)
+    }
+
+    func testUnknownDeviceFooterAndGalleryDefaultsAreReportedAndPreservedOnRepair() throws {
+        let name = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set("future-footer", forKey: ReceiptPrintSettingsStore.footerStyleKey)
+        defaults.set("future-gallery", forKey: GalleryReceiptSettingsStore.key)
+        XCTAssertNotNil(ReceiptPrintSettingsStore.loadIssue(defaults: defaults))
+        XCTAssertNotNil(GalleryReceiptSettingsStore.loadIssue(defaults: defaults))
+        ReceiptPrintSettingsStore.save(.default, defaults: defaults)
+        GalleryReceiptSettingsStore.save(.shareFriendly, defaults: defaults)
+        XCTAssertNil(ReceiptPrintSettingsStore.loadIssue(defaults: defaults))
+        XCTAssertNil(GalleryReceiptSettingsStore.loadIssue(defaults: defaults))
+        let preserved = defaults.dictionaryRepresentation().filter { $0.key.contains(".preserved.") }.values.compactMap { $0 as? String }
+        XCTAssertEqual(Set(preserved), ["future-footer", "future-gallery"])
+    }
+
 }

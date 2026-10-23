@@ -126,32 +126,59 @@ struct OperatorRecoveryView: View {
     @ObservedObject private var bluetooth = PrinterBluetoothService.shared
     var body: some View {
         List {
-            Section("Printer Recovery") {
-                Text(printer.requiresRecovery || operations.hasUnresolvedPrint ? "Printer status unknown. A receipt may already have printed." : "No unacknowledged printer recovery lock.").font(.headline)
-                Text("Inspect the receipt and paper path, then restart the printer. Automatic retry is disabled after bytes may have started. Confirmation never sends a print job.")
-                Button("Confirm Printer Restarted and Receipt Checked") { confirming = true }
-                    .disabled(printer.isWorking || (!printer.requiresRecovery && !operations.hasUnresolvedPrint))
+            Section {
+                if printer.requiresRecovery || operations.hasUnresolvedPrint {
+                    Label("A receipt may already have printed", systemImage: "exclamationmark.triangle.fill").font(.headline)
+                    Text("1. Check the paper and ask whether the guest received the receipt.\n2. Clear any jam and restart the printer.\n3. Record your check below, then reconnect.")
+                    Button("I've Checked the Receipt & Restarted the Printer") { confirming = true }
+                        .disabled(printer.isWorking)
+                    Text("The result stays recorded as uncertain. Recording your check never prints another copy.").font(.footnote)
+                } else {
+                    Label("No receipt waiting for a paper check", systemImage: "checkmark.circle").font(.headline)
+                }
                 NavigationLink("Reconnect / Printer Setup") { OperatorPrinterSetupView() }
                     .disabled(printer.isWorking)
-                Button("Print Diagnostic Text — Uses Paper") { confirmingTest = true }
-                    .disabled(testRunning || printer.isWorking || printer.requiresRecovery || operations.hasUnresolvedPrint || !bluetooth.isConnectedAndReady)
-                if textTestSent {
-                    Button("Confirm Diagnostic Text Printed Correctly") { confirmingPaper = true }
-                        .disabled(printer.isWorking || printer.requiresRecovery || !bluetooth.isConnectedAndReady)
+                if !operations.recoveryActionMessage.isEmpty { Text(operations.recoveryActionMessage) }
+            } header: { Text("Action needed now") }
+
+            if printer.preferredMode != .wifi, bluetooth.needsDiagnosticTextTest || textTestSent {
+                Section("Finish the printer check") {
+                    Text("Reconnect first, print one short text test, then inspect the paper. This unlocks receipt printing after a restart.")
+                    Button("Print One Text Test · Uses Paper") { confirmingTest = true }
+                        .disabled(testRunning || printer.isWorking || printer.requiresRecovery || operations.hasUnresolvedPrint || !bluetooth.isConnectedAndReady)
+                    if textTestSent {
+                        Button("The Text Printed Correctly") { confirmingPaper = true }
+                            .disabled(printer.isWorking || printer.requiresRecovery || !bluetooth.isConnectedAndReady)
+                    }
+                    if !testMessage.isEmpty { Text(testMessage) }
                 }
-                if !testMessage.isEmpty { Text(testMessage) }
-                NavigationLink("View Print History") { OperatorPrintAuditView() }
-                NavigationLink("Open Recent Sessions") { RecentSessionsView() }
-                Text("After confirmation, reconnect the printer. Any archived reprint is a separate, intentional operator print; inspect previous output first.")
             }
             if let snapshot = operations.recoverableSession {
-                Section("Saved Recovery Context") {
-                    Text(snapshot.sessionIdentifier)
-                    Text(snapshot.stage == .printStatusUnknown ? "Previous physical result is unknown, even after restart acknowledgement." : "Interrupted customer session saved locally.")
-                    Text("Recovery data is retained. No automatic reprint or deletion.")
-                }
+                Section {
+                    Text(snapshot.sessionIdentifier).font(.headline)
+                    if operations.hasPendingSessionRecovery {
+                        Text(snapshot.stage == .printStatusUnknown
+                             ? "Check the previous receipt above. Its photos and print record are kept."
+                             : "A guest session stopped before printing was recorded. Keep its photos for reference before continuing.")
+                        if snapshot.stage != .printStatusUnknown {
+                            Button("Keep Session & Continue") { operations.keepInterruptedSessionForReference() }
+                                .disabled(operations.customerSessionActive || printer.isWorking)
+                            Text("Keeps the checkpoint and photos on this iPad. Pending payments still need payment recovery.").font(.footnote)
+                        }
+                    } else {
+                        Text("Already reviewed. Kept for reference; this is not a new printer warning.")
+                    }
+                } header: { Text(operations.hasPendingSessionRecovery ? "Interrupted guest session" : "Earlier session") }
             }
-        }.navigationTitle("Recovery")
+            Section("History & help") {
+                NavigationLink("Recent Sessions · View or Reprint") { RecentSessionsView() }
+                NavigationLink("Retained Interrupted Sessions") { RetainedRecoverySessionsView() }
+                NavigationLink("Print History") { OperatorPrintAuditView() }
+                NavigationLink("Payment Recovery", value: OperatorWorkspaceRoute.payments)
+                Text("An intentional reprint is a new print job. Inspect previous output first; uncertain prints are never retried automatically.").font(.footnote)
+            }
+        }.navigationTitle("Help & Recovery")
+        .environment(\.defaultMinListRowHeight, 52)
         .task { operations.refresh() }
         .onChange(of: bluetooth.isConnectedAndReady) { _, ready in if !ready { textTestSent = false } }
         .confirmationDialog("Print one diagnostic text test on paper?", isPresented: $confirmingTest, titleVisibility: .visible) {
@@ -184,6 +211,42 @@ struct OperatorRecoveryView: View {
             Button("Yes — Confirm Physical Recovery") { operations.confirmPhysicalPrinterRecovery() }
             Button("Cancel", role: .cancel) {}
         } message: { Text("This acknowledges operator inspection. It does not prove whether the previous receipt printed and does not retry it.") }
+    }
+}
+
+/// Read-only retained checkpoints. No payment authorization or print operation lives here.
+struct RetainedRecoverySessionsView: View {
+    @State private var sessions: [AppRecoverySnapshot] = []
+    @State private var error: String?
+    var body: some View {
+        List {
+            Text("These interrupted sessions were kept by an operator. Photos, gallery links and the original uncertain result remain unchanged. Use Recent Sessions for an archived receipt reprint.").font(.footnote)
+            if let error { Text(error).foregroundStyle(.orange) }
+            if sessions.isEmpty, error == nil { Text("No retained interrupted sessions.") }
+            ForEach(Array(sessions.enumerated()), id: \.offset) { _, session in
+                NavigationLink {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text(session.sessionIdentifier).font(.headline)
+                            Text(session.stage == .printStatusUnknown ? "Print result uncertain · already reviewed" : "Interrupted before printing was recorded")
+                            if let url = session.galleryURL { Link("Open This Session's Gallery", destination: url) }
+                            ForEach(Array(session.photoJPEGData.enumerated()), id: \.offset) { _, data in
+                                if let photo = UIImage(data: data) { Image(uiImage: photo).resizable().scaledToFit().frame(maxHeight: 500) }
+                            }
+                        }.padding()
+                    }.navigationTitle("Retained Session")
+                } label: {
+                    VStack(alignment: .leading) {
+                        Text(session.sessionIdentifier)
+                        Text(session.updatedAt.formatted()).font(.caption).foregroundStyle(.secondary)
+                    }.padding(.vertical, 6)
+                }
+            }
+        }.navigationTitle("Retained Sessions")
+        .task {
+            do { sessions = try AppRecoveryStore().retainedSessions() }
+            catch { self.error = "Retained sessions could not be read. Their files are kept on this iPad." }
+        }
     }
 }
 
@@ -294,8 +357,12 @@ struct OperatorCameraCheckView: View {
             starting = false
             guard visible, phase == .active else { camera.stopSession(); return }
             switch result {
-            case .success: message = "Live preview ready. Check framing on the physical iPad."
-            case .failure: message = "Camera unavailable. Enable camera permission in iPad Settings and check on a real iPad."
+            case .success:
+                message = "Live preview ready. Check framing on the physical iPad."
+                EventOperationalState.shared.recordOperatorCameraCheck(passed: true, message: message)
+            case .failure:
+                message = "Camera unavailable. Enable camera permission in iPad Settings and check on a real iPad."
+                EventOperationalState.shared.recordOperatorCameraCheck(passed: false, message: message)
             }
         }
     }

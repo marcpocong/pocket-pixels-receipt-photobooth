@@ -293,7 +293,14 @@ nonisolated enum ReceiptPrintSettingsStore {
         }
         return ReceiptPrintOptions(includesPrintedGalleryQR: defaults.object(forKey: printsGalleryQRKey) as? Bool ?? true)
     }
+    static func loadIssue(defaults: UserDefaults = .standard) -> String? {
+        guard let raw = defaults.string(forKey: footerStyleKey), ReceiptFooterStyle(rawValue: raw) == nil else { return nil }
+        return "The saved printed gallery-code style is not recognized. Review the replacement below; the original is retained when you save."
+    }
     static func save(_ options: ReceiptPrintOptions, defaults: UserDefaults = .standard) {
+        if loadIssue(defaults: defaults) != nil, let original = defaults.string(forKey: footerStyleKey) {
+            defaults.set(original, forKey: footerStyleKey + ".preserved." + UUID().uuidString)
+        }
         defaults.set(options.footerStyle.rawValue, forKey: footerStyleKey)
         NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }

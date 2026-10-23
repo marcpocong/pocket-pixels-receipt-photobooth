@@ -203,7 +203,7 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     var canDecreasePrintCopies: Bool {
-        checkoutEntitlement?.authorizationSource == .privatePrepaid && !isPrintBatchActive && selectedPrintCopies > 1
+        checkoutEntitlement?.authorizationSource == .privatePrepaid && commercialEvent.activePolicy.prepaidGuestCopyChoice && !isPrintBatchActive && selectedPrintCopies > 1
     }
 
     var canIncreasePrintCopies: Bool {
@@ -318,8 +318,11 @@ final class BoothSessionViewModel: ObservableObject {
         }
 
         if environment.regularBoothModeSource() {
-            beginChoosingFormat(run: RegularBoothSettings.load().configuration, authority: .localPrepaid,
-                                serverPolicy: nil, offlinePolicy: nil, regularBooth: true)
+            do {
+                let settings = try RegularBoothSettings.loadForSession()
+                beginChoosingFormat(run: settings.configuration, authority: .localPrepaid,
+                                    serverPolicy: nil, offlinePolicy: nil, regularBooth: true)
+            } catch { state = .error("Regular Booth settings need review. Please see the attendant.") }
             return
         }
         guard CommercialPolicySource.load() == .serverManaged else {
@@ -370,8 +373,9 @@ final class BoothSessionViewModel: ObservableObject {
         offlinePolicyPayload = offlinePolicy
         customerPrintPhotoProfile = CustomerReceiptPhotoToneStore.load().profile
         beginNewCustomerSession()
-        sessionPrintOptions = environment.receiptPrintOptionsSource().resolved(for: environment.eventProfileSource().normalized())
-        sessionGalleryReceiptStyle = .resolve(device: environment.galleryReceiptStyleSource(), profile: environment.eventProfileSource().normalized())
+        customerEventProfile = environment.eventProfileSource().normalized()
+        sessionPrintOptions = environment.receiptPrintOptionsSource().resolved(for: customerEventProfile)
+        sessionGalleryReceiptStyle = .resolve(device: environment.galleryReceiptStyleSource(), profile: customerEventProfile)
         freezeSessionStickerConfiguration()
         errorMessage = nil
         statusMessage = "Choose your format."
@@ -487,7 +491,7 @@ final class BoothSessionViewModel: ObservableObject {
         selectedBoothFormat = format
         sessionCreatedAt = sessionDate
         sessionIdentifier = identifier
-        let savedEventProfile = environment.eventProfileSource().normalized()
+        let savedEventProfile = customerEventProfile
         customerEventProfile = savedEventProfile
         sessionEventProfile = savedEventProfile.activeReceiptSnapshot
         passportDraft = format == .passport
@@ -1146,6 +1150,10 @@ final class BoothSessionViewModel: ObservableObject {
         cancelTasks()
         clearCustomerData()
         beginNewCustomerSession()
+        // Resuming the original checkout must use its receipt profile, including an original
+        // standard (nil) profile, rather than inheriting the current event or another guest.
+        customerEventProfile = recovery.map { $0.eventProfile ?? .pocketPixelsDefault }
+            ?? environment.eventProfileSource().normalized()
         galleryToken = recovery?.galleryToken
         galleryURL = recovery?.galleryURL
         let generation = customerSessionGeneration
@@ -2160,7 +2168,7 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     func refreshCustomerExperience() {
-        guard state == .welcome || state == .choosingFormat else { return }
+        guard state == .welcome else { return }
         customerEventProfile = environment.eventProfileSource().normalized()
     }
 

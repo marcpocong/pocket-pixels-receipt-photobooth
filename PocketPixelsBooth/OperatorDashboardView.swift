@@ -23,6 +23,11 @@ struct OperatorDashboardView: View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 250), spacing: 16)], spacing: 16) {
+                        equipmentButton("Regular Booth Settings", detail: "Copies, formats, footer & branding", symbol: "slider.horizontal.3", route: .regularBooth, ready: true)
+                        equipmentButton("Quick Start Event", detail: "Set up or save for later", symbol: "calendar.badge.plus", route: .newEvent, ready: true)
+                        equipmentButton("Recent Sessions", detail: "Find a guest's receipt or gallery", symbol: "clock", route: .recentSessions, ready: true)
+                    }
                     if geometry.size.width >= 880 {
                         HStack(alignment: .top, spacing: 20) {
                             CurrentEventCard(lifecycle: lifecycle, loadsRemote: loadsRemote, workspace: workspace).frame(maxWidth: .infinity)
@@ -55,7 +60,7 @@ struct OperatorDashboardView: View {
             Text("Equipment").font(.headline)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
                 equipmentButton("Camera", detail: status.camera.label, symbol: "camera", route: .camera, ready: status.camera.isReady)
-                equipmentButton("Printer", detail: status.printer.isReady ? "Connected · check paper" : status.printer.label,
+                equipmentButton("Printer", detail: printer.operatorState.label,
                     symbol: "printer", route: printer.requiresRecovery || operations.hasUnresolvedPrint ? .recovery : .printer, ready: status.printer.isReady)
                 equipmentButton("Gallery / connectivity", detail: status.internet.isReady ? (status.gallery.isReady ? "Configured · online" : status.gallery.label) : status.internet.label,
                     symbol: "icloud", route: operations.pendingUploadCount > 0 ? .waitingGalleries : .gallery,
@@ -79,7 +84,7 @@ struct OperatorDashboardView: View {
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).padding(12)
             .background(OperatorPalette.surface, in: RoundedRectangle(cornerRadius: 12))
             .overlay { RoundedRectangle(cornerRadius: 12).stroke(OperatorPalette.border) }
-        }.buttonStyle(.plain).accessibilityHint("Open \(title) troubleshooting")
+        }.buttonStyle(.plain).accessibilityHint("Open \(title)")
     }
 }
 
@@ -128,12 +133,10 @@ struct OperatorEquipmentView: View {
             Section {
                 EquipmentDestination(
                     title: "Printer",
-                    status: printer.requiresRecovery ? "Needs attention" : (bluetooth.canPrintRaster ? "Connected — physical output not verified" : "Not connected / not verified"),
+                    status: printer.operatorState.label,
                     systemImage: "printer.fill",
-                    ready: !printer.requiresRecovery && bluetooth.canPrintRaster
+                    ready: printer.operatorState.acceptsJobs
                 )
-                LabeledContent("Receipt transfer", value: printer.receiptBluetoothTransferMode.operatorSummary)
-                    .font(.subheadline)
                 NavigationLink("Printer Setup", value: OperatorWorkspaceRoute.printer)
                     .disabled(printer.isWorking)
                 if printer.requiresRecovery || operations.hasUnresolvedPrint {
@@ -236,6 +239,7 @@ struct OperatorAdvancedView: View {
             }
 
             Section("Diagnostics") {
+                NavigationLink("Printer Transport & Diagnostics") { ScrollView { PrinterSetupView(advancedOnly: true).padding() }.navigationTitle("Advanced Printer") }
                 Button(copied ? "Diagnostic Report Copied" : "Copy Diagnostic Report") {
                     operations.refresh()
                     UIPasteboard.general.string = operations.diagnosticReport

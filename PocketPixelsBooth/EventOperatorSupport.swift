@@ -37,10 +37,10 @@ enum OperatorPrintPolicy {
 extension PrintAuditRecord.TerminalResult {
     var operatorTitle: String {
         switch self {
-        case .completed: "Transport completed"
-        case .failedBeforeBytes: "Failed before bytes"
+        case .completed: "Sent to printer · check paper"
+        case .failedBeforeBytes: "Failed · nothing sent to printer"
         case .recoveryRequiredAfterBytes: "Print status unknown — inspect receipt"
-        case .cancelledBeforeBytes: "Cancelled before bytes"
+        case .cancelledBeforeBytes: "Cancelled · nothing sent to printer"
         }
     }
 }

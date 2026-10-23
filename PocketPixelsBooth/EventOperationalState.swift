@@ -77,6 +77,7 @@ final class EventOperationalState: ObservableObject {
     @Published private(set) var availableBytes: Int64 = 0
     @Published private(set) var queueError: String?
     @Published private(set) var recoveryConfirmation = 0
+    @Published private(set) var recoveryActionMessage = ""
     @Published var customerSessionActive = false
     /// A hardware qualification print may have started without a confirmed outcome. The printer's
     /// physical state is unknown, so customers are blocked exactly like an unresolved customer print.
@@ -96,6 +97,7 @@ final class EventOperationalState: ObservableObject {
     private var retryRequested = false
     private var didStart = false
     private var printerStatusSubscription: AnyCancellable?
+    private var selectedPrinterSubscription: AnyCancellable?
 
     private init() {}
 
@@ -121,6 +123,14 @@ final class EventOperationalState: ObservableObject {
             // Chunk progress can publish hundreds of times; only a readiness change
             // should rerun storage/camera checks on the main actor.
             .map { _ in PrinterBluetoothService.shared.readinessMessage }
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.readinessReport = self.makeReadinessReport()
+            }
+        selectedPrinterSubscription = PrinterCoordinator.shared.objectWillChange
+            .receive(on: RunLoop.main)
+            .map { PrinterCoordinator.shared.operatorState }
             .removeDuplicates()
             .sink { [weak self] _ in
                 guard let self else { return }
@@ -328,24 +338,57 @@ final class EventOperationalState: ObservableObject {
     }
 
     private func recoveryIdentity(_ snapshot: AppRecoverySnapshot) -> String {
-        "\(snapshot.sessionIdentifier)|\(snapshot.updatedAt.timeIntervalSince1970)"
+        OperatorRecoveryAcknowledgement.identity(snapshot)
     }
 
     func confirmPhysicalPrinterRecovery() {
         let printer = PrinterCoordinator.shared
-        guard !printer.isWorking, printer.requiresRecovery || hasUnresolvedPrint else { return }
+        guard OperatorAccessPermit.shared.isAuthorized, !printer.isWorking, printer.requiresRecovery || hasUnresolvedPrint else { return }
+        if let snapshot = recoverableSession {
+            guard retainAndAcknowledge(snapshot) else { return }
+        }
         printer.confirmPrinterRestarted()
         if qualificationPrintNeedsInspection, let store = try? HardwareQualificationStore(), let run = store.unresolvedPrintRun {
             try? store.acknowledgeUncertainPrint(runID: run.runID, note: "Confirmed through Printer Recovery.")
         }
-        if let snapshot = recoverableSession, snapshot.stage == .printStatusUnknown {
-            acknowledgedPrintIdentity = recoveryIdentity(snapshot)
-        }
+        recoveryActionMessage = "Receipt check recorded. Reconnect the printer and complete any requested paper test."
         recoveryConfirmation += 1
         refresh()
     }
 
+    var hasPendingSessionRecovery: Bool {
+        guard let snapshot = recoverableSession else { return false }
+        return recoveryIdentity(snapshot) != acknowledgedPrintIdentity
+    }
+
+    private func retainAndAcknowledge(_ snapshot: AppRecoverySnapshot) -> Bool {
+        do {
+            guard let recoveryStore else { throw AppRecoveryStoreError.unavailable }
+            acknowledgedPrintIdentity = try OperatorRecoveryAcknowledgement.retainAndAcknowledge(snapshot, store: recoveryStore)
+            return true
+        } catch {
+            recoveryActionMessage = "Could not keep the saved session safely: \(error.localizedDescription) Nothing was cleared."
+            return false
+        }
+    }
+
+    func keepInterruptedSessionForReference() {
+        guard OperatorAccessPermit.shared.isAuthorized, !customerSessionActive, !PrinterCoordinator.shared.isWorking,
+              !hasUnresolvedPrint, !PrinterCoordinator.shared.requiresRecovery,
+              let snapshot = recoverableSession, snapshot.stage != .printStatusUnknown else { return }
+        guard retainAndAcknowledge(snapshot) else { return }
+        recoveryActionMessage = "Session kept for reference. No receipt was sent. Any payment still needs its own review."
+        refresh()
+    }
+
+    func recordOperatorCameraCheck(passed: Bool, message: String) {
+        cameraCheckPassed = passed
+        cameraCheckMessage = message
+        refresh()
+    }
+
     func invalidateCameraCheck(message: String = "Run preflight after returning to the app.") {
+        PrinterCoordinator.shared.invalidateWiFiConnectionCheck()
         preflightGeneration += 1
         isPreflightRunning = false
         cameraCheckPassed = false
@@ -357,6 +400,12 @@ final class EventOperationalState: ObservableObject {
     func runEventPreflight() {
         guard !isPreflightRunning, !customerSessionActive, !PrinterCoordinator.shared.isWorking else { return }
         PrinterCoordinator.shared.prepare()
+        if PrinterCoordinator.shared.preferredMode != .bluetooth {
+            Task { [weak self] in
+                _ = await PrinterCoordinator.shared.checkWiFiConnection()
+                self?.refresh()
+            }
+        }
         isPreflightRunning = true
         cameraCheckPassed = false
         cameraCheckMessage = "Checking camera initialization…"
@@ -418,8 +467,8 @@ final class EventOperationalState: ObservableObject {
         checks.append(EventReadinessCheck(
             severity: .critical,
             title: "Printer",
-            status: printerCoordinator.preferredMode != .wifi && PrinterBluetoothService.shared.canPrintRaster ? .pass : .fail,
-            detail: printerCoordinator.preferredMode == .wifi ? "Wi-Fi readiness is not verified by this preflight." : (PrinterBluetoothService.shared.canPrintRaster ? printerCoordinator.bluetoothSummary : PrinterBluetoothService.shared.readinessMessage)
+            status: printerCoordinator.operatorState.acceptsJobs ? .pass : (printerCoordinator.operatorState == .busy ? .warning : .fail),
+            detail: printerCoordinator.operatorState.label
         ))
         checks.append(EventReadinessCheck(
             severity: .critical,

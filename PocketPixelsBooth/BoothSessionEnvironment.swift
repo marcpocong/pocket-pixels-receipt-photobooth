@@ -35,7 +35,7 @@ struct BoothSessionEnvironment {
     var makeSessionIdentifier: @MainActor (Date) -> String = { "\(ReceiptComposer.makeSessionIdentifier(date: $0))-\(UUID().uuidString.lowercased())" }
     /// The event configuration a new session freezes. Qualification supplies its own scenario
     /// profile instead of editing the operator's saved event settings.
-    var eventProfileSource: @MainActor () -> EventProfile = { RegularBoothMode.isEnabled ? .pocketPixelsDefault : EventProfileStore.load() }
+    var eventProfileSource: @MainActor () -> EventProfile = { RegularBoothMode.isEnabled ? RegularBoothSettings.load().profile : EventProfileStore.load() }
     var regularBoothModeSource: @MainActor () -> Bool = { RegularBoothMode.isEnabled }
     var galleryReceiptStyleSource: @MainActor () -> GalleryReceiptStyle = { GalleryReceiptSettingsStore.load() }
     var receiptPrintOptionsSource: @MainActor () -> ReceiptPrintOptions = { ReceiptPrintSettingsStore.load() }

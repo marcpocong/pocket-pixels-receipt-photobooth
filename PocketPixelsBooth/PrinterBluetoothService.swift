@@ -410,6 +410,8 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         centralManager?.state == .poweredOn && connectedPeripheral == nil && !jobState.isWorking
     }
 
+    var needsDiagnosticTextTest: Bool { requiresTextTestBeforeRasterPrint }
+
     var canPrintRaster: Bool {
         isConnectedAndReady
             && !isJobActive
