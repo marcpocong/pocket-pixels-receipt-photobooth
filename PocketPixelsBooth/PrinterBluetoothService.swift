@@ -411,8 +411,8 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
     }
 
     var canPrintRaster: Bool {
-        connectedPeripheral != nil
-            && writeCharacteristic != nil
+        isConnectedAndReady
+            && !isJobActive
             && !jobState.isWorking
             && !recoveryLockoutActive
             && !requiresTextTestBeforeRasterPrint
@@ -430,7 +430,38 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         knownPrinterIdentifier != nil
     }
 
+    /// Explain recovery separately from a missing radio connection.
+    var readinessMessage: String {
+        if recoveryLockoutActive { return BluetoothPrinterServiceError.recoveryRequired.localizedDescription }
+        if requiresTextTestBeforeRasterPrint { return "A diagnostic text check is required. Open Recovery, reconnect if needed, print diagnostic text, then confirm it printed correctly." }
+        if isJobActive { return "Printer is finishing the current job." }
+        if canPrintRaster { return "\(connectedPrinterName ?? savedPrinterName ?? "Bluetooth printer") ready" }
+        return jobState.message
+    }
+
+    /// Allow discovery/reconnection to finish before refusing a checkout. Never sends print bytes.
+    func waitUntilReady(timeout: TimeInterval = 12) async throws -> Bool {
+        try Task.checkCancellation()
+        guard !isJobActive, !recoveryLockoutActive, !requiresTextTestBeforeRasterPrint else { return false }
+        if canPrintRaster { return true }
+        prepareSavedPrinter()
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            try Task.checkCancellation()
+            if canPrintRaster { return true }
+            if recoveryLockoutActive || requiresTextTestBeforeRasterPrint || isJobActive { return false }
+            try await Task.sleep(for: .milliseconds(200))
+        }
+        return canPrintRaster
+    }
+
     func prepareSavedPrinter() {
+        // View appearances and readiness checks must not reset an active job or rediscover
+        // characteristics while a connection/discovery is already in progress.
+        guard !isJobActive else { return }
+        if let peripheral = connectedPeripheral,
+           peripheral.state == .connecting || peripheral.state == .connected { return }
+        guard !isScanning else { return }
         guard let centralManager else {
             return
         }
@@ -445,11 +476,6 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         }
 
         shouldPrepareWhenPoweredOn = false
-
-        if isConnectedAndReady {
-            jobState = .connected(connectedPrinterName ?? savedPrinterName ?? "VOZY G80")
-            return
-        }
 
         stopScan()
 
@@ -716,7 +742,10 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
     }
 
     func printQuickText(completion: CompletionHandler? = nil) {
-        guard let jobID = beginJob() else {
+        // This is the test required to unlock raster printing after a physical restart.
+        // Requiring that same test here makes recovery impossible. Active-job and
+        // unacknowledged-restart lockouts still apply inside beginJob.
+        guard let jobID = beginJob(requiresVerifiedTextTest: false) else {
             completion?(.failure(.jobAlreadyActive), false)
             return
         }
@@ -1285,7 +1314,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         sendNextChunk()
     }
 
-    private func beginJob() -> UInt64? {
+    private func beginJob(requiresVerifiedTextTest: Bool = true) -> UInt64? {
         guard !isJobActive else {
             jobState = .failure(BluetoothPrinterServiceError.jobAlreadyActive.localizedDescription)
             return nil
@@ -1296,7 +1325,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
             return nil
         }
 
-        guard !requiresTextTestBeforeRasterPrint else {
+        guard !requiresVerifiedTextTest || !requiresTextTestBeforeRasterPrint else {
             jobState = .failure(BluetoothPrinterServiceError.connectionTestRequired.localizedDescription)
             return nil
         }

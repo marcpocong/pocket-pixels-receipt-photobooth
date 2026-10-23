@@ -11,6 +11,61 @@ final class PrintReliabilityTests: XCTestCase {
             .appendingPathComponent("print-audit-\(UUID().uuidString).json")
     }
 
+    func testRecoveryDiagnosticTextCanStartBeforeTextVerification() {
+        let service = PrinterBluetoothService()
+        service.confirmPrinterRestarted()
+        var completed = false
+        service.printQuickText { result, bytesStarted in
+            completed = true
+            XCTAssertFalse(bytesStarted)
+            guard case .failure(.printerNotConnected) = result else {
+                return XCTFail("Recovery text must reach connection validation, not fail its own text-test prerequisite: \(result)")
+            }
+        }
+        XCTAssertTrue(completed)
+        // A failed diagnostic must leave raster printing blocked.
+        XCTAssertFalse(service.canPrintRaster)
+        XCTAssertTrue(service.readinessMessage.contains("diagnostic text"))
+        // Failure before bytes must release ownership so the operator can reconnect/retry.
+        service.printQuickText { result, _ in
+            guard case .failure(.printerNotConnected) = result else {
+                return XCTFail("Diagnostic failure leaked printer job ownership")
+            }
+        }
+    }
+
+    func testBluetoothReadinessDoesNotClearRequiredRecoveryTextTest() async throws {
+        let service = PrinterBluetoothService()
+        service.confirmPrinterRestarted()
+        let ready = try await service.waitUntilReady(timeout: 0)
+        XCTAssertFalse(ready)
+        XCTAssertFalse(service.canPrintRaster)
+        XCTAssertTrue(service.readinessMessage.contains("diagnostic text"))
+    }
+
+    func testBluetoothReadinessDoesNotTreatDisconnectedPrinterAsReady() async throws {
+        let service = PrinterBluetoothService()
+        let ready = try await service.waitUntilReady(timeout: 0)
+        XCTAssertFalse(ready)
+        XCTAssertFalse(service.isConnectedAndReady)
+    }
+
+    func testCancelledBluetoothReadinessStopsBeforeConnectionPreparation() async {
+        let service = PrinterBluetoothService()
+        let check = Task { @MainActor in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await service.waitUntilReady()
+        }
+        do {
+            _ = try await check.value
+            XCTFail("Cancelled checkout must stop its printer check")
+        } catch is CancellationError {
+            XCTAssertFalse(service.isConnectedAndReady)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     func testSingleCopyEnvelopeIntegrity() throws {
         let batchID = UUID()
         let envelope = try ReliabilityFixtures.envelope(

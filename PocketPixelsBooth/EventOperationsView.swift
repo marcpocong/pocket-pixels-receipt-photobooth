@@ -163,7 +163,7 @@ struct OperatorRecoveryView: View {
                     testRunning = false
                     switch result {
                     case .success: textTestSent = true; testMessage = "Transport completed. Inspect the paper before confirming."
-                    case .failure: testMessage = "Test needs operator attention. No automatic retry."
+                    case .failure(let error): testMessage = "\(error.localizedDescription) No automatic retry."
                     }
                     operations.refresh()
                 }
