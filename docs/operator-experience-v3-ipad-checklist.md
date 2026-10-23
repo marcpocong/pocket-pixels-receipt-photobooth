@@ -1,6 +1,6 @@
 # Operator Experience V3 — physical iPad acceptance
 
-**Status: not performed.** These checks are for the owner after separately authorizing the device/build, any app installation, event activation, physical print budget and payment testing. Carlo must not be installed/uninstalled or have data deleted under the implementation authorization. Use a designated test iPad and synthetic guests/events where possible. Do not initiate LIVE payment/event activity without its own owner authorization.
+**Status: full physical acceptance not performed.** The owner authorized an in-place Carlo update; installation and process launch were verified, with protected-file retention checked. The checks below still need owner testing and separate authorization for event activation, physical printing and payment testing. Do not uninstall or delete device data. Use synthetic guests/events where possible. Do not initiate LIVE payment/event activity without its own owner authorization.
 
 Record tester, date, device/iPadOS, build/commit, printer model, connection type, approved paper budget and authorized payment environment. Keep existing archives, photos, events and payment records.
 
@@ -41,9 +41,10 @@ Record tester, date, device/iPadOS, build/commit, printer model, connection type
 - [ ] Only with a separately approved diagnostic fault test, interrupt a synthetic print after bytes could have started. Verify the app says the receipt may already have printed and never automatically retries.
 - [ ] Inspect actual paper and restart the printer. Record the check, reconnect and complete any required short paper test. Verify the original outcome stays uncertain.
 - [ ] Relaunch after acknowledgment. The same old checkpoint stays historical, and its retained photos remain viewable. A different uncertain checkpoint must require a fresh check.
+- [ ] With an old unknown-outcome receipt in history but no current recovery, confirm Home no longer shows “Resolve pending print accounting” and normal setup is available. Verify the old entry stays unknown and is never resent. Owner monitoring must not raise a new uncertain-print incident solely from that history.
 - [ ] For a simulated failure before any bytes, verify the wording says nothing was sent and does not claim an uncertain physical outcome.
 - [ ] Open Recent Sessions, find a synthetic receipt/gallery and preview the original QR. With a separate print authorization, intentionally print one extra archived copy; verify it uses the exact old raster and records a separate reprint batch.
-- [ ] Verify interrupted payments, print accounting and unreadable storage still require the appropriate review before activation. Ordinary safe settings edits remain available.
+- [ ] Verify interrupted payments, current receipt checks, unfinished sends and unreadable storage still require review before activation. Old reports remain bound to their original session/entitlement while other event setup is available. Outstanding reports/conflicts must still block changing the payments-server connection. Ordinary safe settings edits remain available.
 
 ## Layout, access and closeout
 

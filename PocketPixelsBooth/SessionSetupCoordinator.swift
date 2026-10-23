@@ -91,14 +91,25 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         if operations.customerSessionActive || PrinterCoordinator.shared.isWorking { return "Finish the guest session and printing before changing session operation." }
         return recoveryReason
     }
-    /// Preserved financial or print obligations, excluding a guest who is simply mid-session.
+    /// Current financial or physical-print obligations, excluding historical outcome reports.
     static var recoveryReason: String? {
         let operations = EventOperationalState.shared
-        if operations.hasUnresolvedPrint || PrinterCoordinator.shared.requiresRecovery || operations.hasPendingSessionRecovery { return "Resolve the preserved guest session in Fix Printer or Payment Recovery before switching modes." }
-        guard let checkpoints = CheckoutCheckpointStore.shared, let outbox = PrintOutcomeOutbox.shared else { return "Recovery storage is unavailable. Open Advanced before changing operation." }
+        return recoveryReason(needsReceiptCheck: operations.hasUnresolvedPrint || PrinterCoordinator.shared.requiresRecovery,
+                              hasPendingSession: operations.hasPendingSessionRecovery,
+                              checkpoints: CheckoutCheckpointStore.shared, outbox: PrintOutcomeOutbox.shared)
+    }
+
+    static func recoveryReason(needsReceiptCheck: Bool, hasPendingSession: Bool,
+                               checkpoints: CheckoutCheckpointStore?, outbox: PrintOutcomeOutbox?) -> String? {
+        if needsReceiptCheck { return "Check the previous receipt in Fix Printer before switching booth setup. It may already have printed." }
+        if hasPendingSession { return "Open Help & Recovery to finish or keep the interrupted guest session before switching booth setup." }
+        guard let checkpoints, let outbox else { return "Saved recovery records could not be opened. Open Help & Recovery before switching booth setup." }
         if checkpoints.integrityFault != nil || !checkpoints.unresolved.isEmpty { return "Resolve interrupted checkouts in Payment Recovery before changing operation." }
-        let s = outbox.summary
-        if outbox.integrityFault != nil || s.pending + s.conflicts + s.uncertain + s.awaiting > 0 { return "Resolve pending print accounting in Advanced before changing operation." }
+        if outbox.integrityFault != nil { return "Saved print records need review in Advanced → Payment Maintenance before switching booth setup." }
+        if outbox.summary.awaiting > 0 { return "Wait for the current receipt to finish before switching booth setup." }
+        // Reports contain their original session/entitlement identity. Sending them never prints,
+        // and switching events cannot change their meaning. A retained uncertain outcome must
+        // stay uncertain without becoming a permanent global lock after recovery was handled.
         return nil
     }
 }

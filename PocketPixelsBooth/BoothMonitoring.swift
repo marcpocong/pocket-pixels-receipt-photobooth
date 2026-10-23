@@ -94,7 +94,8 @@ nonisolated struct BoothTelemetry: Codable, Equatable, Sendable {
             default: break
             }
         }
-        let uncertain=operations.hasUnresolvedPrint || recovery.outboxSummary.uncertain>0
+        // Old uncertain outcomes remain evidence, not a new incident on every heartbeat.
+        let uncertain=operations.hasUnresolvedPrint || printer.requiresRecovery
         if uncertain { incidents.append("uncertain_print") }
         if printer.operatorState == .unresolved || printer.operatorState == .disconnected || printer.operatorState == .awaitingTest { incidents.append("printer") }
         let storage=acceptance.storageError != nil || runs.storageError != nil || operations.queueError != nil

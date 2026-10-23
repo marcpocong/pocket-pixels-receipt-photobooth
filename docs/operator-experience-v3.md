@@ -2,6 +2,8 @@
 
 Implemented on `feature/operator-experience-v3`, based on `179822a`. Validation date: October 23, 2026 (Asia/Manila).
 
+Merge and release checks: [PR #14](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/pull/14). The owner subsequently authorized merging to main and updating Carlo in place. Physical printing and LIVE payment/event activation remain separately restricted.
+
 ## Operator navigation
 
 | Task | Navigation |
@@ -47,7 +49,7 @@ Connection and transport completion remain observations, not proof of paper outp
 
 Quick Start Event exposes the existing staged event workflow. Receipt & Branding is an explicitly named stage with logo/footer/gallery style/caption controls, deeper typography options and previews. Save for Later and Save Event Without Starting use save-only validation; a missing logo can be saved as unfinished work without activating it. Recovery and guest-session barriers no longer prevent saving a reusable valid configuration.
 
-Activation retains active-session, unresolved print/payment, event-history, interrupted-transition and server-verification barriers. Paid saves retain version/conflict/binding/policy validation. Paid activation and a switch away from paid operation retain the separate paid review. Free activation uses the already visible summary and preview. Free resume avoids a redundant confirmation; paid resume retains scope review. End Event remains one explicit review with paid scope controls and retained-history explanations.
+Activation retains active-session, current unresolved print/payment, event-history, interrupted-transition and server-verification barriers. Historical print outcomes and self-contained reports do not block unrelated operation changes. Paid saves retain version/conflict/binding/policy validation. Paid activation and a switch away from paid operation retain the separate paid review. Free activation uses the already visible summary and preview. Free resume avoids a redundant confirmation; paid resume retains scope review. End Event remains one explicit review with paid scope controls and retained-history explanations.
 
 ### Phase 4 — Recovery and usability (`9f67573`)
 
@@ -63,6 +65,18 @@ Expanded the existing actual-SwiftUI rendering test to cover Regular Booth setti
 
 Validation results and screen evidence are recorded below. Paid checkout recovery also restores the original saved receipt profile, including an original standard profile, instead of inheriting the currently applied event. The existing paid-resume test now asserts the original profile is retained.
 
+### Carlo follow-up — historical print warning
+
+The owner's screenshot exposed an additional global gate: `SessionSetupSafety` counted every retained uncertain outcome as pending recovery, including old local receipts with nothing to report. A read-only inspection of Carlo found 300 journal entries, one uncertain local receipt, no outstanding server reports or in-flight copies, and 58 resolved checkout checkpoints. No customer photos or credentials were needed for this diagnosis.
+
+The operation gate now checks current receipt/session recovery, unfinished checkouts, unfinished sends and storage integrity. Historical unknown outcomes, queued reports and server-report conflicts retain their original identities and reporting behavior but do not freeze a different event or Regular Booth. They cannot authorize a payment, change an entitlement or resend a receipt. Payments-server connection changes still require outstanding reports/conflicts to be handled so they cannot be stranded on a different server. Owner monitoring no longer raises a fresh uncertain-print incident solely from history. Payment Maintenance explicitly labels unknown outcomes as history and explains that sending reports never prints.
+
+Five new regression tests cover the historical local receipt after relaunch, current physical/session recovery, pending/conflicted reports, unavailable/corrupt storage and unresolved payment checkpoints. The final focused follow-up passed **92 tests**, zero failures/skips/runtime warnings. An initial new assertion compared a pre-serialization timestamp against the intentionally normalized persisted date; it was corrected to compare persisted state before and after status evaluation. Debug simulator and signed Release device builds passed. The complete production suite is also required on the PR's current head before merge; its final status is recorded in PR #14.
+
+The corrected signed Release app was installed in place on Carlo and launched through Apple's device tools. No uninstall was performed. All 4,168 pre-existing protected Application Support/Preferences paths remained present, and all 3,593 protected files retained their sizes immediately after installation, before launch. This inventory verifies retention, not a full content audit. Physical screen interaction, camera/printer behavior, paper output and venue acceptance are not claimed. No physical print, LIVE event or payment was initiated.
+
+The existing development provisioning profile expires **October 27, 2026 at 1:17:33 AM Manila** (October 26 at 17:17:33 UTC). An ordinary automatic provisioning refresh retained the same expiry. Bundle ID, signing configuration and team were preserved; no profiles or certificates were revoked/deleted. A renewed signed build will be needed before expiry for continued operation.
+
 ## Safety and data boundaries
 
 - Bundle identifier, signing configuration and Xcode project configuration are unchanged.
@@ -70,7 +84,7 @@ Validation results and screen evidence are recorded below. Paid checkout recover
 - Existing customer archives, photos, event designs, event history, gallery URLs/tokens, payment infrastructure and print journals are retained.
 - An acknowledged uncertain print is never converted to a confirmed success/failure and never automatically resent.
 - Recovery acknowledgment does not authorize a payment or settle an outbox obligation. Financial review and ambiguous server transitions continue to block activation where required.
-- Nothing was deployed, merged, installed/uninstalled on Carlo, physically printed, or used to initiate a LIVE event/payment. No physical iPad testing is claimed.
+- The initial five-phase implementation did not merge or install. The owner subsequently authorized main integration and an in-place Carlo update; see the follow-up above and PR #14. No production backend deployment, uninstall, device-data deletion, physical print or LIVE event/payment was performed. Full physical acceptance remains pending.
 - The pre-existing untracked `.claude/` directory was left untouched.
 
 ## Validation results

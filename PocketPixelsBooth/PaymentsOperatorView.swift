@@ -44,8 +44,8 @@ struct PaymentsOperatorView: View {
             return "Resolve interrupted checkouts before changing pairing."
         }
         let summary = outbox.summary
-        if outbox.integrityFault != nil || summary.pending + summary.conflicts + summary.uncertain + summary.awaiting > 0 {
-            return "Resolve queued or uncertain print accounting before changing pairing."
+        if outbox.integrityFault != nil || summary.pending + summary.conflicts + summary.awaiting > 0 {
+            return "Send or review saved print reports in Payment Maintenance before changing the payments connection."
         }
         return nil
     }
@@ -215,7 +215,7 @@ struct PaymentsOperatorView: View {
         Section {
             let summary = recovery.outboxSummary
             LabeledContent("Reports waiting to send", value: "\(summary.pending)")
-            LabeledContent("Copies of uncertain output", value: "\(summary.uncertain)")
+            LabeledContent("History: receipts with unknown outcome", value: "\(summary.uncertain)")
             if summary.awaiting > 0 { LabeledContent("Copies in flight", value: "\(summary.awaiting)") }
             if summary.conflicts > 0 {
                 Label("\(summary.conflicts) print record(s) refused by the server — review below", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
@@ -256,7 +256,7 @@ struct PaymentsOperatorView: View {
         } header: {
             Text("Print Accounting")
         } footer: {
-            Text("Delivered means the printer accepted every byte; paper is not sensor-verified. Uncertain copies need a paper check in Fix Printer; nothing is reprinted automatically.")
+            Text("Unknown outcomes stay in history even after a receipt check. They do not block everyday setup. Current receipt checks appear in Fix Printer. Sending reports never reprints a receipt. Delivered means all bytes were accepted; paper is not sensor-verified.")
         }
     }
 
