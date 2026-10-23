@@ -36,6 +36,10 @@ struct OperatorDashboardView: View {
                         if !status.attentionItems.isEmpty { OperatorAttentionCard(items: status.attentionItems, workspace: workspace) }
                         equipment(status)
                     }
+                    HStack(spacing: 16) {
+                        equipmentButton("Regular Booth Settings", detail: "Copies, formats, footer & branding", symbol: "slider.horizontal.3", route: .regularBooth, ready: true)
+                        equipmentButton("Quick Start Event", detail: "Set up or save for later", symbol: "calendar.badge.plus", route: .newEvent, ready: true)
+                    }
                     OperatorHomeMetricsView(runs: lifecycle.runs)
                 }
                 .frame(maxWidth: 1_040).padding(20).frame(maxWidth: .infinity)

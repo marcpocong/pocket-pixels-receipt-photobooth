@@ -9,6 +9,33 @@ nonisolated struct RegularBoothSettings: Codable, Equatable, Sendable {
     var maxCopies = 10
     var guestCopyChoice = true
 
+    /// Optional for backwards compatibility with existing copy/format defaults.
+    var receiptProfile: EventProfile?
+    static let storageKey = "pocketPixels.regularBooth.defaults.v1"
+
+    var validationMessage: String? {
+        if let reason = policy.validationMessage { return reason }
+        if formats.contains(where: { BoothFormat(rawValue: $0) == nil }) {
+            return "A saved format is no longer supported. Review available formats before saving."
+        }
+        return nil
+    }
+
+    static func loadIssue(defaults: UserDefaults = .standard) -> String? {
+        guard let data = defaults.data(forKey: storageKey) else { return nil }
+        guard let settings = try? JSONDecoder().decode(Self.self, from: data) else {
+            return "Saved Regular Booth defaults could not be read. The original is retained. Review these replacement defaults and save when ready."
+        }
+        return settings.validationMessage
+    }
+
+    static func loadForSession(defaults: UserDefaults = .standard) throws -> Self {
+        if let issue = loadIssue(defaults: defaults) { throw SetupFailure(issue) }
+        return load(defaults: defaults)
+    }
+
+    var profile: EventProfile { receiptProfile ?? .pocketPixelsDefault }
+
     var policy: PaymentPolicySnapshot {
         var value = PaymentPolicySnapshot.legacyPrepaid
         value.revisionID = "regular-booth-v1"
@@ -22,14 +49,19 @@ nonisolated struct RegularBoothSettings: Codable, Equatable, Sendable {
         .init(id: "", name: "Regular Booth", venue: "", lifecycle: .active, activePolicy: policy, updatedAt: Date())
     }
     static func load(defaults: UserDefaults = .standard) -> Self {
-        guard let data = defaults.data(forKey: "pocketPixels.regularBooth.defaults.v1"),
-              let settings = try? JSONDecoder().decode(Self.self, from: data), settings.policy.validationMessage == nil,
-              settings.formats.allSatisfy({ BoothFormat(rawValue: $0) != nil }) else { return Self() }
+        guard let data = defaults.data(forKey: storageKey),
+              let settings = try? JSONDecoder().decode(Self.self, from: data) else { return Self() }
+        // Keep readable invalid values visible for operator repair; never silently reset them.
         return settings
     }
     static func save(_ value: Self, defaults: UserDefaults = .standard) throws {
-        guard value.policy.validationMessage == nil, value.formats.allSatisfy({ BoothFormat(rawValue: $0) != nil }) else { throw SetupFailure("Choose valid Regular Booth formats and copies.") }
-        defaults.set(try JSONEncoder().encode(value), forKey: "pocketPixels.regularBooth.defaults.v1")
+        if let reason = value.validationMessage { throw SetupFailure(reason) }
+        let data = try JSONEncoder().encode(value)
+        if loadIssue(defaults: defaults) != nil, let original = defaults.data(forKey: storageKey) {
+            // Preserve each replaced invalid original for support, including unreadable bytes.
+            defaults.set(original, forKey: storageKey + ".preserved." + UUID().uuidString)
+        }
+        defaults.set(data, forKey: storageKey)
     }
 }
 

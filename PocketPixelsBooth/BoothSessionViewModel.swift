@@ -318,8 +318,11 @@ final class BoothSessionViewModel: ObservableObject {
         }
 
         if environment.regularBoothModeSource() {
-            beginChoosingFormat(run: RegularBoothSettings.load().configuration, authority: .localPrepaid,
-                                serverPolicy: nil, offlinePolicy: nil, regularBooth: true)
+            do {
+                let settings = try RegularBoothSettings.loadForSession()
+                beginChoosingFormat(run: settings.configuration, authority: .localPrepaid,
+                                    serverPolicy: nil, offlinePolicy: nil, regularBooth: true)
+            } catch { state = .error("Regular Booth settings need review. Please see the attendant.") }
             return
         }
         guard CommercialPolicySource.load() == .serverManaged else {
@@ -370,8 +373,9 @@ final class BoothSessionViewModel: ObservableObject {
         offlinePolicyPayload = offlinePolicy
         customerPrintPhotoProfile = CustomerReceiptPhotoToneStore.load().profile
         beginNewCustomerSession()
-        sessionPrintOptions = environment.receiptPrintOptionsSource().resolved(for: environment.eventProfileSource().normalized())
-        sessionGalleryReceiptStyle = .resolve(device: environment.galleryReceiptStyleSource(), profile: environment.eventProfileSource().normalized())
+        customerEventProfile = environment.eventProfileSource().normalized()
+        sessionPrintOptions = environment.receiptPrintOptionsSource().resolved(for: customerEventProfile)
+        sessionGalleryReceiptStyle = .resolve(device: environment.galleryReceiptStyleSource(), profile: customerEventProfile)
         freezeSessionStickerConfiguration()
         errorMessage = nil
         statusMessage = "Choose your format."
@@ -487,7 +491,7 @@ final class BoothSessionViewModel: ObservableObject {
         selectedBoothFormat = format
         sessionCreatedAt = sessionDate
         sessionIdentifier = identifier
-        let savedEventProfile = environment.eventProfileSource().normalized()
+        let savedEventProfile = customerEventProfile
         customerEventProfile = savedEventProfile
         sessionEventProfile = savedEventProfile.activeReceiptSnapshot
         passportDraft = format == .passport

@@ -9,6 +9,7 @@ struct EventReceiptDesignPanel: View {
     let isDirty: Bool
     let save: () -> Void
     let discard: () -> Void
+    var isRegularBooth = false
 
     @State private var photoItem: PhotosPickerItem?
     @State private var isPhotoPickerPresented = false
@@ -35,11 +36,11 @@ struct EventReceiptDesignPanel: View {
                 Text("Use Device Default").tag(Optional<GalleryReceiptStyle>.none)
                 ForEach(GalleryReceiptStyle.allCases) { style in Text(style.title).tag(Optional(style)) }
             }
-            Text("Customer Gallery only. Save Design, then Review & Start to apply.").font(.footnote).foregroundStyle(.secondary)
+            Text(isRegularBooth ? "Save Regular Booth Defaults to apply to the next guest." : "Customer Gallery only. Save Design, then Review & Start to apply.").font(.footnote).foregroundStyle(.secondary)
 
             Toggle(isOn: personalizeBinding) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Personalize Receipt with Event Logo").font(.headline)
+                    Text(isRegularBooth ? "Add a Logo to Regular Booth Receipts" : "Personalize Receipt with Event Logo").font(.headline)
                     Text(design.personalizeReceipt
                          ? "Your event logo prints with Made to Keep at the top of every receipt."
                          : "Guests receive the standard Made to Keep receipt.")
