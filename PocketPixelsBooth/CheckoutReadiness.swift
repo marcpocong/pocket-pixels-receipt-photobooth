@@ -8,9 +8,14 @@ import Foundation
     private var continuation: CheckedContinuation<Void, Error>?
     func check() async throws {
         guard EventOperationalState.shared.networkPathStatus == "Online" else { throw SetupFailure("Internet is unavailable. No payment QR was issued.") }
-        guard !PrinterCoordinator.shared.requiresRecovery, !EventOperationalState.shared.hasUnresolvedPrint,
-              PrinterCoordinator.shared.isBluetoothReady, PrinterBluetoothService.shared.canPrintRaster else {
-            throw SetupFailure("The printer is not ready. No payment QR was issued; please contact the booth owner.")
+        guard !PrinterCoordinator.shared.requiresRecovery, !EventOperationalState.shared.hasUnresolvedPrint else {
+            throw SetupFailure("The printer needs a paper check in Operator → Recovery. No payment QR was issued.")
+        }
+        guard PrinterCoordinator.shared.preferredMode != .wifi else {
+            throw SetupFailure("Select Bluetooth or Auto in Operator → Printer Setup for Bluetooth checkout. No payment QR was issued.")
+        }
+        guard try await PrinterBluetoothService.shared.waitUntilReady() else {
+            throw SetupFailure("\(PrinterBluetoothService.shared.readinessMessage) Open Operator → Printer Setup or Recovery. No payment QR was issued.")
         }
         guard camera.authorizationStatus() == .authorized else { throw SetupFailure("Camera permission needs operator attention. No payment QR was issued.") }
         try await withCheckedThrowingContinuation { continuation in

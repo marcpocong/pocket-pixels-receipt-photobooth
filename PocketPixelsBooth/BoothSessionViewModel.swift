@@ -2653,8 +2653,8 @@ final class BoothSessionViewModel: ObservableObject {
                 printerState = .failure(message)
                 statusMessage = message
                 return
-            case .failure:
-                let message = "\(completedPrintCopies) of \(requestedCopies) copies printed. Printer needs attention before continuing."
+            case .failure(let error):
+                let message = "\(completedPrintCopies) of \(requestedCopies) copies printed. \(error.localizedDescription)"
                 // Bytes may have reached the printer: recorded as UNCERTAIN and never auto-reprinted.
                 recordCopyOutcome(copy: copy, batchID: printBatchID, result: result)
                 debugLog("[MULTI-COPY] failedCopy=\(copy) completedCopies=\(completedPrintCopies) requestedCopies=\(requestedCopies)")

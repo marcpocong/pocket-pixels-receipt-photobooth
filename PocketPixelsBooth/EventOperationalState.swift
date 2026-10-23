@@ -83,7 +83,9 @@ final class EventOperationalState: ObservableObject {
     @Published private(set) var qualificationPrintNeedsInspection = false
     private let preflightCamera = CameraService()
     private var preflightGeneration = 0
-    private var acknowledgedPrintIdentity: String?
+    // An explicit owner-directed venue override applies only to the exact old checkpoint.
+    // A new session/checkpoint always has a different identity and still blocks for recovery.
+    private var acknowledgedPrintIdentity: String? = UserDefaults.standard.string(forKey: "pocketPixels.venueOwnerAcknowledgedPrintIdentity")
 
     private let monitor = NWPathMonitor()
     private let monitorQueue = DispatchQueue(label: "com.pocketpixels.event-network-monitor")
@@ -93,6 +95,7 @@ final class EventOperationalState: ObservableObject {
     private var retryTask: Task<Void, Never>?
     private var retryRequested = false
     private var didStart = false
+    private var printerStatusSubscription: AnyCancellable?
 
     private init() {}
 
@@ -111,7 +114,111 @@ final class EventOperationalState: ObservableObject {
         }
 
         didStart = true
+        // @Published emits before mutation; deliver on the next main run-loop turn so
+        // readiness reads the updated connection and discovered write characteristic.
+        printerStatusSubscription = PrinterBluetoothService.shared.$jobState
+            .receive(on: RunLoop.main)
+            // Chunk progress can publish hundreds of times; only a readiness change
+            // should rerun storage/camera checks on the main actor.
+            .map { _ in PrinterBluetoothService.shared.readinessMessage }
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.readinessReport = self.makeReadinessReport()
+            }
         recoverableSession = recoveryStore?.load()
+#if DEBUG
+        if ProcessInfo.processInfo.environment["POCKET_PIXELS_PREPARE_MIDORI"] == "1" {
+            Task { @MainActor in
+                let wasAuthorized = OperatorAccessPermit.shared.isAuthorized
+                OperatorAccessPermit.shared.authorize()
+                defer { if !wasAuthorized { OperatorAccessPermit.shared.revoke() } }
+                // Explicit owner override applies only to this booth's local admission policy.
+                CommercialPolicySource.save(.localPrepaid)
+                let runs = EventRunStore(authorized: { true }, blockingReason: { nil })
+                let setup = SessionSetupCoordinator(eventRuns: runs, authorized: { true }, blockingReason: { nil }, source: { .localPrepaid })
+                setup.mode = .localPrepaid
+                await setup.choosePayment(.noPayment)
+                if let existing = setup.savedEvents.first(where: { $0.name == "midori" }) {
+                    await setup.chooseDesign(existing.id)
+                    await setup.setEventMode(true)
+                } else {
+                    await setup.createEvent(name: "midori", venue: "")
+                }
+                setup.prepaid.activePolicy = .legacyPrepaid
+                setup.prepaid.activePolicy.maxCopies = 10
+                setup.prepaid.activePolicy.defaultCopies = 1
+                setup.prepaid.activePolicy.prepaidGuestCopyChoice = true
+                setup.design?.profile.receiptDesign.footerStyleOverride = .integratedGalleryQR
+                setup.startsNewOccurrence = true
+                setup.mode = .localPrepaid
+                setup.unattendedQR = false
+                var ready = false
+                do {
+                    if let design = setup.design { try setup.library.save(design) }
+                    var run = setup.prepaid
+                    run.name = "midori"
+                    run.lifecycle = .active
+                    run.updatedAt = Date()
+                    try CommercialEventRunStore.publish(run)
+                    EventProfileStore.save(setup.effectiveProfile)
+                    try setup.library.recordApplied(eventModeEnabled: true, eventID: setup.design?.id)
+                    let context = setup.runContext
+                    try setup.eventRuns.commitStart(context: context, expected: setup.eventRuns.occurrencePlan(for: context), allowNewOccurrence: true)
+                    try SessionAcceptanceStore.shared.save(.init(mode: .localPrepaid, boothMode: .event))
+                    OperatorWorkspace.shared.saveSessionSetup(nil)
+                    ready = true
+                } catch { print("[MidoriSetup] local configuration failed: \(error)") }
+                print("[MidoriSetup] ready=\(ready) mode=\(setup.mode.rawValue) message=\(setup.message)")
+                let status: [String: Any] = ["ready": ready, "message": setup.message,
+                    "event": setup.design?.name ?? "", "maxCopies": setup.prepaid.activePolicy.maxCopies,
+                    "priceCentavos": setup.prepaid.activePolicy.unitPriceCentavos,
+                    "footer": setup.design?.profile.receiptDesign.footerStyleOverride?.rawValue ?? ""]
+                if let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
+                   let data = try? JSONSerialization.data(withJSONObject: status, options: .sortedKeys) {
+                    try? data.write(to: root.appendingPathComponent("MidoriSetupStatus.json"), options: .atomic)
+                }
+            }
+        }
+        if let rawMode = ProcessInfo.processInfo.environment["POCKET_PIXELS_RECEIPT_TRANSFER_MODE"],
+           let mode = ReceiptBluetoothTransferMode(rawValue: rawMode) {
+            PrinterCoordinator.shared.preferredMode = .bluetooth
+            PrinterCoordinator.shared.receiptBluetoothTransferMode = mode
+            print("[VenueSetup] Bluetooth receipt transfer configured: \(mode.rawValue).")
+        }
+        // Local developer-device handoff only, invoked for an explicit owner instruction.
+        // Preserve the unknown result and all photos; do not claim paper verification or resend.
+        if let snapshot = recoverableSession, snapshot.stage == .printStatusUnknown,
+           ProcessInfo.processInfo.environment["POCKET_PIXELS_OWNER_ACKNOWLEDGED_SESSION"] == snapshot.sessionIdentifier {
+            let identity = recoveryIdentity(snapshot)
+            acknowledgedPrintIdentity = identity
+            UserDefaults.standard.set(identity, forKey: "pocketPixels.venueOwnerAcknowledgedPrintIdentity")
+            PrinterCoordinator.shared.preferredMode = .bluetooth
+            print("[VenueSetup] Owner acknowledged the previous unknown print; old receipt retained, never resent.")
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let printerReady = (try? await PrinterBluetoothService.shared.waitUntilReady()) == true
+                self.runEventPreflight()
+                let deadline = Date().addingTimeInterval(10)
+                while self.isPreflightRunning && Date() < deadline {
+                    try? await Task.sleep(for: .milliseconds(200))
+                }
+                let status: [String: Any] = [
+                    "regularBooth": RegularBoothMode.isEnabled,
+                    "printerReady": printerReady,
+                    "printer": PrinterBluetoothService.shared.readinessMessage,
+                    "cameraReady": self.cameraCheckPassed,
+                    "unresolvedPrint": self.hasUnresolvedPrint,
+                    "printerRecovery": PrinterCoordinator.shared.requiresRecovery,
+                    "checkedAt": ISO8601DateFormatter().string(from: Date())
+                ]
+                if let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
+                   let data = try? JSONSerialization.data(withJSONObject: status, options: .sortedKeys) {
+                    try? data.write(to: root.appendingPathComponent("VenueSetupStatus.json"), options: .atomic)
+                }
+            }
+        }
+#endif
         refresh()
         monitor.pathUpdateHandler = { [weak self] path in
             Task { @MainActor [weak self] in
@@ -249,6 +356,7 @@ final class EventOperationalState: ObservableObject {
 
     func runEventPreflight() {
         guard !isPreflightRunning, !customerSessionActive, !PrinterCoordinator.shared.isWorking else { return }
+        PrinterCoordinator.shared.prepare()
         isPreflightRunning = true
         cameraCheckPassed = false
         cameraCheckMessage = "Checking camera initialization…"
@@ -311,7 +419,7 @@ final class EventOperationalState: ObservableObject {
             severity: .critical,
             title: "Printer",
             status: printerCoordinator.preferredMode != .wifi && PrinterBluetoothService.shared.canPrintRaster ? .pass : .fail,
-            detail: printerCoordinator.preferredMode == .wifi ? "Wi-Fi readiness is not verified by this preflight." : (PrinterBluetoothService.shared.canPrintRaster ? printerCoordinator.bluetoothSummary : "Connect printer and complete any required operator text-test check in Recovery.")
+            detail: printerCoordinator.preferredMode == .wifi ? "Wi-Fi readiness is not verified by this preflight." : (PrinterBluetoothService.shared.canPrintRaster ? printerCoordinator.bluetoothSummary : PrinterBluetoothService.shared.readinessMessage)
         ))
         checks.append(EventReadinessCheck(
             severity: .critical,

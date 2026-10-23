@@ -103,6 +103,23 @@ struct PrinterSetupView: View {
             Label(bluetoothStatusText, systemImage: bluetoothService.isConnectedAndReady ? "checkmark.circle.fill" : "printer")
                 .foregroundStyle(bluetoothService.isConnectedAndReady ? .green : .secondary)
 
+            if !bluetoothService.canPrintRaster {
+                Text(bluetoothService.readinessMessage)
+                    .font(.subheadline)
+                    .foregroundStyle(.orange)
+                NavigationLink("Open Printer Recovery") { OperatorRecoveryView() }
+                    .buttonStyle(.bordered)
+            }
+
+            if printerCoordinator.preferredMode == .wifi {
+                Button("Use Bluetooth Printer") {
+                    printerCoordinator.preferredMode = .bluetooth
+                    printerCoordinator.prepare()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(printerCoordinator.isWorking)
+            }
+
             HStack(spacing: 12) {
                 Button {
                     printerCoordinator.reconnectBluetoothPrinter()

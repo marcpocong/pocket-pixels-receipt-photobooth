@@ -93,7 +93,7 @@ enum PrinterConnectionState: Equatable {
     }
 }
 
-enum PrinterNetworkError: Error, Equatable {
+enum PrinterNetworkError: Error, LocalizedError, Equatable {
     case invalidHost
     case invalidPort
     case timedOut(host: String, port: UInt16)
@@ -103,6 +103,8 @@ enum PrinterNetworkError: Error, Equatable {
     case connectionFailed(String)
     case sendFailed(String)
     case developmentError(String)
+
+    var errorDescription: String? { userMessage }
 
     var userMessage: String {
         switch self {
