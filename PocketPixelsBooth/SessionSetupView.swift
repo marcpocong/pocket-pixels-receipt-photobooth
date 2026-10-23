@@ -4,7 +4,7 @@ nonisolated enum OperatorSetupStage: Int, CaseIterable, Identifiable, Sendable {
     case details, payment, experience, review
     var id: Int { rawValue }
     var title: String {
-        switch self { case .details: "Event Details"; case .payment: "Payment & Prints"; case .experience: "Guest Experience"; case .review: "Review & Start" }
+        switch self { case .details: "Event Details"; case .payment: "Payment & Prints"; case .experience: "Receipt & Branding"; case .review: "Review & Start" }
     }
 }
 
@@ -71,7 +71,7 @@ struct SessionSetupView: View {
             .padding(.vertical, 24)
             .frame(maxWidth: .infinity)
         }
-        .navigationTitle("Event Setup")
+        .navigationTitle("Quick Start Event")
         .navigationBarTitleDisplayMode(.inline)
         .tint(OperatorPalette.ink)
         .background(OperatorPalette.canvas)
@@ -392,6 +392,8 @@ struct SessionSetupView: View {
             if setup.eventModeEnabled, let design = Binding($setup.design) {
                 guestScreens(design)
                 Divider()
+                TextField("Receipt footer caption (optional)", text: design.profile.receiptDesign.editorialCaption, axis: .vertical)
+                    .lineLimit(2)
                 EventReceiptDesignPanel(design: design, isDirty: setup.designDirty, save: { setup.saveDesign() }, discard: { setup.discardDesignChanges() })
                 NavigationLink {
                     EventDesignEditorView(setup: setup)
@@ -425,8 +427,8 @@ struct SessionSetupView: View {
     private var summarySection: some View {
         SetupCard {
             SetupSummaryRows(setup: setup)
-            Button("Save Reviewed Setup Without Starting") { Task { await setup.saveOnly() } }
-                .buttonStyle(.bordered).disabled(setup.validation != nil || !setup.hasUnsavedChanges)
+            Button("Save Event Without Starting") { Task { await setup.saveOnly() } }
+                .buttonStyle(.bordered).disabled(setup.saveValidation != nil)
             if let validation = setup.validation { Label(validation, systemImage: "info.circle").foregroundStyle(OperatorPalette.warning) }
             if setup.canStartNewPaidOccurrence {
                 Button { Task { await setup.startNewPaidOccurrence() } } label: {
@@ -437,6 +439,7 @@ struct SessionSetupView: View {
                 Text("Creates a fresh paid event for this design with the same price and methods as a draft. The ended event keeps its orders and reports.")
                     .font(.footnote).foregroundStyle(OperatorPalette.secondaryText)
             }
+            EventReceiptComposerPreview(profile: setup.effectiveProfile, printOptions: devicePrintOptions, showsSamplePrintLink: false, maximumPreviewWidth: 300)
             Label(setup.occurrenceSummary, systemImage: "calendar.badge.clock").font(.callout)
             if case .requiresNewOccurrence = setup.occurrencePlan {
                 Toggle("Start New Occurrence — fresh statistics", isOn: $setup.startsNewOccurrence).frame(minHeight: 44)
@@ -471,9 +474,12 @@ struct SessionSetupView: View {
     private var bottomBar: some View {
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
         return layout {
-            Button("Save Draft") {
-                workspace.checkpoint()
-                draftMessage = workspace.persistenceError ?? "Draft saved on this iPad. Guests keep the current setup."
+            Button("Save for Later") {
+                Task {
+                    await setup.saveOnly()
+                    workspace.checkpoint()
+                    draftMessage = workspace.persistenceError ?? setup.message
+                }
             }
             .buttonStyle(.bordered).frame(minHeight: 48).accessibilityIdentifier("save-setup-draft")
             if stage != .details {
@@ -481,8 +487,15 @@ struct SessionSetupView: View {
                     .buttonStyle(.bordered).frame(minHeight: 48)
             }
             if stage == .review {
-                Button { review = true } label: {
-                    Label("Review & Start", systemImage: "checklist").font(.headline).frame(maxWidth: .infinity, minHeight: 48)
+                Button {
+                    if setup.requiresPaymentReview { review = true }
+                    else {
+                        Task {
+                            if await setup.startAccepting() { NotificationCenter.default.post(name: OperatorWorkspace.didStartSessions, object: nil) }
+                        }
+                    }
+                } label: {
+                    Label(setup.requiresPaymentReview ? "Review & Start" : "Start Event", systemImage: "play.fill").font(.headline).frame(maxWidth: .infinity, minHeight: 48)
                 }
                 .buttonStyle(.borderedProminent).disabled(setup.validation != nil).accessibilityIdentifier("review-setup")
             } else {

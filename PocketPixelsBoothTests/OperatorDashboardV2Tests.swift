@@ -146,7 +146,7 @@ import SwiftUI
         XCTAssertFalse(OperatorWorkspaceLayout.usesSidebar(width: 834, height: 1_194))
         XCTAssertTrue(OperatorWorkspaceLayout.usesSidebar(width: 1_194, height: 834))
         XCTAssertFalse(OperatorWorkspaceLayout.usesSidebar(width: 700, height: 834))
-        XCTAssertEqual(OperatorSetupStage.allCases.map(\.title), ["Event Details", "Payment & Prints", "Guest Experience", "Review & Start"])
+        XCTAssertEqual(OperatorSetupStage.allCases.map(\.title), ["Event Details", "Payment & Prints", "Receipt & Branding", "Review & Start"])
     }
 
     func testRenderedWorkspaceAndMajorScreensInBothOrientations() async throws {

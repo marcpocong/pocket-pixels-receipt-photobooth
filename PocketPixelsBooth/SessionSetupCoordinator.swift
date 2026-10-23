@@ -426,20 +426,16 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         return [.ended, .archived].contains(detail.event.lifecycle)
     }
 
-    var validation: String? {
-        if let reason = blockingReason() { return reason }
-        if eventRuns.historyUnreadable { return eventRuns.storageError ?? "Event-run history could not be read." }
-        if eventRuns.pendingTransition != nil { return "An earlier event change was interrupted. Check its status in Current Event first." }
-        if needsRefresh { return "Check Current Status before reviewing again. The previous action may have reached the server." }
+    /// Saving a draft/design never changes guest admission or the active receipt snapshot.
+    /// Recovery and active-session barriers apply only when publishing/activating it.
+    var saveValidation: String? {
+        if let error = library.storageError { return error }
+        if needsRefresh { return "Check Current Status before saving paid settings again." }
         if eventModeEnabled {
             guard let design else { return "Choose or create an event, or turn off Event Mode." }
             if design.archivedAt != nil { return "This design is archived. Choose an active design." }
             if design.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Enter an event name." }
-            if design.personalizeReceipt && !artworkAvailable(design.logoIdentifier) {
-                return design.logoIdentifier == nil
-                    ? "Add an event logo, or turn off Personalize Receipt."
-                    : "The saved logo can’t be read. Choose another file, or turn off Personalize Receipt."
-            }
+
         }
         if mode == .localPrepaid { return prepaid.activePolicy.validationMessage }
         if conflict { return "Server Settings Changed — Review Required." }
@@ -455,6 +451,24 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Enter an event name." }
         if policy.commercialMode != .payPerPrint { return "This saved event is prepaid. Choose a pay-per-print event." }
         return policy.validationMessage()
+    }
+
+    var requiresPaymentReview: Bool { mode == .serverManaged || source() == .serverManaged }
+
+    var validation: String? {
+        if let reason = blockingReason() { return reason }
+        if eventRuns.historyUnreadable { return eventRuns.storageError ?? "Event-run history could not be read." }
+        if eventRuns.pendingTransition != nil { return "An earlier event change was interrupted. Check its status in Current Event first." }
+        if needsRefresh { return "Check Current Status before reviewing again. The previous action may have reached the server." }
+        if let reason = saveValidation { return reason }
+        if eventModeEnabled, let design {
+            if design.personalizeReceipt && !artworkAvailable(design.logoIdentifier) {
+                return design.logoIdentifier == nil
+                    ? "Add an event logo, or turn off Personalize Receipt."
+                    : "The saved logo can’t be read. Choose another file, or turn off Personalize Receipt."
+            }
+        }
+        return nil
     }
 
     /// Whether guests are using exactly this setup right now.
@@ -842,7 +856,8 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     /// Saves everything without opening the booth: the event design locally and, for paid
     /// setups, the server event's settings. Guests keep the currently applied setup.
     func saveOnly() async {
-        guard !busy, authorized(), validation == nil else { return }
+        guard !busy, authorized() else { return }
+        if let reason = saveValidation { message = reason; return }
         busy = true; defer { busy = false }
         do {
             stageReusablePrepaidPolicy()
