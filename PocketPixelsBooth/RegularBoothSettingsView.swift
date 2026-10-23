@@ -29,6 +29,13 @@ struct RegularBoothSettingsView: View {
                     }))
                 }
             }
+            if settings.formats.contains(where: { BoothFormat(rawValue: $0) == nil }) {
+                Section("Unrecognized saved formats") {
+                    ForEach(settings.formats.filter { BoothFormat(rawValue: $0) == nil }, id: \.self) { raw in
+                        Button("Remove unsupported format: \(raw)") { settings.formats.removeAll { $0 == raw } }
+                    }
+                }
+            }
             Section("Footer, logo & branding") {
                 Text("These defaults are independent of saved events. Current guests keep the design they started with.")
                 EventReceiptDesignPanel(design: $design, isDirty: false, save: {}, discard: {}, isRegularBooth: true)

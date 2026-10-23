@@ -2164,7 +2164,7 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     func refreshCustomerExperience() {
-        guard state == .welcome || state == .choosingFormat else { return }
+        guard state == .welcome else { return }
         customerEventProfile = environment.eventProfileSource().normalized()
     }
 

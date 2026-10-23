@@ -99,7 +99,7 @@ nonisolated struct BoothTelemetry: Codable, Equatable, Sendable {
         if CommercialPolicySource.load() == .serverManaged, operations.networkPathStatus != "Online" { payment="unavailable" }
         return BoothTelemetry(mode:runs.pendingTransition != nil ? "recovery" : (paused ? "paused" : (RegularBoothMode.isEnabled ? "regular" : "event")),
             network:operations.networkPathStatus=="Online" ? "online" : (operations.networkPathStatus=="Offline" ? "offline" : "unknown"),
-            payment:payment,printer:uncertain ? "uncertain" : (printer.requiresRecovery ? "recovery" : printer.operatorState.rawValue),storage:storage ? "error" : "ready",
+            payment:payment,printer:uncertain ? "uncertain" : (printer.requiresRecovery ? "recovery" : printer.operatorState.telemetryValue),storage:storage ? "error" : "ready",
             incidents:Array(Set(incidents)).sorted(),eventReference:runs.operational?.id)
     }
 }

@@ -94,7 +94,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     /// Preserved financial or print obligations, excluding a guest who is simply mid-session.
     static var recoveryReason: String? {
         let operations = EventOperationalState.shared
-        if operations.hasUnresolvedPrint || PrinterCoordinator.shared.requiresRecovery || operations.recoverableSession != nil { return "Resolve the preserved guest session in Fix Printer or Payment Recovery before switching modes." }
+        if operations.hasUnresolvedPrint || PrinterCoordinator.shared.requiresRecovery || operations.hasPendingSessionRecovery { return "Resolve the preserved guest session in Fix Printer or Payment Recovery before switching modes." }
         guard let checkpoints = CheckoutCheckpointStore.shared, let outbox = PrintOutcomeOutbox.shared else { return "Recovery storage is unavailable. Open Advanced before changing operation." }
         if checkpoints.integrityFault != nil || !checkpoints.unresolved.isEmpty { return "Resolve interrupted checkouts in Payment Recovery before changing operation." }
         let s = outbox.summary

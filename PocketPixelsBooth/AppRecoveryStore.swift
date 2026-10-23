@@ -122,6 +122,23 @@ nonisolated struct AppRecoveryStore: Sendable {
         return snapshot
     }
 
+    /// Keep the exact checkpoint/photos before an operator closes an interrupted session.
+    /// Retention is additive; the active checkpoint and every existing archive stay untouched.
+    nonisolated func retainForReference(_ snapshot: AppRecoverySnapshot) throws {
+        let destination = directoryURL.appendingPathComponent("RetainedSessions", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try AppRecoveryStore(directoryURL: destination).saveCritical(snapshot)
+    }
+
+    nonisolated func retainedSessions() throws -> [AppRecoverySnapshot] {
+        let root = directoryURL.appendingPathComponent("RetainedSessions", isDirectory: true)
+        guard fileManager.fileExists(atPath: root.path) else { return [] }
+        return try fileManager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil).map {
+            let data = try Data(contentsOf: $0.appendingPathComponent("last-session.json"))
+            return try JSONDecoder.recoveryDecoder.decode(AppRecoverySnapshot.self, from: data)
+        }.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
     nonisolated func clear(sessionIdentifier: String? = nil) {
         guard fileManager.fileExists(atPath: fileURL.path) else {
             return
@@ -174,5 +191,21 @@ private extension JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder
+    }
+}
+
+/// An acknowledgement belongs to one exact checkpoint. Relaunch cannot turn an already
+/// reviewed receipt into a new urgent issue, and a later print can never inherit the approval.
+nonisolated enum OperatorRecoveryAcknowledgement {
+    static let key = "pocketPixels.venueOwnerAcknowledgedPrintIdentity"
+    static func identity(_ snapshot: AppRecoverySnapshot) -> String {
+        "\(snapshot.sessionIdentifier)|\(snapshot.updatedAt.timeIntervalSince1970)"
+    }
+    static func retainAndAcknowledge(_ snapshot: AppRecoverySnapshot, store: AppRecoveryStore,
+                                     defaults: UserDefaults = .standard) throws -> String {
+        try store.retainForReference(snapshot)
+        let identity = identity(snapshot)
+        defaults.set(identity, forKey: key)
+        return identity
     }
 }

@@ -7,6 +7,7 @@ struct OperatorBrandingView: View {
     var body: some View {
         List {
             Section {
+                NavigationLink("Regular Booth Footer, Logo & Branding", value: OperatorWorkspaceRoute.regularBooth)
                 Text("Event logos and receipt layouts are part of each event's setup. Branding never starts or pauses sessions; changes reach guests after Review & Start.")
                 NavigationLink(value: OperatorWorkspaceRoute.sessionSetup) { Label("Session Setup", systemImage: "slider.horizontal.3") }
             }

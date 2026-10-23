@@ -102,6 +102,14 @@ nonisolated enum OperatorPrinterState: String, Equatable {
         case .unresolved: "Check the previous receipt"
         }
     }
+    /// Preserve the deployed monitoring protocol; busy is healthy, not a new incident.
+    var telemetryValue: String {
+        switch self {
+        case .ready, .connected, .busy: "ready"
+        case .unresolved: "recovery"
+        case .disconnected, .awaitingTest: "unavailable"
+        }
+    }
     var acceptsJobs: Bool { self == .ready || self == .connected }
     static func resolve(mode: PrinterConnectionMode, bluetoothConnected: Bool, bluetoothReady: Bool,
                         bluetoothNeedsTest: Bool, wifiConnected: Bool, busy: Bool, unresolved: Bool) -> Self {

@@ -36,9 +36,10 @@ struct OperatorDashboardView: View {
                         if !status.attentionItems.isEmpty { OperatorAttentionCard(items: status.attentionItems, workspace: workspace) }
                         equipment(status)
                     }
-                    HStack(spacing: 16) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 250), spacing: 16)], spacing: 16) {
                         equipmentButton("Regular Booth Settings", detail: "Copies, formats, footer & branding", symbol: "slider.horizontal.3", route: .regularBooth, ready: true)
                         equipmentButton("Quick Start Event", detail: "Set up or save for later", symbol: "calendar.badge.plus", route: .newEvent, ready: true)
+                        equipmentButton("Recent Sessions", detail: "Find a guest's receipt or gallery", symbol: "clock", route: .recentSessions, ready: true)
                     }
                     OperatorHomeMetricsView(runs: lifecycle.runs)
                 }
