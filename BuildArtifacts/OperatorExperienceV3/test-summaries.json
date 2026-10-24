@@ -479,5 +479,143 @@
       }
     ],
     "totalTestCount": 757
+  },
+  "recovery_prevention_focused_ios26": {
+    "devicesAndConfigurations": [
+      {
+        "device": {
+          "architecture": "arm64",
+          "deviceId": "643C1CF2-771A-4553-B562-869E09E571B1",
+          "deviceName": "PocketPixels Gallery Validation",
+          "modelName": "iPad Pro (11-inch) (4th generation)",
+          "osBuildNumber": "23F77",
+          "osVersion": "26.5",
+          "platform": "iOS Simulator"
+        },
+        "expectedFailures": 0,
+        "failedTests": 0,
+        "passedTests": 106,
+        "skippedTests": 0,
+        "testPlanConfiguration": {
+          "configurationId": "1",
+          "configurationName": "Test Scheme Action"
+        }
+      }
+    ],
+    "environmentDescription": "PocketPixelsBooth \u00b7 Built with macOS 27.0.1",
+    "expectedFailures": 0,
+    "failedTests": 0,
+    "finishTime": 1792807464.109,
+    "passedTests": 104,
+    "result": "Passed",
+    "runtimeWarnings": [],
+    "skippedTests": 0,
+    "startTime": 1792807390.563,
+    "statistics": [
+      {
+        "subtitle": "3 test runs",
+        "title": "1 test ran with dynamic parameters"
+      }
+    ],
+    "testFailures": [],
+    "title": "Test - PocketPixelsBooth",
+    "topInsights": [
+      {
+        "category": "Longest Test Runs",
+        "impact": "76% of duration",
+        "text": "1 longest test run with outlier durations exceeding 14.26s (three standard deviations)"
+      }
+    ],
+    "totalTestCount": 104
+  },
+  "recovery_prevention_complete_ios26": {
+    "devicesAndConfigurations": [
+      {
+        "device": {
+          "architecture": "arm64",
+          "deviceId": "643C1CF2-771A-4553-B562-869E09E571B1",
+          "deviceName": "PocketPixels Gallery Validation",
+          "modelName": "iPad Pro (11-inch) (4th generation)",
+          "osBuildNumber": "23F77",
+          "osVersion": "26.5",
+          "platform": "iOS Simulator"
+        },
+        "expectedFailures": 0,
+        "failedTests": 0,
+        "passedTests": 796,
+        "skippedTests": 0,
+        "testPlanConfiguration": {
+          "configurationId": "1",
+          "configurationName": "Test Scheme Action"
+        }
+      }
+    ],
+    "environmentDescription": "PocketPixelsBooth \u00b7 Built with macOS 27.0.1",
+    "expectedFailures": 0,
+    "failedTests": 0,
+    "finishTime": 1792808194.98,
+    "passedTests": 761,
+    "result": "Passed",
+    "runtimeWarnings": [
+      {
+        "issueType": "Runtime Warning",
+        "message": "[Internal] Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Utility quality-of-service class. Investigate ways to avoid priority inversions"
+      }
+    ],
+    "skippedTests": 0,
+    "startTime": 1792807516.813,
+    "statistics": [
+      {
+        "subtitle": "42 test runs",
+        "title": "7 tests ran with dynamic parameters"
+      }
+    ],
+    "testFailures": [],
+    "title": "Test - PocketPixelsBooth",
+    "topInsights": [
+      {
+        "category": "Longest Test Runs",
+        "impact": "54% of duration",
+        "text": "13 longest test runs with outlier durations exceeding 13.11s (three standard deviations)"
+      }
+    ],
+    "totalTestCount": 761
+  },
+  "recovery_prevention_durable_journal_final": {
+    "devicesAndConfigurations": [
+      {
+        "device": {
+          "architecture": "arm64",
+          "deviceId": "643C1CF2-771A-4553-B562-869E09E571B1",
+          "deviceName": "PocketPixels Gallery Validation",
+          "modelName": "iPad Pro (11-inch) (4th generation)",
+          "osBuildNumber": "23F77",
+          "osVersion": "26.5",
+          "platform": "iOS Simulator"
+        },
+        "expectedFailures": 0,
+        "failedTests": 0,
+        "passedTests": 1,
+        "skippedTests": 0,
+        "testPlanConfiguration": {
+          "configurationId": "1",
+          "configurationName": "Test Scheme Action"
+        }
+      }
+    ],
+    "environmentDescription": "PocketPixelsBooth \u00b7 Built with macOS 27.0.1",
+    "expectedFailures": 0,
+    "failedTests": 0,
+    "finishTime": 1792808250.905,
+    "passedTests": 1,
+    "result": "Passed",
+    "runtimeWarnings": [],
+    "skippedTests": 0,
+    "startTime": 1792808244.334,
+    "statistics": [],
+    "testFailures": [],
+    "title": "Test - PocketPixelsBooth",
+    "topInsights": [],
+    "totalTestCount": 1
   }
 }

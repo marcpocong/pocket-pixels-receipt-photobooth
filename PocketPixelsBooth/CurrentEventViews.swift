@@ -95,7 +95,7 @@ struct CurrentEventCard: View {
 
     @ViewBuilder private var warnings: some View {
         if let reason = SessionSetupSafety.recoveryReason {
-            NavigationLink(value: printer.requiresRecovery || operations.hasUnresolvedPrint ? OperatorWorkspaceRoute.recovery : OperatorWorkspaceRoute.payments) {
+            NavigationLink(value: SessionSetupSafety.recoveryDestination) {
                 Label(reason, systemImage: "exclamationmark.triangle.fill").foregroundStyle(OperatorPalette.warning).frame(minHeight: 44, alignment: .leading)
             }
         }
@@ -139,7 +139,7 @@ struct CurrentEventCard: View {
             Button { Task { await refresh() } } label: { Label("Check Status", systemImage: "arrow.clockwise").frame(maxWidth: .infinity, minHeight: 48) }
                 .buttonStyle(.borderedProminent)
         case .recoveryRequired:
-            Button { workspace.navigate(to: printer.requiresRecovery || operations.hasUnresolvedPrint ? .recovery : .payments) } label: {
+            Button { workspace.navigate(to: SessionSetupSafety.recoveryDestination) } label: {
                 Label("Review Recovery", systemImage: "exclamationmark.octagon").frame(maxWidth: .infinity, minHeight: 48)
             }.buttonStyle(.borderedProminent)
         case .completed, .archived, .noEvent:

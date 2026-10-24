@@ -234,6 +234,18 @@ final class PrintOutcomeOutbox {
         }
     }
 
+    /// Operation gates use current work, never the historical `uncertain` count below.
+    var hasUnfinishedPhysicalSend: Bool {
+        payload.entries.contains { $0.kind == .copy && ($0.localState == .inFlight || $0.reportState == .awaitingOutcome) }
+    }
+
+    /// Keep the original payments connection until its reports can be delivered/reviewed.
+    /// An old local or already reported uncertain receipt has no such server obligation.
+    var hasUnresolvedServerReports: Bool {
+        payload.entries.contains { $0.entitlementID != nil && [.pending, .conflict, .awaitingOutcome].contains($0.reportState) }
+    }
+
+    /// Accounting/history only. These totals are not a booth readiness or admission decision.
     var summary: (pending: Int, conflicts: Int, uncertain: Int, awaiting: Int) {
         (payload.entries.filter { $0.reportState == .pending }.count,
          payload.entries.filter { $0.reportState == .conflict }.count,

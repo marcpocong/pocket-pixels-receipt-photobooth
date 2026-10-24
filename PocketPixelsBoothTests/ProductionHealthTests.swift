@@ -26,6 +26,21 @@ import SwiftUI
         XCTAssertEqual(report.overall, .unavailable)
     }
 
+    func testRegularBoothAndBackgroundReportsDoNotInventPrinterProblems() {
+        let normal = ProductionHealthReport(inputs { $0.eventStatus = .regular; $0.paid = false; $0.commercialEventID = nil })
+        XCTAssertEqual(level(normal, "event"), .ready)
+        XCTAssertEqual(level(normal, "admission"), .ready)
+        let pending = ProductionHealthReport(inputs { $0.printAccountingPending = 3 })
+        XCTAssertEqual(level(pending, "printer"), .unavailable, "A sync queue says nothing about the physical printer")
+        XCTAssertEqual(level(pending, "print-reports"), .ready)
+        XCTAssertEqual(pending.overall, .unavailable)
+        let conflict = ProductionHealthReport(inputs { $0.printAccountingConflicts = 1 })
+        XCTAssertEqual(level(conflict, "printer"), .unavailable)
+        XCTAssertEqual(level(conflict, "print-reports"), .review, "Financial report review remains visible in its own context")
+        let physical = ProductionHealthReport(inputs { $0.unresolvedPrint = true; $0.printAccountingPending = 3 })
+        XCTAssertEqual(level(physical, "printer"), .review, "A current unknown physical result still needs a receipt check")
+    }
+
     func testProblemsAreClassifiedAsWarningUnavailableOrNeedsReview() {
         XCTAssertEqual(level(ProductionHealthReport(inputs { $0.admissionOpen = false; $0.eventStatus = .pausedOnBooth }), "admission"), .warning)
         XCTAssertEqual(level(ProductionHealthReport(inputs { $0.eventStatus = .needsReview("x") }), "admission"), .review, "Open admission without an accepting status")
