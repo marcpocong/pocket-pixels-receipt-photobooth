@@ -1,0 +1,8 @@
+Final app source: 83f97cb808c37d97881c9f3498dd72ebb06d7747
+Xcode 27.1 (27A9275)
+Signed generic iOS Release build: BUILD SUCCEEDED
+codesign --verify --deep --strict: exit 0
+Bundle identifier: com.pocketpixels.PocketPixelsBooth
+Team: PQ26682725 (unchanged project signing)
+No physical device install or launch performed.
+Log: /tmp/pp-v4-delivery-release.log

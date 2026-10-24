@@ -1,0 +1,6 @@
+V4_SCROLL_RESTORATION before=5736.0 after=5736.0 observedBefore=5736.0 observedAfter=5736.0
+V4_RETURN_AND_ROTATE_MS 547.8769540786743
+
+Additional recreated-view verification:
+V4_SCROLL_RESTORATION before=5736.0 after=5736.0 observedBefore=5736.0 observedAfter=5736.0
+V4_SECTION_REENTRY before=5736.0 after=5736.0

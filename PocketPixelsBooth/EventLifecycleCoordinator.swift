@@ -244,6 +244,7 @@ nonisolated enum EventStatusModel {
     @Published private(set) var lastCheckedAt: Date?
 
     let runs: EventRunStore
+    var acceptanceForPresentation: SessionAcceptanceStore { acceptance }
     private let acceptance: SessionAcceptanceStore
     private let api: @MainActor () throws -> any SessionSetupAPI
     private let authorized: @MainActor () -> Bool
@@ -272,7 +273,7 @@ nonisolated enum EventStatusModel {
          saveLocal: @escaping @MainActor (CommercialEventRun) throws -> Void = { try CommercialEventRunStore.publish($0) },
          binding: @escaping @MainActor () -> String = { OperatorWorkspace.shared.serverBinding },
          appliedContext: @escaping @MainActor () -> EventRunContext = { EventRunStore.currentContext() },
-         hasUnsavedSetup: @escaping @MainActor () -> Bool = { OperatorWorkspace.shared.hasUnsavedDrafts },
+         hasUnsavedSetup: @escaping @MainActor () -> Bool = { OperatorWorkspace.shared.hasUnsavedEventSetup },
          makeSetup: @escaping @MainActor () -> SessionSetupCoordinator = { SessionSetupCoordinator() },
          applyRegularConfiguration: @escaping @MainActor () throws -> Void = {
              try EventDesignLibraryStore.shared.recordApplied(eventModeEnabled: false, eventID: nil)

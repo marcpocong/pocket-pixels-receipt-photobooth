@@ -1,0 +1,26 @@
+{
+  "additionalTestRefinement": "Recreated-view section re-entry assertions in OperatorSessionsPerformanceTests.swift; passed independently in section-reentry-verified-ios26.json. No app source changed after the implementation commit.",
+  "appAndTestsCommit": "83f97cb808c37d97881c9f3498dd72ebb06d7747",
+  "baseline": "bb81b0787e68550c76cc60336410809ab4643751",
+  "files": {
+    "PocketPixelsBooth/CurrentEventViews.swift": "1e566559d886ab33a8022891fc3cc03e42bf6f5532cd24b54bcdd882e59b20b5",
+    "PocketPixelsBooth/EventLifecycleCoordinator.swift": "4a547c55c5dfd2f109fca652c1e8ba3253426cd202802cfcf094675a4eccad17",
+    "PocketPixelsBooth/EventOperationalState.swift": "2644fa04e8afee34d5a4833daf8aeb58ec660109b5e2ed7f4dbadc29077da6fb",
+    "PocketPixelsBooth/EventRunReportingView.swift": "f6d43181de3988558c983fcbde3827a7d17b1aceb5691d8de6eca0393ec2e125",
+    "PocketPixelsBooth/OperatorDashboardView.swift": "f2a26ae06859833eac41579b7db6c49e3ce775adcf957dd08b8bcb8b5a1d36c2",
+    "PocketPixelsBooth/OperatorRunInsights.swift": "e85143bc5e1f0b2d0f52a5c3597f42fcba10a19ba187fcb07aac5ac5fc11a953",
+    "PocketPixelsBooth/OperatorWorkspace.swift": "fe55b111a68541fdf289c061e24b895ac9257b3b38292e17c63a8891b9cd8263",
+    "PocketPixelsBooth/OperatorWorkspaceView.swift": "8d4e828a6454bcc7e5d3d56bb65e2b9f61c5aa088ddc5714c8ae86b602c0b129",
+    "PocketPixelsBooth/RecentSessionArchiveStore.swift": "ba74e88a64d8811b38c734f9cb716e9461f3dab8e84386e2a739bf222dad7c9e",
+    "PocketPixelsBooth/RecentSessionsView.swift": "a5fbeedf76d4744b15c9187b285480b4d95f66c6d493f13a9e53a8965a635d46",
+    "PocketPixelsBooth/RegularBoothSettingsView.swift": "23f6720c22155cc4292cd80cdfd616c05fe67cd83f1e621ff6d78b31dc0bde32",
+    "PocketPixelsBooth/SavedDrafts.swift": "b64e95dca34f7cb3b253975547458692786f0b639e1b81648e2b457a116afdc8",
+    "PocketPixelsBooth/SavedDraftsView.swift": "5c70daf61b33111e8c6a4920a254aa7d7665bc1c8f3d1a8b1c35d767ff4766dc",
+    "PocketPixelsBooth/SessionSetupView.swift": "edd8c05d240195c8e7fd829ece3b634d11090c0cad9321993e384a240e675da7",
+    "PocketPixelsBooth/SessionThumbnailCache.swift": "28253ce2d68c583c8c82142860bc5e03d5a52b047877bfb9bf4ef9a7818ef6a4",
+    "PocketPixelsBoothTests/CustomerOperatorUIReleaseTests.swift": "d506d5a554f934fbb8a7d54693a5420f62a8f96c9073268e0c9b9b7eb5208973",
+    "PocketPixelsBoothTests/OperatorDashboardV2Tests.swift": "0267c512920459a61b211ff61ecc9c18b3e665d89fa866abc7d960c48dcd022a",
+    "PocketPixelsBoothTests/OperatorSessionsPerformanceTests.swift": "56ec7bdcfa9da3490e6051152fe660873302d030a402def66dc0c64f5797bc28",
+    "PocketPixelsBoothTests/OperatorWorkspaceV4Tests.swift": "10984eeacaeac9cabeb44d90ebc5b87c2285d3a69ce4fc96642a7cea7bc12aaf"
+  }
+}

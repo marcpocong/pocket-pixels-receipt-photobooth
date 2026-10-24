@@ -3,6 +3,7 @@ import UIKit
 
 /// Home uses the existing lifecycle coordinator; presentation never starts or activates an event.
 struct OperatorDashboardView: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     @ObservedObject private var workspace: OperatorWorkspace
     @ObservedObject private var lifecycle: EventLifecycleCoordinator
     @ObservedObject private var operations = EventOperationalState.shared
@@ -24,25 +25,22 @@ struct OperatorDashboardView: View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 250), spacing: 16)], spacing: 16) {
-                        equipmentButton("Regular Booth Settings", detail: "Copies, formats, footer & branding", symbol: "slider.horizontal.3", route: .regularBooth, ready: true)
-                        equipmentButton("Quick Start Event", detail: "Set up or save for later", symbol: "calendar.badge.plus", route: .newEvent, ready: true)
-                        equipmentButton("Recent Sessions", detail: "Find a guest's receipt or gallery", symbol: "clock", route: .recentSessions, ready: true)
-                        equipmentButton("Help & Recovery", detail: recovery.outstandingItems.isEmpty ? "Close an interrupted guest or review a receipt" : "\(recovery.outstandingItems.count) outstanding payment(s) · guest closed", symbol: "lifepreserver", route: .recovery, ready: !recovery.needsAttention)
+                    CurrentEventCard(lifecycle: lifecycle, loadsRemote: loadsRemote, workspace: workspace)
+                    Text("Quick actions").font(.headline).accessibilityAddTraits(.isHeader)
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: typeSize.isAccessibilitySize || geometry.size.width < 580 ? 1 : 2), spacing: 12) {
+                        equipmentButton("Booth Settings", detail: "Copies, formats, footer & branding", symbol: "slider.horizontal.3", route: .regularBooth, ready: true)
+                        equipmentButton("Recent Sessions", detail: "Find a guest's receipt or gallery", symbol: "photo.stack", route: .recentSessions, ready: true)
+                        equipmentButton(lifecycle.runs.operational == nil ? "Start Event" : "Manage Event", detail: "Setup, design and saved drafts", symbol: "calendar", route: lifecycle.runs.operational == nil ? .newEvent : .sessionSetup, ready: true)
+                        equipmentButton("Help & Recovery", detail: "Close an interrupted guest or review a receipt", symbol: "lifepreserver", route: .recovery, ready: !recovery.needsAttention)
                     }
-                    if geometry.size.width >= 880 {
-                        HStack(alignment: .top, spacing: 20) {
-                            CurrentEventCard(lifecycle: lifecycle, loadsRemote: loadsRemote, workspace: workspace).frame(maxWidth: .infinity)
-                            VStack(alignment: .leading, spacing: 16) {
-                                if !status.attentionItems.isEmpty { OperatorAttentionCard(items: status.attentionItems, workspace: workspace) }
-                                equipment(status)
-                            }.frame(width: 280)
-                        }
-                    } else {
-                        CurrentEventCard(lifecycle: lifecycle, loadsRemote: loadsRemote, workspace: workspace)
-                        if !status.attentionItems.isEmpty { OperatorAttentionCard(items: status.attentionItems, workspace: workspace) }
-                        equipment(status)
+                    if !status.attentionItems.isEmpty { OperatorAttentionCard(items: status.attentionItems, workspace: workspace) }
+                    if !recovery.outstandingItems.isEmpty {
+                        Button { workspace.navigate(to: .recovery) } label: {
+                            Label("\(recovery.outstandingItems.count) outstanding payment(s) · guests closed · review separately", systemImage: "creditcard")
+                                .font(.callout).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        }.buttonStyle(.bordered)
                     }
+                    equipment(status)
                     OperatorHomeMetricsView(runs: lifecycle.runs)
                 }
                 .frame(maxWidth: 1_040).padding(20).frame(maxWidth: .infinity)
@@ -132,7 +130,7 @@ struct OperatorEquipmentView: View {
 
     var body: some View {
         List {
-            Section {
+            Section("Devices · Printer") {
                 EquipmentDestination(
                     title: "Printer",
                     status: printer.operatorState.label,
@@ -146,7 +144,7 @@ struct OperatorEquipmentView: View {
                 }
             }
 
-            Section {
+            Section("Devices · Camera") {
                 EquipmentDestination(
                     title: "Camera",
                     status: operations.cameraCheckPassed ? "Checked this foreground session" : "Not checked — run Booth Check",
@@ -157,7 +155,8 @@ struct OperatorEquipmentView: View {
                     .disabled(operations.customerSessionActive || operations.isPreflightRunning || printer.isWorking)
             }
 
-            Section {
+            Section("Connections") {
+                NavigationLink("Payments Connection & Maintenance", value: OperatorWorkspaceRoute.payments)
                 EquipmentDestination(
                     title: "Gallery & Internet",
                     status: galleryStatus,
@@ -167,16 +166,20 @@ struct OperatorEquipmentView: View {
                 NavigationLink("Gallery Setup", value: OperatorWorkspaceRoute.gallery)
                 NavigationLink("Waiting Galleries (\(operations.pendingUploadCount))", value: OperatorWorkspaceRoute.waitingGalleries)
             }
-            Section("iPad & Monitoring") {
+            Section("Storage") {
                 NavigationLink(value: OperatorWorkspaceRoute.storage) {
                     Label("Storage · \(operations.storageText)", systemImage: "internaldrive")
                 }
                 NavigationLink(value: OperatorWorkspaceRoute.monitoring) { Label("Monitoring", systemImage: "antenna.radiowaves.left.and.right") }
                 NavigationLink(value: OperatorWorkspaceRoute.boothCheck) { Label("Check Booth", systemImage: "checkmark.shield") }
             }
+            Section("Maintenance") {
+                NavigationLink("Help & Recovery", value: OperatorWorkspaceRoute.recovery)
+                NavigationLink("Print History", value: OperatorWorkspaceRoute.printHistory)
+            }
             Section {
                 NavigationLink(value: OperatorWorkspaceRoute.advanced) { Label("Advanced", systemImage: "gearshape.2") }
-            } footer: { Text("Payment recovery, print audits, hardware qualification and backend configuration.") }
+            } header: { Text("Advanced") } footer: { Text("Payment recovery, print audits, hardware qualification and backend configuration.") }
         }
         .navigationTitle("System")
         .scrollContentBackground(.hidden).background(OperatorPalette.canvas)
@@ -379,6 +382,7 @@ extension OperatorWorkspaceRoute {
         case .eventHistory: EventRunReportingView(initialTab: .history)
         case .eventLibrary: EventRunReportingView(initialTab: .manage)
         case .regularBooth: RegularBoothSettingsView()
+        case .regularFooter: RegularBoothSettingsView(footerOnly: true)
         case .monitoring: BoothMonitoringView()
         case .sales: EventRunReportingView()
         case .manageEvent: EventRunReportingView(initialTab: .history)

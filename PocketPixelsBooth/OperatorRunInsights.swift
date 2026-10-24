@@ -50,7 +50,7 @@ private struct OperatorMetricLayout: Layout {
     let minimumCardWidth: CGFloat
     private let spacing: CGFloat = 12
     private func measurements(width: CGFloat, subviews: Subviews) -> (Int, CGFloat, [CGFloat]) {
-        let columns = width >= minimumCardWidth * 4 + spacing * 3 ? 4 : 2
+        let columns = width >= minimumCardWidth * 4 + spacing * 3 ? 4 : (width >= minimumCardWidth * 2 + spacing ? 2 : 1)
         let cardWidth = max(1, (width - spacing * CGFloat(columns - 1)) / CGFloat(columns))
         var rows: [CGFloat] = []
         for index in stride(from: 0, to: subviews.count, by: columns) {

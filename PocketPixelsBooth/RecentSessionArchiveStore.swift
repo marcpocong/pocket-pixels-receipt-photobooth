@@ -152,9 +152,10 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
         }
     }
 
-    nonisolated func summaries() throws -> [RecentSessionArchiveSummary] {
+    nonisolated func summaries(includePayloadSize: Bool = true) throws -> [RecentSessionArchiveSummary] {
         try archiveDirectories().compactMap { directory in
             do {
+                try Task.checkCancellation()
                 let metadata = try loadMetadata(from: directory)
                 return RecentSessionArchiveSummary(
                     archiveID: metadata.archiveID,
@@ -171,10 +172,12 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
                     thumbnailFilenames: metadata.thumbnailFilenames,
                     lastReprintedAt: metadata.lastReprintedAt,
                     reprintCount: metadata.reprintCount,
-                    payloadSizeBytes: payloadSize(at: directory),
+                    payloadSizeBytes: includePayloadSize ? payloadSize(at: directory) : 0,
                     eventRunID: metadata.eventRunID,
                     eventDesignID: metadata.eventDesignID
                 )
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 return RecentSessionArchiveSummary(
                     archiveID: directory.lastPathComponent,
@@ -191,11 +194,23 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
                     thumbnailFilenames: [],
                     lastReprintedAt: nil,
                     reprintCount: 0,
-                    payloadSizeBytes: payloadSize(at: directory)
+                    payloadSizeBytes: includePayloadSize ? payloadSize(at: directory) : 0
                 )
             }
         }
         .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    nonisolated func summary(archiveID: String) throws -> RecentSessionArchiveSummary? {
+        guard isValidArchiveID(archiveID) else { throw RecentSessionArchiveError.invalidArchiveID }
+        let directory = archiveDirectoryURL(for: archiveID)
+        guard fileManager.fileExists(atPath: directory.path) else { return nil }
+        let m = try loadMetadata(from: directory)
+        return RecentSessionArchiveSummary(archiveID: m.archiveID, sessionIdentifier: m.sessionIdentifier, createdAt: m.createdAt,
+            format: m.format, eventName: m.eventName, eventLocation: m.eventLocation, photoCount: m.photoCount,
+            receiptWidth: m.receiptWidth, receiptHeight: m.receiptHeight, estimatedLengthMillimeters: m.estimatedLengthMillimeters,
+            rasterFingerprint: m.rasterFingerprint, thumbnailFilenames: m.thumbnailFilenames, lastReprintedAt: m.lastReprintedAt,
+            reprintCount: m.reprintCount, payloadSizeBytes: 0, eventRunID: m.eventRunID, eventDesignID: m.eventDesignID)
     }
 
     nonisolated func load(archiveID: String) throws -> RecentSessionArchive {

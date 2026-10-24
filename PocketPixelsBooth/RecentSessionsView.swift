@@ -10,164 +10,156 @@ import UIKit
 @MainActor
 final class RecentSessionsViewModel: ObservableObject {
     @Published private(set) var summaries: [RecentSessionArchiveSummary] = []
-    @Published private(set) var thumbnailCache: [String: Data] = [:]
-    /// Downsampled thumbnails decoded off the main thread, so scrolling never decodes images.
-    @Published private(set) var thumbnailImages: [String: UIImage] = [:]
-    /// Delivery status per archive, from the pending queue and the verification journal.
     @Published private(set) var galleryStatuses: [String: ArchivedGalleryStatus] = [:]
+    @Published private(set) var printStatuses: [String: ArchivedPrintSummary] = [:]
+    @Published private(set) var filteredSummaries: [RecentSessionArchiveSummary] = []
+    @Published private(set) var groupedSummaries: [(String, [RecentSessionArchiveSummary])] = []
     @Published private(set) var isLoading = false
     @Published private(set) var hasLoaded = false
-    @Published var searchText = ""
-    @Published var formatFilter: BoothFormat?
-    @Published var showsOnlyAttention = false
+    @Published var searchText = "" { didSet { rebuildFilters() } }
+    @Published var formatFilter: BoothFormat? { didSet { rebuildFilters() } }
+    @Published var showsOnlyAttention = false { didSet { rebuildFilters() } }
+    @Published var todayOnly = false { didSet { rebuildFilters() } }
+    @Published var eventFilter: String? { didSet { rebuildFilters() } }
+    @Published var dateFrom: Date? { didSet { rebuildFilters() } }
+    @Published var dateThrough: Date? { didSet { rebuildFilters() } }
+    @Published var usesPhotoGrid = false
+    @Published var selectedArchiveID: String? {
+        willSet {
+            if newValue != nil && newValue != selectedArchiveID { detailReturnOffset = browserOffset }
+        }
+    }
+    // Geometry updates do not publish or rebuild every row during a scroll.
+    private var browserOffsets: [Bool: CGFloat] = [:]
+    private(set) var detailReturnOffset: CGFloat = 0
+    var browserOffset: CGFloat { browserOffsets[usesPhotoGrid] ?? 0 }
+    func recordBrowserOffset(_ offset: CGFloat) {
+        browserOffsets[usesPhotoGrid] = max(0, offset)
+    }
     @Published var statusMessage = ""
-
+    @Published private(set) var loadError: String?
+    let thumbnails = SessionThumbnailCache()
     private let store: RecentSessionArchiveStore?
+    private let summaryLoader: (@Sendable () throws -> [RecentSessionArchiveSummary])?
     private var refreshTask: Task<Void, Never>?
+    private var statusTask: Task<Void, Never>?
+    private var subscriptions = Set<AnyCancellable>()
+    private var verifiedSessions = Set<String>()
+    private var searchIndex: [String: String] = [:]
+    private var pendingIndex: [String: GalleryPendingUploadSummary] = [:]
+    static let unreadableSectionTitle = "Unreadable archives"
 
-    init(store: RecentSessionArchiveStore? = nil) {
-        do {
-            self.store = try store ?? RecentSessionArchiveStore()
-        } catch {
-            self.store = nil
-            statusMessage = "Recent Sessions storage needs attention: \(error.localizedDescription)"
-        }
+    init(store: RecentSessionArchiveStore? = nil, summaryLoader: (@Sendable () throws -> [RecentSessionArchiveSummary])? = nil) {
+        self.summaryLoader = summaryLoader
+        do { self.store = try store ?? RecentSessionArchiveStore() }
+        catch { self.store = nil; statusMessage = "Recent Sessions storage needs attention: \(error.localizedDescription)" }
+        let operations = EventOperationalState.shared
+        operations.$auditRecords.sink { [weak self] records in
+            guard let self else { return }
+            let groups = Dictionary(grouping: records, by: \.sessionIdentifier)
+            self.printStatuses = groups.mapValues { ArchivedPrintSummary.resolve(records: $0) }
+            self.rebuildFilters()
+        }.store(in: &subscriptions)
+        operations.$pendingUploads.sink { [weak self] pending in
+            guard let self else { return }
+            self.pendingIndex = Dictionary(grouping: pending, by: \.galleryToken).compactMapValues(\.first)
+            self.rebuildGalleryStatuses()
+        }.store(in: &subscriptions)
+        EventRunStore.shared.$revision.dropFirst().debounce(for: .milliseconds(100), scheduler: RunLoop.main)
+            .sink { [weak self] _ in self?.refreshVerification() }.store(in: &subscriptions)
+        NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)
+            .sink { [weak self] _ in
+                guard let cache = self?.thumbnails else { return }
+                Task { await cache.removeAll() }
+            }.store(in: &subscriptions)
     }
 
-    var filteredSummaries: [RecentSessionArchiveSummary] {
+    var events: [String] { Array(Set(summaries.map { $0.eventName ?? "Regular Booth" })).sorted() }
+    var selectedSummary: RecentSessionArchiveSummary? { summaries.first { $0.archiveID == selectedArchiveID } }
+    var storagePath: String { store?.storagePath ?? "Unavailable" }
+
+    private func rebuildFilters() {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let filtered = summaries.filter { summary in
-            (formatFilter == nil || (summary.format == formatFilter && summary.rasterFingerprint != "CORRUPT"))
-                && (!showsOnlyAttention || needsAttention(summary))
-        }
-        guard !query.isEmpty else {
-            return filtered
-        }
-
-        return filtered.filter { summary in
-            summary.sessionIdentifier.lowercased().contains(query)
-                || summary.format.displayName.lowercased().contains(query)
-                || summary.format.rawValue.lowercased().contains(query)
-                || summary.archiveID.lowercased().contains(query)
-                || (summary.eventName?.lowercased().contains(query) ?? false)
-        }
-    }
-
-    var groupedSummaries: [(String, [RecentSessionArchiveSummary])] {
         let calendar = Calendar.current
-        let groups = Dictionary(grouping: filteredSummaries) { summary in
-            // Unreadable archives carry no trustworthy date; keep them together at the end.
-            if summary.rasterFingerprint == "CORRUPT" || summary.createdAt == .distantPast {
-                return Self.unreadableSectionTitle
-            }
-            if calendar.isDateInToday(summary.createdAt) {
-                return "Today"
-            }
-            if calendar.isDateInYesterday(summary.createdAt) {
-                return "Yesterday"
-            }
-            return Self.sectionDateFormatter.string(from: summary.createdAt)
+        let end = dateThrough.flatMap { calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: $0)) }
+        filteredSummaries = summaries.filter { summary in
+            if let formatFilter, summary.format != formatFilter || summary.rasterFingerprint == "CORRUPT" { return false }
+            if showsOnlyAttention && !needsAttention(summary) { return false }
+            if todayOnly && !calendar.isDateInToday(summary.createdAt) { return false }
+            if let eventFilter, (summary.eventName ?? "Regular Booth") != eventFilter { return false }
+            if let dateFrom, summary.createdAt < calendar.startOfDay(for: dateFrom) { return false }
+            if let end, summary.createdAt >= end { return false }
+            return query.isEmpty || (searchIndex[summary.archiveID]?.contains(query) ?? false)
         }
-
-        return groups
-            .map { ($0.key, $0.value.sorted { $0.createdAt > $1.createdAt }) }
-            .sorted { lhs, rhs in
-                let leftDate = lhs.1.first?.createdAt ?? .distantPast
-                let rightDate = rhs.1.first?.createdAt ?? .distantPast
-                return leftDate > rightDate
-            }
+        var groups: [(String, [RecentSessionArchiveSummary])] = []
+        var indices: [String: Int] = [:]
+        for summary in filteredSummaries {
+            let title: String
+            if summary.rasterFingerprint == "CORRUPT" || summary.createdAt == .distantPast { title = Self.unreadableSectionTitle }
+            else if calendar.isDateInToday(summary.createdAt) { title = "Today" }
+            else if calendar.isDateInYesterday(summary.createdAt) { title = "Yesterday" }
+            else { title = Self.sectionDateFormatter.string(from: summary.createdAt) }
+            if let index = indices[title] { groups[index].1.append(summary) }
+            else { indices[title] = groups.count; groups.append((title, [summary])) }
+        }
+        groupedSummaries = groups
     }
 
-    func galleryStatus(for summary: RecentSessionArchiveSummary) -> ArchivedGalleryStatus {
-        galleryStatuses[summary.archiveID] ?? .unknown
+    func clearFilters() {
+        searchText = ""; formatFilter = nil; showsOnlyAttention = false; todayOnly = false
+        eventFilter = nil; dateFrom = nil; dateThrough = nil
     }
-
-    func printSummary(for summary: RecentSessionArchiveSummary) -> ArchivedPrintSummary {
-        ArchivedPrintSummary.resolve(records: EventOperationalState.shared.auditRecords.filter { $0.sessionIdentifier == summary.sessionIdentifier })
-    }
-
+    func galleryStatus(for summary: RecentSessionArchiveSummary) -> ArchivedGalleryStatus { galleryStatuses[summary.archiveID] ?? .unknown }
+    func printSummary(for summary: RecentSessionArchiveSummary) -> ArchivedPrintSummary { printStatuses[summary.sessionIdentifier] ?? .notRecorded }
     func needsAttention(_ summary: RecentSessionArchiveSummary) -> Bool {
         summary.rasterFingerprint == "CORRUPT" || galleryStatus(for: summary).isAttention || printSummary(for: summary).isAttention
     }
-
-    func thumbnailImage(for summary: RecentSessionArchiveSummary, filename: String) -> UIImage? {
-        thumbnailImages[Self.thumbnailCacheKey(archiveID: summary.archiveID, filename: filename)]
+    func thumbnail(for summary: RecentSessionArchiveSummary) async -> UIImage? {
+        guard let store, let filename = summary.thumbnailFilenames.first else { return nil }
+        return await thumbnails.image(archiveID: summary.archiveID, filename: filename, store: store)
     }
-
-    /// Status from on-device evidence: the pending queue (by gallery token) and the run journal's
-    /// public-verification time. Cards use this summary check; the detail view also validates the
-    /// frozen URL itself before drawing a QR.
-    private func refreshGalleryStatuses() {
-        let operations = EventOperationalState.shared
-        var statuses: [String: ArchivedGalleryStatus] = [:]
-        for summary in summaries where summary.rasterFingerprint != "CORRUPT" {
-            let pending = operations.pendingUploads.first { $0.galleryToken == summary.archiveID }
-            let verifiedAt = (try? EventRunStore.shared.session(id: summary.sessionIdentifier))?.galleryVerifiedAt
-            statuses[summary.archiveID] = ArchivedGalleryStatus.resolve(
-                linkIsValid: GalleryTokenGenerator.isValidGalleryToken(summary.archiveID),
-                pendingItem: pending,
-                verifiedAt: verifiedAt
-            )
-        }
-        galleryStatuses = statuses
+    private func rebuildGalleryStatuses() {
+        galleryStatuses = Dictionary(uniqueKeysWithValues: summaries.map { summary in
+            (summary.archiveID, ArchivedGalleryStatus.resolve(linkIsValid: GalleryTokenGenerator.isValidGalleryToken(summary.archiveID),
+                pendingItem: pendingIndex[summary.archiveID], verifiedAt: verifiedSessions.contains(summary.sessionIdentifier) ? Date.distantPast : nil))
+        })
+        rebuildFilters()
     }
-
-    static let unreadableSectionTitle = "Unreadable archives"
-
-    var storagePath: String {
-        store?.storagePath ?? "Unavailable"
-    }
-
-    func refresh() {
-        guard let store else {
-            statusMessage = "Recent Sessions storage is unavailable."
-            return
-        }
-
-        refreshTask?.cancel()
-        isLoading = true
-        refreshTask = Task { [store] in
-            let result = await Task.detached(priority: .utility) {
-                Result {
-                    let loadedSummaries = try store.summaries()
-                    var loadedThumbnails: [String: Data] = [:]
-                    var decoded: [String: UIImage] = [:]
-
-                    for summary in loadedSummaries where summary.rasterFingerprint != "CORRUPT" {
-                        for filename in summary.thumbnailFilenames.prefix(3) {
-                            if let data = store.thumbnailData(archiveID: summary.archiveID, filename: filename) {
-                                let key = Self.thumbnailCacheKey(archiveID: summary.archiveID, filename: filename)
-                                loadedThumbnails[key] = data
-                                decoded[key] = UIImage(data: data)?.preparingThumbnail(of: CGSize(width: 132, height: 176))
-                            }
-                        }
-                    }
-
-                    return (loadedSummaries, loadedThumbnails, decoded)
-                }
-            }.value
-
+    private func refreshVerification() {
+        statusTask?.cancel()
+        let directory = EventRunStore.shared.directory
+        let validRuns = Set(EventRunStore.shared.runs.map(\.id))
+        statusTask = Task {
+            let records = await Task.detached(priority: .utility) { try? EventRunStore.loadSessions(directory: directory) }.value
             guard !Task.isCancelled else { return }
-
+            if records == nil { statusMessage = "Gallery verification records could not be read. Original archives are retained." }
+            verifiedSessions = Set((records ?? []).filter { validRuns.contains($0.runID) && $0.galleryVerifiedAt != nil }.map(\.sessionID))
+            rebuildGalleryStatuses()
+        }
+    }
+    func refresh() {
+        guard let store else { statusMessage = "Recent Sessions storage is unavailable."; hasLoaded = true; return }
+        refreshTask?.cancel(); isLoading = true
+        let loader = summaryLoader
+        refreshTask = Task {
+            let worker = Task.detached(priority: .utility) { Result { try loader?() ?? store.summaries(includePayloadSize: false) } }
+            let result = await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
+            guard !Task.isCancelled else { return }
             switch result {
             case .success(let loaded):
-                summaries = loaded.0
-                thumbnailCache = loaded.1
-                thumbnailImages = loaded.2
-                refreshGalleryStatuses()
-                statusMessage = loaded.0.isEmpty ? "No recent sessions yet." : "\(loaded.0.count) recent sessions loaded."
+                loadError = nil
+                summaries = loaded
+                searchIndex = Dictionary(uniqueKeysWithValues: loaded.map {
+                    ($0.archiveID, [$0.sessionIdentifier, $0.archiveID, $0.format.displayName, $0.format.rawValue, $0.eventName ?? "Regular Booth"].joined(separator: " ").lowercased())
+                })
+                rebuildGalleryStatuses(); refreshVerification()
+                statusMessage = loaded.isEmpty ? "No recent sessions yet." : "\(loaded.count) sessions · originals retained on this iPad"
             case .failure(let error):
-                statusMessage = error.localizedDescription
+                loadError = "Session records could not be read. Originals are retained. " + error.localizedDescription
+                statusMessage = loadError ?? error.localizedDescription
             }
-
-            isLoading = false
-            hasLoaded = true
-            refreshTask = nil
+            isLoading = false; hasLoaded = true; refreshTask = nil
         }
-    }
-
-    func thumbnailData(for summary: RecentSessionArchiveSummary, filename: String) -> Data? {
-        thumbnailCache[Self.thumbnailCacheKey(archiveID: summary.archiveID, filename: filename)]
     }
 
     func loadArchive(_ archiveID: String) throws -> RecentSessionArchive {
@@ -225,7 +217,11 @@ final class RecentSessionsViewModel: ObservableObject {
 
         do {
             try store.markReprinted(archiveID: archiveID, copies: copies)
-            refresh()
+            // Refresh just the changed metadata. Preview/cache/filter identities stay stable.
+            if let changed = try store.summary(archiveID: archiveID), let index = summaries.firstIndex(where: { $0.archiveID == archiveID }) {
+                summaries[index] = changed
+                rebuildFilters()
+            }
         } catch {
             statusMessage = error.localizedDescription
         }
@@ -252,9 +248,6 @@ final class RecentSessionsViewModel: ObservableObject {
         return formatter
     }()
 
-    private nonisolated static func thumbnailCacheKey(archiveID: String, filename: String) -> String {
-        "\(archiveID)/\(filename)"
-    }
 }
 
 @MainActor
@@ -448,271 +441,226 @@ final class ArchivedReceiptReprintController: ObservableObject {
 
 struct RecentSessionsView: View {
     var initialSearch = ""
-    @StateObject private var viewModel = RecentSessionsViewModel()
-
-    private let columns = [GridItem(.adaptive(minimum: 330, maximum: 560), spacing: 16)]
+    @StateObject private var viewModel: RecentSessionsViewModel
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @State private var filtersPresented = false
+    @State private var scrollPosition: ScrollPosition
+    init(initialSearch: String = "", viewModel: RecentSessionsViewModel? = nil) {
+        self.initialSearch = initialSearch
+        let model = viewModel ?? RecentSessionsViewModel()
+        _viewModel = StateObject(wrappedValue: model)
+        _scrollPosition = State(initialValue: ScrollPosition(idType: String.self, y: model.browserOffset))
+    }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 18, pinnedViews: []) {
-                filterBar
-                if viewModel.isLoading && !viewModel.hasLoaded {
-                    HStack(spacing: 12) {
-                        ProgressView()
-                        Text("Loading recent sessions…").foregroundStyle(OperatorPalette.secondaryText)
+        GeometryReader { geometry in
+            let wide = OperatorWorkspaceLayout.usesSidebar(width: geometry.size.width, height: geometry.size.height)
+            let hasSelection = viewModel.selectedSummary != nil
+            HStack(spacing: 0) {
+                browser(wide: wide)
+                    .frame(width: wide && hasSelection ? min(400, geometry.size.width * 0.4) : geometry.size.width)
+                    .frame(width: !wide && hasSelection ? 0 : (wide && hasSelection ? min(400, geometry.size.width * 0.4) : geometry.size.width), alignment: .leading)
+                    .clipped().opacity(!wide && hasSelection ? 0 : 1)
+                    .allowsHitTesting(wide || !hasSelection).accessibilityHidden(!wide && hasSelection)
+                if let selected = viewModel.selectedSummary {
+                    if wide { Divider() }
+                    VStack(spacing: 0) {
+                        HStack {
+                            Button { viewModel.selectedArchiveID = nil } label: {
+                                Label(wide ? "Close Detail" : "Sessions", systemImage: "chevron.left").frame(minHeight: 44)
+                            }.accessibilityIdentifier("sessions-back")
+                            Spacer()
+                            Text(selected.format.displayName).font(.subheadline).foregroundStyle(OperatorPalette.secondaryText)
+                        }.padding(.horizontal, 16).background(OperatorPalette.surface)
+                        ArchivedSessionDetailView(summary: selected, rootViewModel: viewModel)
+                            .id(selected.archiveID)
+                    }.frame(maxWidth: .infinity)
+                }
+            }
+        }
+        .background(OperatorPalette.canvas)
+        .navigationTitle("Sessions").navigationBarTitleDisplayMode(.inline)
+        .task {
+            if !viewModel.hasLoaded {
+                viewModel.searchText = initialSearch
+            }
+            // Re-entering a retained workspace picks up newly archived guests without
+            // resetting filters/selection, clearing the cache or showing a loading screen.
+            viewModel.refresh()
+        }
+        .sheet(isPresented: $filtersPresented) { filterSheet }
+    }
+
+    private func browser(wide: Bool) -> some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 8) {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass").accessibilityHidden(true)
+                    TextField("Search session, event or format", text: $viewModel.searchText)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .accessibilityIdentifier("sessions-search")
+                    if !viewModel.searchText.isEmpty {
+                        Button { viewModel.searchText = "" } label: { Image(systemName: "xmark.circle.fill").frame(width: 44, height: 44) }
+                            .accessibilityLabel("Clear search")
                     }
-                    .frame(maxWidth: .infinity, minHeight: 200)
-                } else if viewModel.filteredSummaries.isEmpty {
-                    emptyState
-                } else {
-                    ForEach(viewModel.groupedSummaries, id: \.0) { sectionTitle, summaries in
-                        VStack(alignment: .leading, spacing: 12) {
-                            sectionHeader(sectionTitle, count: summaries.count)
-                            LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
-                                ForEach(summaries) { summary in
-                                    NavigationLink {
-                                        ArchivedSessionDetailView(summary: summary, rootViewModel: viewModel)
-                                    } label: {
-                                        RecentSessionRow(summary: summary, viewModel: viewModel)
+                }.padding(.horizontal, 12).frame(minHeight: 48)
+                    .background(OperatorPalette.surface, in: RoundedRectangle(cornerRadius: 10))
+                ViewThatFits(in: .horizontal) {
+                    HStack { filterControls; Spacer(minLength: 0); displayControl }
+                    VStack(alignment: .leading) { filterControls; displayControl }
+                }
+            }.padding(16)
+            ScrollViewReader { _ in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        if !viewModel.hasLoaded {
+                            ProgressView("Loading sessions…").frame(maxWidth: .infinity, minHeight: 220)
+                        } else if let error = viewModel.loadError, viewModel.summaries.isEmpty {
+                            ContentUnavailableView("Sessions unavailable", systemImage: "exclamationmark.triangle", description: Text(error))
+                            Button("Retry Loading") { viewModel.refresh() }.buttonStyle(.bordered).frame(minHeight: 44).padding()
+                        } else if viewModel.filteredSummaries.isEmpty {
+                            ContentUnavailableView(viewModel.summaries.isEmpty ? "No sessions yet" : "No matching sessions", systemImage: "photo.stack",
+                                description: Text(viewModel.summaries.isEmpty ? "Finished receipts appear here with their original gallery and print history." : "Change the search or filters to find an earlier guest."))
+                            if !viewModel.summaries.isEmpty { Button("Clear Filters") { viewModel.clearFilters() }.frame(minHeight: 44).padding() }
+                        } else {
+                            ForEach(viewModel.groupedSummaries, id: \.0) { title, summaries in
+                                HStack { Text(title).font(.headline); Spacer(); Text("\(summaries.count)").font(.caption).monospacedDigit() }
+                                    .foregroundStyle(OperatorPalette.secondaryText).padding(.horizontal, 16).padding(.vertical, 12)
+                                    .accessibilityAddTraits(.isHeader)
+                                if viewModel.usesPhotoGrid {
+                                    LazyVGrid(columns: [GridItem(.adaptive(minimum: typeSize.isAccessibilitySize ? 260 : 180), spacing: 12)], spacing: 12) {
+                                        ForEach(summaries) { summary in sessionButton(summary, grid: true).id(summary.archiveID) }
+                                    }.padding(.horizontal, 16)
+                                } else {
+                                    ForEach(summaries) { summary in
+                                        sessionButton(summary, grid: false).id(summary.archiveID)
+                                        Divider().padding(.leading, 92)
                                     }
-                                    .buttonStyle(.plain)
                                 }
                             }
                         }
-                    }
+                    }.padding(.bottom, 16)
+                }
+                .scrollPosition($scrollPosition)
+                .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y }) { _, offset in
+                    viewModel.recordBrowserOffset(offset)
+                }
+                .refreshable { viewModel.refresh() }
+                .onChange(of: viewModel.selectedArchiveID) { _, current in
+                    // In landscape the list stays visible and may have been scrolled
+                    // independently. Portrait returns to the offset captured on selection.
+                    if current == nil && !wide { scrollPosition.scrollTo(y: viewModel.detailReturnOffset) }
+                }
+                .onChange(of: viewModel.usesPhotoGrid) { _, _ in
+                    scrollPosition.scrollTo(y: viewModel.browserOffset)
                 }
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 18)
-            .frame(maxWidth: 1180)
-            .frame(maxWidth: .infinity)
-        }
-        .background(OperatorPalette.canvas.ignoresSafeArea())
-        .navigationTitle("Recent Sessions")
-        .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $viewModel.searchText, prompt: "Search session, event, or format")
-        .refreshable {
-            viewModel.refresh()
-        }
-        .safeAreaInset(edge: .bottom) {
             if !viewModel.statusMessage.isEmpty {
-                Text(viewModel.statusMessage)
-                    .font(.footnote)
-                    .foregroundStyle(OperatorPalette.secondaryText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
-                    .background(.bar)
+                Text(viewModel.statusMessage).font(.caption).foregroundStyle(OperatorPalette.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.vertical, 8)
             }
-        }
-        .onAppear {
-            viewModel.searchText = initialSearch
-            EventOperationalState.shared.refresh()
-            viewModel.refresh()
         }
     }
 
-    private var filterBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                filterChip("All formats", selected: viewModel.formatFilter == nil) { viewModel.formatFilter = nil }
-                ForEach(BoothFormat.allCases) { format in
-                    filterChip(format.displayName, selected: viewModel.formatFilter == format) {
-                        viewModel.formatFilter = viewModel.formatFilter == format ? nil : format
+    private var filterControls: some View {
+        HStack(spacing: 8) {
+            Button { viewModel.todayOnly.toggle() } label: { Text(viewModel.todayOnly ? "Today ✓" : "All dates").frame(minHeight: 44) }
+                .buttonStyle(.bordered).accessibilityLabel("Today only").accessibilityAddTraits(viewModel.todayOnly ? .isSelected : [])
+            Button { filtersPresented = true } label: { Label("Filters", systemImage: "line.3.horizontal.decrease").frame(minHeight: 44) }
+                .buttonStyle(.bordered).accessibilityIdentifier("sessions-filters")
+        }
+    }
+    private var displayControl: some View {
+        Button { viewModel.usesPhotoGrid.toggle() } label: {
+            Label(viewModel.usesPhotoGrid ? "List" : "Photos", systemImage: viewModel.usesPhotoGrid ? "list.bullet" : "square.grid.2x2").frame(minHeight: 44)
+        }.buttonStyle(.bordered).accessibilityIdentifier("sessions-display")
+    }
+    private func sessionButton(_ summary: RecentSessionArchiveSummary, grid: Bool) -> some View {
+        Button { viewModel.selectedArchiveID = summary.archiveID } label: {
+            RecentSessionRow(summary: summary, viewModel: viewModel, photoGrid: grid).equatable()
+        }.buttonStyle(.plain).accessibilityIdentifier("session-\(summary.archiveID)")
+    }
+    private var filterSheet: some View {
+        NavigationStack {
+            Form {
+                Section("Date") {
+                    Toggle("Today", isOn: $viewModel.todayOnly)
+                    Toggle("Date range", isOn: Binding(get: { viewModel.dateFrom != nil }, set: { enabled in
+                        viewModel.dateFrom = enabled ? Calendar.current.startOfDay(for: Date()) : nil
+                        viewModel.dateThrough = enabled ? Date() : nil
+                        viewModel.todayOnly = false
+                    }))
+                    if viewModel.dateFrom != nil {
+                        DatePicker("From", selection: Binding(get: { viewModel.dateFrom ?? Date() }, set: { viewModel.dateFrom = $0 }), displayedComponents: .date)
+                        DatePicker("Through", selection: Binding(get: { viewModel.dateThrough ?? Date() }, set: { viewModel.dateThrough = $0 }), displayedComponents: .date)
                     }
                 }
-                Divider().frame(height: 26).padding(.horizontal, 4)
-                filterChip("Needs attention", systemImage: "exclamationmark.triangle", selected: viewModel.showsOnlyAttention) {
-                    viewModel.showsOnlyAttention.toggle()
+                Section("Session") {
+                    Picker("Event", selection: $viewModel.eventFilter) {
+                        Text("All events & Regular Booth").tag(Optional<String>.none)
+                        ForEach(viewModel.events, id: \.self) { Text($0).tag(Optional($0)) }
+                    }
+                    Picker("Format", selection: $viewModel.formatFilter) {
+                        Text("All formats").tag(Optional<BoothFormat>.none)
+                        ForEach(BoothFormat.allCases) { Text($0.displayName).tag(Optional($0)) }
+                    }
+                    Toggle("Needs attention", isOn: $viewModel.showsOnlyAttention)
+                    Text("Unknown print history stays visible here. It does not by itself block the next guest.").font(.footnote)
                 }
-            }
-            .padding(.vertical, 2)
+                Section { Button("Clear Filters") { viewModel.clearFilters() } }
+            }.navigationTitle("Filter Sessions").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { filtersPresented = false } } }
         }
-    }
-
-    private func filterChip(_ title: String, systemImage: String? = nil, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                if let systemImage { Image(systemName: systemImage).font(.caption) }
-                Text(title)
-            }
-            .font(.subheadline.weight(selected ? .semibold : .regular))
-            .foregroundStyle(selected ? MadeToKeepTheme.ColorPalette.ivoryLight : OperatorPalette.accent)
-            .padding(.horizontal, 14)
-            .frame(minHeight: 48)
-            .background(Capsule().fill(selected ? OperatorPalette.accent : OperatorPalette.surface))
-            .overlay(Capsule().strokeBorder(OperatorPalette.accent.opacity(0.25)))
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .frame(minHeight: 44)
-        .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-
-    private func sectionHeader(_ title: String, count: Int) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(title)
-                .font(MadeToKeepTheme.Typography.italicSerif(size: 28))
-                .foregroundStyle(OperatorPalette.accent)
-                .accessibilityAddTraits(.isHeader)
-            Text(count == 1 ? "1 session" : "\(count) sessions")
-                .font(.caption.weight(.medium))
-                .textCase(.uppercase)
-                .tracking(1.2)
-                .foregroundStyle(OperatorPalette.secondaryText)
-            Rectangle().fill(OperatorPalette.accent.opacity(0.18)).frame(height: 1)
-        }
-        .padding(.top, 6)
-    }
-
-    private var emptyState: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "clock.arrow.circlepath")
-                .font(.system(size: 34))
-                .foregroundStyle(OperatorPalette.accent.opacity(0.6))
-            Text(viewModel.summaries.isEmpty ? "no recent sessions yet" : "no sessions match")
-                .font(MadeToKeepTheme.Typography.italicSerif(size: 28))
-                .foregroundStyle(OperatorPalette.accent)
-            Text(viewModel.summaries.isEmpty
-                 ? "Finished customer receipts appear here for gallery help and operator reprints."
-                 : "Try another search or clear the filters.")
-                .font(.callout)
-                .foregroundStyle(OperatorPalette.secondaryText)
-                .multilineTextAlignment(.center)
-            if !viewModel.summaries.isEmpty {
-                Button("Clear Filters") {
-                    viewModel.formatFilter = nil
-                    viewModel.showsOnlyAttention = false
-                    viewModel.searchText = ""
-                }
-                .buttonStyle(.bordered)
-                .tint(OperatorPalette.accent)
-            }
-        }
-        .frame(maxWidth: .infinity, minHeight: 260)
     }
 }
 
-/// One archived session as an ivory card: thumbnails, time, event, format and concise status.
-/// Long identifiers stay in the detail's technical section.
-struct RecentSessionRow: View {
-    @ObservedObject private var operations = EventOperationalState.shared
+/// Value-only statuses and a local image task keep global operational invalidations out of rows.
+struct RecentSessionRow: View, Equatable {
     let summary: RecentSessionArchiveSummary
-    @ObservedObject var viewModel: RecentSessionsViewModel
+    let viewModel: RecentSessionsViewModel
     var showsOperationalContext = true
-
+    var photoGrid = false
+    let gallery: ArchivedGalleryStatus
+    let print: ArchivedPrintSummary
+    init(summary: RecentSessionArchiveSummary, viewModel: RecentSessionsViewModel, showsOperationalContext: Bool = true, photoGrid: Bool = false) {
+        self.summary = summary; self.viewModel = viewModel; self.showsOperationalContext = showsOperationalContext; self.photoGrid = photoGrid
+        self.gallery = viewModel.galleryStatus(for: summary); self.print = viewModel.printSummary(for: summary)
+    }
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.summary == rhs.summary && lhs.gallery == rhs.gallery && lhs.print == rhs.print
+            && lhs.photoGrid == rhs.photoGrid && lhs.showsOperationalContext == rhs.showsOperationalContext && lhs.viewModel === rhs.viewModel
+    }
     private var isCorrupt: Bool { summary.rasterFingerprint == "CORRUPT" }
-
     var body: some View {
-        HStack(alignment: .center, spacing: 16) {
-            thumbnailStack
-                .frame(width: 112, height: 96)
-
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(isCorrupt ? "Unreadable archive" : RecentSessionsViewModel.rowTimeFormatter.string(from: summary.createdAt))
-                        .font(MadeToKeepTheme.Typography.serif(size: 24))
-                        .foregroundStyle(OperatorPalette.ink)
-                    if !isCorrupt {
-                        Text(summary.createdAt.formatted(.dateTime.month(.abbreviated).day()))
-                            .font(.caption)
-                            .foregroundStyle(OperatorPalette.secondaryText)
-                    }
-                }
-                Text(summary.eventName ?? MadeToKeepBrand.fullName)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(OperatorPalette.ink)
-                    .lineLimit(1)
-                if !isCorrupt {
-                    Text(summary.format.displayName.uppercased())
-                        .font(.caption2.weight(.semibold))
-                        .tracking(1.4)
-                        .foregroundStyle(OperatorPalette.accent)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(OperatorPalette.accent.opacity(0.08)))
-                }
-                statusLines
-            }
-            Spacer(minLength: 0)
-            Image(systemName: "chevron.right")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(OperatorPalette.secondaryText.opacity(0.6))
-                .accessibilityHidden(true)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 14).fill(OperatorPalette.surface))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(isCorrupt ? OperatorPalette.danger.opacity(0.5) : OperatorPalette.border))
-        .shadow(color: MadeToKeepTheme.ColorPalette.shadowTint.opacity(0.08), radius: 8, x: 0, y: 3)
-        .contentShape(RoundedRectangle(cornerRadius: 14))
-        .accessibilityElement(children: .combine)
-        .accessibilityHint("Opens the receipt, gallery QR and operator reprint.")
-    }
-
-    @ViewBuilder
-    private var statusLines: some View {
-        if isCorrupt {
-            Label("Archive needs attention", systemImage: "exclamationmark.triangle.fill")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(OperatorPalette.danger)
-        } else {
-            let gallery = viewModel.galleryStatus(for: summary)
-            let print = viewModel.printSummary(for: summary)
-            VStack(alignment: .leading, spacing: 3) {
+        let layout = photoGrid ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10)) : AnyLayout(HStackLayout(spacing: 14))
+        layout {
+            SessionThumbnailView(summary: summary, model: viewModel)
+                .frame(width: photoGrid ? nil : 60, height: photoGrid ? 160 : 80)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(isCorrupt ? "Unreadable archive" : RecentSessionsViewModel.rowTimeFormatter.string(from: summary.createdAt))
+                    .font(.headline).foregroundStyle(OperatorPalette.ink)
+                Text(summary.eventName ?? "Regular Booth").font(.subheadline.weight(.medium)).foregroundStyle(OperatorPalette.ink).lineLimit(2)
+                Text(summary.format.displayName).font(.caption).foregroundStyle(OperatorPalette.secondaryText)
                 if showsOperationalContext {
-                    Label(print.title, systemImage: print.systemImage)
-                        .foregroundStyle(print.isAttention ? OperatorPalette.warning : OperatorPalette.secondaryText)
-                    Label(gallery.shortTitle, systemImage: gallery.systemImage)
-                        .foregroundStyle(gallery.isAttention ? OperatorPalette.warning : (gallery == .verified ? OperatorPalette.ready : OperatorPalette.secondaryText))
+                    Text(isCorrupt ? "Archive needs attention" : print.title + " · " + gallery.shortTitle)
+                        .font(.caption).foregroundStyle(isCorrupt || print.isAttention || gallery.isAttention ? OperatorPalette.warning : OperatorPalette.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                if summary.reprintCount > 0 {
-                    Label("Reprinted \(summary.reprintCount)×", systemImage: "arrow.triangle.2.circlepath")
-                        .foregroundStyle(OperatorPalette.secondaryText)
-                }
-            }
-            .font(.caption)
-            .labelStyle(.titleAndIcon)
+                if summary.reprintCount > 0 { Text("Operator reprints: \(summary.reprintCount)").font(.caption).foregroundStyle(OperatorPalette.secondaryText) }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            if !photoGrid { Image(systemName: "chevron.right").font(.caption).foregroundStyle(OperatorPalette.secondaryText).accessibilityHidden(true) }
         }
-    }
-
-    /// Up to three photos fanned like prints; decoding happened during refresh.
-    private var thumbnailStack: some View {
-        let filenames = Array(summary.thumbnailFilenames.prefix(3))
-        return ZStack {
-            if filenames.isEmpty {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(OperatorPalette.accent.opacity(0.06))
-                    .frame(width: 72, height: 92)
-                    .overlay {
-                        Image(systemName: isCorrupt ? "exclamationmark.triangle" : "photo")
-                            .foregroundStyle(isCorrupt ? OperatorPalette.danger : OperatorPalette.secondaryText)
-                    }
-            } else {
-                ForEach(Array(filenames.enumerated()), id: \.offset) { index, filename in
-                    let offset = CGFloat(index) - CGFloat(filenames.count - 1) / 2
-                    Group {
-                        if let image = viewModel.thumbnailImage(for: summary, filename: filename) {
-                            Image(uiImage: image).resizable().scaledToFill()
-                        } else {
-                            OperatorPalette.accent.opacity(0.06)
-                        }
-                    }
-                    .frame(width: 58, height: 76)
-                    .clipped()
-                    .padding(3)
-                    .background(Color.white)
-                    .shadow(color: .black.opacity(0.12), radius: 2, x: 0, y: 1)
-                    .rotationEffect(.degrees(Double(offset) * 7))
-                    .offset(x: offset * 22)
-                }
-            }
-        }
-        .accessibilityHidden(true)
+        .padding(photoGrid ? 12 : 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(OperatorPalette.surface)
+        .contentShape(Rectangle()).accessibilityElement(children: .combine)
+        .accessibilityHint("Opens original receipt, photos, gallery QR and explicit operator reprint")
     }
 }
 
 struct ArchivedSessionDetailView: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     @ObservedObject private var operations = EventOperationalState.shared
     @ObservedObject private var printer = PrinterCoordinator.shared
     let summary: RecentSessionArchiveSummary
@@ -749,8 +697,8 @@ struct ArchivedSessionDetailView: View {
                             VStack(spacing: 18) {
                                 summaryCard(archive)
                                 receiptCard(height: min(760, max(520, proxy.size.height * 0.62)))
-                                galleryCard(archive)
                                 photosCard
+                                galleryCard(archive)
                                 reprintCard(archive)
                                 technicalCard(archive)
                             }
@@ -923,7 +871,8 @@ struct ArchivedSessionDetailView: View {
     private func galleryCard(_ archive: RecentSessionArchive) -> some View {
         let status = galleryStatus(archive)
         return card("Customer Gallery", systemImage: "qrcode") {
-            HStack(alignment: .top, spacing: 20) {
+            let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16)) : AnyLayout(HStackLayout(alignment: .top, spacing: 20))
+            layout {
                 if let galleryQR, galleryLink?.url != nil {
                     Image(uiImage: galleryQR)
                         .interpolation(.none)
