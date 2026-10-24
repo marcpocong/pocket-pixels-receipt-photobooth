@@ -3,12 +3,16 @@ import Combine
 
 /// Stable primary destinations. Existing typed detail routes remain decodable.
 nonisolated enum OperatorPrimaryDestination: String, Codable, CaseIterable, Identifiable, Sendable {
-    case home, events, reports, system
+    case home, booth, sessions, events, reports, system
+    // `system` remains decodable for existing navigation files, as a utility destination.
+    static let allCases: [Self] = [.home, .booth, .sessions, .events, .reports]
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
     var systemImage: String {
         switch self {
         case .home: "house"
+        case .booth: "camera"
+        case .sessions: "photo.stack"
         case .events: "calendar"
         case .reports: "chart.bar.xaxis"
         case .system: "slider.horizontal.3"
@@ -22,11 +26,13 @@ nonisolated enum OperatorWorkspaceRoute: Codable, Hashable, Sendable {
     case serverEvent(String)
     case sessionSetup, branding, sales, eventReport(String), eventMaintenance(String)
     case savedDrafts, draftReview(SavedDraftID)
-    case newEvent, savedEvent(String), eventHistory, eventLibrary, regularBooth, monitoring
+    case newEvent, savedEvent(String), eventHistory, eventLibrary, regularBooth, regularFooter, monitoring
 
     var primaryDestination: OperatorPrimaryDestination {
         switch self {
-        case .sales, .recentSessions, .eventReport: .reports
+        case .recentSessions: .sessions
+        case .regularBooth, .regularFooter: .booth
+        case .sales, .eventReport: .reports
         case .equipment, .advanced, .printer, .recovery, .camera, .gallery, .waitingGalleries,
              .storage, .printHistory, .payments, .monitoring, .boothCheck: .system
         default: .events
@@ -40,6 +46,7 @@ nonisolated enum OperatorWorkspaceRoute: Codable, Hashable, Sendable {
         case .eventHistory: "Event History"
         case .eventLibrary: "Saved Events"
         case .regularBooth: "Regular Booth"
+        case .regularFooter: "Receipt & Footer"
         case .monitoring: "Monitoring"
         case .savedDrafts, .draftReview: "Saved Drafts"
         case .manageEvent: "Event Library & History"
@@ -105,6 +112,7 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
         /// Unsaved event design edits keyed by saved-event ID, so switching events never mixes
         /// one event's logo into another's.
         var designDrafts: [String: SavedEventDesign]?
+        var regularBoothDraft: RegularBoothSettings?
     }
 
     @Published private(set) var primaryDestination: OperatorPrimaryDestination
@@ -137,7 +145,21 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
                 persistenceError = "Saved setup could not be read. Its file is preserved; new edits remain in memory only."
             }
         }
-        let destination = loaded.primaryDestination ?? loaded.path.first?.primaryDestination ?? .home
+        var destination = loaded.primaryDestination ?? loaded.path.first?.primaryDestination ?? .home
+        // Migrate only former browser/settings roots. Preserve deeper paths and all drafts.
+        var paths = loaded.sectionPaths ?? [:]
+        for (legacyKey, routes) in paths {
+            if let first = routes.first, first == .recentSessions || first == .regularBooth {
+                let target = first.primaryDestination
+                if paths[target.rawValue] == nil { paths[target.rawValue] = Array(routes.dropFirst()) }
+                paths[legacyKey] = []
+            }
+        }
+        if let first = loaded.path.first, first == .recentSessions || first == .regularBooth {
+            destination = first.primaryDestination
+            loaded.path.removeFirst()
+        }
+        loaded.sectionPaths = paths
         // Older homes pushed Reports or Equipment as a detail. Those are primary roots now;
         // retain any deeper route while removing the redundant back-to-the-same-screen step.
         if loaded.primaryDestination == nil,
@@ -155,7 +177,7 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
     var hasUnsavedDrafts: Bool {
         !snapshot.serverDrafts.isEmpty || snapshot.brandingDraft != nil || snapshot.prepaidDraft != nil
             || !snapshot.newEventName.isEmpty || !snapshot.newEventVenue.isEmpty || snapshot.sessionSetup != nil
-            || !(snapshot.designDrafts ?? [:]).isEmpty
+            || !(snapshot.designDrafts ?? [:]).isEmpty || snapshot.regularBoothDraft != nil
     }
     var currentSection: String { path.last?.title ?? primaryDestination.title }
     var serverBinding: String {
@@ -176,7 +198,7 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
 
     func navigate(to route: OperatorWorkspaceRoute) {
         select(route.primaryDestination)
-        path = route == .sales || route == .equipment ? [] : [route]
+        path = [.sales, .equipment, .recentSessions, .regularBooth].contains(route) ? [] : [route]
     }
 
     func showCurrentReport() {
@@ -209,6 +231,7 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
         snapshot.serverDrafts.removeValue(forKey: "\(serverBinding):\(eventID)")
         persist()
     }
+    func saveRegularBoothDraft(_ draft: RegularBoothSettings?) { snapshot.regularBoothDraft = draft; persist() }
     func saveBrandingDraft(_ draft: EventProfile?) { snapshot.brandingDraft = draft; persist() }
     func savePrepaidDraft(_ draft: CommercialEventRun?) { snapshot.prepaidDraft = draft; persist() }
     func saveSessionSetup(_ draft: OperatorSessionSetupDraft?) { snapshot.sessionSetup = draft; persist() }
@@ -227,6 +250,7 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
         var ids = (snapshot.designDrafts ?? [:]).keys.map { SavedDraftID.design($0) }
         ids += snapshot.serverDrafts.values.map { .payment(binding: $0.serverBinding, eventID: $0.eventID) }
         if snapshot.brandingDraft != nil { ids.append(.branding) }
+        if snapshot.regularBoothDraft != nil { ids.append(.regularBooth) }
         if snapshot.prepaidDraft != nil { ids.append(.prepaid) }
         if snapshot.sessionSetup != nil { ids.append(.sessionSelection) }
         if !snapshot.newEventName.isEmpty || !snapshot.newEventVenue.isEmpty { ids.append(.newEvent) }
@@ -244,10 +268,11 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
         case .branding: candidate.brandingDraft = nil
         case .prepaid: candidate.prepaidDraft = nil
         case .sessionSelection: candidate.sessionSetup = nil
+        case .regularBooth: candidate.regularBoothDraft = nil
         case .newEvent: candidate.newEventName = ""; candidate.newEventVenue = ""
         }
         candidate.resumeSetup = !candidate.serverDrafts.isEmpty || candidate.brandingDraft != nil || candidate.prepaidDraft != nil
-            || candidate.sessionSetup != nil || !candidate.newEventName.isEmpty || !candidate.newEventVenue.isEmpty || !(candidate.designDrafts ?? [:]).isEmpty
+            || candidate.sessionSetup != nil || !candidate.newEventName.isEmpty || !candidate.newEventVenue.isEmpty || !(candidate.designDrafts ?? [:]).isEmpty || candidate.regularBoothDraft != nil
         do {
             try write(JSONEncoder().encode(candidate), file)
             try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete, .posixPermissions: 0o600], ofItemAtPath: file.path)

@@ -454,27 +454,23 @@ struct SessionSetupView: View {
     }
 
     private var stageNavigation: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 8) {
-                ForEach(OperatorSetupStage.allCases) { item in
-                    Button { stage = item } label: {
-                        Text("\(item.rawValue + 1). \(item.title)").font(.callout.weight(stage == item ? .semibold : .regular))
-                            .padding(.horizontal, 12).frame(minHeight: 48)
-                            .background(stage == item ? OperatorPalette.selected : .clear, in: RoundedRectangle(cornerRadius: 10))
-                    }.buttonStyle(.plain).accessibilityAddTraits(stage == item ? .isSelected : [])
-                }
-            }.fixedSize(horizontal: true, vertical: false)
-            Picker("Setup stage", selection: $stage) {
-                ForEach(OperatorSetupStage.allCases) { Text("\($0.rawValue + 1). \($0.title)").tag($0) }
-            }.pickerStyle(.menu).frame(minHeight: 48)
-        }
-        .accessibilityIdentifier("setup-stages")
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Step \(stage.rawValue + 1) of \(OperatorSetupStage.allCases.count)").font(.caption.weight(.semibold))
+                Spacer()
+                Picker("Setup stage", selection: $stage) {
+                    ForEach(OperatorSetupStage.allCases) { Text($0.title).tag($0) }
+                }.pickerStyle(.menu).frame(minHeight: 44)
+            }
+            ProgressView(value: Double(stage.rawValue + 1), total: Double(OperatorSetupStage.allCases.count))
+                .accessibilityLabel("Event setup progress")
+        }.accessibilityIdentifier("setup-stages")
     }
 
     private var bottomBar: some View {
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
         return layout {
-            Button("Save for Later") {
+            Button("Save Draft") {
                 Task {
                     await setup.saveOnly()
                     workspace.checkpoint()

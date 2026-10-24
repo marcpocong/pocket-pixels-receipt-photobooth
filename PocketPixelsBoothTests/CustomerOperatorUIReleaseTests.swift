@@ -219,7 +219,11 @@ final class CustomerOperatorUIReleaseTests: XCTestCase {
         XCTAssertEqual(model.groupedSummaries.first?.0, "Today")
         XCTAssertTrue(model.groupedSummaries.map(\.0).contains("Yesterday"))
         XCTAssertEqual(model.groupedSummaries.last?.0, RecentSessionsViewModel.unreadableSectionTitle, "Corrupt archives are grouped last, never under a fake date")
-        XCTAssertFalse(model.thumbnailImages.isEmpty, "Thumbnails are decoded during refresh, not while scrolling")
+        let before = await model.thumbnails.statistics()
+        XCTAssertEqual(before.count, 0, "Metadata must not wait for thumbnail decoding")
+        let visible = try XCTUnwrap(model.summaries.first { $0.rasterFingerprint != "CORRUPT" })
+        let image = await model.thumbnail(for: visible)
+        XCTAssertNotNil(image, "Visible previews decode asynchronously off the main thread")
         model.formatFilter = .solo
         XCTAssertEqual(model.filteredSummaries.map(\.sessionIdentifier), ["PP-20261019-020202"])
         model.formatFilter = nil

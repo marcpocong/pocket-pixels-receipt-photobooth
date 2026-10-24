@@ -5,6 +5,7 @@ private typealias Brand = MadeToKeepTheme.ColorPalette
 /// The everyday home for running an event: one truthful status and the four actions an
 /// attendant needs. Setup, reports and maintenance stay one tap away, not mixed in.
 struct CurrentEventCard: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     @StateObject private var lifecycle: EventLifecycleCoordinator
     @ObservedObject private var workspace: OperatorWorkspace
     @ObservedObject private var runs: EventRunStore
@@ -25,6 +26,7 @@ struct CurrentEventCard: View {
         let model = lifecycle ?? EventLifecycleCoordinator()
         _lifecycle = StateObject(wrappedValue: model)
         _runs = ObservedObject(wrappedValue: model.runs)
+        _acceptance = ObservedObject(wrappedValue: model.acceptanceForPresentation)
         self.loadsRemote = loadsRemote
     }
 
@@ -78,15 +80,17 @@ struct CurrentEventCard: View {
                     .accessibilityIdentifier("current-event-status")
                 if busy { ProgressView() }
             }
-            Text(status.detail).font(.callout).foregroundStyle(OperatorPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+            Text(regular ? "Regular Booth defaults · no payment required" : status.detail).font(.callout).foregroundStyle(OperatorPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private var facts: some View {
         VStack(spacing: 10) {
-            fact("Design", run.flatMap { library.design(id: $0.context.designID)?.displayName } ?? (run == nil ? appliedDesign : "Studio branding"))
-            if let run { fact("Started", run.createdAt.formatted(date: .abbreviated, time: .shortened)) }
-            else if lifecycle.canRecordUpgradedRun { fact("Event run", "Not recorded yet — statistics start with the first guest or Record Event Run") }
+            fact("Guest admission", guestAdmissionLine)
+            let health = OperatorStatusSummary(report: operations.readinessReport, hasUnresolvedPrint: operations.hasUnresolvedPrint,
+                printerRequiresRecovery: printer.requiresRecovery, pendingUploadCount: operations.pendingUploadCount, galleryStorageError: operations.queueError != nil)
+            fact("Equipment", health.allSystemsReady ? "Checks passed" : health.summary)
+            if run == nil && lifecycle.canRecordUpgradedRun { fact("Event run", "Not recorded yet — statistics start with the first guest or Record Event Run") }
             fact("Payment", paymentLine)
             if paid, let checked = lifecycle.lastCheckedAt { fact("Server checked", checked.formatted(date: .omitted, time: .shortened)) }
         }
@@ -116,15 +120,11 @@ struct CurrentEventCard: View {
                 actionButton("Pause Booth", systemImage: "pause.fill") { confirm = .pauseBooth }
                     .accessibilityIdentifier("pause-booth")
             }
-            Button { workspace.showCurrentReport() } label: {
-                Label("View Reports", systemImage: "chart.bar").frame(maxWidth: .infinity, minHeight: 48)
-            }.buttonStyle(.bordered).accessibilityIdentifier("view-reports")
+
             if paid || runs.pendingTransition != nil, !OperatorHomeActionPolicy(status: status).statusCheckIsPrimary {
                 actionButton("Check Status", systemImage: "arrow.clockwise") { Task { await refresh() } }
             }
-            Button { workspace.navigate(to: .boothCheck) } label: {
-                Label("Check Booth", systemImage: "checkmark.shield").frame(maxWidth: .infinity, minHeight: 48)
-            }.buttonStyle(.bordered).accessibilityIdentifier("booth-check")
+
         }
         .controlSize(.large)
         .tint(Brand.burgundy)
@@ -133,6 +133,13 @@ struct CurrentEventCard: View {
 
     @ViewBuilder private var primaryAction: some View {
         switch status {
+        case .regular:
+            Button { workspace.navigate(to: .regularBooth) } label: {
+                Label("Edit Booth Settings", systemImage: "slider.horizontal.3").frame(maxWidth: .infinity, minHeight: 48)
+            }.buttonStyle(.borderedProminent)
+            Button { workspace.navigate(to: .newEvent) } label: {
+                Label("Start Event", systemImage: "calendar.badge.plus").frame(maxWidth: .infinity, minHeight: 48)
+            }.buttonStyle(.bordered)
         case .starting, .ending, .accepting:
             EmptyView()
         case .unconfirmed:
@@ -173,6 +180,10 @@ struct CurrentEventCard: View {
             Divider()
             DisclosureGroup("Event controls") {
                 VStack(alignment: .leading, spacing: 12) {
+                    if let run {
+                        fact("Design", library.design(id: run.context.designID)?.displayName ?? "Studio branding")
+                        fact("Started", run.createdAt.formatted(date: .abbreviated, time: .shortened))
+                    }
                     actionButton("Detailed Booth Health", systemImage: "stethoscope") { showsHealth = true }
                     if lifecycle.canRecordUpgradedRun {
                         actionButton("Record Event Run", systemImage: "list.bullet.rectangle") { confirm = .recordRun }
@@ -203,12 +214,13 @@ struct CurrentEventCard: View {
     }
 
     private func fact(_ title: String, _ value: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 16))
+        return layout {
             Text(title).foregroundStyle(OperatorPalette.secondaryText)
-            Spacer(minLength: 16)
-            Text(value).multilineTextAlignment(.trailing).foregroundStyle(Brand.ink)
-        }
-        .accessibilityElement(children: .combine)
+            if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
+            Text(value).multilineTextAlignment(typeSize.isAccessibilitySize ? .leading : .trailing)
+                .foregroundStyle(Brand.ink).fixedSize(horizontal: false, vertical: true)
+        }.frame(maxWidth: .infinity, alignment: .leading).accessibilityElement(children: .combine)
     }
 
     // MARK: Derived text
@@ -221,7 +233,7 @@ struct CurrentEventCard: View {
     private var appliedDesign: String { library.design(id: library.library.appliedEventID)?.displayName ?? "Studio branding" }
     private var guestAdmissionLine: String {
         if acceptance.state.blocked { return "Not accepting new guests" }
-        if status.isAccepting { return "Ready for guests" }
+        if status.isAccepting { return "Open · equipment checks shown below" }
         if case .unconfirmed = status { return "Payment status must be checked" }
         return "Needs operator attention"
     }

@@ -351,8 +351,14 @@ final class EventOperationalState: ObservableObject {
     }
 
     var physicalRecoveryIdentity: String {
-        (recoverableSession.map(recoveryIdentity) ?? "no-snapshot") + "|" + (PrintOutcomeOutbox.shared?.inspectionEntryIDs.sorted().joined(separator: ",") ?? "no-journal")
-            + "|" + PaymentRecoveryCoordinator.shared.receiptCheckIDs.sorted().joined(separator: ",")
+        // Keep the same ordered identity components. Explicit types also bound the
+        // constraint solver on the Xcode 16.4 production runner.
+        let sessionIdentity: String = recoverableSession.map(recoveryIdentity) ?? "no-snapshot"
+        let inspectionIDs: [String]? = PrintOutcomeOutbox.shared?.inspectionEntryIDs.sorted()
+        let inspectionIdentity: String = inspectionIDs?.joined(separator: ",") ?? "no-journal"
+        let receiptIDs: [String] = PaymentRecoveryCoordinator.shared.receiptCheckIDs.sorted()
+        let receiptIdentity: String = receiptIDs.joined(separator: ",")
+        return [sessionIdentity, inspectionIdentity, receiptIdentity].joined(separator: "|")
     }
 
     @discardableResult

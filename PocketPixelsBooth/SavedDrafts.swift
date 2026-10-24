@@ -4,7 +4,7 @@ import CoreFoundation
 nonisolated enum SavedDraftID: Codable, Hashable, Sendable {
     case design(String)
     case payment(binding: String, eventID: String)
-    case sessionSelection, branding, prepaid, newEvent
+    case sessionSelection, branding, prepaid, newEvent, regularBooth
 }
 
 nonisolated struct PaymentDraftBaseline: Codable, Equatable, Sendable {
@@ -61,6 +61,12 @@ nonisolated struct SavedDraftEntry: Identifiable, Sendable {
                                     : conflict ? "Saved server settings changed. Review the current version before saving."
                                     : baseline == nil ? "Previous values are unavailable. Connect to compare saved settings." : nil))
             }
+        }
+        if let draft = snapshot.regularBoothDraft, draft != RegularBoothSettings.load() {
+            result.append(.init(id: .regularBooth, eventName: "Regular Booth", category: "Booth defaults", changes: [
+                .init(id: "copies", label: "Copies", before: nil, after: "\(draft.defaultCopies) default · \(draft.maxCopies) maximum"),
+                .init(id: "formats", label: "Formats", before: nil, after: draft.formats.joined(separator: ", ")),
+                .init(id: "receipt", label: "Receipt & Footer", before: nil, after: "Draft branding, footer and gallery preferences retained")]))
         }
         if let draft = snapshot.brandingDraft {
             let changes = SavedDraftDiff.profile(draft, profile)

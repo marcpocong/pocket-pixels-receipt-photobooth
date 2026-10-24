@@ -38,8 +38,8 @@ nonisolated struct EventRunFinancialTotals: Equatable, Sendable {
 /// authoritative server orders and is never inferred from names, dates or local guesses.
 struct EventRunReportingView: View {
     enum Tab: String, CaseIterable, Identifiable {
-        case overview = "Overview", activity = "Sessions", sales = "Sales", history = "History", manage = "Manage"
-        static let reportSections: [Tab] = [.overview, .activity, .sales]
+        case overview = "Overview", activity = "Sessions", sales = "Sales", printing = "Printing", galleries = "Galleries", history = "History", manage = "Manage"
+        static let reportSections: [Tab] = [.overview, .activity, .printing, .galleries, .sales, .history]
         var id: String { rawValue }
     }
 
@@ -117,7 +117,7 @@ struct EventRunReportingView: View {
             Section {
                 if Tab.reportSections.contains(tab) {
                     Picker("Section", selection: $tab) { ForEach(Tab.reportSections) { Text($0.rawValue).tag($0) } }
-                        .pickerStyle(.segmented).accessibilityIdentifier("report-tabs")
+                        .pickerStyle(.menu).frame(minHeight: 44).accessibilityIdentifier("report-tabs")
                 }
                 if tab != .manage { runPicker }
                 if Tab.reportSections.contains(tab) {
@@ -136,6 +136,8 @@ struct EventRunReportingView: View {
             switch tab {
             case .overview: overviewTab
             case .activity: activityTab
+            case .printing: printingTab
+            case .galleries: galleriesTab
             case .sales: salesTab
             case .history: historyTab
             case .manage: manageTab
@@ -253,6 +255,36 @@ struct EventRunReportingView: View {
                 if savedCheckouts > 0 { Label("\(savedCheckouts) saved checkout(s) still need Payment Recovery review.", systemImage: "creditcard.trianglebadge.exclamationmark") }
             }
         }
+    }
+
+    @ViewBuilder private var printingTab: some View {
+        if loading { Section { ProgressView("Reading print evidence…") } }
+        if let localError { Section { Label(localError, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.danger) } }
+        if !loading, localError == nil, selected != nil {
+            Section("Original copies · selected run") {
+                LabeledContent("Sent to printer", value: String(stats.delivered))
+                LabeledContent("Uncertain output", value: String(stats.uncertain))
+                LabeledContent("Never started", value: String(stats.notStarted))
+                Text("Transport delivery is not sensor-confirmed paper output. Unknown outcomes remain unknown; this screen never resends them.").font(.footnote).foregroundStyle(OperatorPalette.secondaryText)
+            }
+            Section("Operator reprints") {
+                Text("Reprints are separate explicit batches in Print History; they are excluded from original-copy totals above.")
+                NavigationLink("Open Print History", value: OperatorWorkspaceRoute.printHistory)
+            }
+        } else if !loading { Section { Text("Choose a recorded event run to inspect print evidence.") } }
+    }
+    @ViewBuilder private var galleriesTab: some View {
+        if loading { Section { ProgressView("Reading gallery evidence…") } }
+        if let localError { Section { Label(localError, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.danger) } }
+        if !loading, localError == nil, selected != nil {
+            Section("Gallery delivery · selected run") {
+                LabeledContent("Verified online", value: String(stats.galleriesVerified))
+                LabeledContent("Awaiting verification", value: String(stats.galleriesAwaitingVerification))
+                Text("Verified means this iPad recorded a public delivery confirmation. An archived receipt alone does not prove gallery delivery.").font(.footnote).foregroundStyle(OperatorPalette.secondaryText)
+                NavigationLink("Waiting Uploads", value: OperatorWorkspaceRoute.waitingGalleries)
+                Button("Find Original Gallery in Sessions") { workspace.select(.sessions) }
+            }
+        } else if !loading { Section { Text("Choose a recorded event run to inspect gallery delivery.") } }
     }
 
     // MARK: Activity

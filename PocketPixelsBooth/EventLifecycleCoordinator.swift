@@ -244,6 +244,7 @@ nonisolated enum EventStatusModel {
     @Published private(set) var lastCheckedAt: Date?
 
     let runs: EventRunStore
+    var acceptanceForPresentation: SessionAcceptanceStore { acceptance }
     private let acceptance: SessionAcceptanceStore
     private let api: @MainActor () throws -> any SessionSetupAPI
     private let authorized: @MainActor () -> Bool

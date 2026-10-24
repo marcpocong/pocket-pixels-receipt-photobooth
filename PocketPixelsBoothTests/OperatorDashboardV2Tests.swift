@@ -7,9 +7,9 @@ import SwiftUI
     override func setUp() { root = FileManager.default.temporaryDirectory.appendingPathComponent("dashboard-v2-\(UUID())") }
     override func tearDown() { try? FileManager.default.removeItem(at: root) }
 
-    func testFourPrimaryDestinationsAndLegacyRouteMigration() throws {
-        XCTAssertEqual(OperatorPrimaryDestination.allCases.map(\.title), ["Home", "Events", "Reports", "System"])
-        XCTAssertEqual(EventRunReportingView.Tab.reportSections.map(\.rawValue), ["Overview", "Sessions", "Sales"])
+    func testFivePrimaryDestinationsAndLegacyRouteMigration() throws {
+        XCTAssertEqual(OperatorPrimaryDestination.allCases.map(\.title), ["Home", "Booth", "Sessions", "Events", "Reports"])
+        XCTAssertEqual(EventRunReportingView.Tab.reportSections.map(\.rawValue), ["Overview", "Sessions", "Printing", "Galleries", "Sales", "History"])
         let workspace = OperatorWorkspace(directory: root)
         workspace.path = [.manageEvent, .serverEvent("saved-event")]
         var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(workspace.snapshot)) as? [String: Any])
@@ -173,7 +173,7 @@ import SwiftUI
             creations: CommercialEventCreationStore(directory: root), authorized: { true }, blockingReason: { nil }, source: { .localPrepaid })
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         for size in [CGSize(width: 834, height: 1_194), CGSize(width: 1_194, height: 834)] {
-            for section in OperatorPrimaryDestination.allCases {
+            for section in OperatorPrimaryDestination.allCases + [.system] {
                 workspace.select(section); workspace.path = []
                 try await render(AnyView(OperatorWorkspaceView(workspace: workspace, lifecycle: lifecycle, loadsRemote: false)),
                     name: section.rawValue, size: size, scene: scene)
@@ -183,7 +183,7 @@ import SwiftUI
                 try await render(AnyView(NavigationStack { SessionSetupView(coordinator: setup) }),
                     name: "setup-\(stage.rawValue + 1)", size: size, scene: scene)
             }
-            for tab in [EventRunReportingView.Tab.overview, .activity, .sales] {
+            for tab in [EventRunReportingView.Tab.overview, .activity, .printing, .galleries, .sales] {
                 try await render(AnyView(NavigationStack { EventRunReportingView(store: runs, library: library,
                     archiveDirectory: root.appendingPathComponent("archives"), loadsRemote: false, initialTab: tab) }),
                     name: "reports-\(tab.rawValue.lowercased())", size: size, scene: scene)
@@ -191,6 +191,7 @@ import SwiftUI
             try await render(AnyView(NavigationStack { OperatorRecoveryView() }), name: "printer-recovery", size: size, scene: scene)
             let everyday: [(String, AnyView)] = [
                 ("regular-defaults", AnyView(RegularBoothSettingsView())),
+                ("regular-footer", AnyView(RegularBoothSettingsView(footerOnly: true))),
                 ("printer-setup", AnyView(OperatorPrinterSetupView())),
                 ("branding-defaults", AnyView(OperatorBrandingView())),
                 ("recent-sessions", AnyView(RecentSessionsView())),
@@ -213,6 +214,14 @@ import SwiftUI
         // Rendering and navigation never changes the run or opens the admission barrier.
         XCTAssertEqual(runs.current?.id, run.id)
         XCTAssertEqual(runs.current?.status, .active)
+        let regularRuns = EventRunStore(directory: root.appendingPathComponent("regular-runs"), authorized: { true }, blockingReason: { nil })
+        let regularAcceptance = SessionAcceptanceStore(directory: root.appendingPathComponent("regular-acceptance"))
+        try regularAcceptance.save(.init(mode: .localPrepaid, boothMode: .regular))
+        let regularLifecycle = EventLifecycleCoordinator(runs: regularRuns, acceptance: regularAcceptance, authorized: { true }, blockingReason: { nil }, recoveryReason: { nil }, source: { .localPrepaid }, hasUnsavedSetup: { false })
+        workspace.select(.home); workspace.path = []
+        try await render(AnyView(OperatorWorkspaceView(workspace: workspace, lifecycle: regularLifecycle, loadsRemote: false)),
+            name: "home-regular", size: CGSize(width: 834, height: 1194), scene: scene)
+        XCTAssertEqual(regularLifecycle.status, .regular)
         let archived = try runs.createHistoricalRun(name: "Earlier Studio Event", designID: nil,
             startedAt: Date().addingTimeInterval(-86_400), endedAt: Date().addingTimeInterval(-82_800))
         try runs.transition(id: archived.id, to: .archived)

@@ -168,6 +168,8 @@ struct SavedDraftReviewView: View {
                     SessionSetupView(coordinator: SessionSetupCoordinator(draftTarget: draftID, workspace: workspace, library: library))
                 }.buttonStyle(.borderedProminent)
             }
+        case .regularBooth:
+            NavigationLink("Edit Booth Defaults") { RegularBoothSettingsView(workspace: workspace) }.buttonStyle(.borderedProminent)
         case .prepaid:
             NavigationLink("Edit Included Copies and Formats") {
                 SessionSetupView(coordinator: SessionSetupCoordinator(draftTarget: draftID, workspace: workspace, library: library))
