@@ -32,8 +32,11 @@ import XCTest
         var draft = RegularBoothSettings(); draft.maxCopies = 7
         var profile = draft.profile; profile.receiptDesign.editorialCaption = "A NIGHT TO KEEP"; draft.receiptProfile = profile
         workspace.saveRegularBoothDraft(draft)
+        XCTAssertTrue(workspace.hasUnsavedDrafts)
+        XCTAssertFalse(workspace.hasUnsavedEventSetup, "Regular defaults cannot become an unrelated event-resume gate")
         workspace.select(.booth); workspace.path = [.regularFooter]
         workspace.select(.events); workspace.saveNewEvent(name: "Independent event", venue: "")
+        XCTAssertTrue(workspace.hasUnsavedEventSetup, "The existing event-draft guard remains intact")
         workspace.select(.booth)
         XCTAssertEqual(workspace.path, [.regularFooter])
         let restored = OperatorWorkspace(directory: root)

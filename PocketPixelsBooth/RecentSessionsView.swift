@@ -470,8 +470,10 @@ struct RecentSessionsView: View {
         .task {
             if !viewModel.hasLoaded {
                 viewModel.searchText = initialSearch
-                viewModel.refresh()
             }
+            // Re-entering a retained workspace picks up newly archived guests without
+            // resetting filters/selection, clearing the cache or showing a loading screen.
+            viewModel.refresh()
         }
         .sheet(isPresented: $filtersPresented) { filterSheet }
     }

@@ -174,10 +174,13 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
 
     /// The guest shortcut reflects unfinished edits, never navigation or a legacy resume flag.
     var hasPendingSetup: Bool { hasUnsavedDrafts }
-    var hasUnsavedDrafts: Bool {
+    var hasUnsavedDrafts: Bool { hasUnsavedEventSetup || snapshot.regularBoothDraft != nil }
+    /// Regular defaults are for a different operating mode and cannot change the event
+    /// that Resume revalidates. Keep its original staged-event guard scoped to event edits.
+    var hasUnsavedEventSetup: Bool {
         !snapshot.serverDrafts.isEmpty || snapshot.brandingDraft != nil || snapshot.prepaidDraft != nil
             || !snapshot.newEventName.isEmpty || !snapshot.newEventVenue.isEmpty || snapshot.sessionSetup != nil
-            || !(snapshot.designDrafts ?? [:]).isEmpty || snapshot.regularBoothDraft != nil
+            || !(snapshot.designDrafts ?? [:]).isEmpty
     }
     var currentSection: String { path.last?.title ?? primaryDestination.title }
     var serverBinding: String {
