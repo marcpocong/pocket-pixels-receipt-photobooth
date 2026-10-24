@@ -26,7 +26,7 @@ final class RecentSessionsViewModel: ObservableObject {
     @Published var usesPhotoGrid = false
     @Published var selectedArchiveID: String? {
         willSet {
-            if newValue != nil && selectedArchiveID == nil { detailReturnOffset = browserOffset }
+            if newValue != nil && newValue != selectedArchiveID { detailReturnOffset = browserOffset }
         }
     }
     // Geometry updates do not publish or rebuild every row during a scroll.
@@ -34,7 +34,6 @@ final class RecentSessionsViewModel: ObservableObject {
     private(set) var detailReturnOffset: CGFloat = 0
     var browserOffset: CGFloat { browserOffsets[usesPhotoGrid] ?? 0 }
     func recordBrowserOffset(_ offset: CGFloat) {
-        guard selectedArchiveID == nil else { return }
         browserOffsets[usesPhotoGrid] = max(0, offset)
     }
     @Published var statusMessage = ""
@@ -458,7 +457,7 @@ struct RecentSessionsView: View {
             let wide = OperatorWorkspaceLayout.usesSidebar(width: geometry.size.width, height: geometry.size.height)
             let hasSelection = viewModel.selectedSummary != nil
             HStack(spacing: 0) {
-                browser
+                browser(wide: wide)
                     .frame(width: wide && hasSelection ? min(400, geometry.size.width * 0.4) : geometry.size.width)
                     .frame(width: !wide && hasSelection ? 0 : (wide && hasSelection ? min(400, geometry.size.width * 0.4) : geometry.size.width), alignment: .leading)
                     .clipped().opacity(!wide && hasSelection ? 0 : 1)
@@ -492,7 +491,7 @@ struct RecentSessionsView: View {
         .sheet(isPresented: $filtersPresented) { filterSheet }
     }
 
-    private var browser: some View {
+    private func browser(wide: Bool) -> some View {
         VStack(spacing: 0) {
             VStack(spacing: 8) {
                 HStack(spacing: 10) {
@@ -548,7 +547,9 @@ struct RecentSessionsView: View {
                 }
                 .refreshable { viewModel.refresh() }
                 .onChange(of: viewModel.selectedArchiveID) { _, current in
-                    if current == nil { scrollPosition.scrollTo(y: viewModel.detailReturnOffset) }
+                    // In landscape the list stays visible and may have been scrolled
+                    // independently. Portrait returns to the offset captured on selection.
+                    if current == nil && !wide { scrollPosition.scrollTo(y: viewModel.detailReturnOffset) }
                 }
                 .onChange(of: viewModel.usesPhotoGrid) { _, _ in
                     scrollPosition.scrollTo(y: viewModel.browserOffset)
