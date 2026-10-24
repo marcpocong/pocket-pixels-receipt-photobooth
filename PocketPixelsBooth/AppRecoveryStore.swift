@@ -36,6 +36,7 @@ nonisolated struct AppRecoverySnapshot: Codable, Sendable {
     var receiptPrintOptions: ReceiptPrintOptions? = nil
     var galleryReceiptStyle: GalleryReceiptStyle? = nil
     var checkpointID: String? = nil
+    var originalCaptureData: [Data?]? = nil
 }
 
 nonisolated enum AppRecoveryStoreError: Error, LocalizedError, Equatable {

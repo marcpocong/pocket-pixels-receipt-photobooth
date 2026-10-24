@@ -56,6 +56,21 @@ import SwiftUI
         XCTAssertEqual(level(ProductionHealthReport(inputs { $0.paid = false; $0.commercialEventID = nil; $0.commercial = .notNeeded }), "backend"), .ready, "Prepaid needs no server")
     }
 
+    func testParkedFinancialFollowUpIsVisibleAndSeparateFromActiveInterruptions() {
+        let parked = ProductionHealthReport(inputs { $0.parkedFinancialFollowUps = 4 })
+        XCTAssertEqual(level(parked, "payments"), .ready)
+        XCTAssertEqual(level(parked, "parked-payments"), .warning)
+        let text = parked.exportText(appVersion: "test")
+        XCTAssertTrue(text.contains("Active Checkout Interruptions"))
+        XCTAssertTrue(text.contains("Parked Financial Follow-up"))
+        XCTAssertTrue(text.contains("4 closed guest interaction(s)"))
+        XCTAssertTrue(text.contains("pending, unknown"))
+        XCTAssertTrue(text.contains("do not block unrelated guests"))
+        let both = ProductionHealthReport(inputs { $0.checkoutsNeedingAttention = 2; $0.parkedFinancialFollowUps = 3 })
+        XCTAssertEqual(level(both, "payments"), .review)
+        XCTAssertEqual(level(both, "parked-payments"), .warning)
+    }
+
     func testSupportExportContainsNoSecretsURLsOrFullIdentifiers() {
         let report = ProductionHealthReport(inputs {
             $0.commercial = .unavailable("Could not reach https://payments.example.workers.dev/v1/admin/events with Bearer abcdefghijklmnopqrstuvwxyz0123456789")

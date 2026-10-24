@@ -24,6 +24,7 @@ final class RecentSessionsViewModel: ObservableObject {
     @Published var dateFrom: Date? { didSet { rebuildFilters() } }
     @Published var dateThrough: Date? { didSet { rebuildFilters() } }
     @Published var usesPhotoGrid = false
+    @Published var showsHidden = false { didSet { rebuildFilters() } }
     @Published var selectedArchiveID: String? {
         willSet {
             if newValue != nil && newValue != selectedArchiveID { detailReturnOffset = browserOffset }
@@ -44,12 +45,30 @@ final class RecentSessionsViewModel: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var statusTask: Task<Void, Never>?
     private var subscriptions = Set<AnyCancellable>()
-    private var verifiedSessions = Set<String>()
+    private var verifiedArchives = Set<String>()
+    private var verificationRevision = 0
+    private var incrementalProofRevisions: [String: Int] = [:]
+    private var verificationTask: Task<Void, Never>?
+    private var recheckObservations: [String: ArchivedGalleryStatus] = [:]
+    @Published private(set) var isVerifying = false
+    @Published private(set) var verificationResult = ""
+    private let verificationStore: GalleryVerificationStore?
+    private let recheckSession: URLSession?
+    private let photosWriter: any PhotosLibraryWriting
+    private let mediaDeletionInspector: @MainActor (RecentSessionArchiveSummary) throws -> RecordCleanupDecision
+    private let managementAuthorized: @MainActor () -> Bool
     private var searchIndex: [String: String] = [:]
     private var pendingIndex: [String: GalleryPendingUploadSummary] = [:]
     static let unreadableSectionTitle = "Unreadable archives"
 
-    init(store: RecentSessionArchiveStore? = nil, summaryLoader: (@Sendable () throws -> [RecentSessionArchiveSummary])? = nil) {
+    init(store: RecentSessionArchiveStore? = nil, summaryLoader: (@Sendable () throws -> [RecentSessionArchiveSummary])? = nil, verificationStore: GalleryVerificationStore? = nil, recheckSession: URLSession? = nil, photosWriter: any PhotosLibraryWriting = SystemPhotosLibraryWriter(),
+        managementAuthorized: @escaping @MainActor () -> Bool = { OperatorAccessPermit.shared.isAuthorized },
+        mediaDeletionInspector: @escaping @MainActor (RecentSessionArchiveSummary) throws -> RecordCleanupDecision = { try SessionMediaOperations.sessionDeletionDecision($0) }) {
+        self.verificationStore = verificationStore ?? (try? GalleryVerificationStore())
+        self.recheckSession = recheckSession
+        self.photosWriter = photosWriter
+        self.managementAuthorized = managementAuthorized
+        self.mediaDeletionInspector = mediaDeletionInspector
         self.summaryLoader = summaryLoader
         do { self.store = try store ?? RecentSessionArchiveStore() }
         catch { self.store = nil; statusMessage = "Recent Sessions storage needs attention: \(error.localizedDescription)" }
@@ -62,11 +81,17 @@ final class RecentSessionsViewModel: ObservableObject {
         }.store(in: &subscriptions)
         operations.$pendingUploads.sink { [weak self] pending in
             guard let self else { return }
-            self.pendingIndex = Dictionary(grouping: pending, by: \.galleryToken).compactMapValues(\.first)
-            self.rebuildGalleryStatuses()
+            self.updatePendingUploadSnapshot(pending)
         }.store(in: &subscriptions)
-        EventRunStore.shared.$revision.dropFirst().debounce(for: .milliseconds(100), scheduler: RunLoop.main)
-            .sink { [weak self] _ in self?.refreshVerification() }.store(in: &subscriptions)
+        NotificationCenter.default.publisher(for: .originalPhotoRetentionFailed)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.statusMessage = "Original photo retention failed. Saved receipts and printing remain available. Check storage before the next session." }.store(in: &subscriptions)
+        NotificationCenter.default.publisher(for: GalleryVerificationStore.changed)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] notification in
+                guard let identity = notification.userInfo?["identity"] as? String else { return }
+                self?.refreshVerification(identity: identity)
+            }.store(in: &subscriptions)
         NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)
             .sink { [weak self] _ in
                 guard let cache = self?.thumbnails else { return }
@@ -83,6 +108,7 @@ final class RecentSessionsViewModel: ObservableObject {
         let calendar = Calendar.current
         let end = dateThrough.flatMap { calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: $0)) }
         filteredSummaries = summaries.filter { summary in
+            if summary.isHidden && !showsHidden { return false }
             if let formatFilter, summary.format != formatFilter || summary.rasterFingerprint == "CORRUPT" { return false }
             if showsOnlyAttention && !needsAttention(summary) { return false }
             if todayOnly && !calendar.isDateInToday(summary.createdAt) { return false }
@@ -118,25 +144,114 @@ final class RecentSessionsViewModel: ObservableObject {
         guard let store, let filename = summary.thumbnailFilenames.first else { return nil }
         return await thumbnails.image(archiveID: summary.archiveID, filename: filename, store: store)
     }
+    func updatePendingUploadSnapshot(_ pending: [GalleryPendingUploadSummary]) {
+        pendingIndex = Dictionary(grouping: pending, by: \.galleryToken).compactMapValues(\.first)
+        rebuildGalleryStatuses()
+    }
+    private func acceptIncrementalProof(_ archiveID: String) {
+        verificationRevision += 1
+        incrementalProofRevisions[archiveID] = verificationRevision
+        verifiedArchives.insert(archiveID)
+        // A new successful public read supersedes an earlier failed recheck. The queue may
+        // still publish its old entry until the worker clears it immediately after this commit.
+        recheckObservations[archiveID] = nil
+    }
     private func rebuildGalleryStatuses() {
         galleryStatuses = Dictionary(uniqueKeysWithValues: summaries.map { summary in
-            (summary.archiveID, ArchivedGalleryStatus.resolve(linkIsValid: GalleryTokenGenerator.isValidGalleryToken(summary.archiveID),
-                pendingItem: pendingIndex[summary.archiveID], verifiedAt: verifiedSessions.contains(summary.sessionIdentifier) ? Date.distantPast : nil))
+            (summary.archiveID, recheckObservations[summary.archiveID] ?? ArchivedGalleryStatus.resolve(linkIsValid: summary.frozenGalleryURL.map { ArchivedGalleryLink(galleryURL: $0, galleryToken: summary.archiveID).isValid } ?? GalleryTokenGenerator.isValidGalleryToken(summary.archiveID),
+                pendingItem: pendingIndex[summary.archiveID], verifiedAt: verifiedArchives.contains(summary.archiveID) ? Date.distantPast : nil))
         })
         rebuildFilters()
     }
+    private func refreshVerification(identity: String) {
+        guard let summary = summaries.first(where: { summary in
+            summary.frozenGalleryURL.map { GalleryVerificationStore.identity(sessionID: summary.sessionIdentifier, token: summary.archiveID, url: $0) == identity } ?? false
+        }), let url = summary.frozenGalleryURL, let verificationStore else { return }
+        Task {
+            let exists = await Task.detached(priority: .utility) {
+                (try? verificationStore.evidence(sessionID: summary.sessionIdentifier, token: summary.archiveID, url: url)) != nil
+            }.value
+            guard exists, summaries.contains(where: { $0.archiveID == summary.archiveID && $0.sessionIdentifier == summary.sessionIdentifier && $0.frozenGalleryURL == url }) else { return }
+            acceptIncrementalProof(summary.archiveID)
+            galleryStatuses[summary.archiveID] = ArchivedGalleryStatus.resolve(linkIsValid: true,
+                pendingItem: pendingIndex[summary.archiveID], verifiedAt: Date())
+            rebuildFilters()
+        }
+    }
+
     private func refreshVerification() {
         statusTask?.cancel()
-        let directory = EventRunStore.shared.directory
-        let validRuns = Set(EventRunStore.shared.runs.map(\.id))
+        let snapshot = summaries
+        let evidenceStore = verificationStore
+        let revisionAtStart = verificationRevision
         statusTask = Task {
-            let records = await Task.detached(priority: .utility) { try? EventRunStore.loadSessions(directory: directory) }.value
+            let result = await Task.detached(priority: .utility) { () -> (Set<String>, Bool) in
+                var verified = Set<String>(); var failed = false
+                for summary in snapshot {
+                    guard !Task.isCancelled else { break }
+                    guard let url = summary.frozenGalleryURL else { continue }
+                    do {
+                        if try evidenceStore?.evidence(sessionID: summary.sessionIdentifier, token: summary.archiveID, url: url) != nil {
+                            verified.insert(summary.archiveID)
+                        }
+                    } catch { failed = true }
+                }
+                return (verified, failed)
+            }.value
             guard !Task.isCancelled else { return }
-            if records == nil { statusMessage = "Gallery verification records could not be read. Original archives are retained." }
-            verifiedSessions = Set((records ?? []).filter { validRuns.contains($0.runID) && $0.galleryVerifiedAt != nil }.map(\.sessionID))
+            let newerProofs = Set(incrementalProofRevisions.filter { $0.value > revisionAtStart }.keys)
+            verifiedArchives = result.0.union(newerProofs)
+            if result.1 { statusMessage = "Some local gallery evidence could not be read. Recheck the original gallery after checking storage." }
             rebuildGalleryStatuses()
         }
     }
+
+    /// Explicit operator action; one read at a time, at least one second apart. No upload or token creation.
+    func verifyGalleries(_ selected: [RecentSessionArchiveSummary], includeReady: Bool = false) {
+        guard !isVerifying else { return }
+        isVerifying = true
+        verificationTask = Task {
+            var ready = 0, unknown = 0, failed = 0, skipped = 0
+            var rateLimited = false
+            let config = URLSessionConfiguration.ephemeral
+            config.waitsForConnectivity = false; config.timeoutIntervalForRequest = 30; config.timeoutIntervalForResource = 45
+            let session = recheckSession ?? URLSession(configuration: config, delegate: GoogleGalleryURLSessionDelegate(), delegateQueue: nil)
+            let verifier = GoogleDriveGalleryUploadService(urlSession: session, verificationStore: verificationStore)
+            defer { if recheckSession == nil { session.invalidateAndCancel() }; isVerifying = false }
+            for summary in selected {
+                if Task.isCancelled { skipped += selected.count - ready - unknown - failed - skipped; break }
+                if !includeReady && galleryStatus(for: summary) == .verified { skipped += 1; continue }
+                guard let url = summary.frozenGalleryURL, ArchivedGalleryLink(galleryURL: url, galleryToken: summary.archiveID).isValid else { skipped += 1; continue }
+                recheckObservations[summary.archiveID] = .uploading
+                galleryStatuses[summary.archiveID] = .uploading
+                do {
+                    let target = GalleryVerificationTarget(sessionID: summary.sessionIdentifier, token: summary.archiveID, url: url, photoCount: summary.photoCount)
+                    try await verifier.verifyOriginalGallery(target)
+                    pendingIndex[summary.archiveID] = nil
+                    acceptIncrementalProof(summary.archiveID); galleryStatuses[summary.archiveID] = .verified; ready += 1
+                } catch is CancellationError {
+                    galleryStatuses[summary.archiveID] = .unknown; skipped += 1
+                } catch GalleryPublicVerificationError.rateLimited {
+                    galleryStatuses[summary.archiveID] = .needsAttention("The gallery service asked us to pause. Retry later")
+                    failed += 1; rateLimited = true
+                } catch GalleryPublicVerificationError.unavailable {
+                    galleryStatuses[summary.archiveID] = .unavailable; failed += 1
+                } catch GalleryUploadError.deliveryUnknown {
+                    galleryStatuses[summary.archiveID] = .unknown; unknown += 1
+                } catch {
+                    galleryStatuses[summary.archiveID] = .needsAttention("Could not verify or save proof. Check network and local storage, then retry"); failed += 1
+                }
+                recheckObservations[summary.archiveID] = galleryStatuses[summary.archiveID]
+                verificationResult = "\(ready) verified · \(unknown) still unknown · \(failed) failed · \(skipped) skipped"
+                rebuildFilters()
+                if rateLimited { skipped += selected.count - ready - unknown - failed - skipped; break }
+                do { try await Task.sleep(for: .seconds(1)) } catch { }
+            }
+            verificationResult = "\(ready) verified · \(unknown) still unknown · \(failed) failed · \(skipped) skipped" + (Task.isCancelled ? " · cancelled" : rateLimited ? " · paused by gallery service" : "")
+        }
+    }
+    func cancelVerification() { verificationTask?.cancel() }
+
     func refresh() {
         guard let store else { statusMessage = "Recent Sessions storage is unavailable."; hasLoaded = true; return }
         refreshTask?.cancel(); isLoading = true
@@ -148,12 +263,20 @@ final class RecentSessionsViewModel: ObservableObject {
             switch result {
             case .success(let loaded):
                 loadError = nil
+                if !summaries.isEmpty {
+                    let prior = Dictionary(uniqueKeysWithValues: summaries.map { ($0.archiveID, $0) })
+                    for changed in loaded where prior[changed.archiveID].map({ $0.sessionIdentifier != changed.sessionIdentifier || $0.frozenGalleryURL != changed.frozenGalleryURL }) == true {
+                        verifiedArchives.remove(changed.archiveID)
+                        recheckObservations[changed.archiveID] = nil
+                        incrementalProofRevisions[changed.archiveID] = nil
+                    }
+                }
                 summaries = loaded
                 searchIndex = Dictionary(uniqueKeysWithValues: loaded.map {
                     ($0.archiveID, [$0.sessionIdentifier, $0.archiveID, $0.format.displayName, $0.format.rawValue, $0.eventName ?? "Regular Booth"].joined(separator: " ").lowercased())
                 })
                 rebuildGalleryStatuses(); refreshVerification()
-                statusMessage = loaded.isEmpty ? "No recent sessions yet." : "\(loaded.count) sessions · originals retained on this iPad"
+                statusMessage = loaded.isEmpty ? "No recent sessions yet." : "\(loaded.count) sessions · saved receipts on this iPad"
             case .failure(let error):
                 loadError = "Session records could not be read. Originals are retained. " + error.localizedDescription
                 statusMessage = loadError ?? error.localizedDescription
@@ -181,33 +304,92 @@ final class RecentSessionsViewModel: ObservableObject {
         }.value
     }
 
+    @Published private(set) var isExporting = false
+    @Published private(set) var exportMessage = ""
+    func availablePhotos(_ archiveID: String) async throws -> [SessionPhotoSource] {
+        guard let store else { throw MediaExportError.unavailable }
+        return try await Task.detached(priority: .userInitiated) {
+            let archive = try store.load(archiveID: archiveID)
+            return try SessionMediaExport.photos(archive: archive, store: store,
+                pending: try? GalleryPendingUploadStore(), recovery: try? AppRecoveryStore())
+        }.value
+    }
+    func exportReceipt(_ archiveID: String) {
+        guard !isExporting else { return }
+        isExporting = true; exportMessage = "Saving receipt…"
+        Task {
+            defer { isExporting = false }
+            do {
+                let archive = try await loadArchiveResult(archiveID).get()
+                try await SessionMediaExport.save(data: [archive.receiptPreviewPNGData], writer: photosWriter)
+                exportMessage = "Receipt saved to Photos"
+            } catch { exportMessage = (error as? MediaExportError)?.localizedDescription ?? "Could not save; source media or storage unavailable." }
+        }
+    }
+    func exportPhotos(_ archiveID: String, index: Int? = nil) {
+        guard !isExporting else { return }
+        isExporting = true; exportMessage = "Saving photos…"
+        Task {
+            defer { isExporting = false }
+            do {
+                let sources = try await availablePhotos(archiveID)
+                let selected = index.map { target in sources.filter { $0.id == target } } ?? sources
+                try await SessionMediaExport.save(data: selected.map(\.data), writer: photosWriter)
+                exportMessage = "\(selected.count) \(selected.count == 1 ? "photo" : "photos") saved to Photos"
+            } catch { exportMessage = (error as? MediaExportError)?.localizedDescription ?? "Could not save; source media or storage unavailable." }
+        }
+    }
+
+    func setHidden(_ ids: Set<String>, hidden: Bool) {
+        guard managementAuthorized(), let store else { statusMessage = "Unlock operator controls first."; return }
+        var saved = 0, failed = 0
+        for id in ids {
+            do {
+                try store.setHidden(archiveID: id, hidden: hidden)
+                if let index = summaries.firstIndex(where: { $0.archiveID == id }) { summaries[index].isHidden = hidden }
+                saved += 1
+            } catch { failed += 1 }
+        }
+        rebuildFilters()
+        statusMessage = "\(saved) visibility changes saved · \(failed) failed. Recovery and financial warnings remain available."
+    }
+
+    func deletionDecision(_ summary: RecentSessionArchiveSummary) -> RecordCleanupDecision {
+        do { return try mediaDeletionInspector(summary) }
+        catch { return .init(category: .cannotInspect, reason: "Recovery dependencies could not be read. Hide this session and review storage.") }
+    }
+    func deletionSize(_ id: String) async -> Int {
+        guard let store else { return 0 }
+        return await Task.detached(priority: .utility) { store.storageBytes(archiveID: id) }.value
+    }
+    func deleteSelected(_ candidates: [RecentSessionArchiveSummary]) async -> [String: String] {
+        guard managementAuthorized(), let store else { return ["error": "Unlock operator controls and check local storage."] }
+        var results: [String: String] = [:]
+        for summary in candidates {
+            let decision = deletionDecision(summary)
+            guard decision.category == .eligible else { results[summary.archiveID] = decision.reason; continue }
+            SessionMediaOperations.deleting.insert(summary.sessionIdentifier)
+            let result = await Task.detached(priority: .utility) { Result { try store.delete(archiveID: summary.archiveID) } }.value
+            SessionMediaOperations.deleting.remove(summary.sessionIdentifier)
+            switch result {
+            case .success:
+                results[summary.archiveID] = "Deleted local media."
+                summaries.removeAll { $0.archiveID == summary.archiveID }
+                galleryStatuses[summary.archiveID] = nil
+                if selectedArchiveID == summary.archiveID { selectedArchiveID = nil }
+                await thumbnails.remove(archiveID: summary.archiveID)
+            case .failure:
+                results[summary.archiveID] = "Deletion could not finish. Its saved intent prevents stale media writes; retry cleanup after checking storage."
+            }
+        }
+        rebuildFilters()
+        return results
+    }
     func delete(_ archiveID: String) {
-        guard let store else {
-            statusMessage = "Recent Sessions storage is unavailable."
-            return
-        }
-
-        do {
-            try store.delete(archiveID: archiveID)
-            refresh()
-        } catch {
-            statusMessage = error.localizedDescription
-        }
+        guard let summary = summaries.first(where: { $0.archiveID == archiveID }) else { return }
+        Task { let result = await deleteSelected([summary]); statusMessage = result[archiveID] ?? "Nothing deleted." }
     }
-
-    func clearAll() {
-        guard let store else {
-            statusMessage = "Recent Sessions storage is unavailable."
-            return
-        }
-
-        do {
-            try store.clearAll()
-            refresh()
-        } catch {
-            statusMessage = error.localizedDescription
-        }
-    }
+    func clearAll() { statusMessage = "Select sessions and review Delete Selected before removing local media." }
 
     func markReprinted(_ archiveID: String, copies: Int) {
         guard let store else {
@@ -318,6 +500,10 @@ final class ArchivedReceiptReprintController: ObservableObject {
             return
         }
 
+        guard !SessionMediaOperations.deleting.contains(archive.summary.sessionIdentifier),
+              (try? RecentSessionArchiveStore().summary(archiveID: archive.summary.archiveID)) != nil else {
+            statusMessage = "This local receipt was deleted or is being cleaned up. Nothing was sent."; return
+        }
         let copies = quantity
         let rasterizedImage = archive.rasterizedImage
         let archiveID = archive.summary.archiveID
@@ -334,11 +520,13 @@ final class ArchivedReceiptReprintController: ObservableObject {
         let batchID = UUID()
         completedCopies = 0
         currentCopy = 0
+        SessionMediaOperations.reprinting.insert(sessionID)
         isReprinting = true
         statusMessage = copies == 1 ? "Reprinting receipt..." : "Reprinting copy 1 of \(copies)..."
         debugLog("[RecentSessions] reprint start session=\(sessionID) archive=\(GalleryTokenGenerator.redacted(archiveID)) copies=\(copies) archivedFingerprint=\(fingerprint) reprintFingerprint=\(RecentSessionArchiveStore.rasterFingerprint(for: rasterizedImage))")
 
         reprintTask = Task { [weak self] in
+            defer { SessionMediaOperations.reprinting.remove(sessionID) }
             guard let self else { return }
             defer {
                 self.isReprinting = false
@@ -444,9 +632,14 @@ struct RecentSessionsView: View {
     @StateObject private var viewModel: RecentSessionsViewModel
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var filtersPresented = false
+    @State private var selecting = false
+    @State private var selectedIDs = Set<String>()
+    @State private var cleanupRequest: SessionCleanupRequest?
     @State private var scrollPosition: ScrollPosition
-    init(initialSearch: String = "", viewModel: RecentSessionsViewModel? = nil) {
+    init(initialSearch: String = "", viewModel: RecentSessionsViewModel? = nil, initialSelection: Set<String>? = nil) {
         self.initialSearch = initialSearch
+        _selecting = State(initialValue: initialSelection != nil)
+        _selectedIDs = State(initialValue: initialSelection ?? [])
         let model = viewModel ?? RecentSessionsViewModel()
         _viewModel = StateObject(wrappedValue: model)
         _scrollPosition = State(initialValue: ScrollPosition(idType: String.self, y: model.browserOffset))
@@ -489,6 +682,7 @@ struct RecentSessionsView: View {
             viewModel.refresh()
         }
         .sheet(isPresented: $filtersPresented) { filterSheet }
+        .sheet(item: $cleanupRequest, onDismiss: { selectedIDs.formIntersection(Set(viewModel.summaries.map(\.archiveID))) }) { request in SessionCleanupReview(candidates: request.candidates, model: viewModel) }
     }
 
     private func browser(wide: Bool) -> some View {
@@ -510,6 +704,24 @@ struct RecentSessionsView: View {
                     VStack(alignment: .leading) { filterControls; displayControl }
                 }
             }.padding(16)
+            HStack {
+                Button(selecting ? "Done Selecting" : "Select") { selecting.toggle(); selectedIDs.removeAll() }.frame(minHeight: 44)
+                Toggle("Show Hidden", isOn: $viewModel.showsHidden).toggleStyle(.button).frame(minHeight: 44)
+                Spacer()
+            }.padding(.horizontal, 16)
+            if selecting {
+                VStack(alignment: .leading) {
+                    HStack {
+                        Button("Select All Visible") { selectedIDs = Set(viewModel.filteredSummaries.map(\.archiveID)) }
+                        Button("Deselect") { selectedIDs.removeAll() }
+                        Text("\(selectedIDs.count) selected").font(.caption)
+                    }.frame(minHeight: 44)
+                    ViewThatFits(in: .horizontal) {
+                        HStack { selectedActions }
+                        VStack(alignment: .leading) { selectedActions }
+                    }
+                }.padding(.horizontal, 16)
+            }
             ScrollViewReader { _ in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -555,6 +767,14 @@ struct RecentSessionsView: View {
                     scrollPosition.scrollTo(y: viewModel.browserOffset)
                 }
             }
+            HStack {
+                Button(viewModel.isVerifying ? "Cancel Recheck" : "Recheck Unverified Galleries") {
+                    if viewModel.isVerifying { viewModel.cancelVerification() }
+                    else { viewModel.verifyGalleries(selectedIDs.isEmpty ? viewModel.filteredSummaries : viewModel.filteredSummaries.filter { selectedIDs.contains($0.archiveID) }) }
+                }.frame(minHeight: 44)
+            }
+            if !viewModel.verificationResult.isEmpty { Text(viewModel.verificationResult).font(.caption).padding(.horizontal) }
+            if !viewModel.exportMessage.isEmpty { Text(viewModel.exportMessage).font(.callout).padding(.horizontal).accessibilityAddTraits(.updatesFrequently) }
             if !viewModel.statusMessage.isEmpty {
                 Text(viewModel.statusMessage).font(.caption).foregroundStyle(OperatorPalette.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.vertical, 8)
@@ -575,10 +795,34 @@ struct RecentSessionsView: View {
             Label(viewModel.usesPhotoGrid ? "List" : "Photos", systemImage: viewModel.usesPhotoGrid ? "list.bullet" : "square.grid.2x2").frame(minHeight: 44)
         }.buttonStyle(.bordered).accessibilityIdentifier("sessions-display")
     }
+    @ViewBuilder private var selectedActions: some View {
+        Button("Hide Selected") { viewModel.setHidden(selectedIDs, hidden: true); selectedIDs.removeAll() }.frame(minHeight: 44).disabled(selectedIDs.isEmpty)
+        Button("Delete Selected", role: .destructive) {
+            cleanupRequest = SessionCleanupRequest(candidates: viewModel.summaries.filter { selectedIDs.contains($0.archiveID) })
+        }.frame(minHeight: 44).disabled(selectedIDs.isEmpty)
+    }
     private func sessionButton(_ summary: RecentSessionArchiveSummary, grid: Bool) -> some View {
-        Button { viewModel.selectedArchiveID = summary.archiveID } label: {
-            RecentSessionRow(summary: summary, viewModel: viewModel, photoGrid: grid).equatable()
-        }.buttonStyle(.plain).accessibilityIdentifier("session-\(summary.archiveID)")
+        HStack(spacing: 0) {
+            if selecting {
+                Button {
+                    if !selectedIDs.insert(summary.archiveID).inserted { selectedIDs.remove(summary.archiveID) }
+                } label: { Image(systemName: selectedIDs.contains(summary.archiveID) ? "checkmark.circle.fill" : "circle").frame(width: 44, height: 44) }
+                    .accessibilityLabel("Select session at \(summary.createdAt.formatted())")
+                    .accessibilityAddTraits(selectedIDs.contains(summary.archiveID) ? .isSelected : [])
+            }
+            Button { viewModel.selectedArchiveID = summary.archiveID } label: {
+                RecentSessionRow(summary: summary, viewModel: viewModel, photoGrid: grid).equatable()
+            }.buttonStyle(.plain).accessibilityIdentifier("session-\(summary.archiveID)")
+            Menu {
+                Button("View Session") { viewModel.selectedArchiveID = summary.archiveID }
+                Button("View Original Receipt") { viewModel.selectedArchiveID = summary.archiveID }
+                Button("Save Receipt to Photos") { viewModel.exportReceipt(summary.archiveID) }
+                Button("Save Available Photos") { viewModel.exportPhotos(summary.archiveID) }
+                Button(summary.isHidden ? "Restore Visibility" : "Hide Session") { viewModel.setHidden([summary.archiveID], hidden: !summary.isHidden) }
+                Button("Delete Local Session Permanently", role: .destructive) { cleanupRequest = SessionCleanupRequest(candidates: [summary]) }
+            } label: { Label("Manage", systemImage: "ellipsis.circle").labelStyle(.iconOnly).frame(width: 44, height: 44) }
+                .accessibilityLabel("Manage session")
+        }
     }
     private var filterSheet: some View {
         NavigationStack {
@@ -673,6 +917,10 @@ struct ArchivedSessionDetailView: View {
     @State private var archive: RecentSessionArchive?
     @State private var receiptImage: UIImage?
     @State private var thumbnails: [UIImage] = []
+    @State private var photoSources: [SessionPhotoSource] = []
+    @State private var selectedPhoto: SessionPhotoSource?
+    @State private var photoLoadMessage = ""
+    @State private var isReviewingDeletion = false
     @State private var galleryLink: ArchivedGalleryLink?
     @State private var galleryQR: UIImage?
     @State private var loadError: String?
@@ -701,6 +949,7 @@ struct ArchivedSessionDetailView: View {
                                 galleryCard(archive)
                                 reprintCard(archive)
                                 technicalCard(archive)
+                                managementCard
                             }
                         }
                     } else if let loadError {
@@ -747,6 +996,18 @@ struct ArchivedSessionDetailView: View {
             operations.refresh()
             loadArchive()
         }
+        .sheet(isPresented: $isReviewingDeletion) { SessionCleanupReview(candidates: [summary], model: rootViewModel) }
+        .sheet(item: $selectedPhoto) { photo in
+            NavigationStack {
+                VStack {
+                    SessionPhotoPreview(source: photo)
+                    Text(photo.quality.rawValue).font(.callout)
+                    Button("Save Photo to Photos") { rootViewModel.exportPhotos(summary.archiveID, index: photo.id) }.frame(minHeight: 44).disabled(rootViewModel.isExporting)
+                    if !rootViewModel.exportMessage.isEmpty { Text(rootViewModel.exportMessage).font(.callout) }
+                }.padding().navigationTitle("Photo \(photo.id + 1)")
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { selectedPhoto = nil } } }
+            }
+        }
         .sheet(isPresented: $isShowingFullReceiptPreview) {
             FullReceiptPreviewSheet(image: receiptImage)
         }
@@ -759,6 +1020,7 @@ struct ArchivedSessionDetailView: View {
         photosCard
         reprintCard(archive)
         technicalCard(archive)
+        managementCard
     }
 
     private var parsedPort: UInt16? {
@@ -786,6 +1048,8 @@ struct ArchivedSessionDetailView: View {
                 thumbnails = decoded.1
                 galleryQR = decoded.2
                 loadError = nil
+                do { photoSources = try await rootViewModel.availablePhotos(summary.archiveID) }
+                catch { photoLoadMessage = "Available photo sources could not be read. Check local storage; original media was not changed." }
             case .failure(let error):
                 archive = nil
                 loadError = error.localizedDescription
@@ -853,6 +1117,10 @@ struct ArchivedSessionDetailView: View {
                 }
                 .buttonStyle(.bordered)
                 .tint(OperatorPalette.accent)
+                Button { rootViewModel.exportReceipt(summary.archiveID) } label: {
+                    Label("Save Receipt to Photos", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity, minHeight: 44)
+                }.buttonStyle(.borderedProminent).tint(OperatorPalette.accent).disabled(rootViewModel.isExporting)
+                if !rootViewModel.exportMessage.isEmpty { Text(rootViewModel.exportMessage).font(.callout).accessibilityAddTraits(.updatesFrequently) }
             } else {
                 Text("This archive does not include a readable receipt preview.")
                     .foregroundStyle(OperatorPalette.secondaryText)
@@ -861,11 +1129,7 @@ struct ArchivedSessionDetailView: View {
     }
 
     private func galleryStatus(_ archive: RecentSessionArchive) -> ArchivedGalleryStatus {
-        ArchivedGalleryStatus.resolve(
-            linkIsValid: galleryLink?.isValid ?? false,
-            pendingItem: operations.pendingUploads.first { $0.galleryToken == archive.galleryToken },
-            verifiedAt: (try? EventRunStore.shared.session(id: archive.summary.sessionIdentifier))?.galleryVerifiedAt
-        )
+        rootViewModel.galleryStatus(for: archive.summary)
     }
 
     private func galleryCard(_ archive: RecentSessionArchive) -> some View {
@@ -920,6 +1184,9 @@ struct ArchivedSessionDetailView: View {
                         .accessibilityAddTraits(.updatesFrequently)
                 }
             }
+            Button(rootViewModel.isVerifying ? "Verifying…" : "Verify Gallery") { rootViewModel.verifyGalleries([summary], includeReady: true) }
+                .buttonStyle(.bordered).frame(minHeight: 44).disabled(rootViewModel.isVerifying || galleryLink?.url == nil)
+            if !rootViewModel.verificationResult.isEmpty { Text(rootViewModel.verificationResult).font(.footnote) }
             NavigationLink {
                 PendingUploadsView()
             } label: {
@@ -953,28 +1220,39 @@ struct ArchivedSessionDetailView: View {
     }
 
     private var photosCard: some View {
-        card("Photos", systemImage: "photo.on.rectangle") {
-            if thumbnails.isEmpty {
-                Text("No photo thumbnails were saved with this archive.")
+        card("Individual Photos", systemImage: "photo.on.rectangle") {
+            if photoSources.isEmpty {
+                Text(photoLoadMessage.isEmpty ? "No individual photos are available for export in this local archive." : photoLoadMessage)
                     .foregroundStyle(OperatorPalette.secondaryText)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
-                        ForEach(Array(thumbnails.enumerated()), id: \.offset) { index, image in
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 104, height: 136)
-                                .clipped()
-                                .padding(4)
-                                .background(Color.white)
-                                .shadow(color: .black.opacity(0.1), radius: 3, x: 0, y: 1)
-                                .accessibilityLabel("Photo \(index + 1)")
+                        ForEach(photoSources) { photo in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Button { selectedPhoto = photo } label: {
+                                    ExportPhotoThumbnail(data: photo.data).frame(width: 120, height: 152).clipped()
+                                }.accessibilityLabel("View photo \(photo.id + 1), \(photo.quality.rawValue)")
+                                Text(photo.quality.rawValue).font(.caption).frame(width: 120, alignment: .leading)
+                                Button("Save Photo \(photo.id + 1)") { rootViewModel.exportPhotos(summary.archiveID, index: photo.id) }
+                                    .frame(minHeight: 44).disabled(rootViewModel.isExporting)
+                            }
                         }
                     }
-                    .padding(.vertical, 4)
                 }
+                Button("Save All Photos") { rootViewModel.exportPhotos(summary.archiveID) }.frame(minHeight: 44)
+                    .buttonStyle(.bordered).disabled(rootViewModel.isExporting)
+                Text(photoSources.contains(where: { $0.quality == .thumbnail })
+                    ? "Only small thumbnails remain for these photos. Saved Photos copies remain after local archive deletion."
+                    : "Save uses the retained individual photo data. Photos-library copies remain after local archive deletion.")
+                    .font(.footnote).foregroundStyle(OperatorPalette.secondaryText)
             }
+        }
+    }
+    private var managementCard: some View {
+        let hidden = rootViewModel.summaries.first { $0.archiveID == summary.archiveID }?.isHidden ?? summary.isHidden
+        return card("Session Management", systemImage: "tray") {
+            Button(hidden ? "Restore Visibility" : "Hide Session") { rootViewModel.setHidden([summary.archiveID], hidden: !hidden) }.frame(minHeight: 44)
+            Button("Delete Local Session Permanently", role: .destructive) { isReviewingDeletion = true }.frame(minHeight: 44)
         }
     }
 

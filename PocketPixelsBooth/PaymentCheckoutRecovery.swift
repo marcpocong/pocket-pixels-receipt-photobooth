@@ -60,6 +60,7 @@ nonisolated struct CheckoutCheckpoint: Codable, Equatable, Identifiable, Sendabl
     }
     var localClosureHistory: [LocalClosure]? = nil
     var physicalReviewAt: Date? = nil
+    var hiddenAt: Date? = nil
 
     var isResolved: Bool { resolution != nil }
     var isParked: Bool { locallyClosedAt != nil || detachedAt != nil }
@@ -86,7 +87,7 @@ final class CheckoutCheckpointStore {
     static let shared: CheckoutCheckpointStore? = try? CheckoutCheckpointStore()
     static let retainedResolvedCount = 100
 
-    private struct FilePayload: Codable { var checkpoints: [CheckoutCheckpoint] }
+    private struct FilePayload: Codable { var checkpoints: [CheckoutCheckpoint]; var deletedIDs: Set<String>? = nil }
 
     private let url: URL
     private let writer: Writer
@@ -156,6 +157,7 @@ final class CheckoutCheckpointStore {
     /// Fail-closed write before the first server mutation of a checkout. Re-beginning the same
     /// checkout session (a superseding checkout) keeps its history and only advances it.
     func begin(_ checkpoint: CheckoutCheckpoint) throws {
+        guard payload.deletedIDs?.contains(checkpoint.id) != true else { throw StoreError.integrityFault("This checkout was permanently cleaned up. Start a new guest checkout.") }
         if let integrityFault { throw StoreError.integrityFault(integrityFault) }
         var candidate = payload
         if let index = candidate.checkpoints.firstIndex(where: { $0.id == checkpoint.id }) {
@@ -207,6 +209,16 @@ final class CheckoutCheckpointStore {
             $0.localCloseReason = reason
             $0.localClosureHistory = ($0.localClosureHistory ?? []) + [.init(reason: reason, closedAt: now)]
         }
+    }
+
+    /// Durable tombstone and checkpoint removal share one atomic commit. Late enrichment can
+    /// never recreate the deleted checkpoint; original financial and print journals stay intact.
+    func deleteCheckpoint(id: String) throws {
+        if let integrityFault { throw StoreError.integrityFault(integrityFault) }
+        var next = payload
+        next.checkpoints.removeAll { $0.id == id }
+        next.deletedIDs = (next.deletedIDs ?? []).union([id])
+        try commit(next)
     }
 
     /// Operator acknowledgement of a quarantined file; unresolved server orders remain visible
@@ -432,13 +444,24 @@ final class PaymentRecoveryCoordinator: ObservableObject {
     private(set) var completedRefreshPasses = 0
     private let checkpointStore: @MainActor () -> CheckoutCheckpointStore?
     private let reader: @MainActor () -> (any CheckoutRecoveryReading)?
+    let managementAuthorized: @MainActor () -> Bool
+    let inspectManagementDependencies: @MainActor (String) async throws -> CheckoutManagementSnapshot
     private let outboxClient: @MainActor () -> PaymentsAPIClient?
 
     init(checkpointStore: @escaping @MainActor () -> CheckoutCheckpointStore? = { CheckoutCheckpointStore.shared },
          reader: @escaping @MainActor () -> (any CheckoutRecoveryReading)? = { PaymentsConfiguration.current().map { PaymentsAPIClient(configuration: $0) } },
-         outboxClient: @escaping @MainActor () -> PaymentsAPIClient? = { PaymentsConfiguration.current().map { PaymentsAPIClient(configuration: $0) } }) {
+         outboxClient: @escaping @MainActor () -> PaymentsAPIClient? = { PaymentsConfiguration.current().map { PaymentsAPIClient(configuration: $0) } },
+         managementAuthorized: @escaping @MainActor () -> Bool = { OperatorAccessPermit.shared.isAuthorized },
+         inspectManagementDependencies: @escaping @MainActor (String) async throws -> CheckoutManagementSnapshot = { try await CheckoutManagementSnapshot.inspect($0) }) {
         self.checkpointStore = checkpointStore; self.reader = reader; self.outboxClient = outboxClient
+        self.managementAuthorized = managementAuthorized; self.inspectManagementDependencies = inspectManagementDependencies
     }
+
+    var managementStore: CheckoutCheckpointStore? { checkpointStore() }
+    var managementReader: (any CheckoutRecoveryReading)? { reader() }
+    var activeInterruptionCount: Int { activeItems.filter { !$0.classification.isTerminal }.count }
+    var parkedFollowUpCount: Int { outstandingItems.filter { !$0.classification.isTerminal }.count }
+    var archivedCheckpoints: [CheckoutCheckpoint] { checkpointStore()?.all.filter { $0.isResolved || $0.hiddenAt != nil } ?? [] }
 
     /// Items an attendant should look at (never shown with any detail on guest screens).
     var needsAttention: Bool {

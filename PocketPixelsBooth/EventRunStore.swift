@@ -330,6 +330,10 @@ nonisolated struct EventRunSession: Codable, Identifiable, Equatable, Sendable {
         // Idempotent after a successful removal; no other record is ever removed by a replay.
         guard runs.contains(where: { $0.id == id }) else { return }
         if let reason = unusedRunDeletionReason(id: id, archives: archives, inspectionComplete: inspectionComplete) { throw SetupFailure(reason) }
+        let deleted = try RecentSessionArchiveStore().deletedSessionEvidence()
+        if let run = runs.first(where: { $0.id == id }), deleted.contains(where: { $0.eventRunID == id || ($0.eventRunID == nil && $0.createdAt >= run.createdAt) }) {
+            throw SetupFailure("Removed local media still has historical session evidence. Archive this run instead.")
+        }
         try commitManifest(runs.filter { $0.id != id }, currentID: currentRunID)
     }
 

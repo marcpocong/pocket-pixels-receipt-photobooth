@@ -46,6 +46,7 @@ nonisolated struct ProductionHealthReport: Equatable, Sendable {
         var galleryStorageProblem: Bool
         var storageErrors: [String]
         var pendingCreation: Bool
+        var parkedFinancialFollowUps: Int = 0
     }
 
     let generatedAt: Date
@@ -109,8 +110,14 @@ nonisolated struct ProductionHealthReport: Equatable, Sendable {
         if input.checkoutIntegrityFault { payment = (.review, "Checkout records need review in Payment Recovery.") }
         else if input.checkoutsNeedingAttention > 0 { payment = (.review, "\(input.checkoutsNeedingAttention) checkout(s) need review in Payment Recovery. Last checked \(time(input.lastRecoveryCheck)).") }
         else if input.lastRecoveryCheck == nil { payment = (.unavailable, "No complete payment-recovery check since launch.") }
-        else { payment = (.ready, "No interrupted checkouts. Last checked \(time(input.lastRecoveryCheck)).") }
-        items.append(Item(id: "payments", title: "Payment recovery", level: payment.0, detail: payment.1))
+        else { payment = (.ready, "No active interrupted checkouts. Last checked \(time(input.lastRecoveryCheck)).") }
+        items.append(Item(id: "payments", title: "Active Checkout Interruptions", level: payment.0, detail: payment.1))
+
+        items.append(Item(id: "parked-payments", title: "Parked Financial Follow-up",
+            level: input.parkedFinancialFollowUps > 0 ? .warning : .ready,
+            detail: input.parkedFinancialFollowUps > 0
+                ? "\(input.parkedFinancialFollowUps) closed guest interaction(s) still need financial follow-up. Payment may be pending, unknown, paid but unfinished, or awaiting review. These do not block unrelated guests or event setup."
+                : "No parked financial obligations awaiting reconciliation."))
 
         let gallery: (Level, String) = input.galleryStorageProblem ? (.review, "Gallery storage needs review.")
             : input.pendingGalleries > 0 ? (.warning, "\(input.pendingGalleries) gallery upload(s) waiting. They keep uploading while online.")
@@ -154,12 +161,15 @@ struct ProductionHealthSheet: View {
     @ObservedObject private var library = EventDesignLibraryStore.shared
     @Binding var isPresented: Bool
     let loadsRemote: Bool
+    var reportOverride: ProductionHealthReport? = nil
 
     private var report: ProductionHealthReport {
+        if let reportOverride { return reportOverride }
         let outbox = PrintOutcomeOutbox.shared?.summary
         let configuration = PaymentsConfiguration.current()
         let runs = lifecycle.runs
         var errors = [runs.storageError, acceptance.storageError, attributions.storageError, creations.storageError, library.storageError].compactMap { $0 }
+        if UserDefaults.standard.bool(forKey: SessionMediaExport.retentionErrorKey) { errors.append("Original photo retention needs review in Gallery Setup.") }
         if CheckoutCheckpointStore.shared == nil { errors.append("Checkout records are unavailable.") }
         return ProductionHealthReport(.init(
             admissionOpen: !acceptance.state.blocked, eventStatus: lifecycle.status, runID: runs.current?.id, runStatus: runs.current?.status,
@@ -167,10 +177,10 @@ struct ProductionHealthSheet: View {
             lastEventCheck: lifecycle.lastCheckedAt, paymentsConfigured: configuration != nil, environment: configuration?.environment,
             printerRequiresRecovery: printer.requiresRecovery, unresolvedPrint: operations.hasUnresolvedPrint, printerLastReported: printer.state.message,
             printAccountingConflicts: outbox?.conflicts ?? 0, printAccountingPending: outbox?.pending ?? 0,
-            checkoutsNeedingAttention: recovery.activeItems.filter { !$0.classification.isTerminal }.count,
+            checkoutsNeedingAttention: recovery.activeInterruptionCount,
             checkoutIntegrityFault: CheckoutCheckpointStore.shared?.integrityFault != nil, lastRecoveryCheck: recovery.lastRefreshCompletedAt,
             pendingGalleries: operations.pendingUploadCount, galleryStorageProblem: operations.queueError != nil, storageErrors: errors,
-            pendingCreation: creations.open(binding: OperatorWorkspace.shared.serverBinding) != nil))
+            pendingCreation: creations.open(binding: OperatorWorkspace.shared.serverBinding) != nil, parkedFinancialFollowUps: recovery.parkedFollowUpCount))
     }
     private var appVersion: String {
         let info = Bundle.main.infoDictionary

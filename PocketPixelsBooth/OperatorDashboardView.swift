@@ -31,12 +31,12 @@ struct OperatorDashboardView: View {
                         equipmentButton("Booth Settings", detail: "Copies, formats, footer & branding", symbol: "slider.horizontal.3", route: .regularBooth, ready: true)
                         equipmentButton("Recent Sessions", detail: "Find a guest's receipt or gallery", symbol: "photo.stack", route: .recentSessions, ready: true)
                         equipmentButton(lifecycle.runs.operational == nil ? "Start Event" : "Manage Event", detail: "Setup, design and saved drafts", symbol: "calendar", route: lifecycle.runs.operational == nil ? .newEvent : .sessionSetup, ready: true)
-                        equipmentButton("Help & Recovery", detail: "Close an interrupted guest or review a receipt", symbol: "lifepreserver", route: .recovery, ready: !recovery.needsAttention)
+                        equipmentButton("Help & Recovery", detail: "\(recovery.activeInterruptionCount) active checkout interruption(s) · receipt recovery", symbol: "lifepreserver", route: .recovery, ready: !recovery.needsAttention)
                     }
                     if !status.attentionItems.isEmpty { OperatorAttentionCard(items: status.attentionItems, workspace: workspace) }
-                    if !recovery.outstandingItems.isEmpty {
+                    if recovery.parkedFollowUpCount > 0 {
                         Button { workspace.navigate(to: .recovery) } label: {
-                            Label("\(recovery.outstandingItems.count) outstanding payment(s) · guests closed · review separately", systemImage: "creditcard")
+                            Label("\(recovery.parkedFollowUpCount) parked financial follow-up(s) · guests closed · review separately", systemImage: "creditcard")
                                 .font(.callout).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                         }.buttonStyle(.bordered)
                     }

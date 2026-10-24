@@ -39,7 +39,8 @@ nonisolated enum SessionArchiveCommitter {
             receiptPreviewPNGData: payload.receiptPreviewPNGData,
             thermalPreviewPNGData: payload.thermalPreviewPNGData,
             rasterizedImage: payload.rasterizedImage,
-            photoThumbnailData: []
+            photoThumbnailData: [],
+            eventRunID: payload.eventRunID, eventDesignID: payload.eventDesignID
         )
         try store.save(critical)
         BoothDiagnostics.archive.info("Archive print payload committed session=\(payload.committedSession.sessionIdentifier, privacy: .public)")

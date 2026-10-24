@@ -39,10 +39,11 @@ final class GalleryDeliveryHardeningTests: XCTestCase {
             XCTAssertEqual(retained.photos.map(\.data), payload.photos.map(\.data))
             XCTAssertEqual(retained.thermalReceipt?.data, payload.thermalReceipt?.data)
             XCTAssertEqual(try reopened.summaries().first?.retryAttemptCount, 1)
-            if [.lostConnection, .timeout, .malformed, .pendingPage, .serverError].contains(scenario) {
+            if [.lostConnection, .timeout, .malformed, .serverError].contains(scenario) {
                 XCTAssertEqual(retained.deliveryState, .deliveryUnknown, "\(scenario)")
             }
             if scenario == .pendingPage {
+                XCTAssertEqual(retained.deliveryState, .posted, "An accepted POST retries verification only")
                 XCTAssertEqual(DeliveryProtocol.requests.map(\.httpMethod), ["POST", "GET"])
                 XCTAssertEqual(URLComponents(url: try XCTUnwrap(DeliveryProtocol.requests.last?.url), resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "galleryStatus" })?.value, "1")
                 XCTAssertNil(DeliveryProtocol.requests.last?.value(forHTTPHeaderField: "Authorization"))
