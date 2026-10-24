@@ -254,6 +254,7 @@ import SwiftUI
         let ended = await booth.lifecycle().end(scope: .thisBooth)
         XCTAssertTrue(ended)
         XCTAssertEqual(booth.lifecycle().status, .regular)
+        journal = try PrintOutcomeOutbox(directory: booth.directory)
         XCTAssertEqual(journal.entries, oldEvidence, "Normal operation must never erase or rewrite the unknown outcome")
         XCTAssertEqual(try recoveryStore.retainedSessions().first?.photoJPEGData, saved.photoJPEGData)
         XCTAssertThrowsError(try journal.beginCopy(batchID: "old-batch", sessionID: "old-guest", entitlementID: nil,

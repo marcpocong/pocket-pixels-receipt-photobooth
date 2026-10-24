@@ -27,8 +27,20 @@ No print transport, receipt raster, camera, server/payment endpoint, entitlement
 
 Additional tests cover local unknown history versus pending/conflicted/acknowledged server reports when changing the payments connection, correct recovery destinations, Regular Booth health, report-only status, and current physical receipt warnings.
 
-Focused validation: **104 passed**, zero failures/skips/runtime warnings. Debug simulator and signed device Release builds passed. Full production-suite results and device-update evidence are recorded in the completion report/PR after the run finishes. All hardware behavior in these tests is simulated; no physical receipt or LIVE payment/event was initiated.
+Validation on app source `2b6ada0`:
+
+| Check | Result |
+| --- | --- |
+| Focused recovery, lifecycle, payments, health, screens and printer tests | **104 passed**, no failures/skips/runtime warnings |
+| Complete iOS 26.5 production suite | **761 passed**, no failures/skips |
+| Final full-cycle test with journal reopened from disk after event end | **1 passed**, no failures/skips/runtime warnings |
+| Debug simulator and signed device Release builds | Passed |
+| PR backend checks (payments, monitoring, gallery proxy, Apps Script) | Passed |
+
+The complete suite retained the previously documented internal QoS priority-inversion warning; no new functional failure occurred. The final test-only follow-up strengthens the on-disk journal assertion and changes no app/backend source. All hardware behavior in automated tests is simulated; no physical receipt or LIVE payment/event was initiated. [PR #15](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/pull/15) contains the independent remote CI status.
 
 ## Real-device follow-up
+
+The signed Release build was installed in place on Carlo under the owner's existing update authorization. All 4,168 protected data paths remained present; all 3,593 protected file sizes were unchanged immediately after installation. Launch initially required Carlo to be unlocked; after the owner unlocked it, launch and the installed process were verified. The print journal was byte-for-byte unchanged after launch, including its historical unknown outcome. No uninstall, device-data deletion, physical print or LIVE payment/event was performed. This verifies installation/launch and retention, not physical camera/printer acceptance.
 
 Use the [iPad acceptance checklist](operator-experience-v3-ipad-checklist.md), especially acknowledgment/relaunch, a different interrupted receipt, and operation with old unknown history. Camera, physical printer/paper behavior and VoiceOver still need owner-supervised acceptance with separate printing/payment authorization.

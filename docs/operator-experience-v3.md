@@ -4,6 +4,8 @@ Implemented on `feature/operator-experience-v3`, based on `179822a`. Validation 
 
 Merge and release checks: [PR #14](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/pull/14). The owner subsequently authorized merging to main and updating Carlo in place. Physical printing and LIVE payment/event activation remain separately restricted.
 
+October 24 hardening: [recovery friction prevention](recovery-friction-prevention.md), [PR #15](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/pull/15). Shared current-recovery checks, correct action destinations and full-cycle regression coverage guard against history becoming an operational lock. The follow-up complete iOS suite passed 761 tests.
+
 ## Operator navigation
 
 | Task | Navigation |
