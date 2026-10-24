@@ -86,6 +86,28 @@ nonisolated protocol SessionSetupAPI: Sendable {
 extension PaymentsAPIClient: SessionSetupAPI {}
 
 @MainActor enum SessionSetupSafety {
+    enum RecoveryIssue: Equatable {
+        case receiptCheck, interruptedGuest, storageUnavailable, interruptedCheckout, damagedPrintRecords, unfinishedSend
+
+        var message: String {
+            switch self {
+            case .receiptCheck: "Check the previous receipt in Fix Printer before switching booth setup. It may already have printed."
+            case .interruptedGuest: "Open Help & Recovery to finish or keep the interrupted guest session before switching booth setup."
+            case .storageUnavailable: "Saved recovery records could not be opened. Open Help & Recovery before switching booth setup."
+            case .interruptedCheckout: "Resolve interrupted checkouts in Payment Recovery before changing operation."
+            case .damagedPrintRecords: "Saved print records need review in Advanced → Payment Maintenance before switching booth setup."
+            case .unfinishedSend: "Wait for the current receipt to finish before switching booth setup."
+            }
+        }
+
+        var destination: OperatorWorkspaceRoute {
+            switch self {
+            case .receiptCheck, .interruptedGuest, .storageUnavailable, .unfinishedSend: .recovery
+            case .interruptedCheckout, .damagedPrintRecords: .payments
+            }
+        }
+    }
+
     static var blockingReason: String? {
         let operations = EventOperationalState.shared
         if operations.customerSessionActive || PrinterCoordinator.shared.isWorking { return "Finish the guest session and printing before changing session operation." }
@@ -93,23 +115,49 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     }
     /// Current financial or physical-print obligations, excluding historical outcome reports.
     static var recoveryReason: String? {
+        currentRecoveryIssue?.message
+    }
+
+    static var recoveryDestination: OperatorWorkspaceRoute { currentRecoveryIssue?.destination ?? .payments }
+
+    private static var currentRecoveryIssue: RecoveryIssue? {
         let operations = EventOperationalState.shared
-        return recoveryReason(needsReceiptCheck: operations.hasUnresolvedPrint || PrinterCoordinator.shared.requiresRecovery,
+        return recoveryIssue(needsReceiptCheck: operations.hasUnresolvedPrint || PrinterCoordinator.shared.requiresRecovery,
                               hasPendingSession: operations.hasPendingSessionRecovery,
                               checkpoints: CheckoutCheckpointStore.shared, outbox: PrintOutcomeOutbox.shared)
     }
 
     static func recoveryReason(needsReceiptCheck: Bool, hasPendingSession: Bool,
                                checkpoints: CheckoutCheckpointStore?, outbox: PrintOutcomeOutbox?) -> String? {
-        if needsReceiptCheck { return "Check the previous receipt in Fix Printer before switching booth setup. It may already have printed." }
-        if hasPendingSession { return "Open Help & Recovery to finish or keep the interrupted guest session before switching booth setup." }
-        guard let checkpoints, let outbox else { return "Saved recovery records could not be opened. Open Help & Recovery before switching booth setup." }
-        if checkpoints.integrityFault != nil || !checkpoints.unresolved.isEmpty { return "Resolve interrupted checkouts in Payment Recovery before changing operation." }
-        if outbox.integrityFault != nil { return "Saved print records need review in Advanced → Payment Maintenance before switching booth setup." }
-        if outbox.summary.awaiting > 0 { return "Wait for the current receipt to finish before switching booth setup." }
+        recoveryIssue(needsReceiptCheck: needsReceiptCheck, hasPendingSession: hasPendingSession, checkpoints: checkpoints, outbox: outbox)?.message
+    }
+
+    static func recoveryIssue(needsReceiptCheck: Bool, hasPendingSession: Bool,
+                              checkpoints: CheckoutCheckpointStore?, outbox: PrintOutcomeOutbox?) -> RecoveryIssue? {
+        if needsReceiptCheck { return .receiptCheck }
+        if hasPendingSession { return .interruptedGuest }
+        guard let checkpoints, let outbox else { return .storageUnavailable }
+        if checkpoints.integrityFault != nil || !checkpoints.unresolved.isEmpty { return .interruptedCheckout }
+        if outbox.integrityFault != nil { return .damagedPrintRecords }
+        if outbox.hasUnfinishedPhysicalSend { return .unfinishedSend }
         // Reports contain their original session/entitlement identity. Sending them never prints,
         // and switching events cannot change their meaning. A retained uncertain outcome must
         // stay uncertain without becoming a permanent global lock after recovery was handled.
+        return nil
+    }
+
+    static var paymentConnectionChangeReason: String? {
+        let operations = EventOperationalState.shared, printer = PrinterCoordinator.shared
+        return paymentConnectionChangeReason(activeGuest: operations.customerSessionActive, printerWorking: printer.isWorking,
+            needsReceiptCheck: operations.hasUnresolvedPrint || printer.requiresRecovery, hasPendingSession: operations.hasPendingSessionRecovery,
+            checkpoints: CheckoutCheckpointStore.shared, outbox: PrintOutcomeOutbox.shared)
+    }
+
+    static func paymentConnectionChangeReason(activeGuest: Bool, printerWorking: Bool, needsReceiptCheck: Bool, hasPendingSession: Bool,
+                                             checkpoints: CheckoutCheckpointStore?, outbox: PrintOutcomeOutbox?) -> String? {
+        if activeGuest || printerWorking { return "Finish the current guest session and print job before changing the payments connection." }
+        if let issue = recoveryIssue(needsReceiptCheck: needsReceiptCheck, hasPendingSession: hasPendingSession, checkpoints: checkpoints, outbox: outbox) { return issue.message }
+        if outbox?.hasUnresolvedServerReports == true { return "Send or review saved print reports in Payment Maintenance before changing the payments connection." }
         return nil
     }
 }

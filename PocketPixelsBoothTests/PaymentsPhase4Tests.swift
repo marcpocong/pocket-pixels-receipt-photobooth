@@ -98,6 +98,50 @@ private func stubClient() -> PaymentsAPIClient {
 @Suite("Durable print outbox", .serialized)
 @MainActor
 struct PrintOutboxTests {
+    @Test func paymentsConnectionUsesOutstandingReportsNotUnknownHistory() throws {
+        let root = tempDirectory("connection-obligations")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let outbox = try PrintOutcomeOutbox(directory: root)
+        let checkpoints = try CheckoutCheckpointStore(directory: root)
+        func connectionReason(_ receipt: Bool = false, _ session: Bool = false, active: Bool = false, busy: Bool = false) -> String? {
+            SessionSetupSafety.paymentConnectionChangeReason(activeGuest: active, printerWorking: busy, needsReceiptCheck: receipt,
+                hasPendingSession: session, checkpoints: checkpoints, outbox: outbox)
+        }
+        try beginCopy(outbox, 1, of: 1, entitlement: nil)
+        #expect(outbox.hasUnfinishedPhysicalSend)
+        #expect(connectionReason() != nil)
+        outbox.finishCopy(batchID: "batch-1", copyIndex: 1, state: .uncertain)
+        #expect(!outbox.hasUnfinishedPhysicalSend && !outbox.hasUnresolvedServerReports)
+        #expect(connectionReason() == nil, "Retained local print history cannot permanently lock the payments connection")
+        #expect(connectionReason(true) != nil)
+        #expect(connectionReason(false, true) != nil)
+        #expect(connectionReason(active: true) != nil && connectionReason(busy: true) != nil)
+        try beginCopy(outbox, 1, of: 1, batch: "paid-batch")
+        outbox.finishCopy(batchID: "paid-batch", copyIndex: 1, state: .uncertain)
+        let paid = try #require(outbox.entries.first { $0.batchID == "paid-batch" })
+        #expect(outbox.hasUnresolvedServerReports && connectionReason() != nil)
+        #expect(SessionSetupSafety.recoveryReason(needsReceiptCheck: false, hasPendingSession: false, checkpoints: checkpoints, outbox: outbox) == nil)
+        outbox.markConflict(id: paid.id, code: "review-needed")
+        #expect(connectionReason() != nil, "A connection change must not strand a report conflict")
+        outbox.markReported(id: paid.id)
+        #expect(connectionReason() == nil)
+        #expect(outbox.summary.uncertain == 2, "Server acknowledgment never turns unknown paper output into success")
+        #expect(throws: PrintOutcomeOutbox.OutboxError.copyAlreadyAttempted(1)) { try beginCopy(outbox, 1, of: 1, batch: "paid-batch") }
+    }
+
+    @Test func recoveryGuidanceOpensTheActionThatCanResolveIt() throws {
+        let root = tempDirectory("guided-recovery")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let outbox = try PrintOutcomeOutbox(directory: root)
+        let checkpoints = try CheckoutCheckpointStore(directory: root)
+        let receipt = SessionSetupSafety.recoveryIssue(needsReceiptCheck: true, hasPendingSession: false, checkpoints: checkpoints, outbox: outbox)
+        #expect(receipt?.destination == .recovery)
+        let guest = SessionSetupSafety.recoveryIssue(needsReceiptCheck: false, hasPendingSession: true, checkpoints: checkpoints, outbox: outbox)
+        #expect(guest?.destination == .recovery, "An interrupted guest needs Help & Recovery, not the unrelated payments screen")
+        #expect(SessionSetupSafety.RecoveryIssue.interruptedCheckout.destination == .payments)
+        #expect(SessionSetupSafety.RecoveryIssue.damagedPrintRecords.destination == .payments)
+    }
+
     @Test func historicalUnknownOutcomeDoesNotFreezeOperationAfterRelaunch() throws {
         let root = tempDirectory("historical-outcome")
         defer { try? FileManager.default.removeItem(at: root) }

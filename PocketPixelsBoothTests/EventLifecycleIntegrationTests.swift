@@ -118,6 +118,8 @@ import SwiftUI
     var profile = EventProfile.pocketPixelsDefault
     var permitted = true
     var busyReason: String?
+    var recoveryReason: @MainActor () -> String? = { nil }
+    private var operationBlockingReason: String? { busyReason ?? recoveryReason() }
     var runWriteFails = false
     var binding: String { workspace.serverBinding }
 
@@ -144,7 +146,7 @@ import SwiftUI
         EventRunStore(directory: directory.appendingPathComponent("runs"), writer: { [unowned self] data, url in
             if self.runWriteFails { throw CocoaError(.fileWriteOutOfSpace) }
             try DurableFileWriter.write(data, to: url)
-        }, authorized: { [unowned self] in self.permitted }, blockingReason: { [unowned self] in self.busyReason })
+        }, authorized: { [unowned self] in self.permitted }, blockingReason: { [unowned self] in self.operationBlockingReason })
     }
     func relaunch() {
         workspace = OperatorWorkspace(directory: directory)
@@ -155,7 +157,7 @@ import SwiftUI
     }
     func setup() -> SessionSetupCoordinator {
         SessionSetupCoordinator(workspace: workspace, acceptance: acceptance, library: library, eventRuns: runs, creations: creations, api: { [unowned self] in self.server },
-            authorized: { [unowned self] in self.permitted }, blockingReason: { [unowned self] in self.busyReason },
+            authorized: { [unowned self] in self.permitted }, blockingReason: { [unowned self] in self.operationBlockingReason },
             loadLocal: { [unowned self] in self.local }, saveLocal: { [unowned self] in self.local = $0 },
             source: { [unowned self] in self.source }, saveSource: { [unowned self] in self.source = $0 },
             currentProfile: { [unowned self] in self.profile }, applyProfile: { [unowned self] in self.profile = $0 }, artworkAvailable: { _ in false })
@@ -167,7 +169,7 @@ import SwiftUI
     }
     func lifecycle() -> EventLifecycleCoordinator {
         EventLifecycleCoordinator(runs: runs, acceptance: acceptance, api: { [unowned self] in self.server },
-            authorized: { [unowned self] in self.permitted }, blockingReason: { [unowned self] in self.busyReason }, recoveryReason: { nil },
+            authorized: { [unowned self] in self.permitted }, blockingReason: { [unowned self] in self.operationBlockingReason }, recoveryReason: { [unowned self] in self.recoveryReason() },
             source: { [unowned self] in self.source }, loadLocal: { [unowned self] in self.local }, saveLocal: { [unowned self] in self.local = $0 },
             binding: { [unowned self] in self.binding }, appliedContext: { [unowned self] in self.appliedContext },
             hasUnsavedSetup: { [unowned self] in self.workspace.hasUnsavedDrafts }, makeSetup: { [unowned self] in self.setup() }, applyRegularConfiguration: { [unowned self] in
@@ -200,6 +202,70 @@ import SwiftUI
 }
 
 @MainActor final class EventLifecycleIntegrationTests: XCTestCase {
+    func testAcknowledgedUnknownPrintAllowsRelaunchRegularGuestEventStartAndEnd() async throws {
+        let booth = Booth()
+        let defaultsName = "recovery-cycle-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defer { booth.cleanup(); defaults.removePersistentDomain(forName: defaultsName) }
+        var journal = try PrintOutcomeOutbox(directory: booth.directory)
+        var checkpoints = try CheckoutCheckpointStore(directory: booth.directory)
+        var recoveryStore = try AppRecoveryStore(directoryURL: booth.directory.appendingPathComponent("recovery"))
+        let snapshot = AppRecoverySnapshot(schemaVersion: 1, sessionIdentifier: "old-guest", createdAt: Date(), format: .solo,
+            eventProfile: nil, galleryToken: nil, galleryURL: nil, photoJPEGData: [Data([1, 2, 3])],
+            receiptPreviewPNGData: Data([4, 5]), thermalPreviewPNGData: nil, rasterFingerprint: "original-raster",
+            stage: .printStatusUnknown, updatedAt: Date())
+        try recoveryStore.saveCritical(snapshot)
+        try journal.beginCopy(batchID: "old-batch", sessionID: "old-guest", entitlementID: nil,
+            receiptFingerprint: "original-raster", copyIndex: 1, copyCount: 1, transport: "bluetooth")
+        journal = try PrintOutcomeOutbox(directory: booth.directory)
+        XCTAssertEqual(journal.recoverAfterLaunch(), 1)
+        booth.recoveryReason = {
+            let saved = recoveryStore.load()
+            let acknowledged = defaults.string(forKey: OperatorRecoveryAcknowledgement.key)
+            let pending = saved.map { OperatorRecoveryAcknowledgement.identity($0) != acknowledged } ?? false
+            let receiptCheck = saved.map {
+                OperatorPrintPolicy.requiresAcknowledgement(stage: $0.stage, snapshotIdentity: OperatorRecoveryAcknowledgement.identity($0), acknowledgedIdentity: acknowledged)
+            } ?? false
+            return SessionSetupSafety.recoveryReason(needsReceiptCheck: receiptCheck, hasPendingSession: pending, checkpoints: checkpoints, outbox: journal)
+        }
+        let blocked = await booth.lifecycle().returnToRegular()
+        XCTAssertFalse(blocked, "A genuinely current unknown print needs an operator check")
+        let saved = try XCTUnwrap(recoveryStore.load())
+        _ = try OperatorRecoveryAcknowledgement.retainAndAcknowledge(saved, store: recoveryStore, defaults: defaults)
+        booth.relaunch()
+        journal = try PrintOutcomeOutbox(directory: booth.directory)
+        checkpoints = try CheckoutCheckpointStore(directory: booth.directory)
+        recoveryStore = try AppRecoveryStore(directoryURL: booth.directory.appendingPathComponent("recovery"))
+        let oldEvidence = journal.entries
+        XCTAssertNil(booth.recoveryReason())
+        let regular = booth.lifecycle()
+        let returned = await regular.returnToRegular()
+        XCTAssertTrue(returned, regular.message)
+        XCTAssertEqual(regular.status, .regular)
+        var settings = RegularBoothSettings()
+        settings.maxCopies = 3; settings.defaultCopies = 2
+        try RegularBoothSettings.save(settings, defaults: defaults)
+        XCTAssertEqual(try RegularBoothSettings.loadForSession(defaults: defaults).defaultCopies, 2)
+        let regularGuest = try await booth.admitGuest(session: "next-regular-guest")
+        XCTAssertEqual(regularGuest, "regular-booth")
+        _ = await startPrepaid(booth, design: "Next Free Event")
+        XCTAssertEqual(booth.lifecycle().status, .accepting)
+        _ = try await booth.admitGuest(session: "next-event-guest")
+        let ended = await booth.lifecycle().end(scope: .thisBooth)
+        XCTAssertTrue(ended)
+        XCTAssertEqual(booth.lifecycle().status, .regular)
+        XCTAssertEqual(journal.entries, oldEvidence, "Normal operation must never erase or rewrite the unknown outcome")
+        XCTAssertEqual(try recoveryStore.retainedSessions().first?.photoJPEGData, saved.photoJPEGData)
+        XCTAssertThrowsError(try journal.beginCopy(batchID: "old-batch", sessionID: "old-guest", entitlementID: nil,
+            receiptFingerprint: "original-raster", copyIndex: 1, copyCount: 1, transport: "bluetooth"))
+        let nextUnknown = AppRecoverySnapshot(schemaVersion: 1, sessionIdentifier: "different-interrupted-guest", createdAt: Date(), format: .solo,
+            eventProfile: nil, galleryToken: nil, galleryURL: nil, photoJPEGData: [], receiptPreviewPNGData: nil,
+            thermalPreviewPNGData: nil, rasterFingerprint: nil, stage: .printStatusUnknown, updatedAt: Date())
+        try recoveryStore.saveCritical(nextUnknown)
+        XCTAssertNotNil(booth.recoveryReason(), "A new interruption cannot inherit the previous receipt check")
+        XCTAssertTrue(booth.server.calls.isEmpty, "Free recovery and event operation need no payment requests")
+    }
+
     private func startPrepaid(_ booth: Booth, design name: String = "Garden Wedding", file: StaticString = #filePath, line: UInt = #line) async -> SessionSetupCoordinator {
         let setup = booth.setup()
         await setup.createEvent(name: name, venue: "Garden")

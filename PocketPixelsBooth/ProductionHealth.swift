@@ -65,7 +65,7 @@ nonisolated struct ProductionHealthReport: Equatable, Sendable {
                                                       : "Closed on this iPad."))
 
         let eventLevel: Level = switch input.eventStatus {
-        case .accepting: .ready
+        case .accepting, .regular: .ready
         case .unconfirmed: .unavailable
         case .needsReview, .recoveryRequired: .review
         default: .warning
@@ -93,12 +93,17 @@ nonisolated struct ProductionHealthReport: Equatable, Sendable {
 
         let printer: (Level, String)
         if input.printerRequiresRecovery || input.unresolvedPrint { printer = (.review, "A print result needs confirmation in Fix Printer.") }
-        else if input.printAccountingConflicts > 0 { printer = (.review, "\(input.printAccountingConflicts) print report(s) conflict with the server.") }
         else {
-            let pending = input.printAccountingPending > 0 ? " \(input.printAccountingPending) print report(s) waiting to sync." : ""
-            printer = (.unavailable, "Not live-checked here. Last reported: \(input.printerLastReported). Run Booth Check to verify.\(pending)")
+            printer = (.unavailable, "Not live-checked here. Last reported: \(input.printerLastReported). Run Booth Check to verify.")
         }
         items.append(Item(id: "printer", title: "Printer & print recovery", level: printer.0, detail: printer.1))
+
+        if input.printAccountingConflicts > 0 || input.printAccountingPending > 0 {
+            items.append(Item(id: "print-reports", title: "Saved payment reports", level: input.printAccountingConflicts > 0 ? .review : .ready,
+                detail: input.printAccountingConflicts > 0
+                    ? "\(input.printAccountingConflicts) report(s) need review in Payment Maintenance. The original purchase records are kept; this does not mean the printer is broken."
+                    : "\(input.printAccountingPending) report(s) will sync automatically when online. Normal booth setup can continue. Sending reports never prints a receipt."))
+        }
 
         let payment: (Level, String)
         if input.checkoutIntegrityFault { payment = (.review, "Checkout records need review in Payment Recovery.") }

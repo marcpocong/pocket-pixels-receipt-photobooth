@@ -30,24 +30,7 @@ struct PaymentsOperatorView: View {
     private var client: PaymentsAPIClient? { configuration.map { PaymentsAPIClient(configuration: $0) } }
 
     private var pairingBlockedReason: String? {
-        let operations = EventOperationalState.shared
-        if operations.customerSessionActive || PrinterCoordinator.shared.isWorking {
-            return "Finish the current guest session and print job before changing pairing."
-        }
-        if operations.hasUnresolvedPrint || operations.recoverableSession != nil {
-            return "Resolve the preserved session or printer recovery before changing pairing."
-        }
-        guard let checkpoints = CheckoutCheckpointStore.shared, let outbox = PrintOutcomeOutbox.shared else {
-            return "Payment recovery storage must be available before changing pairing."
-        }
-        if checkpoints.integrityFault != nil || !checkpoints.unresolved.isEmpty {
-            return "Resolve interrupted checkouts before changing pairing."
-        }
-        let summary = outbox.summary
-        if outbox.integrityFault != nil || summary.pending + summary.conflicts + summary.awaiting > 0 {
-            return "Send or review saved print reports in Payment Maintenance before changing the payments connection."
-        }
-        return nil
+        SessionSetupSafety.paymentConnectionChangeReason
     }
 
     var body: some View {
