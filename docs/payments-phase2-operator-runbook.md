@@ -1,5 +1,7 @@
 # Operator runbook
 
+Current closure workflow and financial/physical safety boundaries: [Close Session & Continue](close-continue-recovery.md).
+
 1. Enter the existing protected Operator dashboard and open **Commercial Events & Sales**.
 2. Confirm `TEST` environment, Worker reachability, device pairing and printer recovery status.
 3. Create a draft; configure the detailed local commercial policy (mode, price in integer centavos, 1–10 copies, methods, formats and bounded offline expiry), review, then publish/activate on the server.

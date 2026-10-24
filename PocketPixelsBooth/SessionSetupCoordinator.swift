@@ -87,32 +87,65 @@ extension PaymentsAPIClient: SessionSetupAPI {}
 
 @MainActor enum SessionSetupSafety {
     enum RecoveryIssue: Equatable {
-        case receiptCheck, interruptedGuest, storageUnavailable, interruptedCheckout, damagedPrintRecords, unfinishedSend
+        case receiptCheck, interruptedGuest, storageUnavailable, interruptedCheckout, damagedPrintRecords, unfinishedSend, saveFailed
 
         var message: String {
             switch self {
             case .receiptCheck: "Check the previous receipt in Fix Printer before switching booth setup. It may already have printed."
             case .interruptedGuest: "Open Help & Recovery to finish or keep the interrupted guest session before switching booth setup."
             case .storageUnavailable: "Saved recovery records could not be opened. Open Help & Recovery before switching booth setup."
-            case .interruptedCheckout: "Resolve interrupted checkouts in Payment Recovery before changing operation."
+            case .interruptedCheckout: "Open Help & Recovery → Payment Recovery to Close Session & Continue or resume the original checkout."
             case .damagedPrintRecords: "Saved print records need review in Advanced → Payment Maintenance before switching booth setup."
             case .unfinishedSend: "Wait for the current receipt to finish before switching booth setup."
+            case .saveFailed: "Recovery could not be saved. Open Help & Recovery and Retry Saving Resolution."
             }
         }
 
         var destination: OperatorWorkspaceRoute {
             switch self {
-            case .receiptCheck, .interruptedGuest, .storageUnavailable, .unfinishedSend: .recovery
-            case .interruptedCheckout, .damagedPrintRecords: .payments
+            case .receiptCheck, .interruptedGuest, .storageUnavailable, .unfinishedSend, .saveFailed: .recovery
+            case .interruptedCheckout: .recovery
+            case .damagedPrintRecords: .payments
             }
         }
     }
 
-    static var blockingReason: String? {
-        let operations = EventOperationalState.shared
-        if operations.customerSessionActive || PrinterCoordinator.shared.isWorking { return "Finish the guest session and printing before changing session operation." }
-        return recoveryReason
+    enum Operation: CaseIterable {
+        case openRegularBooth, startUnrelatedGuest, saveSettings, changeEvent, initiatePaidCheckout, sendCopy, changePaymentConnection
     }
+    struct Decision: Equatable {
+        let reason: String?
+        let destination: OperatorWorkspaceRoute
+        var allowed: Bool { reason == nil }
+    }
+    static func decision(for operation: Operation) -> Decision {
+        decision(for: operation, activeGuest: EventOperationalState.shared.customerSessionActive || (ActiveGuestInteraction.model.map { $0.state != .welcome && $0.state != .thankYou } ?? false),
+                 printerWorking: PrinterCoordinator.shared.isWorking,
+                 needsReceiptCheck: EventOperationalState.shared.hasUnresolvedPrint || PrinterCoordinator.shared.requiresRecovery,
+                 hasPendingSession: EventOperationalState.shared.hasPendingSessionRecovery,
+                 checkpoints: .shared, outbox: .shared, currentCheckoutID: ActiveGuestInteraction.model?.sessionIdentifier)
+    }
+    static func decision(for operation: Operation, activeGuest: Bool, printerWorking: Bool, needsReceiptCheck: Bool,
+                         hasPendingSession: Bool, checkpoints: CheckoutCheckpointStore?, outbox: PrintOutcomeOutbox?, currentCheckoutID: String? = nil) -> Decision {
+        // Saving staged settings cannot mutate an admitted guest's frozen configuration.
+        if operation == .saveSettings { return Decision(reason: nil, destination: .sessionSetup) }
+        if operation == .changePaymentConnection {
+            return Decision(reason: paymentConnectionChangeReason(activeGuest: activeGuest, printerWorking: printerWorking,
+                needsReceiptCheck: needsReceiptCheck, hasPendingSession: hasPendingSession, checkpoints: checkpoints, outbox: outbox), destination: .payments)
+        }
+        if printerWorking { return Decision(reason: "Wait for the active print transport to finish. It cannot safely be closed while sending.", destination: .recovery) }
+        if activeGuest && operation != .initiatePaidCheckout && operation != .sendCopy {
+            return Decision(reason: "Close Session & Continue in Help & Recovery before changing operation.", destination: .recovery)
+        }
+        // The current guest owns its checkout and snapshot; those are not competing recovery.
+        let pending = operation == .initiatePaidCheckout || operation == .sendCopy ? false : hasPendingSession
+        var issue = recoveryIssue(needsReceiptCheck: needsReceiptCheck, hasPendingSession: pending, checkpoints: checkpoints, outbox: outbox)
+        if operation == .initiatePaidCheckout || operation == .sendCopy, issue == .interruptedCheckout,
+           checkpoints?.integrityFault == nil,
+           checkpoints?.unresolved.contains(where: { !$0.isParked && $0.id != currentCheckoutID }) == false { issue = nil }
+        return Decision(reason: issue?.message, destination: issue?.destination ?? .recovery)
+    }
+    static var blockingReason: String? { decision(for: .changeEvent).reason }
     /// Current financial or physical-print obligations, excluding historical outcome reports.
     static var recoveryReason: String? {
         currentRecoveryIssue?.message
@@ -137,8 +170,11 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         if needsReceiptCheck { return .receiptCheck }
         if hasPendingSession { return .interruptedGuest }
         guard let checkpoints, let outbox else { return .storageUnavailable }
-        if checkpoints.integrityFault != nil || !checkpoints.unresolved.isEmpty { return .interruptedCheckout }
+        if checkpoints.integrityFault != nil { return .interruptedCheckout }
+        if checkpoints.unresolved.contains(where: { !$0.isParked }) { return .interruptedCheckout }
         if outbox.integrityFault != nil { return .damagedPrintRecords }
+        if outbox.persistenceFailure != nil { return .saveFailed }
+        if !outbox.inspectionEntryIDs.isEmpty { return .receiptCheck }
         if outbox.hasUnfinishedPhysicalSend { return .unfinishedSend }
         // Reports contain their original session/entitlement identity. Sending them never prints,
         // and switching events cannot change their meaning. A retained uncertain outcome must
@@ -146,17 +182,15 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         return nil
     }
 
-    static var paymentConnectionChangeReason: String? {
-        let operations = EventOperationalState.shared, printer = PrinterCoordinator.shared
-        return paymentConnectionChangeReason(activeGuest: operations.customerSessionActive, printerWorking: printer.isWorking,
-            needsReceiptCheck: operations.hasUnresolvedPrint || printer.requiresRecovery, hasPendingSession: operations.hasPendingSessionRecovery,
-            checkpoints: CheckoutCheckpointStore.shared, outbox: PrintOutcomeOutbox.shared)
-    }
+    static var paymentConnectionChangeReason: String? { decision(for: .changePaymentConnection).reason }
 
     static func paymentConnectionChangeReason(activeGuest: Bool, printerWorking: Bool, needsReceiptCheck: Bool, hasPendingSession: Bool,
                                              checkpoints: CheckoutCheckpointStore?, outbox: PrintOutcomeOutbox?) -> String? {
         if activeGuest || printerWorking { return "Finish the current guest session and print job before changing the payments connection." }
         if let issue = recoveryIssue(needsReceiptCheck: needsReceiptCheck, hasPendingSession: hasPendingSession, checkpoints: checkpoints, outbox: outbox) { return issue.message }
+        if checkpoints?.unresolved.isEmpty == false || checkpoints?.all.contains(where: { $0.resolution?.hasPrefix("operator:") == true }) == true {
+            return "Outstanding Payments belong to this payments connection. Reconcile the original checkouts before changing servers."
+        }
         if outbox?.hasUnresolvedServerReports == true { return "Send or review saved print reports in Payment Maintenance before changing the payments connection." }
         return nil
     }

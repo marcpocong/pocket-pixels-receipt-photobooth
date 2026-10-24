@@ -23,14 +23,16 @@ struct PaymentsOperatorView: View {
     @State private var localPending = 0
     @State private var localConflicts: [OfflineCashRecord] = []
     @State private var ledgerFault: String?
+    @State private var ledgerLoaded = false
     @ObservedObject private var recovery = PaymentRecoveryCoordinator.shared
-    @State private var resumeCandidate: CheckoutRecoveryItem?
-    @State private var dismissCandidate: CheckoutRecoveryItem?
 
     private var client: PaymentsAPIClient? { configuration.map { PaymentsAPIClient(configuration: $0) } }
 
     private var pairingBlockedReason: String? {
-        SessionSetupSafety.paymentConnectionChangeReason
+        if let reason = SessionSetupSafety.paymentConnectionChangeReason { return reason }
+        if !ledgerLoaded { return "Checking offline cash records before changing the payments connection." }
+        if ledgerFault != nil || localPending > 0 || !localConflicts.isEmpty { return "Sync or review the original offline cash ledger before changing the payments connection." }
+        return nil
     }
 
     var body: some View {
@@ -55,7 +57,7 @@ struct PaymentsOperatorView: View {
             } }
 
             if !salesOnly {
-            recoverySection
+            CheckoutRecoverySection()
             printAccountingSection
             pairingSection
             offlineLedgerSection
@@ -117,81 +119,6 @@ struct PaymentsOperatorView: View {
         if event.activeRevision == nil { parts.append("Not yet applied") }
         if let price = event.activeUnitPriceCentavos, price > 0 { parts.append("\(PHPPriceFormatter.string(centavos: price))/copy") }
         return parts.joined(separator: " · ")
-    }
-
-    @ViewBuilder private var recoverySection: some View {
-        Section {
-            if let fault = CheckoutCheckpointStore.shared?.integrityFault {
-                Label(fault, systemImage: "exclamationmark.octagon").foregroundStyle(.red)
-                Button("Acknowledge (server orders remain listed)", role: .destructive) {
-                    try? CheckoutCheckpointStore.shared?.acknowledgeIntegrityFault()
-                    Task { await recovery.refresh() }
-                }
-            }
-            if recovery.items.isEmpty {
-                Text("No interrupted paid checkouts on this iPad.").foregroundStyle(.secondary)
-            }
-            ForEach(recovery.items) { item in
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("\(item.checkpoint.copies)× \(item.checkpoint.format) · \(PHPPriceFormatter.string(centavos: item.checkpoint.unitPriceCentavos * item.checkpoint.copies))")
-                        .font(.headline)
-                    Text(item.classification.operatorDescription).font(.subheadline)
-                    Text("Checkout \(item.checkpoint.id) · started \(item.checkpoint.createdAt.formatted(date: .omitted, time: .shortened))")
-                        .font(.caption).foregroundStyle(.secondary)
-                    if let reference = item.checkpoint.recoveryReference {
-                        Text("Recovery reference: \(reference)")
-                            .font(.caption.monospaced()).textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text("Match the guest's saved reference, then verify this checkout. The reference alone does not authorize recovery.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    HStack {
-                        if item.classification.isResumable {
-                            Button("Resume for This Guest") { resumeCandidate = item }
-                                .buttonStyle(.borderedProminent)
-                        }
-                        Button("Dismiss on iPad") { dismissCandidate = item }
-                            .buttonStyle(.bordered)
-                    }
-                }
-                .padding(.vertical, 4)
-            }
-            if let armed = recovery.armedResume {
-                Label("Armed: the next tap on the welcome screen continues checkout \(armed.item.id) (until \(armed.expiresAt.formatted(date: .omitted, time: .shortened))).", systemImage: "hand.tap")
-                Button("Cancel Armed Resume") { recovery.disarmResume() }
-            }
-            Button("Check Interrupted Checkouts") { Task { await recovery.refresh() } }
-            if !recovery.lastRefreshMessage.isEmpty {
-                Text(recovery.lastRefreshMessage).font(.footnote).foregroundStyle(.secondary)
-            }
-        } header: {
-            Text("Interrupted Paid Checkouts")
-        } footer: {
-            Text("Resume only with the paying guest present. Resuming continues the original checkout with the same copies; it never charges again or shows earlier photos. Dismissing hides the item here only — the paid entitlement stays outstanding on the server.")
-        }
-        .confirmationDialog("Resume this paid session?", isPresented: Binding(get: { resumeCandidate != nil }, set: { if !$0 { resumeCandidate = nil } }), titleVisibility: .visible, presenting: resumeCandidate) { item in
-            Button("Resume for Guest Present Now") {
-                guard recovery.armResume(item) else {
-                    status = "This checkout is no longer resumable."
-                    resumeCandidate = nil
-                    return
-                }
-                resumeCandidate = nil
-                NotificationCenter.default.post(name: OperatorWorkspace.didResumeCheckout, object: nil)
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: { item in
-            Text("This returns to the booth and keeps your setup drafts. Ask the guest to tap Make a Memory within 5 minutes. \(item.classification.operatorDescription)")
-        }
-        .confirmationDialog("Dismiss this checkout on this iPad?", isPresented: Binding(get: { dismissCandidate != nil }, set: { if !$0 { dismissCandidate = nil } }), titleVisibility: .visible, presenting: dismissCandidate) { item in
-            Button("Dismiss — Guest Left or Resolved Elsewhere", role: .destructive) {
-                recovery.dismiss(item, reason: "guest_left_or_resolved")
-                dismissCandidate = nil
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: { _ in
-            Text("The reason is kept in this iPad's records. Server orders, payments and entitlements are not changed.")
-        }
     }
 
     @ViewBuilder private var printAccountingSection: some View {
@@ -291,6 +218,7 @@ struct PaymentsOperatorView: View {
     /// Read-only reports load first and independently: an unavailable booth-device check,
     /// diagnostics or recovery refresh never blocks an authorized report.
     private func refresh() async {
+        await loadLedger()
         let request = UUID(); refreshRequest = request
         let binding = OperatorWorkspace.shared.serverBinding
         configuration = PaymentsConfiguration.current()
@@ -327,10 +255,11 @@ struct PaymentsOperatorView: View {
     }
 
     private func loadLedger() async {
-        guard let ledger = OfflineCashLedger.shared else { return }
+        guard let ledger = OfflineCashLedger.shared else { ledgerFault = "Offline cash storage is unavailable."; ledgerLoaded = true; return }
         localPending = await ledger.pendingRecords().count
         localConflicts = await ledger.conflictRecords()
         ledgerFault = await ledger.integrityFault
+        ledgerLoaded = true
     }
 
     private func acknowledgeLedgerFault() async {
@@ -356,6 +285,7 @@ struct PaymentsOperatorView: View {
     }
 
     private func pair() async {
+        await loadLedger()
         guard pairingBlockedReason == nil else { status = pairingBlockedReason ?? "Pairing is locked."; return }
         guard let url = PaymentsConfiguration.validatedURL(pairingURL) else { return }
         let store = PaymentDeviceCredentialStore()
@@ -399,7 +329,8 @@ struct PaymentsOperatorView: View {
 
     private func unpair() {
         guard pairingBlockedReason == nil, OperatorAccessPermit.shared.isAuthorized else { return }
-        try? PaymentDeviceCredentialStore().delete()
+        do { try PaymentDeviceCredentialStore().delete() }
+        catch { status = "Could not remove the saved credential: \(error.localizedDescription)"; return }
         PaymentsConfiguration.clearPaired()
         configuration = nil
         pairedDevice = nil
@@ -408,4 +339,101 @@ struct PaymentsOperatorView: View {
         status = "This iPad is no longer paired. Server-managed sessions are unavailable."
     }
 
+}
+
+/// Shared by Help & Recovery and payment maintenance; financial follow-up never disappears
+/// merely because an operator released the kiosk for a different guest.
+struct CheckoutRecoverySection: View {
+    @ObservedObject private var recovery = PaymentRecoveryCoordinator.shared
+    @ObservedObject private var operations = EventOperationalState.shared
+    @State private var resumeCandidate: CheckoutRecoveryItem?
+    @State private var status = ""
+    var body: some View {
+        Section {
+            if let fault = CheckoutCheckpointStore.shared?.integrityFault {
+                Label(fault, systemImage: "exclamationmark.octagon").foregroundStyle(.red)
+                Button("Acknowledge (server orders remain listed)", role: .destructive) {
+                    do { try CheckoutCheckpointStore.shared?.acknowledgeIntegrityFault() }
+                    catch { status = "Could not save the acknowledgement: \(error.localizedDescription)" }
+                    Task { await recovery.refresh() }
+                }
+            }
+            if CheckoutCheckpointStore.shared == nil {
+                Label("Checkout storage is unavailable. Free iPad storage and reopen Help & Recovery; no records were cleared.", systemImage: "exclamationmark.octagon").foregroundStyle(.red)
+            }
+            if recovery.items.isEmpty, CheckoutCheckpointStore.shared != nil {
+                Text("No interrupted paid checkouts on this iPad.").foregroundStyle(.secondary)
+            }
+            ForEach(recovery.activeItems + recovery.outstandingItems) { item in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("\(item.checkpoint.copies)× \(item.checkpoint.format) · \(PHPPriceFormatter.string(centavos: item.checkpoint.unitPriceCentavos * item.checkpoint.copies))")
+                        .font(.headline)
+                    if item.checkpoint.isParked {
+                        Label("Outstanding Payment · Guest Interaction Closed", systemImage: "tray.full").font(.headline)
+                        Text("This item does not block unrelated guests or event setup. Resume only the original checkout; do not accept a second payment for it.").font(.footnote).foregroundStyle(.secondary)
+                    }
+                    Text(item.classification.operatorDescription).font(.subheadline)
+                    let copies = PrintOutcomeOutbox.shared?.copiesThatMayHavePrinted(sessionID: item.id) ?? []
+                    if !copies.isEmpty {
+                        let attempted = Set(copies.map(\.copyIndex)).count
+                        Text("\(attempted) of \(item.checkpoint.copies) copies may have printed · \(max(0, item.checkpoint.copies - attempted)) not yet attempted. Never resend an uncertain copy automatically.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    if let reason = item.checkpoint.localCloseReason, let date = item.checkpoint.locallyClosedAt {
+                        Text("Closed locally \(date.formatted()) · \(reason). Financial status unchanged.").font(.caption).foregroundStyle(.secondary)
+                    }
+                    if let failure = recovery.resolutionFailures[item.id] { Text(failure).foregroundStyle(.orange) }
+                    Text("Checkout \(item.checkpoint.id) · started \(item.checkpoint.createdAt.formatted(date: .omitted, time: .shortened))")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if let reference = item.checkpoint.recoveryReference {
+                        Text("Recovery reference: \(reference)")
+                            .font(.caption.monospaced()).textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text("Match the guest's saved reference, then verify this checkout. The reference alone does not authorize recovery.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        if item.classification.isResumable {
+                            Button("Resume Original Checkout") { resumeCandidate = item }
+                                .buttonStyle(.borderedProminent)
+                        }
+                        if !item.checkpoint.isParked {
+                            OperatorCloseContinueButton(checkoutID: item.id,
+                                title: recovery.resolutionFailures[item.id] == nil ? "Close Session & Continue" : "Retry Saving Resolution")
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            if !status.isEmpty { Text(status).foregroundStyle(.orange) }
+            if !operations.recoveryActionMessage.isEmpty { Text(operations.recoveryActionMessage).font(.footnote) }
+            if let armed = recovery.armedResume {
+                Label("Armed: the next tap on the welcome screen continues checkout \(armed.item.id) (until \(armed.expiresAt.formatted(date: .omitted, time: .shortened))).", systemImage: "hand.tap")
+                Button("Cancel Armed Resume") { recovery.disarmResume() }
+            }
+            Button("Check Interrupted Checkouts") { Task { await recovery.refresh() } }
+            if !recovery.lastRefreshMessage.isEmpty {
+                Text(recovery.lastRefreshMessage).font(.footnote).foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Outstanding Payments & Interrupted Checkouts")
+        } footer: {
+            Text("Resume only with the paying guest present. Resuming continues the original checkout with the same copies; it never charges again or shows earlier photos. Close Session & Continue parks the guest workflow. The original payment stays listed here until authoritatively reconciled; paid entitlement and copy counts are preserved.")
+        }
+        .confirmationDialog("Resume this paid session?", isPresented: Binding(get: { resumeCandidate != nil }, set: { if !$0 { resumeCandidate = nil } }), titleVisibility: .visible, presenting: resumeCandidate) { item in
+            Button("Resume for Guest Present Now") {
+                guard OperatorAccessPermit.shared.isAuthorized, recovery.armResume(item) else {
+                    status = "This checkout is no longer resumable."
+                    resumeCandidate = nil
+                    return
+                }
+                resumeCandidate = nil
+                NotificationCenter.default.post(name: OperatorWorkspace.didResumeCheckout, object: nil)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { item in
+            Text("This returns to the booth and keeps your setup drafts. Ask the guest to tap Make a Memory within 5 minutes. \(item.classification.operatorDescription)")
+        }
+        .task { await recovery.refresh() }
+    }
 }

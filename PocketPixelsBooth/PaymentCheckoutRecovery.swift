@@ -50,7 +50,20 @@ nonisolated struct CheckoutCheckpoint: Codable, Equatable, Identifiable, Sendabl
     var detachedAt: Date? = nil
     var recoveryReference: String? = nil
 
+    /// Closing a guest interaction is independent of its financial lifecycle.
+    var locallyClosedAt: Date? = nil
+    var localCloseReason: String? = nil
+    var serverBinding: String? = nil
+    struct LocalClosure: Codable, Equatable, Sendable {
+        let reason: String
+        let closedAt: Date
+    }
+    var localClosureHistory: [LocalClosure]? = nil
+    var physicalReviewAt: Date? = nil
+
     var isResolved: Bool { resolution != nil }
+    var isParked: Bool { locallyClosedAt != nil || detachedAt != nil }
+
 }
 
 /// Durable store of checkout checkpoints, written with the same commit-after-write discipline as
@@ -79,6 +92,8 @@ final class CheckoutCheckpointStore {
     private let writer: Writer
     private var payload = FilePayload(checkpoints: [])
     private(set) var integrityFault: String?
+    private(set) var lastPersistenceError: String?
+    private var quarantineURL: URL?
 
     init(fileManager: FileManager = .default, directory: URL? = nil, writer: Writer? = nil) throws {
         let root = directory ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? fileManager.temporaryDirectory
@@ -93,9 +108,25 @@ final class CheckoutCheckpointStore {
             payload = try PaymentsJSON.decoder().decode(FilePayload.self, from: Data(contentsOf: url))
         } catch {
             let quarantine = url.deletingLastPathComponent().appendingPathComponent("checkout-checkpoints.corrupt-\(Int(Date().timeIntervalSince1970)).json")
-            try? fileManager.moveItem(at: url, to: quarantine)
+            do { try fileManager.copyItem(at: url, to: quarantine); quarantineURL = quarantine }
+            catch { quarantineURL = nil }
             integrityFault = "the checkout record file was unreadable and was set aside for review (\(quarantine.lastPathComponent)). Check server orders for this iPad."
         }
+        // Legacy Dismiss on iPad hid financial follow-up. Restore it as a parked interaction,
+        // preserving its original decision/reason/time while requiring authoritative settlement.
+        var migrated = payload
+        for index in migrated.checkpoints.indices {
+            guard let reason = migrated.checkpoints[index].resolution, reason.hasPrefix("operator:") else { continue }
+            let date = migrated.checkpoints[index].resolvedAt ?? migrated.checkpoints[index].updatedAt
+            migrated.checkpoints[index].locallyClosedAt = migrated.checkpoints[index].locallyClosedAt ?? date
+            migrated.checkpoints[index].localCloseReason = migrated.checkpoints[index].localCloseReason ?? reason
+            if migrated.checkpoints[index].localClosureHistory == nil {
+                migrated.checkpoints[index].localClosureHistory = [.init(reason: reason, closedAt: date)]
+            }
+            migrated.checkpoints[index].resolution = nil
+            migrated.checkpoints[index].resolvedAt = nil
+        }
+        if migrated.checkpoints != payload.checkpoints { try commit(migrated) }
         // Older builds could resolve an empty recovery response while order creation was still
         // in flight, then save its successful response without reopening the checkpoint.
         var repaired = payload
@@ -142,7 +173,7 @@ final class CheckoutCheckpointStore {
     /// ID, so a failed write here never loses the checkout. Phases never move backwards.
     @discardableResult
     func update(id: String, now: Date = Date(), _ change: (inout CheckoutCheckpoint) -> Void) -> Bool {
-        guard let index = payload.checkpoints.firstIndex(where: { $0.id == id }) else { return false }
+        guard integrityFault == nil, let index = payload.checkpoints.firstIndex(where: { $0.id == id }) else { return false }
         var candidate = payload
         let previousPhase = candidate.checkpoints[index].phase
         change(&candidate.checkpoints[index])
@@ -155,10 +186,26 @@ final class CheckoutCheckpointStore {
         return (try? commit(candidate)) != nil
     }
 
-    func resolve(id: String, reason: String, now: Date = Date()) {
-        update(id: id, now: now) { checkpoint in
+    @discardableResult
+    func resolve(id: String, reason: String, now: Date = Date()) -> Bool {
+        guard let checkpoint = checkpoint(id: id), integrityFault == nil else { return false }
+        // Repeated decisions retain the first reason and timestamp.
+        if checkpoint.isResolved { return true }
+        return update(id: id, now: now) { checkpoint in
             checkpoint.resolution = reason
             checkpoint.resolvedAt = now
+        }
+    }
+
+    /// A parked purchase stays unresolved, reconciled and recoverable with its original identity.
+    @discardableResult
+    func park(id: String, reason: String, now: Date = Date()) -> Bool {
+        guard let checkpoint = checkpoint(id: id), integrityFault == nil else { return false }
+        if checkpoint.locallyClosedAt != nil || checkpoint.isResolved { return true }
+        return update(id: id, now: now) {
+            $0.locallyClosedAt = now
+            $0.localCloseReason = reason
+            $0.localClosureHistory = ($0.localClosureHistory ?? []) + [.init(reason: reason, closedAt: now)]
         }
     }
 
@@ -166,13 +213,18 @@ final class CheckoutCheckpointStore {
     /// in the server's order list.
     func acknowledgeIntegrityFault() throws {
         guard integrityFault != nil else { return }
+        // Never replace the original unless its protected bytes were retained successfully.
+        guard let quarantineURL, FileManager.default.fileExists(atPath: quarantineURL.path) else {
+            throw StoreError.integrityFault("The original damaged file could not be retained. Free storage and reopen recovery; nothing was cleared.")
+        }
         try commit(FilePayload(checkpoints: []))
         integrityFault = nil
     }
 
     private func commit(_ candidate: FilePayload) throws {
         var pruned = candidate
-        let resolved = pruned.checkpoints.filter(\.isResolved)
+        // Operator closure is not financial settlement; never prune those protected records.
+        let resolved = pruned.checkpoints.filter { $0.isResolved && !$0.isParked && $0.resolution?.hasPrefix("operator:") != true }
         if resolved.count > Self.retainedResolvedCount {
             let drop = Set(resolved.sorted { $0.updatedAt < $1.updatedAt }.prefix(resolved.count - Self.retainedResolvedCount).map(\.id))
             pruned.checkpoints.removeAll { drop.contains($0.id) }
@@ -180,8 +232,10 @@ final class CheckoutCheckpointStore {
         do {
             try writer(try PaymentsJSON.encoder().encode(pruned), url)
         } catch {
+            lastPersistenceError = error.localizedDescription
             throw StoreError.persistFailed(error.localizedDescription)
         }
+        lastPersistenceError = nil
         payload = pruned
     }
 }
@@ -281,6 +335,11 @@ nonisolated enum CheckoutRecoveryClassifier {
         }
         guard let open = server.orders.first(where: { $0.order.id == server.openOrderId }) ?? server.orders.last else { return .nothingCharged }
         if let entitlement = open.entitlement {
+            guard entitlement.eventID == checkpoint.eventID, entitlement.policyRevisionID == checkpoint.policyRevisionID,
+                  entitlement.selectedFormatRawValue == checkpoint.format, entitlement.purchasedCopies == checkpoint.copies,
+                  entitlement.unitPriceCentavos == checkpoint.unitPriceCentavos else {
+                return .inconsistent("entitlement differs from the original purchase")
+            }
             let verified = entitlement.authorizationSource == .verifiedQRPh
             let printed = localPrintStarted || !open.printOutcomes.isEmpty
             switch entitlement.serverState {
@@ -292,9 +351,13 @@ nonisolated enum CheckoutRecoveryClassifier {
             default: return .needsReview(entitlement.serverState ?? "unknown entitlement state")
             }
         }
-        guard let attempt = open.attempt else { return .nothingCharged }
+        guard let attempt = open.attempt else {
+            return open.order.paymentMethod == nil && checkpoint.phase < .paymentRequested ? .nothingCharged : .paymentPending
+        }
         if attempt.state == "PAID_VERIFIED" { return .paymentPending }
-        if attempt.isConclusivelyUnpaid && server.orders.allSatisfy({ $0.entitlement == nil }) {
+        if attempt.isConclusivelyUnpaid && server.orders.allSatisfy({
+            $0.entitlement == nil && ($0.attempt?.isConclusivelyUnpaid == true || ($0.order.paymentMethod == nil && $0.attempt == nil))
+        }) {
             return .unpaidClosed
         }
         return .paymentPending
@@ -321,10 +384,12 @@ enum PrintReportSyncState: Equatable {
 /// Read-only server view used by recovery. `PaymentsAPIClient` in production; a stub in tests.
 nonisolated protocol CheckoutRecoveryReading: Sendable {
     var environment: String { get }
+    nonisolated var serverBinding: String? { get }
     func checkoutRecovery(checkoutSessionID: String) async throws -> CheckoutRecoveryResponse
     func reconcileOriginalIfNeeded(orderID: String) async
 }
 extension CheckoutRecoveryReading {
+    nonisolated var serverBinding: String? { nil }
     func reconcileOriginalIfNeeded(orderID: String) async {}
 }
 extension PaymentsAPIClient: CheckoutRecoveryReading {}
@@ -338,6 +403,21 @@ final class PaymentRecoveryCoordinator: ObservableObject {
 
     @Published private(set) var items: [CheckoutRecoveryItem] = []
     @Published private(set) var lastRefreshMessage = ""
+    @Published private(set) var resolutionFailures: [String: String] = [:]
+    var activeItems: [CheckoutRecoveryItem] { items.filter { !$0.checkpoint.isParked } }
+    var outstandingItems: [CheckoutRecoveryItem] { items.filter { $0.checkpoint.isParked } }
+    /// Server-only evidence may survive without an active local snapshot. It still requires
+    /// a physical review before closing the current interaction.
+    var receiptCheckIDs: Set<String> {
+        guard let store = checkpointStore() else { return [] }
+        return Set(items.compactMap { item in
+            guard let current = store.checkpoint(id: item.id), !current.isResolved, !current.isParked, current.physicalReviewAt == nil else { return nil }
+            switch item.classification {
+            case .printStarted, .offlineCashDeclared(printStarted: true): return item.id
+            default: return nil
+            }
+        })
+    }
     @Published private(set) var armedResume: (item: CheckoutRecoveryItem, expiresAt: Date)?
     @Published private(set) var outboxSummary = (pending: 0, conflicts: 0, uncertain: 0, awaiting: 0)
     @Published private(set) var printReportSyncState = PrintReportSyncState.idle
@@ -362,7 +442,8 @@ final class PaymentRecoveryCoordinator: ObservableObject {
 
     /// Items an attendant should look at (never shown with any detail on guest screens).
     var needsAttention: Bool {
-        items.contains { !$0.classification.isTerminal } || outboxSummary.conflicts > 0
+        guard checkpointStore() != nil, let outbox = PrintOutcomeOutbox.shared else { return true }
+        return outbox.persistenceFailure != nil || activeItems.contains { !$0.classification.isTerminal } || outboxSummary.conflicts > 0
             || checkpointStore()?.integrityFault != nil || PrintOutcomeOutbox.shared?.integrityFault != nil
     }
 
@@ -402,6 +483,7 @@ final class PaymentRecoveryCoordinator: ObservableObject {
     }
 
     private func performRefreshPass() async {
+        PrintOutcomeOutbox.shared?.retryLaunchRecovery()
         refreshOutboxSummary()
         guard let store = checkpointStore() else {
             lastRefreshMessage = "Checkout records are unavailable on this iPad."
@@ -414,7 +496,8 @@ final class PaymentRecoveryCoordinator: ObservableObject {
         for checkpoint in store.unresolved {
             let printStarted = PrintOutcomeOutbox.shared.map { !$0.copiesThatMayHavePrinted(sessionID: checkpoint.id).isEmpty } ?? true
             var server: CheckoutRecoveryResponse?
-            if checkpoint.method != "OFFLINE_CASH", let client, client.environment == checkpoint.environment {
+            if checkpoint.method != "OFFLINE_CASH", let client, client.environment == checkpoint.environment,
+               checkpoint.serverBinding == nil || checkpoint.serverBinding == client.serverBinding {
                 // A failed, timed-out or cancelled read proves nothing: the checkout stays pending.
                 do {
                     if checkpoint.detachedAt != nil, let orderID = checkpoint.orderID { await client.reconcileOriginalIfNeeded(orderID: orderID) }
@@ -424,7 +507,13 @@ final class PaymentRecoveryCoordinator: ObservableObject {
             let offlineExists = await offlineRecordExists(checkpoint)
             // The operator may have resolved it while this pass was waiting; their decision stands.
             // No suspension point follows until this checkpoint is classified and recorded.
-            guard store.checkpoint(id: checkpoint.id)?.isResolved == false else { continue }
+            guard let current = store.checkpoint(id: checkpoint.id), !current.isResolved else { continue }
+            if current != checkpoint {
+                refreshed.append(CheckoutRecoveryItem(checkpoint: current,
+                    classification: items.first(where: { $0.id == current.id })?.classification ?? .paymentPending))
+                refreshRequestedDuringPass = true
+                continue
+            }
             let classification: CheckoutRecoveryClassification = (server == nil && checkpoint.method != "OFFLINE_CASH")
                 ? .paymentPending
                 : CheckoutRecoveryClassifier.classify(checkpoint: checkpoint, server: server, localPrintStarted: printStarted, offlineRecordExists: offlineExists)
@@ -434,13 +523,20 @@ final class PaymentRecoveryCoordinator: ObservableObject {
             if classification == .printStarted, finishFullyDeliveredCheckout(checkpoint, server: server) {
                 continue
             }
-            if classification.isTerminal {
-                store.resolve(id: checkpoint.id, reason: "auto:\(classification.operatorDescription)")
-            } else {
-                refreshed.append(CheckoutRecoveryItem(checkpoint: checkpoint, classification: classification))
+            let ownedByLiveGuest = ActiveGuestInteraction.model.map { $0.sessionIdentifier == checkpoint.id && $0.state != .welcome && $0.state != .thankYou } ?? false
+            if classification.isTerminal && !ownedByLiveGuest {
+                if !store.resolve(id: checkpoint.id, reason: "auto:\(classification.operatorDescription)") {
+                    resolutionFailures[checkpoint.id] = "Could not save the resolution. Retry Saving Resolution. \(store.lastPersistenceError ?? "Checkout storage is unavailable.")"
+                } else { resolutionFailures[checkpoint.id] = nil }
+            }
+            if let current = store.checkpoint(id: checkpoint.id), !current.isResolved {
+                refreshed.append(CheckoutRecoveryItem(checkpoint: current, classification: classification))
             }
         }
-        items = refreshed.filter { store.checkpoint(id: $0.id)?.isResolved == false }
+        items = refreshed.compactMap { item in
+            guard let current = store.checkpoint(id: item.id), !current.isResolved else { return nil }
+            return CheckoutRecoveryItem(checkpoint: current, classification: item.classification)
+        }
         // An armed resume follows the newest classification; it is dropped if no longer resumable.
         if let armed = armedResume {
             if let fresh = items.first(where: { $0.id == armed.item.id }), fresh.classification.isResumable { armedResume = (fresh, armed.expiresAt) } else { armedResume = nil }
@@ -492,6 +588,14 @@ final class PaymentRecoveryCoordinator: ObservableObject {
         }
     }
 
+    func refreshLocalDecisions() {
+        guard let store = checkpointStore() else { return }
+        items = items.compactMap { item in
+            guard let checkpoint = store.checkpoint(id: item.id), !checkpoint.isResolved else { return nil }
+            return CheckoutRecoveryItem(checkpoint: checkpoint, classification: item.classification)
+        }
+    }
+
     func refreshOutboxSummary() {
         outboxSummary = PrintOutcomeOutbox.shared?.summary ?? (0, 0, 0, 0)
     }
@@ -511,12 +615,37 @@ final class PaymentRecoveryCoordinator: ObservableObject {
         return armed.item
     }
 
-    /// Hides an item on this iPad. Server entitlements are untouched and stay listed as
-    /// outstanding in the server's order list; the reason is kept in the local record.
-    func dismiss(_ item: CheckoutRecoveryItem, reason: String) {
-        checkpointStore()?.resolve(id: item.id, reason: "operator:\(reason)")
-        items.removeAll { $0.id == item.id }
+    /// Closes only the local interaction. It never settles, voids or refunds the purchase.
+    /// The item remains discoverable under Outstanding Payments and refresh keeps reconciling it.
+    @discardableResult
+    func dismiss(_ item: CheckoutRecoveryItem, reason: String) -> Bool {
+        guard let store = checkpointStore() else {
+            resolutionFailures[item.id] = "Checkout storage is unavailable. Retry Saving Resolution; nothing was closed."
+            return false
+        }
+        let current = store.checkpoint(id: item.id)
+        let printNeedsReview: Bool
+        switch item.classification {
+        case .printStarted, .offlineCashDeclared(printStarted: true): printNeedsReview = current?.physicalReviewAt == nil && current?.isParked == false
+        default: printNeedsReview = receiptCheckIDs.contains(item.id)
+        }
+        guard !printNeedsReview else {
+            resolutionFailures[item.id] = "Review Receipt and record the physical check in Help & Recovery before closing. Paper may already exist."
+            return false
+        }
+        let saved = store.park(id: item.id, reason: reason)
+        guard saved else {
+            resolutionFailures[item.id] = "Could not save the resolution. Retry Saving Resolution; nothing was closed. \(store.lastPersistenceError ?? "Check saved checkout records.")"
+            return false
+        }
+        resolutionFailures[item.id] = nil
+        if let current = store.checkpoint(id: item.id), !current.isResolved {
+            let updated = CheckoutRecoveryItem(checkpoint: current, classification: item.classification)
+            if let index = items.firstIndex(where: { $0.id == item.id }) { items[index] = updated }
+            else { items.append(updated) }
+        } else { items.removeAll { $0.id == item.id } }
         if armedResume?.item.id == item.id { armedResume = nil }
+        return true
     }
 
     /// Crash after the last copy but before completion was queued: when every paid copy is
@@ -527,9 +656,8 @@ final class PaymentRecoveryCoordinator: ObservableObject {
               let entitlementID = server?.orders.first(where: { $0.order.id == server?.openOrderId })?.entitlement?.id ?? checkpoint.entitlementID else { return false }
         let copies = outbox.copiesThatMayHavePrinted(sessionID: checkpoint.id)
         guard Self.allPaidCopiesDelivered(copies, paidCopies: checkpoint.copies), let batchID = copies.first?.batchID else { return false }
-        outbox.enqueueCompletion(batchID: batchID, sessionID: checkpoint.id, entitlementID: entitlementID)
-        checkpointStore()?.resolve(id: checkpoint.id, reason: "auto:all paid copies delivered before interruption")
-        return true
+        guard outbox.enqueueCompletion(batchID: batchID, sessionID: checkpoint.id, entitlementID: entitlementID) else { return false }
+        return checkpointStore()?.resolve(id: checkpoint.id, reason: "auto:all paid copies delivered before interruption") == true
     }
 
     /// True only when exactly copies 1…N of one batch were delivered and none is uncertain.

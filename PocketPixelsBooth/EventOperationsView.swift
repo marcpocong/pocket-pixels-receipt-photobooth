@@ -118,6 +118,9 @@ struct OperatorRecoveryView: View {
     @StateObject private var operations = EventOperationalState.shared
     @StateObject private var printer = PrinterCoordinator.shared
     @State private var confirming = false
+    @State private var physicalIdentity: String?
+    @StateObject private var lifecycle = EventLifecycleCoordinator()
+    @State private var showsEndEvent = false
     @State private var confirmingTest = false
     @State private var confirmingPaper = false
     @State private var testRunning = false
@@ -130,7 +133,8 @@ struct OperatorRecoveryView: View {
                 if printer.requiresRecovery || operations.hasUnresolvedPrint {
                     Label("A receipt may already have printed", systemImage: "exclamationmark.triangle.fill").font(.headline)
                     Text("1. Check the paper and ask whether the guest received the receipt.\n2. Clear any jam and restart the printer.\n3. Record your check below, then reconnect.")
-                    Button("I've Checked the Receipt & Restarted the Printer") { confirming = true }
+                    OperatorCloseContinueButton()
+                    Button("Record Receipt Check Only") { physicalIdentity = operations.physicalRecoveryIdentity; confirming = true }
                         .disabled(printer.isWorking)
                     Text("The result stays recorded as uncertain. Recording your check never prints another copy.").font(.footnote)
                 } else {
@@ -161,14 +165,36 @@ struct OperatorRecoveryView: View {
                              ? "Check the previous receipt above. Its photos and print record are kept."
                              : "A guest session stopped before printing was recorded. Keep its photos for reference before continuing.")
                         if snapshot.stage != .printStatusUnknown {
-                            Button("Keep Session & Continue") { operations.keepInterruptedSessionForReference() }
-                                .disabled(operations.customerSessionActive || printer.isWorking)
+                            OperatorCloseContinueButton()
                             Text("Keeps the checkpoint and photos on this iPad. Pending payments still need payment recovery.").font(.footnote)
                         }
                     } else {
                         Text("Already reviewed. Kept for reference; this is not a new printer warning.")
                     }
                 } header: { Text(operations.hasPendingSessionRecovery ? "Interrupted guest session" : "Earlier session") }
+            }
+            if operations.customerSessionActive, operations.recoverableSession == nil {
+                Section("Current guest") { OperatorCloseContinueButton() }
+            }
+            if let error = operations.recoveryStorageError { Section("Saved guest records") { Text(error).foregroundStyle(.orange) } }
+            if let error = PrintOutcomeOutbox.shared?.persistenceFailure {
+                Section("Print record needs saving") {
+                    Text(error).foregroundStyle(.orange)
+                    Button("Retry Saving Resolution") {
+                        PrintOutcomeOutbox.shared?.retryLaunchRecovery()
+                        operations.refresh()
+                    }
+                }
+            }
+            CheckoutRecoverySection()
+            Section("Continue operation") {
+                Button("Return to Regular Booth") {
+                    if let run = lifecycle.runs.current, [.active, .paused].contains(run.status) { showsEndEvent = true }
+                    else { Task { _ = await lifecycle.returnToRegular() } }
+                }.disabled(lifecycle.operation != nil || SessionSetupSafety.blockingReason != nil)
+                if !lifecycle.message.isEmpty { Text(lifecycle.message).font(.footnote) }
+                NavigationLink("Regular Booth Settings", value: OperatorWorkspaceRoute.regularBooth)
+                NavigationLink("Open Session Setup", value: OperatorWorkspaceRoute.sessionSetup)
             }
             Section("History & help") {
                 NavigationLink("Recent Sessions · View or Reprint") { RecentSessionsView() }
@@ -180,6 +206,7 @@ struct OperatorRecoveryView: View {
         }.navigationTitle("Help & Recovery")
         .environment(\.defaultMinListRowHeight, 52)
         .task { operations.refresh() }
+        .sheet(isPresented: $showsEndEvent) { EndEventSheet(lifecycle: lifecycle, isPresented: $showsEndEvent) }
         .onChange(of: bluetooth.isConnectedAndReady) { _, ready in if !ready { textTestSent = false } }
         .confirmationDialog("Print one diagnostic text test on paper?", isPresented: $confirmingTest, titleVisibility: .visible) {
             Button("Print Diagnostic Text") {
@@ -208,7 +235,7 @@ struct OperatorRecoveryView: View {
             Button("Cancel", role: .cancel) {}
         }
         .confirmationDialog("Have you physically checked the receipt and restarted the printer?", isPresented: $confirming, titleVisibility: .visible) {
-            Button("Yes — Confirm Physical Recovery") { operations.confirmPhysicalPrinterRecovery() }
+            Button("Yes — Confirm Physical Recovery") { operations.confirmPhysicalPrinterRecovery(expectedIdentity: physicalIdentity) }
             Button("Cancel", role: .cancel) {}
         } message: { Text("This acknowledges operator inspection. It does not prove whether the previous receipt printed and does not retry it.") }
     }
@@ -364,6 +391,45 @@ struct OperatorCameraCheckView: View {
                 message = "Camera unavailable. Enable camera permission in iPad Settings and check on a real iPad."
                 EventOperationalState.shared.recordOperatorCameraCheck(passed: false, message: message)
             }
+        }
+    }
+}
+
+/// One operator-authorized workflow wherever the interruption is shown. The confirmation
+/// captures the exact physical checkpoint; a newly failed copy cannot inherit this check.
+struct OperatorCloseContinueButton: View {
+    var checkoutID: String? = nil
+    var title = "Close Session & Continue"
+    @ObservedObject private var operations = EventOperationalState.shared
+    @ObservedObject private var printer = PrinterCoordinator.shared
+    @State private var confirming = false
+    @State private var expectedPhysicalIdentity = ""
+    @State private var checkingPaper = false
+
+    var body: some View {
+        Button(title) {
+            operations.refresh()
+            checkingPaper = printer.requiresRecovery || operations.hasUnresolvedPrint
+            expectedPhysicalIdentity = operations.physicalRecoveryIdentity
+            confirming = true
+        }
+        .buttonStyle(.bordered).controlSize(.large)
+        .frame(minHeight: 48)
+        .disabled(printer.isWorking)
+        .accessibilityIdentifier("operator.closeContinue")
+        .confirmationDialog(checkingPaper ? "Review Receipt, then Close & Continue" : "Close this guest interaction?",
+                            isPresented: $confirming, titleVisibility: .visible) {
+            Button(checkingPaper ? "I've Checked the Paper & Restarted · Close & Continue" : "Close Session & Continue") {
+                if checkingPaper {
+                    guard operations.confirmPhysicalPrinterRecovery(expectedIdentity: expectedPhysicalIdentity) else { return }
+                }
+                _ = operations.closeSessionAndContinue(checkoutID: checkoutID)
+            }
+            Button("Keep Session", role: .cancel) {}
+        } message: {
+            Text(checkingPaper
+                 ? "Physically inspect the receipt and clear any jam first. Paper may already exist. The outcome stays unknown and no copy is resent. Photos and financial records stay saved."
+                 : "Keep the original photos and checkout, close this guest's screen, and continue unrelated operation. Pending payments remain pending in Outstanding Payments. Paid copies remain recoverable. This does not cancel, refund or settle a payment.")
         }
     }
 }

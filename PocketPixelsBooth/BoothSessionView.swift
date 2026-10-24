@@ -106,7 +106,7 @@ struct BoothSessionView: View {
                    viewModel.capturedPhotos.isEmpty {
                     Text("Return to Welcome? Your paid session stays saved for the attendant to resume. Please do not pay again.")
                 } else {
-                    Text("All captured photos and the current receipt preview will be cleared.")
+                    Text("Return to Welcome? Captured photos and receipt previews are kept for operator recovery.")
                 }
             }
 #if DEBUG
@@ -134,6 +134,7 @@ struct BoothSessionView: View {
                 }
             }
             .onChange(of: viewModel.state) { oldState, newState in
+                viewModel.registerForOperatorControl()
                 if onAdminAccessRequested != nil {
                     operations.customerSessionActive = newState != .welcome && newState != .thankYou
                 }
@@ -165,6 +166,7 @@ struct BoothSessionView: View {
             }
 #endif
             .task {
+                viewModel.registerForOperatorControl()
                 handleCustomerStateChange(from: nil, to: viewModel.state)
                 viewModel.refreshCustomerExperience()
                 viewModel.preparePrinter()

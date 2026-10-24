@@ -47,6 +47,7 @@ final class LiveEventPaymentRecoveryTests: XCTestCase {
         var environment = BoothSessionEnvironment.customer
         environment.recoveryDirectory = directory
         environment.archiveDirectory = directory
+        environment.detachedCheckoutDirectory = directory.appendingPathComponent("detached")
         environment.deliversGallery = false
         environment.recordsCustomerSessionMetrics = false
         model = BoothSessionViewModel(environment: environment, paymentsClient: client, checkpointStore: store)
@@ -158,6 +159,37 @@ final class LiveEventPaymentRecoveryTests: XCTestCase {
         await task.value
         XCTAssertEqual(model.state, .cameraReady)
         XCTAssertNotNil(model.checkoutEntitlement)
+    }
+
+    func testOperatorCloseDuringHeldVerificationCannotAuthorizeNextGuest() async throws {
+        let session = try XCTUnwrap(model.sessionIdentifier)
+        let requested = expectation(description: "Original verification held")
+        var held: LiveRecoveryProtocol?
+        installHandler { stub in held = stub; requested.fulfill() }
+        model.beginPaymentReconciliationForTesting()
+        let task = try XCTUnwrap(model.paymentPollTaskForTesting)
+        await fulfillment(of: [requested], timeout: 3)
+        let permit = OperatorAccessPermit.shared, wasAuthorized = OperatorAccessPermit.shared.isAuthorized
+        permit.authorize(); defer { if !wasAuthorized { permit.revoke() } }
+        let originalSnapshot = AppRecoverySnapshot(schemaVersion: 1, sessionIdentifier: session, createdAt: Date(), format: .solo,
+            eventProfile: nil, galleryToken: "original-gallery", galleryURL: URL(string: "https://example.test/original"),
+            photoJPEGData: [], receiptPreviewPNGData: nil, thermalPreviewPNGData: nil, rasterFingerprint: nil,
+            stage: .formatSelected, updatedAt: Date())
+        try AppRecoveryStore(directoryURL: directory).saveCritical(originalSnapshot)
+        try model.closeSessionForOperator()
+        XCTAssertEqual(model.state, .welcome)
+        XCTAssertTrue(store.checkpoint(id: session)!.isParked)
+        XCTAssertFalse(store.checkpoint(id: session)!.isResolved)
+        model.configurePaidCheckoutForTesting(qrPhEnabled: true, cashEnabled: true)
+        let next = model.sessionIdentifier
+        held?.respond(recovery(session))
+        await task.value
+        XCTAssertNotEqual(next, session)
+        XCTAssertEqual(model.sessionIdentifier, next)
+        XCTAssertEqual(model.state, .choosingCopies)
+        XCTAssertNil(model.checkoutEntitlement)
+        XCTAssertTrue(requests.allSatisfy { $0.hasPrefix("GET ") }, "Closure performs no payment or claim mutation")
+        XCTAssertNotNil(try DetachedCheckoutStore(directory: directory.appendingPathComponent("detached")).load(sessionID: session))
     }
 
     func testResetCancelsPreviousPollWithoutChangingNextCustomer() async throws {

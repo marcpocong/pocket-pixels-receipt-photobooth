@@ -24,6 +24,13 @@ nonisolated struct DetachedCheckoutStore {
         guard record.snapshot.sessionIdentifier == record.checkpoint.id,
               record.checkpoint.phase < .entitled, record.snapshot.photoJPEGData.isEmpty,
               record.snapshot.stage == .formatSelected else { throw SetupFailure("This checkout cannot be detached after capture or printing may have begun.") }
+        try saveForOperator(record)
+    }
+
+    /// Operator closure retains the complete snapshot, including captured photos and previews.
+    /// Callers must finish the physical check first if paper may exist.
+    func saveForOperator(_ record: DetachedCheckoutRecord) throws {
+        guard record.snapshot.sessionIdentifier == record.checkpoint.id else { throw AppRecoveryStoreError.verificationFailed }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700, .protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
         let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(record)
@@ -51,5 +58,51 @@ nonisolated struct DetachedCheckoutStore {
         guard let record = try detached.load(sessionID: snapshot.sessionIdentifier), record.reference == checkpoint.recoveryReference,
               snapshot.stage == .formatSelected, snapshot.photoJPEGData.isEmpty else { throw AppRecoveryStoreError.verificationFailed }
         recovery?.clear(sessionIdentifier: snapshot.sessionIdentifier)
+    }
+}
+
+/// Weak access to the actual guest state machine. Closing an operator sheet alone cannot
+/// release the kiosk while a late payment/camera callback still owns the previous guest.
+@MainActor enum ActiveGuestInteraction {
+    static weak var model: BoothSessionViewModel?
+}
+
+@MainActor enum CheckoutInteractionClosure {
+    /// Resume must never overwrite a different unclosed guest, or lose the original photos
+    /// when the returning guest deliberately starts fresh capture under the same entitlement.
+    static func snapshotForResume(id: String, checkpoints: CheckoutCheckpointStore, recovery: AppRecoveryStore,
+                                  detached: DetachedCheckoutStore) throws -> AppRecoverySnapshot? {
+        if let saved = try recovery.loadChecked() {
+            if saved.sessionIdentifier != id {
+                let closed = checkpoints.checkpoint(id: saved.sessionIdentifier)?.isParked == true
+                    || recovery.acknowledgedIdentity == OperatorRecoveryAcknowledgement.identity(saved)
+                    || UserDefaults.standard.string(forKey: OperatorRecoveryAcknowledgement.key) == OperatorRecoveryAcknowledgement.identity(saved)
+                guard closed else { throw SetupFailure("Close Session & Continue for the other interrupted guest before resuming this checkout. Its photos are still saved.") }
+            }
+            try recovery.retainForReference(saved)
+            if saved.sessionIdentifier == id { return saved }
+        }
+        return try detached.load(sessionID: id)?.snapshot
+    }
+
+    /// Commit retained assets first, then the local decision. Failure leaves the operation gate
+    /// closed. Repeated calls reuse the same original checkout and reference.
+    static func close(id: String, reason: String, checkpoints: CheckoutCheckpointStore,
+                      recovery: AppRecoveryStore, detached: DetachedCheckoutStore,
+                      snapshot: AppRecoverySnapshot?) throws {
+        guard let checkpoint = checkpoints.checkpoint(id: id), checkpoints.integrityFault == nil else {
+            throw SetupFailure("Original checkout records are unavailable. Nothing was closed.")
+        }
+        if let snapshot {
+            guard snapshot.sessionIdentifier == id else { throw AppRecoveryStoreError.verificationFailed }
+            let existing = try detached.load(sessionID: id)
+            try detached.saveForOperator(.init(checkpoint: checkpoint, snapshot: snapshot,
+                reference: existing?.reference ?? checkpoint.recoveryReference ?? UUID().uuidString.lowercased(),
+                detachedAt: existing?.detachedAt ?? Date()))
+            try recovery.retainForReference(snapshot)
+        }
+        guard checkpoints.park(id: id, reason: reason) else {
+            throw SetupFailure("Could not save the resolution. Retry Saving Resolution. \(checkpoints.lastPersistenceError ?? "Checkout records are unavailable.")")
+        }
     }
 }

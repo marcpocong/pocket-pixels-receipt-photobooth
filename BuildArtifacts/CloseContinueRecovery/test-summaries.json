@@ -1,0 +1,358 @@
+{
+  "date": "2026-10-24",
+  "timezone": "Asia/Manila",
+  "branch": "codex/close-continue-recovery",
+  "baseCommit": "3ff44be6653b121e2a1b519f4670065082ec2d7a",
+  "focused_ios27": {
+    "devicesAndConfigurations": [
+      {
+        "device": {
+          "architecture": "arm64",
+          "deviceId": "E76362ED-7724-4E1F-81FD-998263D2FB19",
+          "deviceName": "PocketPixels Gallery iOS27",
+          "modelName": "iPad Pro (11-inch) (4th generation)",
+          "osBuildNumber": "24A434",
+          "osVersion": "27.0",
+          "platform": "iOS Simulator"
+        },
+        "expectedFailures": 0,
+        "failedTests": 0,
+        "passedTests": 144,
+        "skippedTests": 0,
+        "testPlanConfiguration": {
+          "configurationId": "1",
+          "configurationName": "Test Scheme Action"
+        }
+      }
+    ],
+    "environmentDescription": "PocketPixelsBooth \u00b7 Built with macOS 27.0.1",
+    "expectedFailures": 0,
+    "failedTests": 0,
+    "finishTime": 1792819527.171,
+    "passedTests": 142,
+    "result": "Passed",
+    "runtimeWarnings": [],
+    "skippedTests": 0,
+    "startTime": 1792819398.856,
+    "statistics": [
+      {
+        "subtitle": "3 test runs",
+        "title": "1 test ran with dynamic parameters"
+      }
+    ],
+    "testFailures": [],
+    "title": "Test - PocketPixelsBooth",
+    "topInsights": [
+      {
+        "category": "Longest Test Runs",
+        "impact": "60% of duration",
+        "text": "1 longest test run with outlier durations exceeding 14.00s (three standard deviations)"
+      }
+    ],
+    "totalTestCount": 142
+  },
+  "backend": {
+    "payments": {
+      "passed": 223,
+      "failed": 0
+    },
+    "monitoring": {
+      "passed": 9,
+      "failed": 0
+    },
+    "gallery_proxy": {
+      "passed": 39,
+      "failed": 0
+    },
+    "payments_syntax": "passed",
+    "apps_script": "pure/schema/storage/retry/readiness checks passed"
+  },
+  "finalSourceSHA256": {
+    "PocketPixelsBooth/AppRecoveryStore.swift": "b3ddace29264dddfc0fb5bc337da382c7862577642fdd425cce5b318ebfbec1c",
+    "PocketPixelsBooth/BoothSessionView.swift": "6769a8336ef9a6d5c5a1ff194b28411ddd157c1412476f40660054b601b3c3cc",
+    "PocketPixelsBooth/BoothSessionViewModel.swift": "2ca1d2f3c699fa1bc748139b7de8cf81a7bb03b4f775d2bea8390c1d376c5867",
+    "PocketPixelsBooth/DetachedCheckoutStore.swift": "bd6ec2cbb94dd1427200e1f36946db63fd49b9420e2f5ec7e8d0800843a70c85",
+    "PocketPixelsBooth/EventOperationalState.swift": "9750b287b882112c6f725e276da9413ebb38a2a9aed3ed23fa944d88e14f5070",
+    "PocketPixelsBooth/EventOperationsView.swift": "1c7c7f7f31084083ee0057e460d63351878ec2aeb773ef9b4057653f549e7985",
+    "PocketPixelsBooth/OperatorDashboardView.swift": "0dbae16016daef9366cf087f992cd73b59afc4dcac5a99c097fb898346380bf0",
+    "PocketPixelsBooth/PaymentCheckoutRecovery.swift": "f87cbc03a29413fd1c66f0794198a9c5f8a07e68c9a25e13b735813f502739a1",
+    "PocketPixelsBooth/PaymentsAPIClient.swift": "873b787f8263f6ffb6274feb25e26b3d9dc4c39ff42b1a715f74e660d02e73d8",
+    "PocketPixelsBooth/PaymentsOperatorView.swift": "16b172ced4ffb152c3888337d32aa19d4a9e95cb261c42a42dd085a295c62ef9",
+    "PocketPixelsBooth/PrintOutcomeOutbox.swift": "2c5e7dbab96fd945dd247ab59cefdbffa548b0636455f9abb8c69569ce4a3da2",
+    "PocketPixelsBooth/ProductionHealth.swift": "f57b1012db07a1d21f3b86f6a847056cc255f03b2df41a5d76d80eed8b174362",
+    "PocketPixelsBooth/SessionSetupCoordinator.swift": "1102af3046576361495e16e46b0a9d06a59f16529e5a993c7adc55fc8577834b"
+  },
+  "builds": {
+    "debug_simulator": "passed through test builds",
+    "signed_device_release": "passed",
+    "signed_device_release_log": "/tmp/pp-close-signing-check.log",
+    "signature_verification": "codesign --verify --deep --strict passed",
+    "project_signing_bundle_changes": false
+  },
+  "complete_ios26": {
+    "devicesAndConfigurations": [
+      {
+        "device": {
+          "architecture": "arm64",
+          "deviceId": "643C1CF2-771A-4553-B562-869E09E571B1",
+          "deviceName": "PocketPixels Gallery Validation",
+          "modelName": "iPad Pro (11-inch) (4th generation)",
+          "osBuildNumber": "23F77",
+          "osVersion": "26.5",
+          "platform": "iOS Simulator"
+        },
+        "expectedFailures": 0,
+        "failedTests": 0,
+        "passedTests": 816,
+        "skippedTests": 0,
+        "testPlanConfiguration": {
+          "configurationId": "1",
+          "configurationName": "Test Scheme Action"
+        }
+      }
+    ],
+    "environmentDescription": "PocketPixelsBooth \u00b7 Built with macOS 27.0.1",
+    "expectedFailures": 0,
+    "failedTests": 0,
+    "finishTime": 1792820205.79,
+    "passedTests": 781,
+    "result": "Passed",
+    "runtimeWarnings": [
+      {
+        "issueType": "Runtime Warning",
+        "message": "[Internal] Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Utility quality-of-service class. Investigate ways to avoid priority inversions"
+      }
+    ],
+    "skippedTests": 0,
+    "startTime": 1792819380.102,
+    "statistics": [
+      {
+        "subtitle": "42 test runs",
+        "title": "7 tests ran with dynamic parameters"
+      }
+    ],
+    "testFailures": [],
+    "title": "Test - PocketPixelsBooth",
+    "topInsights": [
+      {
+        "category": "Longest Test Runs",
+        "impact": "52% of duration",
+        "text": "11 longest test runs with outlier durations exceeding 15.77s (three standard deviations)"
+      }
+    ],
+    "totalTestCount": 781
+  },
+  "complete_ios26_source_note": "Supporting full run before the final idle unfinished-send and resume-asset guards; the final iOS 26 focused run validates those additions.",
+  "final_focused_ios26": {
+    "devicesAndConfigurations": [
+      {
+        "device": {
+          "architecture": "arm64",
+          "deviceId": "643C1CF2-771A-4553-B562-869E09E571B1",
+          "deviceName": "PocketPixels Gallery Validation",
+          "modelName": "iPad Pro (11-inch) (4th generation)",
+          "osBuildNumber": "23F77",
+          "osVersion": "26.5",
+          "platform": "iOS Simulator"
+        },
+        "expectedFailures": 0,
+        "failedTests": 0,
+        "passedTests": 145,
+        "skippedTests": 0,
+        "testPlanConfiguration": {
+          "configurationId": "1",
+          "configurationName": "Test Scheme Action"
+        }
+      }
+    ],
+    "environmentDescription": "PocketPixelsBooth \u00b7 Built with macOS 27.0.1",
+    "expectedFailures": 0,
+    "failedTests": 0,
+    "finishTime": 1792820364.696,
+    "passedTests": 143,
+    "result": "Passed",
+    "runtimeWarnings": [],
+    "skippedTests": 0,
+    "startTime": 1792820241.561,
+    "statistics": [
+      {
+        "subtitle": "3 test runs",
+        "title": "1 test ran with dynamic parameters"
+      }
+    ],
+    "testFailures": [],
+    "title": "Test - PocketPixelsBooth",
+    "topInsights": [
+      {
+        "category": "Longest Test Runs",
+        "impact": "58% of duration",
+        "text": "1 longest test run with outlier durations exceeding 13.75s (three standard deviations)"
+      }
+    ],
+    "totalTestCount": 143
+  },
+  "complete_ios27": {
+    "devicesAndConfigurations": [
+      {
+        "device": {
+          "architecture": "arm64",
+          "deviceId": "E76362ED-7724-4E1F-81FD-998263D2FB19",
+          "deviceName": "PocketPixels Gallery iOS27",
+          "modelName": "iPad Pro (11-inch) (4th generation)",
+          "osBuildNumber": "24A434",
+          "osVersion": "27.0",
+          "platform": "iOS Simulator"
+        },
+        "expectedFailures": 0,
+        "failedTests": 0,
+        "passedTests": 817,
+        "skippedTests": 0,
+        "testPlanConfiguration": {
+          "configurationId": "1",
+          "configurationName": "Test Scheme Action"
+        }
+      }
+    ],
+    "environmentDescription": "PocketPixelsBooth \u00b7 Built with macOS 27.0.1",
+    "expectedFailures": 0,
+    "failedTests": 0,
+    "finishTime": 1792820613.537,
+    "passedTests": 782,
+    "result": "Passed",
+    "runtimeWarnings": [
+      {
+        "issueType": "Runtime Warning",
+        "message": "[Internal] Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Utility quality-of-service class. Investigate ways to avoid priority inversions"
+      }
+    ],
+    "skippedTests": 0,
+    "startTime": 1792819720.368,
+    "statistics": [
+      {
+        "subtitle": "42 test runs",
+        "title": "7 tests ran with dynamic parameters"
+      }
+    ],
+    "testFailures": [],
+    "title": "Test - PocketPixelsBooth",
+    "topInsights": [
+      {
+        "category": "Longest Test Runs",
+        "impact": "51% of duration",
+        "text": "13 longest test runs with outlier durations exceeding 16.03s (three standard deviations)"
+      }
+    ],
+    "totalTestCount": 782
+  },
+  "complete_ios27_source_note": "Complete final behavioral implementation, followed by an explicit nonisolated property declaration to remove an introduced compiler warning; final focused iOS 26 and signed Release validate that declaration.",
+  "restoredTestGeneratedArtifacts": [
+    "BuildArtifacts/GalleryFooter/duo_classicBarcodeAndGalleryQR_logo_false.png",
+    "BuildArtifacts/GalleryFooter/duo_classicBarcodeAndGalleryQR_logo_false.raster.bin",
+    "BuildArtifacts/GalleryFooter/duo_classicBarcodeAndGalleryQR_logo_false_1bit.png",
+    "BuildArtifacts/GalleryFooter/duo_classicBarcodeAndGalleryQR_logo_true.png",
+    "BuildArtifacts/GalleryFooter/duo_classicBarcodeAndGalleryQR_logo_true.raster.bin",
+    "BuildArtifacts/GalleryFooter/duo_classicBarcodeAndGalleryQR_logo_true_1bit.png",
+    "BuildArtifacts/GalleryFooter/duo_decorativeBarcodeOnly_logo_false.png",
+    "BuildArtifacts/GalleryFooter/duo_decorativeBarcodeOnly_logo_false.raster.bin",
+    "BuildArtifacts/GalleryFooter/duo_decorativeBarcodeOnly_logo_false_1bit.png",
+    "BuildArtifacts/GalleryFooter/duo_decorativeBarcodeOnly_logo_true.png",
+    "BuildArtifacts/GalleryFooter/duo_decorativeBarcodeOnly_logo_true.raster.bin",
+    "BuildArtifacts/GalleryFooter/duo_decorativeBarcodeOnly_logo_true_1bit.png",
+    "BuildArtifacts/GalleryFooter/duo_integratedGalleryQR_logo_false.png",
+    "BuildArtifacts/GalleryFooter/duo_integratedGalleryQR_logo_false.raster.bin",
+    "BuildArtifacts/GalleryFooter/duo_integratedGalleryQR_logo_false_1bit.png",
+    "BuildArtifacts/GalleryFooter/duo_integratedGalleryQR_logo_true.png",
+    "BuildArtifacts/GalleryFooter/duo_integratedGalleryQR_logo_true.raster.bin",
+    "BuildArtifacts/GalleryFooter/duo_integratedGalleryQR_logo_true_1bit.png",
+    "BuildArtifacts/GalleryFooter/gridSix_classicBarcodeAndGalleryQR_logo_false.png",
+    "BuildArtifacts/GalleryFooter/gridSix_classicBarcodeAndGalleryQR_logo_false.raster.bin",
+    "BuildArtifacts/GalleryFooter/gridSix_classicBarcodeAndGalleryQR_logo_false_1bit.png",
+    "BuildArtifacts/GalleryFooter/gridSix_classicBarcodeAndGalleryQR_logo_true.png",
+    "BuildArtifacts/GalleryFooter/gridSix_classicBarcodeAndGalleryQR_logo_true.raster.bin",
+    "BuildArtifacts/GalleryFooter/gridSix_classicBarcodeAndGalleryQR_logo_true_1bit.png",
+    "BuildArtifacts/GalleryFooter/gridSix_decorativeBarcodeOnly_logo_false.png",
+    "BuildArtifacts/GalleryFooter/gridSix_decorativeBarcodeOnly_logo_false.raster.bin",
+    "BuildArtifacts/GalleryFooter/gridSix_decorativeBarcodeOnly_logo_false_1bit.png",
+    "BuildArtifacts/GalleryFooter/gridSix_decorativeBarcodeOnly_logo_true.png",
+    "BuildArtifacts/GalleryFooter/gridSix_decorativeBarcodeOnly_logo_true.raster.bin",
+    "BuildArtifacts/GalleryFooter/gridSix_decorativeBarcodeOnly_logo_true_1bit.png",
+    "BuildArtifacts/GalleryFooter/gridSix_integratedGalleryQR_logo_false.png",
+    "BuildArtifacts/GalleryFooter/gridSix_integratedGalleryQR_logo_false.raster.bin",
+    "BuildArtifacts/GalleryFooter/gridSix_integratedGalleryQR_logo_false_1bit.png",
+    "BuildArtifacts/GalleryFooter/gridSix_integratedGalleryQR_logo_true.png",
+    "BuildArtifacts/GalleryFooter/gridSix_integratedGalleryQR_logo_true.raster.bin",
+    "BuildArtifacts/GalleryFooter/gridSix_integratedGalleryQR_logo_true_1bit.png",
+    "BuildArtifacts/GalleryFooter/grid_classicBarcodeAndGalleryQR_logo_false.png",
+    "BuildArtifacts/GalleryFooter/grid_classicBarcodeAndGalleryQR_logo_false.raster.bin",
+    "BuildArtifacts/GalleryFooter/grid_classicBarcodeAndGalleryQR_logo_false_1bit.png",
+    "BuildArtifacts/GalleryFooter/grid_classicBarcodeAndGalleryQR_logo_true.png",
+    "BuildArtifacts/GalleryFooter/grid_classicBarcodeAndGalleryQR_logo_true.raster.bin",
+    "BuildArtifacts/GalleryFooter/grid_classicBarcodeAndGalleryQR_logo_true_1bit.png",
+    "BuildArtifacts/GalleryFooter/grid_decorativeBarcodeOnly_logo_false.png",
+    "BuildArtifacts/GalleryFooter/grid_decorativeBarcodeOnly_logo_false.raster.bin",
+    "BuildArtifacts/GalleryFooter/grid_decorativeBarcodeOnly_logo_false_1bit.png",
+    "BuildArtifacts/GalleryFooter/grid_decorativeBarcodeOnly_logo_true.png",
+    "BuildArtifacts/GalleryFooter/grid_decorativeBarcodeOnly_logo_true.raster.bin",
+    "BuildArtifacts/GalleryFooter/grid_decorativeBarcodeOnly_logo_true_1bit.png",
+    "BuildArtifacts/GalleryFooter/grid_integratedGalleryQR_logo_false.png",
+    "BuildArtifacts/GalleryFooter/grid_integratedGalleryQR_logo_false.raster.bin",
+    "BuildArtifacts/GalleryFooter/grid_integratedGalleryQR_logo_false_1bit.png",
+    "BuildArtifacts/GalleryFooter/grid_integratedGalleryQR_logo_true.png",
+    "BuildArtifacts/GalleryFooter/grid_integratedGalleryQR_logo_true.raster.bin",
+    "BuildArtifacts/GalleryFooter/grid_integratedGalleryQR_logo_true_1bit.png",
+    "BuildArtifacts/GalleryFooter/passport_classicBarcodeAndGalleryQR_logo_false.png",
+    "BuildArtifacts/GalleryFooter/passport_classicBarcodeAndGalleryQR_logo_false.raster.bin",
+    "BuildArtifacts/GalleryFooter/passport_classicBarcodeAndGalleryQR_logo_false_1bit.png",
+    "BuildArtifacts/GalleryFooter/passport_classicBarcodeAndGalleryQR_logo_true.png",
+    "BuildArtifacts/GalleryFooter/passport_classicBarcodeAndGalleryQR_logo_true.raster.bin",
+    "BuildArtifacts/GalleryFooter/passport_classicBarcodeAndGalleryQR_logo_true_1bit.png",
+    "BuildArtifacts/GalleryFooter/passport_decorativeBarcodeOnly_logo_false.png",
+    "BuildArtifacts/GalleryFooter/passport_decorativeBarcodeOnly_logo_false.raster.bin",
+    "BuildArtifacts/GalleryFooter/passport_decorativeBarcodeOnly_logo_false_1bit.png",
+    "BuildArtifacts/GalleryFooter/passport_decorativeBarcodeOnly_logo_true.png",
+    "BuildArtifacts/GalleryFooter/passport_decorativeBarcodeOnly_logo_true.raster.bin",
+    "BuildArtifacts/GalleryFooter/passport_decorativeBarcodeOnly_logo_true_1bit.png",
+    "BuildArtifacts/GalleryFooter/passport_integratedGalleryQR_logo_false.png",
+    "BuildArtifacts/GalleryFooter/passport_integratedGalleryQR_logo_false.raster.bin",
+    "BuildArtifacts/GalleryFooter/passport_integratedGalleryQR_logo_false_1bit.png",
+    "BuildArtifacts/GalleryFooter/passport_integratedGalleryQR_logo_true.png",
+    "BuildArtifacts/GalleryFooter/passport_integratedGalleryQR_logo_true.raster.bin",
+    "BuildArtifacts/GalleryFooter/passport_integratedGalleryQR_logo_true_1bit.png",
+    "BuildArtifacts/GalleryFooter/solo_classicBarcodeAndGalleryQR_logo_false.png",
+    "BuildArtifacts/GalleryFooter/solo_classicBarcodeAndGalleryQR_logo_false.raster.bin",
+    "BuildArtifacts/GalleryFooter/solo_classicBarcodeAndGalleryQR_logo_false_1bit.png",
+    "BuildArtifacts/GalleryFooter/solo_classicBarcodeAndGalleryQR_logo_true.png",
+    "BuildArtifacts/GalleryFooter/solo_classicBarcodeAndGalleryQR_logo_true.raster.bin",
+    "BuildArtifacts/GalleryFooter/solo_classicBarcodeAndGalleryQR_logo_true_1bit.png",
+    "BuildArtifacts/GalleryFooter/solo_decorativeBarcodeOnly_logo_false.png",
+    "BuildArtifacts/GalleryFooter/solo_decorativeBarcodeOnly_logo_false.raster.bin",
+    "BuildArtifacts/GalleryFooter/solo_decorativeBarcodeOnly_logo_false_1bit.png",
+    "BuildArtifacts/GalleryFooter/solo_decorativeBarcodeOnly_logo_true.png",
+    "BuildArtifacts/GalleryFooter/solo_decorativeBarcodeOnly_logo_true.raster.bin",
+    "BuildArtifacts/GalleryFooter/solo_decorativeBarcodeOnly_logo_true_1bit.png",
+    "BuildArtifacts/GalleryFooter/solo_integratedGalleryQR_logo_false.png",
+    "BuildArtifacts/GalleryFooter/solo_integratedGalleryQR_logo_false.raster.bin",
+    "BuildArtifacts/GalleryFooter/solo_integratedGalleryQR_logo_false_1bit.png",
+    "BuildArtifacts/GalleryFooter/solo_integratedGalleryQR_logo_true.png",
+    "BuildArtifacts/GalleryFooter/solo_integratedGalleryQR_logo_true.raster.bin",
+    "BuildArtifacts/GalleryFooter/solo_integratedGalleryQR_logo_true_1bit.png",
+    "BuildArtifacts/GalleryFooter/strip_classicBarcodeAndGalleryQR_logo_false.png",
+    "BuildArtifacts/GalleryFooter/strip_classicBarcodeAndGalleryQR_logo_false.raster.bin",
+    "BuildArtifacts/GalleryFooter/strip_classicBarcodeAndGalleryQR_logo_false_1bit.png",
+    "BuildArtifacts/GalleryFooter/strip_classicBarcodeAndGalleryQR_logo_true.png",
+    "BuildArtifacts/GalleryFooter/strip_classicBarcodeAndGalleryQR_logo_true.raster.bin",
+    "BuildArtifacts/GalleryFooter/strip_classicBarcodeAndGalleryQR_logo_true_1bit.png",
+    "BuildArtifacts/GalleryFooter/strip_decorativeBarcodeOnly_logo_false.png",
+    "BuildArtifacts/GalleryFooter/strip_decorativeBarcodeOnly_logo_false.raster.bin",
+    "BuildArtifacts/GalleryFooter/strip_decorativeBarcodeOnly_logo_false_1bit.png",
+    "BuildArtifacts/GalleryFooter/strip_decorativeBarcodeOnly_logo_true.png",
+    "BuildArtifacts/GalleryFooter/strip_decorativeBarcodeOnly_logo_true.raster.bin",
+    "BuildArtifacts/GalleryFooter/strip_decorativeBarcodeOnly_logo_true_1bit.png",
+    "BuildArtifacts/GalleryFooter/strip_integratedGalleryQR_logo_false.png",
+    "BuildArtifacts/GalleryFooter/strip_integratedGalleryQR_logo_false.raster.bin",
+    "BuildArtifacts/GalleryFooter/strip_integratedGalleryQR_logo_false_1bit.png",
+    "BuildArtifacts/GalleryFooter/strip_integratedGalleryQR_logo_true.png",
+    "BuildArtifacts/GalleryFooter/strip_integratedGalleryQR_logo_true.raster.bin",
+    "BuildArtifacts/GalleryFooter/strip_integratedGalleryQR_logo_true_1bit.png"
+  ]
+}

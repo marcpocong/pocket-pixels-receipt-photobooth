@@ -78,6 +78,7 @@ final class EventOperationalState: ObservableObject {
     @Published private(set) var queueError: String?
     @Published private(set) var recoveryConfirmation = 0
     @Published private(set) var recoveryActionMessage = ""
+    @Published private(set) var recoveryStorageError: String?
     @Published var customerSessionActive = false
     /// A hardware qualification print may have started without a confirmed outcome. The printer's
     /// physical state is unknown, so customers are blocked exactly like an unresolved customer print.
@@ -255,7 +256,12 @@ final class EventOperationalState: ObservableObject {
         } catch {
             queueError = "Pending gallery storage needs operator inspection. Data has been retained."
         }
-        recoverableSession = recoveryStore?.load()
+        do {
+            guard let recoveryStore else { throw AppRecoveryStoreError.unavailable }
+            recoverableSession = try recoveryStore.loadChecked()
+            acknowledgedPrintIdentity = recoveryStore.acknowledgedIdentity ?? UserDefaults.standard.string(forKey: OperatorRecoveryAcknowledgement.key)
+            recoveryStorageError = nil
+        } catch { recoveryStorageError = "Saved guest recovery could not be read. The original file is retained. \(error.localizedDescription)" }
         auditRecords = (try? PrintAuditStore().load()) ?? []
         archiveCount = (try? RecentSessionArchiveStore().summaries().count) ?? 0
         qualificationPrintNeedsInspection = (try? HardwareQualificationStore())?.unresolvedPrintRun != nil
@@ -332,7 +338,10 @@ final class EventOperationalState: ObservableObject {
     }
 
     var hasUnresolvedPrint: Bool {
-        if qualificationPrintNeedsInspection { return true }
+        if qualificationPrintNeedsInspection || PrintOutcomeOutbox.shared?.inspectionEntryIDs.isEmpty == false || !PaymentRecoveryCoordinator.shared.receiptCheckIDs.isEmpty { return true }
+        // A launch/final-outcome write failure can retain an in-flight intent after the
+        // transport stopped. Keep every print UI behind recovery until it is durably normalized.
+        if PrintOutcomeOutbox.shared?.hasUnfinishedPhysicalSend == true && !PrinterCoordinator.shared.isWorking { return true }
         guard let snapshot = recoverableSession, snapshot.stage == .printStatusUnknown else { return false }
         return OperatorPrintPolicy.requiresAcknowledgement(stage: snapshot.stage, snapshotIdentity: recoveryIdentity(snapshot), acknowledgedIdentity: acknowledgedPrintIdentity)
     }
@@ -341,23 +350,50 @@ final class EventOperationalState: ObservableObject {
         OperatorRecoveryAcknowledgement.identity(snapshot)
     }
 
-    func confirmPhysicalPrinterRecovery() {
+    var physicalRecoveryIdentity: String {
+        (recoverableSession.map(recoveryIdentity) ?? "no-snapshot") + "|" + (PrintOutcomeOutbox.shared?.inspectionEntryIDs.sorted().joined(separator: ",") ?? "no-journal")
+            + "|" + PaymentRecoveryCoordinator.shared.receiptCheckIDs.sorted().joined(separator: ",")
+    }
+
+    @discardableResult
+    func confirmPhysicalPrinterRecovery(expectedIdentity: String? = nil) -> Bool {
         let printer = PrinterCoordinator.shared
-        guard OperatorAccessPermit.shared.isAuthorized, !printer.isWorking, printer.requiresRecovery || hasUnresolvedPrint else { return }
+        guard OperatorAccessPermit.shared.isAuthorized, !printer.isWorking, printer.requiresRecovery || hasUnresolvedPrint else { return false }
+        if let expectedIdentity, expectedIdentity != physicalRecoveryIdentity {
+            recoveryActionMessage = "A different receipt now needs inspection. Review Receipt again."
+            return false
+        }
+        do {
+            guard let outbox = PrintOutcomeOutbox.shared else { throw AppRecoveryStoreError.unavailable }
+            try outbox.acknowledgeInspection(entryIDs: outbox.inspectionEntryIDs)
+            for id in PaymentRecoveryCoordinator.shared.receiptCheckIDs {
+                guard CheckoutCheckpointStore.shared?.update(id: id, { $0.physicalReviewAt = Date() }) == true else {
+                    throw SetupFailure("The original checkout receipt check could not be saved. Retry Saving Resolution.")
+                }
+            }
+            PaymentRecoveryCoordinator.shared.refreshLocalDecisions()
+        } catch {
+            recoveryActionMessage = "Could not save the receipt check. Retry Saving Resolution. \(error.localizedDescription)"
+            return false
+        }
         if let snapshot = recoverableSession {
-            guard retainAndAcknowledge(snapshot) else { return }
+            guard retainAndAcknowledge(snapshot) else { return false }
         }
         printer.confirmPrinterRestarted()
         if qualificationPrintNeedsInspection, let store = try? HardwareQualificationStore(), let run = store.unresolvedPrintRun {
-            try? store.acknowledgeUncertainPrint(runID: run.runID, note: "Confirmed through Printer Recovery.")
+            do { try store.acknowledgeUncertainPrint(runID: run.runID, note: "Confirmed through Printer Recovery.") }
+            catch { recoveryActionMessage = "Could not save the hardware receipt check. \(error.localizedDescription)"; return false }
         }
         recoveryActionMessage = "Receipt check recorded. Reconnect the printer and complete any requested paper test."
         recoveryConfirmation += 1
         refresh()
+        return true
     }
 
     var hasPendingSessionRecovery: Bool {
+        if recoveryStorageError != nil { return true }
         guard let snapshot = recoverableSession else { return false }
+        if CheckoutCheckpointStore.shared?.checkpoint(id: snapshot.sessionIdentifier)?.isParked == true { return false }
         return recoveryIdentity(snapshot) != acknowledgedPrintIdentity
     }
 
@@ -372,13 +408,42 @@ final class EventOperationalState: ObservableObject {
         }
     }
 
-    func keepInterruptedSessionForReference() {
-        guard OperatorAccessPermit.shared.isAuthorized, !customerSessionActive, !PrinterCoordinator.shared.isWorking,
-              !hasUnresolvedPrint, !PrinterCoordinator.shared.requiresRecovery,
-              let snapshot = recoverableSession, snapshot.stage != .printStatusUnknown else { return }
-        guard retainAndAcknowledge(snapshot) else { return }
-        recoveryActionMessage = "Session kept for reference. No receipt was sent. Any payment still needs its own review."
-        refresh()
+    func keepInterruptedSessionForReference() { _ = closeSessionAndContinue() }
+
+    @discardableResult
+    func closeSessionAndContinue(checkoutID: String? = nil) -> Bool {
+        do {
+            guard OperatorAccessPermit.shared.isAuthorized else { throw SetupFailure("Unlock Operator before closing a guest session.") }
+            guard !PrinterCoordinator.shared.isWorking else { throw SetupFailure("Wait for the active print transport to finish before closing.") }
+            guard !hasUnresolvedPrint, !PrinterCoordinator.shared.requiresRecovery else { throw SetupFailure("Review Receipt and record the physical check first. Paper may already exist.") }
+            guard let checkpoints = CheckoutCheckpointStore.shared, let outbox = PrintOutcomeOutbox.shared,
+                  checkpoints.integrityFault == nil, outbox.integrityFault == nil,
+                  outbox.persistenceFailure == nil, !outbox.hasUnfinishedPhysicalSend else {
+                throw SetupFailure("Saved checkout or print records need review. Retry Saving Resolution before closing.")
+            }
+            if let model = ActiveGuestInteraction.model, model.state != .welcome,
+               checkoutID == nil || model.sessionIdentifier == checkoutID {
+                try model.closeSessionForOperator()
+            } else {
+                guard let recoveryStore else { throw AppRecoveryStoreError.unavailable }
+                let snapshot = try recoveryStore.loadChecked()
+                let matching = snapshot.flatMap { checkoutID == nil || $0.sessionIdentifier == checkoutID ? $0 : nil }
+                if let id = checkoutID ?? matching?.sessionIdentifier, let checkpoint = checkpoints.checkpoint(id: id), !checkpoint.isResolved {
+                    try CheckoutInteractionClosure.close(id: id, reason: "operator:guest_left", checkpoints: checkpoints,
+                        recovery: recoveryStore, detached: DetachedCheckoutStore(), snapshot: matching)
+                } else if let matching {
+                    _ = try OperatorRecoveryAcknowledgement.retainAndAcknowledge(matching, store: recoveryStore)
+                }
+            }
+            recoveryActionMessage = "Guest interaction closed. Outstanding Payments keeps the original payment and remaining entitlement; nothing was refunded, voided or printed."
+            refresh()
+            PaymentRecoveryCoordinator.shared.refreshLocalDecisions()
+            Task { await PaymentRecoveryCoordinator.shared.refresh() }
+            return true
+        } catch {
+            recoveryActionMessage = "Could not close this session. \(error.localizedDescription)"
+            return false
+        }
     }
 
     func recordOperatorCameraCheck(passed: Bool, message: String) {

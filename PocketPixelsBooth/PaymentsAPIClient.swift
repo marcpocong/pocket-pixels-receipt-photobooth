@@ -249,6 +249,7 @@ actor PaymentsAPIClient {
     }
 
     nonisolated var environment: String { configuration.environment }
+    nonisolated var serverBinding: String? { "\(configuration.environment):\(configuration.baseURL.absoluteString)" }
 
     // MARK: Booth
 

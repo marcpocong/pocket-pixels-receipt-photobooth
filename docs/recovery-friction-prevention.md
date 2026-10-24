@@ -1,5 +1,7 @@
 # Preventing historical recovery from blocking operation
 
+Current closure workflow and financial/physical safety boundaries: [Close Session & Continue](close-continue-recovery.md).
+
 Follow-up to Operator Experience V3, October 24, 2026 (Asia/Manila).
 
 The invariant is: a retained receipt outcome is evidence, not unfinished operational work. An unknown outcome stays unknown and keeps copy-level duplicate protection. It does not become a permanent booth lock after the operator has handled the current recovery checkpoint.

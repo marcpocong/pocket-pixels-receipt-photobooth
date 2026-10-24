@@ -1,0 +1,25 @@
+## codex/close-continue-recovery
+ M PocketPixelsBooth/AppRecoveryStore.swift
+ M PocketPixelsBooth/BoothSessionView.swift
+ M PocketPixelsBooth/BoothSessionViewModel.swift
+ M PocketPixelsBooth/DetachedCheckoutStore.swift
+ M PocketPixelsBooth/EventOperationalState.swift
+ M PocketPixelsBooth/EventOperationsView.swift
+ M PocketPixelsBooth/OperatorDashboardView.swift
+ M PocketPixelsBooth/PaymentCheckoutRecovery.swift
+ M PocketPixelsBooth/PaymentsAPIClient.swift
+ M PocketPixelsBooth/PaymentsOperatorView.swift
+ M PocketPixelsBooth/PrintOutcomeOutbox.swift
+ M PocketPixelsBooth/ProductionHealth.swift
+ M PocketPixelsBooth/SessionSetupCoordinator.swift
+ M PocketPixelsBoothTests/EventFinalizationTests.swift
+ M PocketPixelsBoothTests/EventLifecycleIntegrationTests.swift
+ M PocketPixelsBoothTests/LiveEventPaymentRecoveryTests.swift
+ M PocketPixelsBoothTests/PaymentRecoveryConcurrencyTests.swift
+ M PocketPixelsBoothTests/PaymentsPhase4Tests.swift
+ M docs/payments-phase2-operator-runbook.md
+ M docs/recovery-friction-prevention.md
+?? .claude/
+?? BuildArtifacts/CloseContinueRecovery/
+?? PocketPixelsBoothTests/CloseContinueRecoveryTests.swift
+?? docs/close-continue-recovery.md

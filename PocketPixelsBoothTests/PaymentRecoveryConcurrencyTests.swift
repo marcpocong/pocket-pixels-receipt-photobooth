@@ -97,7 +97,8 @@ import XCTest
         reader.release()
         await pass.value
         XCTAssertTrue(coordinator.items.isEmpty)
-        XCTAssertEqual(store.checkpoint(id: "PP-1")?.resolution, "operator:Attendant refunded in person", "The operator's recorded decision stands")
+        XCTAssertEqual(store.checkpoint(id: "PP-1")?.localCloseReason, "Attendant refunded in person", "The operator's local decision stands independently of server reconciliation")
+        XCTAssertNotNil(store.checkpoint(id: "PP-1")?.locallyClosedAt)
     }
 
     func testTimeoutUnknownAndPossiblyPaidExpiredStatesStayPendingAndUnresolved() async throws {
@@ -132,4 +133,63 @@ import XCTest
         XCTAssertFalse(store.checkpoint(id: "PP-1")!.isResolved)
         XCTAssertNotNil(coordinator.lastRefreshCompletedAt)
     }
+    func testParkedUnknownCanBecomeVerifiedWithoutBecomingAnActiveGuestAgain() async throws {
+        try checkout("PP-late")
+        reader.serverState["PP-late"] = "unreachable"
+        await coordinator.refresh()
+        let item = try XCTUnwrap(coordinator.items.first)
+        XCTAssertTrue(coordinator.dismiss(item, reason: "guest left while unknown"))
+        let decision = store.checkpoint(id: item.id)?.localClosureHistory
+        reader.serverState["PP-late"] = order(state: "AUTHORIZED", attempt: "PAID_VERIFIED", entitlement: "AUTHORIZED")
+        await coordinator.refresh()
+        XCTAssertTrue(coordinator.activeItems.isEmpty)
+        XCTAssertEqual(coordinator.outstandingItems.first?.classification, .paidUnclaimed(verified: true))
+        XCTAssertFalse(store.checkpoint(id: item.id)!.isResolved)
+        XCTAssertEqual(store.checkpoint(id: item.id)?.localClosureHistory, decision)
+        XCTAssertTrue(coordinator.armResume(try XCTUnwrap(coordinator.outstandingItems.first)))
+        XCTAssertEqual(coordinator.takeArmedResume()?.id, item.id)
+        XCTAssertNil(coordinator.takeArmedResume())
+    }
+
+    func testAutomaticUnpaidResolutionFailureStaysVisibleUntilDurableRetry() async throws {
+        var failing = false
+        let local = try CheckoutCheckpointStore(directory: root.appendingPathComponent("unpaid"), writer: { data, url in
+            if failing { throw CocoaError(.fileWriteOutOfSpace) }
+            try DurableFileWriter.write(data, to: url)
+        })
+        let original = CheckoutCheckpoint(id: "PP-unpaid", environment: "test", eventID: "ev", policyRevisionID: "r1", unitPriceCentavos: 5000,
+            copies: 3, format: "solo", method: "QRPH", phase: .awaitingProvider, createdAt: Date(), updatedAt: Date())
+        try local.begin(original)
+        reader.serverState[original.id] = order(state: "CLOSED", attempt: "QR_EXPIRED_CONFIRMED")
+        let reader = reader!
+        let recovery = PaymentRecoveryCoordinator(checkpointStore: { local }, reader: { reader }, outboxClient: { nil })
+        failing = true
+        await recovery.refresh()
+        XCTAssertEqual(recovery.items.first?.classification, .unpaidClosed)
+        XCTAssertNotNil(recovery.resolutionFailures[original.id])
+        XCTAssertFalse(local.checkpoint(id: original.id)!.isResolved)
+        failing = false
+        await recovery.refresh()
+        XCTAssertTrue(recovery.items.isEmpty)
+        XCTAssertNil(recovery.resolutionFailures[original.id])
+        XCTAssertTrue(try CheckoutCheckpointStore(directory: root.appendingPathComponent("unpaid")).checkpoint(id: original.id)!.isResolved)
+    }
+
+    func testServerOnlyPrintEvidenceRequiresReviewBeforeParking() async throws {
+        try checkout("PP-paper", phase: .printing)
+        reader.serverState["PP-paper"] = order(state: "IN_SESSION", attempt: "PAID_VERIFIED", entitlement: "IN_SESSION")
+            .replacingOccurrences(of: "\"sessionId\":null", with: "\"sessionId\":\"PP-paper\"")
+            .replacingOccurrences(of: "\"printOutcomes\":[]", with: "\"printOutcomes\":[{\"copyIndex\":1,\"outcome\":\"UNCERTAIN\"}]")
+        await coordinator.refresh()
+        let item = try XCTUnwrap(coordinator.items.first)
+        XCTAssertEqual(item.classification, .printStarted)
+        XCTAssertEqual(coordinator.receiptCheckIDs, Set([item.id]))
+        XCTAssertFalse(coordinator.dismiss(item, reason: "guest left"))
+        XCTAssertFalse(store.checkpoint(id: item.id)!.isParked)
+        XCTAssertTrue(store.update(id: item.id) { $0.physicalReviewAt = Date() })
+        XCTAssertTrue(coordinator.receiptCheckIDs.isEmpty)
+        XCTAssertTrue(coordinator.dismiss(item, reason: "paper checked, guest left"))
+        XCTAssertTrue(store.checkpoint(id: item.id)!.isParked)
+    }
+
 }
