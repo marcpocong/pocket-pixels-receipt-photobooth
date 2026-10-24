@@ -284,6 +284,14 @@ final class BoothSessionViewModel: ObservableObject {
         }
     }
 
+    /// Register only the StateObject actually mounted by SwiftUI; temporary View initializers
+    /// must not replace the running guest with a model SwiftUI immediately discards.
+    func registerForOperatorControl() {
+        if environment.recordsCustomerSessionMetrics && environment.recoveryDirectory == nil {
+            ActiveGuestInteraction.model = self
+        }
+    }
+
     func preparePrinter() {
         printerCoordinator.prepare()
     }
@@ -317,6 +325,10 @@ final class BoothSessionViewModel: ObservableObject {
             return
         }
 
+        if let reason = SessionSetupSafety.decision(for: .startUnrelatedGuest).reason {
+            state = .error(reason)
+            return
+        }
         if environment.regularBoothModeSource() {
             do {
                 let settings = try RegularBoothSettings.loadForSession()
@@ -785,13 +797,16 @@ final class BoothSessionViewModel: ObservableObject {
 
     private func beginCheckpoint(sessionID: String, eventID: String, policyRevisionID: String, unitPriceCentavos: Int, copies: Int, format: BoothFormat, method: String, environment: String) throws {
         guard let checkpointStore else { throw CheckoutCheckpointStore.StoreError.persistFailed("checkout storage unavailable") }
+        if let reason = SessionSetupSafety.decision(for: .initiatePaidCheckout, activeGuest: true,
+            printerWorking: printerCoordinator.isWorking, needsReceiptCheck: operationalState.hasUnresolvedPrint || printerCoordinator.requiresRecovery,
+            hasPendingSession: false, checkpoints: checkpointStore, outbox: printOutbox, currentCheckoutID: sessionID).reason { throw SetupFailure(reason) }
         let identity = OfflineGrantStore.load()
         let now = Date()
         try checkpointStore.begin(CheckoutCheckpoint(
             id: sessionID, environment: environment, deviceID: identity?.deviceID, accountID: identity?.accountID,
             eventID: eventID, policyRevisionID: policyRevisionID, unitPriceCentavos: unitPriceCentavos, copies: copies,
             format: format.rawValue, method: method, orderID: nil, entitlementID: nil, offlineRecordID: nil,
-            phase: .orderRequested, lastServerState: nil, createdAt: now, updatedAt: now, resolution: nil, resolvedAt: nil, receiptPrintOptions: sessionPrintOptions, galleryReceiptStyle: sessionGalleryReceiptStyle))
+            phase: .orderRequested, lastServerState: nil, createdAt: now, updatedAt: now, resolution: nil, resolvedAt: nil, receiptPrintOptions: sessionPrintOptions, galleryReceiptStyle: sessionGalleryReceiptStyle, serverBinding: paymentsClient?.serverBinding))
     }
 
     /// Retries a write whose outcome is unknown with the same idempotent request.
@@ -1049,9 +1064,11 @@ final class BoothSessionViewModel: ObservableObject {
     /// Runs inside the spooler's fail-closed gate, after the recovery snapshot: the copy intent
     /// is durable before any byte is sent, or the copy is not sent at all.
     private func journalCopyIntent(_ envelope: PrintJobEnvelope) throws {
-        guard let printOutbox else {
-            if isPaidSession { throw PrintCheckpointError.persistenceFailed("Print accounting storage is unavailable.") }
-            return
+        guard let printOutbox else { throw PrintCheckpointError.persistenceFailed("Print accounting storage is unavailable.") }
+        if let reason = SessionSetupSafety.decision(for: .sendCopy, activeGuest: true, printerWorking: false,
+            needsReceiptCheck: printerCoordinator.requiresRecovery, hasPendingSession: false,
+            checkpoints: checkpointStore, outbox: printOutbox, currentCheckoutID: envelope.sessionIdentifier).reason {
+            throw PrintCheckpointError.persistenceFailed(reason)
         }
         do {
             try printOutbox.beginCopy(
@@ -1066,8 +1083,6 @@ final class BoothSessionViewModel: ObservableObject {
                 transport: PrinterTransportSelection.none.rawValue
             )
         } catch {
-            // Private/prepaid prints keep their existing behaviour: the journal is local evidence only.
-            guard isPaidSession else { return }
             throw PrintCheckpointError.persistenceFailed(error.localizedDescription)
         }
         if environment.recordsCustomerSessionMetrics {
@@ -1076,7 +1091,7 @@ final class BoothSessionViewModel: ObservableObject {
             }
         }
         if let sessionIdentifier, isPaidSession {
-            checkpointStore?.update(id: sessionIdentifier) { $0.phase = .printing }
+            checkpointStore?.update(id: sessionIdentifier) { $0.phase = .printing; $0.physicalReviewAt = nil }
         }
     }
 
@@ -1097,14 +1112,25 @@ final class BoothSessionViewModel: ObservableObject {
                 $0.printOutcomes[batchID.uuidString.lowercased() + "/" + String(copy)] = state.rawValue
             }
         }
-        printOutbox?.finishCopy(batchID: batchID.uuidString.lowercased(), copyIndex: copy, state: state)
+        let saved = printOutbox?.finishCopy(batchID: batchID.uuidString.lowercased(), copyIndex: copy, state: state) == true
+        if saved, state == .notStarted, let id = sessionIdentifier,
+           printOutbox?.copiesThatMayHavePrinted(sessionID: id).isEmpty == true {
+            // The transport proved no bytes were sent. Refine only this exact session's
+            // conservative pre-send snapshot; never weaken a possibly printed copy.
+            do { try persistCriticalRecoverySnapshot(stage: receiptImage == nil ? .photosCaptured : .receiptComposed) }
+            catch { statusMessage = "Nothing was sent, but recovery still needs saving. Retry Saving Resolution. \(error.localizedDescription)" }
+            operationalState.refresh()
+        }
         syncPrintOutboxInBackground()
     }
 
     private func finishPaidCheckout(batchID: UUID) {
         guard let entitlement = checkoutEntitlement, let sessionID = entitlement.sessionID ?? sessionIdentifier, isPaidSession else { return }
         if entitlement.orderID != nil {
-            printOutbox?.enqueueCompletion(batchID: batchID.uuidString.lowercased(), sessionID: sessionID, entitlementID: entitlement.id)
+            guard printOutbox?.enqueueCompletion(batchID: batchID.uuidString.lowercased(), sessionID: sessionID, entitlementID: entitlement.id) == true else {
+                statusMessage = "Receipt delivery is recorded, but completion still needs saving. Open Help & Recovery; do not print again."
+                return
+            }
         }
         checkpointStore?.update(id: sessionID) { $0.phase = .completed }
         checkpointStore?.resolve(id: sessionID, reason: "completed")
@@ -1136,8 +1162,15 @@ final class BoothSessionViewModel: ObservableObject {
             state = .error("This paid session could not be resumed. Please see the attendant.")
             return
         }
-        let recovery = recoveryStore?.load().flatMap { $0.sessionIdentifier == checkpoint.id ? $0 : nil }
-            ?? (try? DetachedCheckoutStore(directory: environment.detachedCheckoutDirectory).load(sessionID: checkpoint.id))?.snapshot
+        let recovery: AppRecoverySnapshot?
+        do {
+            guard let recoveryStore, let checkpointStore else { throw AppRecoveryStoreError.unavailable }
+            recovery = try CheckoutInteractionClosure.snapshotForResume(id: checkpoint.id, checkpoints: checkpointStore,
+                recovery: recoveryStore, detached: DetachedCheckoutStore(directory: environment.detachedCheckoutDirectory))
+        } catch {
+            state = .error("This checkout is still saved. \(error.localizedDescription)")
+            return
+        }
         if checkpoint.receiptPrintOptions != nil {
             // Current checkouts must retain their original gallery identity across recovery.
             // Never mint a replacement token after an interrupted customer's admission.
@@ -1180,7 +1213,9 @@ final class BoothSessionViewModel: ObservableObject {
                 checkoutEntitlement = entitlement
                 selectedCheckoutCopies = entitlement.purchasedCopies
                 selectedPrintCopies = entitlement.purchasedCopies
-                checkpointStore?.update(id: checkpoint.id) { $0.phase = .claimed }
+                guard checkpointStore?.update(id: checkpoint.id, {
+                    $0.phase = .claimed; $0.locallyClosedAt = nil; $0.localCloseReason = nil; $0.detachedAt = nil
+                }) == true else { throw SetupFailure("The resumed checkout could not be saved. Retry from Outstanding Payments.") }
                 isTransitionActive = false
                 prepareCameraAfterAuthorization()
             } catch {
@@ -1194,7 +1229,10 @@ final class BoothSessionViewModel: ObservableObject {
 
     private func recoveredEntitlement(for checkpoint: CheckoutCheckpoint, generation: Int) async throws -> CheckoutEntitlement {
         // Paper may already exist for this checkout: only the operator's paper inspection decides.
-        guard printOutbox?.copiesThatMayHavePrinted(sessionID: checkpoint.id).isEmpty ?? false else {
+        guard let checkpointStore, checkpointStore.integrityFault == nil,
+              let printOutbox, printOutbox.integrityFault == nil, printOutbox.persistenceFailure == nil,
+              printOutbox.inspectionEntryIDs.isEmpty, !printOutbox.hasUnfinishedPhysicalSend,
+              printOutbox.copiesThatMayHavePrinted(sessionID: checkpoint.id).isEmpty else {
             throw PaymentsAPIError.configuration("Printing had already started for this checkout.")
         }
         if checkpoint.method == "OFFLINE_CASH" {
@@ -1209,7 +1247,8 @@ final class BoothSessionViewModel: ObservableObject {
                                        unitPriceCentavos: record.unitPriceCentavos, totalCentavos: record.totalCentavos,
                                        authorizationSource: .localUnsyncedCashDeclared, authorizedAt: record.declaredAt, receiptFingerprint: nil)
         }
-        guard let client = paymentsClient, client.environment == checkpoint.environment else {
+        guard let client = paymentsClient, client.environment == checkpoint.environment,
+              checkpoint.serverBinding == nil || checkpoint.serverBinding == client.serverBinding else {
             throw PaymentsAPIError.configuration("Payments are not set up for this checkout's environment.")
         }
         let server = try await client.checkoutRecovery(checkoutSessionID: checkpoint.id)
@@ -1367,6 +1406,45 @@ final class BoothSessionViewModel: ObservableObject {
         runAutomaticSequence(startingAt: 0)
     }
 
+    var operatorCloseBlockReason: String? {
+        if printerCoordinator.isWorking || printerState.isWorking || isPrintBatchActive {
+            return "The active print transport must finish before closing. Paper may already be moving."
+        }
+        if isTransitionActive { return "Wait for the current checkout or photo operation to finish, then Close Session & Continue."
+        }
+        return nil
+    }
+
+    /// Synchronous commit and callback invalidation on the main actor: a late verification
+    /// cannot open a camera for the guest who just left.
+    func closeSessionForOperator() throws {
+        guard OperatorAccessPermit.shared.isAuthorized else { throw SetupFailure("Unlock Operator before closing a guest session.") }
+        if let reason = operatorCloseBlockReason { throw SetupFailure(reason) }
+        guard !printerCoordinator.requiresRecovery, !operationalState.hasUnresolvedPrint else {
+            throw SetupFailure("Review Receipt and record the physical check before closing this session.")
+        }
+        guard let recoveryStore else { throw AppRecoveryStoreError.unavailable }
+        let saved = try recoveryStore.loadChecked()
+        let snapshot: AppRecoverySnapshot?
+        if let saved, saved.sessionIdentifier == sessionIdentifier, saved.stage == .printStatusUnknown {
+            snapshot = saved
+        } else {
+            snapshot = makeRecoverySnapshot(stage: receiptImage != nil ? .receiptComposed : (capturedPhotos.isEmpty ? .formatSelected : .photosCaptured))
+                ?? saved.flatMap { $0.sessionIdentifier == sessionIdentifier ? $0 : nil }
+            if let snapshot { try recoveryStore.saveCritical(snapshot) }
+        }
+        if let id = sessionIdentifier, let checkpoint = checkpointStore?.checkpoint(id: id), !checkpoint.isResolved {
+            guard let checkpointStore else { throw SetupFailure("Checkout storage is unavailable.") }
+            try CheckoutInteractionClosure.close(id: id, reason: "operator:guest_left", checkpoints: checkpointStore,
+                recovery: recoveryStore, detached: DetachedCheckoutStore(directory: environment.detachedCheckoutDirectory), snapshot: snapshot)
+        } else if let snapshot {
+            _ = try OperatorRecoveryAcknowledgement.retainAndAcknowledge(snapshot, store: recoveryStore)
+        }
+        resetToWelcome()
+        operationalState.customerSessionActive = false
+        operationalState.refresh()
+    }
+
     func cancelSession() {
         if isTransitionActive && (state == .choosingPayment || state == .cashAttestation || state == .paymentReconciliation) { return }
         if checkoutEntitlement == nil && (checkoutGuard.serverCheckoutStarted || checkoutGuard.qrAttemptUnresolved || paymentOrder != nil || paymentAttempt != nil) {
@@ -1384,17 +1462,32 @@ final class BoothSessionViewModel: ObservableObject {
             return
         }
         if let entitlement = checkoutEntitlement,
-           entitlement.authorizationSource != .privatePrepaid,
-           capturedPhotos.isEmpty {
+           entitlement.authorizationSource != .privatePrepaid {
             // Payment is already authorized. End the guest interaction without rechecking it
             // or resolving/deleting its durable checkout; the attendant can resume the same
             // paid session from Payment Recovery. No printing has started (guards above).
-            resetToWelcome()
+            do {
+                guard let id = sessionIdentifier, let checkpointStore, let recoveryStore else { throw AppRecoveryStoreError.unavailable }
+                let current = makeRecoverySnapshot(stage: receiptImage != nil ? .receiptComposed : (capturedPhotos.isEmpty ? .formatSelected : .photosCaptured))
+                guard let snapshot = try current ?? recoveryStore.loadChecked(), snapshot.sessionIdentifier == id else {
+                    throw AppRecoveryStoreError.unavailable
+                }
+                try recoveryStore.saveCritical(snapshot)
+                try CheckoutInteractionClosure.close(id: id, reason: "guest:cancelled", checkpoints: checkpointStore,
+                    recovery: recoveryStore, detached: DetachedCheckoutStore(directory: environment.detachedCheckoutDirectory), snapshot: snapshot)
+                resetToWelcome()
+            } catch { statusMessage = "Session is still saved here: \(error.localizedDescription) Ask the attendant for help." }
             return
         }
-        debugLog("Session \(sessionIdentifier ?? "unknown") cancelled.")
-        recoveryStore?.clear(sessionIdentifier: sessionIdentifier)
-        resetToWelcome()
+        do {
+            if let snapshot = makeRecoverySnapshot(stage: receiptImage != nil ? .receiptComposed : (capturedPhotos.isEmpty ? .formatSelected : .photosCaptured)),
+               !snapshot.photoJPEGData.isEmpty || snapshot.receiptPreviewPNGData != nil {
+                guard let recoveryStore else { throw AppRecoveryStoreError.unavailable }
+                _ = try OperatorRecoveryAcknowledgement.retainAndAcknowledge(snapshot, store: recoveryStore)
+            }
+            recoveryStore?.clear(sessionIdentifier: sessionIdentifier)
+            resetToWelcome()
+        } catch { statusMessage = "Could not keep the photos safely: \(error.localizedDescription) Please retry or call the attendant." }
     }
 
     func retakePhoto(at index: Int) {
@@ -2860,7 +2953,8 @@ final class BoothSessionViewModel: ObservableObject {
             // Only committed Passport data is persisted; in-progress drafts never touch disk.
             passport: committedGallerySession?.passport,
             receiptPrintOptions: sessionPrintOptions,
-            galleryReceiptStyle: sessionGalleryReceiptStyle
+            galleryReceiptStyle: sessionGalleryReceiptStyle,
+            checkpointID: UUID().uuidString
         )
         return snapshot
     }

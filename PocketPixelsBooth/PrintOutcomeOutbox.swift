@@ -58,6 +58,7 @@ nonisolated struct PrintOutboxEntry: Codable, Equatable, Identifiable, Sendable 
     var nextAttemptAt: Date?
     var lastError: String?
     var updatedAt: Date
+    var inspectionRequired: Bool? = nil
 }
 
 /// Durable journal of every live-customer copy attempt plus an outbox of server reports.
@@ -98,6 +99,11 @@ final class PrintOutcomeOutbox {
     private let writer: Writer
     private var payload = FilePayload(entries: [])
     private(set) var integrityFault: String?
+    private(set) var persistenceFailure: String?
+    /// Only failed launch recovery can be retried as recovery; never convert a live send.
+    private var launchRecoveryPending = false
+    private var failedFinishes: [String: PrintCopyLocalState] = [:]
+    private var failedCompletions: [String: (batch: String, session: String)] = [:]
     private var isSyncing = false
     static let retainedDeliveredCount = 300
 
@@ -115,7 +121,7 @@ final class PrintOutcomeOutbox {
         } catch {
             // Keep the unreadable journal for audit and stop printing paid copies until reviewed.
             let quarantine = url.deletingLastPathComponent().appendingPathComponent("print-outbox.corrupt-\(Int(Date().timeIntervalSince1970)).json")
-            try? fileManager.moveItem(at: url, to: quarantine)
+            try? fileManager.copyItem(at: url, to: quarantine)
             integrityFault = "the print journal was unreadable and was set aside for review (\(quarantine.lastPathComponent))."
         }
     }
@@ -187,15 +193,25 @@ final class PrintOutcomeOutbox {
         guard state != .inFlight,
               let index = payload.entries.lastIndex(where: { $0.kind == .copy && $0.batchID == batchID && $0.copyIndex == copyIndex && $0.localState == .inFlight }) else { return false }
         var candidate = payload
+        candidate.entries[index].inspectionRequired = state == .uncertain
         candidate.entries[index].localState = state
         candidate.entries[index].reportState = (state.serverOutcome != nil && candidate.entries[index].entitlementID != nil) ? .pending : .notApplicable
         candidate.entries[index].updatedAt = now
-        return (try? commit(candidate)) != nil
+        let id = candidate.entries[index].id
+        do {
+            try commit(candidate)
+            failedFinishes[id] = nil
+            return true
+        } catch {
+            failedFinishes[id] = state
+            return false
+        }
     }
 
     /// Queues entitlement completion after the last copy. Replays are idempotent server-side.
-    func enqueueCompletion(batchID: String, sessionID: String, entitlementID: String, now: Date = Date()) {
-        guard !payload.entries.contains(where: { $0.kind == .completion && $0.entitlementID == entitlementID }) else { return }
+    @discardableResult
+    func enqueueCompletion(batchID: String, sessionID: String, entitlementID: String, now: Date = Date()) -> Bool {
+        guard !payload.entries.contains(where: { $0.kind == .completion && $0.entitlementID == entitlementID }) else { return true }
         let entry = PrintOutboxEntry(
             id: "\(batchID)-complete", kind: .completion, batchID: batchID, sessionID: sessionID, entitlementID: entitlementID,
             receiptFingerprint: "", copyIndex: 0, copyCount: 0, transport: "", idempotencyKey: "complete-\(entitlementID)", createdAt: now,
@@ -203,7 +219,14 @@ final class PrintOutcomeOutbox {
         )
         var candidate = payload
         candidate.entries.append(entry)
-        try? commit(candidate)
+        do {
+            try commit(candidate)
+            failedCompletions[entitlementID] = nil
+            return true
+        } catch {
+            failedCompletions[entitlementID] = (batchID, sessionID)
+            return false
+        }
     }
 
     /// After a relaunch nothing is still sending, so any `inFlight` copy is ambiguous.
@@ -212,15 +235,50 @@ final class PrintOutcomeOutbox {
         var candidate = payload
         var changed = 0
         for index in candidate.entries.indices where candidate.entries[index].localState == .inFlight {
+            candidate.entries[index].inspectionRequired = true
             candidate.entries[index].localState = .uncertain
             candidate.entries[index].reportState = candidate.entries[index].entitlementID == nil ? .notApplicable : .pending
             candidate.entries[index].lastError = "app_stopped_during_transport"
             candidate.entries[index].updatedAt = now
             changed += 1
         }
-        if changed > 0 { try? commit(candidate) }
-        return changed
+        guard changed > 0 else { launchRecoveryPending = false; return 0 }
+        do {
+            try commit(candidate)
+            launchRecoveryPending = false
+            return changed
+        } catch {
+            launchRecoveryPending = true
+            return 0
+        }
     }
+
+    func retryLaunchRecovery() {
+        if launchRecoveryPending { recoverAfterLaunch() }
+        for (id, state) in failedFinishes {
+            guard let entry = payload.entries.first(where: { $0.id == id }) else { continue }
+            finishCopy(batchID: entry.batchID, copyIndex: entry.copyIndex, state: state)
+        }
+        for (entitlement, value) in failedCompletions {
+            enqueueCompletion(batchID: value.batch, sessionID: value.session, entitlementID: entitlement)
+        }
+        if !launchRecoveryPending && failedFinishes.isEmpty && failedCompletions.isEmpty && persistenceFailure != nil { try? commit(payload) }
+    }
+
+    var inspectionEntryIDs: Set<String> {
+        Set(payload.entries.filter { $0.inspectionRequired == true }.map(\.id))
+    }
+    /// Exact copy identities captured when the confirmation was shown; a newer failure must
+    /// get its own physical check. The unknown local outcome and report state never change.
+    func acknowledgeInspection(entryIDs: Set<String>) throws {
+        guard entryIDs == inspectionEntryIDs else { throw OutboxError.persistFailed("A different receipt now needs inspection. Review Receipt again.") }
+        var candidate = payload
+        for index in candidate.entries.indices where entryIDs.contains(candidate.entries[index].id) {
+            candidate.entries[index].inspectionRequired = false
+        }
+        try commit(candidate)
+    }
+
 
     func dueReports(now: Date = Date()) -> [PrintOutboxEntry] {
         payload.entries.filter { entry in
@@ -255,7 +313,8 @@ final class PrintOutcomeOutbox {
 
     var conflicts: [PrintOutboxEntry] { payload.entries.filter { $0.reportState == .conflict } }
 
-    func markReported(id: String, now: Date = Date()) {
+    @discardableResult
+    func markReported(id: String, now: Date = Date()) -> Bool {
         mutate(id: id, now: now) { $0.reportState = .delivered; $0.lastError = nil; $0.nextAttemptAt = nil }
     }
 
@@ -299,8 +358,8 @@ final class PrintOutcomeOutbox {
                     case .completion:
                         try await client.complete(entitlementID: entitlementID, sessionID: entry.sessionID)
                     }
-                    markReported(id: entry.id)
-                    sent += 1
+                    if markReported(id: entry.id) { sent += 1 }
+                    else { retries += 1 }
                 } catch let error as PaymentsAPIError {
                     switch error {
                     case .rejected(let code, _, let status, _) where status != 429 && status < 500:
@@ -322,18 +381,20 @@ final class PrintOutcomeOutbox {
         return (sent, conflicted, retries)
     }
 
-    private func mutate(id: String, now: Date, _ change: (inout PrintOutboxEntry) -> Void) {
-        guard let index = payload.entries.firstIndex(where: { $0.id == id }) else { return }
+    @discardableResult
+    private func mutate(id: String, now: Date, _ change: (inout PrintOutboxEntry) -> Void) -> Bool {
+        guard let index = payload.entries.firstIndex(where: { $0.id == id }) else { return false }
         var candidate = payload
         change(&candidate.entries[index])
         candidate.entries[index].updatedAt = now
-        try? commit(candidate)
+        return (try? commit(candidate)) != nil
     }
 
     private func commit(_ candidate: FilePayload) throws {
+        if let integrityFault { throw OutboxError.integrityFault(integrityFault) }
         var pruned = candidate
         // Retain all unresolved evidence; trim only the oldest fully reported entries.
-        let settled = pruned.entries.enumerated().filter { [.delivered, .notApplicable].contains($0.element.reportState) && $0.element.localState != .inFlight }
+        let settled = pruned.entries.enumerated().filter { [.delivered, .notApplicable].contains($0.element.reportState) && $0.element.localState != .inFlight && $0.element.inspectionRequired != true }
         if settled.count > Self.retainedDeliveredCount {
             let drop = Set(settled.prefix(settled.count - Self.retainedDeliveredCount).map(\.offset))
             pruned.entries = pruned.entries.enumerated().filter { !drop.contains($0.offset) }.map(\.element)
@@ -341,8 +402,10 @@ final class PrintOutcomeOutbox {
         do {
             try writer(try PaymentsJSON.encoder().encode(pruned), url)
         } catch {
+            persistenceFailure = "Print journal could not be saved. Retry Saving Resolution; the original print evidence is retained. \(error.localizedDescription)"
             throw OutboxError.persistFailed(error.localizedDescription)
         }
+        if !launchRecoveryPending && failedFinishes.isEmpty && failedCompletions.isEmpty { persistenceFailure = nil }
         payload = pruned
     }
 }

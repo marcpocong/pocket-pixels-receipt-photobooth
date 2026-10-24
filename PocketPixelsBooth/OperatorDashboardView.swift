@@ -8,6 +8,7 @@ struct OperatorDashboardView: View {
     @ObservedObject private var operations = EventOperationalState.shared
     @ObservedObject private var printer = PrinterCoordinator.shared
     @ObservedObject private var bluetooth = PrinterBluetoothService.shared
+    @ObservedObject private var recovery = PaymentRecoveryCoordinator.shared
     private let loadsRemote: Bool
 
     init(lifecycle: EventLifecycleCoordinator? = nil, workspace: OperatorWorkspace? = nil, loadsRemote: Bool = true) {
@@ -27,6 +28,7 @@ struct OperatorDashboardView: View {
                         equipmentButton("Regular Booth Settings", detail: "Copies, formats, footer & branding", symbol: "slider.horizontal.3", route: .regularBooth, ready: true)
                         equipmentButton("Quick Start Event", detail: "Set up or save for later", symbol: "calendar.badge.plus", route: .newEvent, ready: true)
                         equipmentButton("Recent Sessions", detail: "Find a guest's receipt or gallery", symbol: "clock", route: .recentSessions, ready: true)
+                        equipmentButton("Help & Recovery", detail: recovery.outstandingItems.isEmpty ? "Close an interrupted guest or review a receipt" : "\(recovery.outstandingItems.count) outstanding payment(s) · guest closed", symbol: "lifepreserver", route: .recovery, ready: !recovery.needsAttention)
                     }
                     if geometry.size.width >= 880 {
                         HStack(alignment: .top, spacing: 20) {

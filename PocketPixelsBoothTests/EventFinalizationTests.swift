@@ -104,9 +104,16 @@ final class EventFinalizationTests: XCTestCase {
     }
 
     func testCancelAtPaidCameraReadyReturnsToWelcomeAndRetainsRecoveryForEveryPaidSource() throws {
-        let store = try XCTUnwrap(CheckoutCheckpointStore.shared)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("paid-cancel-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try CheckoutCheckpointStore(directory: root)
         for source: CheckoutAuthorizationSource in [.verifiedQRPh, .unverifiedCashDeclared, .localUnsyncedCashDeclared] {
-            let model = BoothSessionViewModel()
+            var environment = BoothSessionEnvironment.customer
+            environment.recordsCustomerSessionMetrics = false
+            environment.deliversGallery = false
+            environment.recoveryDirectory = root.appendingPathComponent(source.rawValue)
+            environment.detachedCheckoutDirectory = root.appendingPathComponent("detached")
+            let model = BoothSessionViewModel(environment: environment, checkpointStore: store)
             model.configureAuthorizedCameraReadyForTesting(authorizationSource: source)
             let session = try XCTUnwrap(model.sessionIdentifier)
             let now = Date()
@@ -118,6 +125,10 @@ final class EventFinalizationTests: XCTestCase {
             try store.begin(checkpoint)
             defer { store.resolve(id: session, reason: "test_cleanup") }
             model.galleryToken = String(repeating: "a", count: 64)
+            let recovery = try AppRecoveryStore(directoryURL: environment.recoveryDirectory)
+            try recovery.saveCritical(AppRecoverySnapshot(schemaVersion: 1, sessionIdentifier: session, createdAt: now, format: .solo,
+                eventProfile: nil, galleryToken: model.galleryToken, galleryURL: URL(string: "https://example.test/original"), photoJPEGData: [],
+                receiptPreviewPNGData: nil, thermalPreviewPNGData: nil, rasterFingerprint: nil, stage: .formatSelected, updatedAt: now))
             model.installAuthorizationTaskForTesting()
             XCTAssertFalse(model.isCustomerResetSafe, "Automatic idle reset remains conservative")
             model.cancelSession()
@@ -128,7 +139,13 @@ final class EventFinalizationTests: XCTestCase {
             XCTAssertNil(model.galleryQRCodeImage)
             XCTAssertTrue(model.capturedPhotos.isEmpty)
             XCTAssertFalse(model.hasActiveTaskForTesting)
-            XCTAssertEqual(store.checkpoint(id: session), checkpoint, "Cancel must not resolve or alter the paid checkout")
+            let retained = try XCTUnwrap(store.checkpoint(id: session))
+            XCTAssertTrue(retained.isParked, "The local interaction closes durably")
+            XCTAssertFalse(retained.isResolved, "Cancel must not resolve the financial checkout")
+            XCTAssertEqual(retained.entitlementID, checkpoint.entitlementID)
+            XCTAssertEqual(retained.eventID, checkpoint.eventID)
+            XCTAssertEqual(retained.copies, checkpoint.copies)
+            XCTAssertNotNil(try DetachedCheckoutStore(directory: environment.detachedCheckoutDirectory).load(sessionID: session))
             model.configurePaidCheckoutForTesting(qrPhEnabled: true, cashEnabled: true)
             XCTAssertNotEqual(model.sessionIdentifier, session)
             XCTAssertNil(model.checkoutEntitlement, "A new customer cannot inherit the cancelled customer's payment")

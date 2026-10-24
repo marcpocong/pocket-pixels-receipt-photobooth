@@ -4,6 +4,7 @@
 //
 
 import OSLog
+import CryptoKit
 import Foundation
 import UIKit
 
@@ -34,6 +35,7 @@ nonisolated struct AppRecoverySnapshot: Codable, Sendable {
     var passport: PassportSessionData? = nil
     var receiptPrintOptions: ReceiptPrintOptions? = nil
     var galleryReceiptStyle: GalleryReceiptStyle? = nil
+    var checkpointID: String? = nil
 }
 
 nonisolated enum AppRecoveryStoreError: Error, LocalizedError, Equatable {
@@ -125,8 +127,10 @@ nonisolated struct AppRecoveryStore: Sendable {
     /// Keep the exact checkpoint/photos before an operator closes an interrupted session.
     /// Retention is additive; the active checkpoint and every existing archive stay untouched.
     nonisolated func retainForReference(_ snapshot: AppRecoverySnapshot) throws {
+        let bytes = try JSONEncoder.recoveryEncoder.encode(snapshot)
+        let key = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
         let destination = directoryURL.appendingPathComponent("RetainedSessions", isDirectory: true)
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent(key, isDirectory: true)
         try AppRecoveryStore(directoryURL: destination).saveCritical(snapshot)
     }
 
@@ -139,16 +143,27 @@ nonisolated struct AppRecoveryStore: Sendable {
         }.sorted { $0.updatedAt > $1.updatedAt }
     }
 
+    nonisolated func saveAcknowledgement(_ identity: String) throws {
+        try DurableFileWriter.write(Data(identity.utf8), to: directoryURL.appendingPathComponent("operator-acknowledgement.txt"))
+    }
+    nonisolated var acknowledgedIdentity: String? {
+        try? String(contentsOf: directoryURL.appendingPathComponent("operator-acknowledgement.txt"), encoding: .utf8)
+    }
+    nonisolated func loadChecked() throws -> AppRecoverySnapshot? {
+        guard fileManager.fileExists(atPath: fileURL.path) else { return nil }
+        let snapshot = try JSONDecoder.recoveryDecoder.decode(AppRecoverySnapshot.self, from: Data(contentsOf: fileURL))
+        guard snapshot.schemaVersion == AppRecoverySnapshot.schemaVersion else { throw AppRecoveryStoreError.verificationFailed }
+        return snapshot
+    }
+
     nonisolated func clear(sessionIdentifier: String? = nil) {
         guard fileManager.fileExists(atPath: fileURL.path) else {
             return
         }
 
-        if let sessionIdentifier,
-           let existing = load(),
-           existing.sessionIdentifier != sessionIdentifier {
-            return
-        }
+        // An unreadable checkpoint is protected evidence, never an empty slot to clear.
+        guard let existing = load() else { return }
+        if let sessionIdentifier, existing.sessionIdentifier != sessionIdentifier { return }
 
         try? fileManager.removeItem(at: fileURL)
     }
@@ -199,12 +214,14 @@ private extension JSONDecoder {
 nonisolated enum OperatorRecoveryAcknowledgement {
     static let key = "pocketPixels.venueOwnerAcknowledgedPrintIdentity"
     static func identity(_ snapshot: AppRecoverySnapshot) -> String {
-        "\(snapshot.sessionIdentifier)|\(snapshot.updatedAt.timeIntervalSince1970)"
+        snapshot.checkpointID.map { "\(snapshot.sessionIdentifier)|\($0)" }
+            ?? "\(snapshot.sessionIdentifier)|\(snapshot.updatedAt.timeIntervalSince1970)"
     }
     static func retainAndAcknowledge(_ snapshot: AppRecoverySnapshot, store: AppRecoveryStore,
                                      defaults: UserDefaults = .standard) throws -> String {
         try store.retainForReference(snapshot)
         let identity = identity(snapshot)
+        try store.saveAcknowledgement(identity)
         defaults.set(identity, forKey: key)
         return identity
     }

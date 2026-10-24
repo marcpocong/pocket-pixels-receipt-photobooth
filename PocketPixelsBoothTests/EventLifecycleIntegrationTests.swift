@@ -232,6 +232,7 @@ import SwiftUI
         XCTAssertFalse(blocked, "A genuinely current unknown print needs an operator check")
         let saved = try XCTUnwrap(recoveryStore.load())
         _ = try OperatorRecoveryAcknowledgement.retainAndAcknowledge(saved, store: recoveryStore, defaults: defaults)
+        try journal.acknowledgeInspection(entryIDs: journal.inspectionEntryIDs)
         booth.relaunch()
         journal = try PrintOutcomeOutbox(directory: booth.directory)
         checkpoints = try CheckoutCheckpointStore(directory: booth.directory)
@@ -265,6 +266,60 @@ import SwiftUI
         try recoveryStore.saveCritical(nextUnknown)
         XCTAssertNotNil(booth.recoveryReason(), "A new interruption cannot inherit the previous receipt check")
         XCTAssertTrue(booth.server.calls.isEmpty, "Free recovery and event operation need no payment requests")
+    }
+
+    func testParkedPaidGuestRelaunchNextRegularGuestAndFreeEventCycleKeepsOutstandingEvidence() async throws {
+        let booth = Booth(); defer { booth.cleanup() }
+        var checkpoints = try CheckoutCheckpointStore(directory: booth.directory)
+        var journal = try PrintOutcomeOutbox(directory: booth.directory)
+        let recovery = try AppRecoveryStore(directoryURL: booth.directory.appendingPathComponent("recovery"))
+        let detached = DetachedCheckoutStore(directory: booth.directory.appendingPathComponent("detached"))
+        let original = CheckoutCheckpoint(id: "parked-paid", environment: "test", eventID: "original-paid-event", policyRevisionID: "original-policy",
+            unitPriceCentavos: 5000, copies: 3, format: "solo", method: "QRPH", orderID: "original-order", entitlementID: "original-entitlement",
+            phase: .claimed, lastServerState: "IN_SESSION", createdAt: Date(), updatedAt: Date())
+        try checkpoints.begin(original)
+        let snapshot = AppRecoverySnapshot(schemaVersion: 1, sessionIdentifier: original.id, createdAt: Date(), format: .solo,
+            eventProfile: .pocketPixelsDefault, galleryToken: "original-token", galleryURL: URL(string: "https://example.test/original"),
+            photoJPEGData: [Data([1, 2, 3])], receiptPreviewPNGData: Data([4]), thermalPreviewPNGData: Data([5]),
+            rasterFingerprint: "original-raster", stage: .printStatusUnknown, updatedAt: Date(), checkpointID: UUID().uuidString)
+        try recovery.saveCritical(snapshot)
+        try journal.beginCopy(batchID: "original-batch", sessionID: original.id, entitlementID: original.entitlementID,
+            receiptFingerprint: "original-raster", copyIndex: 1, copyCount: 3, transport: "bluetooth")
+        journal = try PrintOutcomeOutbox(directory: booth.directory)
+        XCTAssertEqual(journal.recoverAfterLaunch(), 1)
+        booth.recoveryReason = {
+            SessionSetupSafety.recoveryReason(needsReceiptCheck: !journal.inspectionEntryIDs.isEmpty,
+                hasPendingSession: checkpoints.checkpoint(id: original.id)?.isParked == false, checkpoints: checkpoints, outbox: journal)
+        }
+        XCTAssertNotNil(booth.recoveryReason())
+        try journal.acknowledgeInspection(entryIDs: journal.inspectionEntryIDs)
+        try CheckoutInteractionClosure.close(id: original.id, reason: "operator:guest abandoned", checkpoints: checkpoints,
+            recovery: recovery, detached: detached, snapshot: snapshot)
+        let evidence = try PrintOutcomeOutbox(directory: booth.directory).entries
+        booth.relaunch()
+        checkpoints = try CheckoutCheckpointStore(directory: booth.directory)
+        journal = try PrintOutcomeOutbox(directory: booth.directory)
+        XCTAssertNil(booth.recoveryReason())
+        XCTAssertNotNil(SessionSetupSafety.paymentConnectionChangeReason(activeGuest: false, printerWorking: false,
+            needsReceiptCheck: false, hasPendingSession: false, checkpoints: checkpoints, outbox: journal))
+        let returned = await booth.lifecycle().returnToRegular()
+        XCTAssertTrue(returned)
+        _ = try await booth.admitGuest(session: "next-regular-guest")
+        _ = await startPrepaid(booth, design: "Unrelated Free Event")
+        _ = try await booth.admitGuest(session: "next-event-guest")
+        let ended = await booth.lifecycle().end(scope: .thisBooth)
+        XCTAssertTrue(ended)
+        XCTAssertEqual(booth.lifecycle().status, .regular)
+        let saved = try XCTUnwrap(CheckoutCheckpointStore(directory: booth.directory).checkpoint(id: original.id))
+        XCTAssertTrue(saved.isParked)
+        XCTAssertFalse(saved.isResolved)
+        XCTAssertEqual(saved.entitlementID, original.entitlementID)
+        XCTAssertEqual(saved.copies, 3, "One possibly printed copy remains accounted for independently of purchased quantity")
+        XCTAssertEqual(try PrintOutcomeOutbox(directory: booth.directory).entries, evidence)
+        XCTAssertEqual(try detached.load(sessionID: original.id)?.snapshot.photoJPEGData, snapshot.photoJPEGData)
+        XCTAssertThrowsError(try journal.beginCopy(batchID: "original-batch", sessionID: original.id, entitlementID: original.entitlementID,
+            receiptFingerprint: "original-raster", copyIndex: 1, copyCount: 3, transport: "bluetooth"))
+        XCTAssertTrue(booth.server.calls.isEmpty, "The free operation cycle never changes the old financial obligation")
     }
 
     private func startPrepaid(_ booth: Booth, design name: String = "Garden Wedding", file: StaticString = #filePath, line: UInt = #line) async -> SessionSetupCoordinator {

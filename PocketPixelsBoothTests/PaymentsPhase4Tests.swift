@@ -111,6 +111,7 @@ struct PrintOutboxTests {
         #expect(outbox.hasUnfinishedPhysicalSend)
         #expect(connectionReason() != nil)
         outbox.finishCopy(batchID: "batch-1", copyIndex: 1, state: .uncertain)
+        try outbox.acknowledgeInspection(entryIDs: outbox.inspectionEntryIDs)
         #expect(!outbox.hasUnfinishedPhysicalSend && !outbox.hasUnresolvedServerReports)
         #expect(connectionReason() == nil, "Retained local print history cannot permanently lock the payments connection")
         #expect(connectionReason(true) != nil)
@@ -118,6 +119,7 @@ struct PrintOutboxTests {
         #expect(connectionReason(active: true) != nil && connectionReason(busy: true) != nil)
         try beginCopy(outbox, 1, of: 1, batch: "paid-batch")
         outbox.finishCopy(batchID: "paid-batch", copyIndex: 1, state: .uncertain)
+        try outbox.acknowledgeInspection(entryIDs: outbox.inspectionEntryIDs)
         let paid = try #require(outbox.entries.first { $0.batchID == "paid-batch" })
         #expect(outbox.hasUnresolvedServerReports && connectionReason() != nil)
         #expect(SessionSetupSafety.recoveryReason(needsReceiptCheck: false, hasPendingSession: false, checkpoints: checkpoints, outbox: outbox) == nil)
@@ -138,7 +140,7 @@ struct PrintOutboxTests {
         #expect(receipt?.destination == .recovery)
         let guest = SessionSetupSafety.recoveryIssue(needsReceiptCheck: false, hasPendingSession: true, checkpoints: checkpoints, outbox: outbox)
         #expect(guest?.destination == .recovery, "An interrupted guest needs Help & Recovery, not the unrelated payments screen")
-        #expect(SessionSetupSafety.RecoveryIssue.interruptedCheckout.destination == .payments)
+        #expect(SessionSetupSafety.RecoveryIssue.interruptedCheckout.destination == .recovery)
         #expect(SessionSetupSafety.RecoveryIssue.damagedPrintRecords.destination == .payments)
     }
 
@@ -148,6 +150,7 @@ struct PrintOutboxTests {
         let outbox = try PrintOutcomeOutbox(directory: root)
         try beginCopy(outbox, 1, of: 1, entitlement: nil)
         #expect(outbox.finishCopy(batchID: "batch-1", copyIndex: 1, state: .uncertain))
+        try outbox.acknowledgeInspection(entryIDs: outbox.inspectionEntryIDs)
         let file = root.appendingPathComponent("PaymentState/print-outbox.json")
         let original = try Data(contentsOf: file)
         let relaunched = try PrintOutcomeOutbox(directory: root)
@@ -180,6 +183,7 @@ struct PrintOutboxTests {
         let checkpoints = try CheckoutCheckpointStore(directory: root)
         try beginCopy(outbox, 1)
         #expect(outbox.finishCopy(batchID: "batch-1", copyIndex: 1, state: .uncertain))
+        try outbox.acknowledgeInspection(entryIDs: outbox.inspectionEntryIDs)
         let entry = try #require(outbox.entries.first)
         #expect(outbox.summary.pending == 1)
         #expect(SessionSetupSafety.recoveryReason(needsReceiptCheck: false, hasPendingSession: false, checkpoints: checkpoints, outbox: outbox) == nil)
@@ -330,7 +334,8 @@ struct PrintOutboxTests {
         // Server processed every request but the local ACK could not be written (crash/disk full).
         writer.fail = true
         let firstPass = await outbox.sync(using: client)
-        #expect(firstPass.sent == 2, "completion waits until copy reports have left the device")
+        #expect(firstPass.sent == 0 && firstPass.retries == 2, "A failed durable ACK must not be reported as sent; completion still waits")
+        #expect(outbox.persistenceFailure != nil)
         let firstKeys = Phase4StubProtocol.captured.compactMap { $0.body["idempotencyKey"] as? String }
         writer.fail = false
         let reopened = try PrintOutcomeOutbox(directory: root)
@@ -449,8 +454,10 @@ struct CheckoutCheckpointTests {
         dismissed.resolution = "operator:guest_left_or_resolved"
         try store.begin(dismissed)
         let restarted = try CheckoutCheckpointStore(directory: root)
-        #expect(restarted.unresolved.map(\.id) == [original.id])
-        #expect(restarted.checkpoint(id: "dismissed")?.resolution == "operator:guest_left_or_resolved")
+        #expect(restarted.unresolved.map(\.id) == [original.id, "dismissed"])
+        #expect(restarted.checkpoint(id: "dismissed")?.localCloseReason == "operator:guest_left_or_resolved")
+        #expect(restarted.checkpoint(id: "dismissed")?.isParked == true)
+        #expect(restarted.checkpoint(id: "dismissed")?.resolution == nil, "A legacy local dismissal was never proof of financial settlement")
     }
 
     private func checkpoint(_ id: String = "PP-20261011-120000", method: String? = "QRPH", phase: CheckoutPhase = .orderRequested, orderID: String? = nil) -> CheckoutCheckpoint {

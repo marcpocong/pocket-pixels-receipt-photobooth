@@ -167,7 +167,7 @@ struct ProductionHealthSheet: View {
             lastEventCheck: lifecycle.lastCheckedAt, paymentsConfigured: configuration != nil, environment: configuration?.environment,
             printerRequiresRecovery: printer.requiresRecovery, unresolvedPrint: operations.hasUnresolvedPrint, printerLastReported: printer.state.message,
             printAccountingConflicts: outbox?.conflicts ?? 0, printAccountingPending: outbox?.pending ?? 0,
-            checkoutsNeedingAttention: recovery.items.filter { !$0.classification.isTerminal }.count,
+            checkoutsNeedingAttention: recovery.activeItems.filter { !$0.classification.isTerminal }.count,
             checkoutIntegrityFault: CheckoutCheckpointStore.shared?.integrityFault != nil, lastRecoveryCheck: recovery.lastRefreshCompletedAt,
             pendingGalleries: operations.pendingUploadCount, galleryStorageProblem: operations.queueError != nil, storageErrors: errors,
             pendingCreation: creations.open(binding: OperatorWorkspace.shared.serverBinding) != nil))
