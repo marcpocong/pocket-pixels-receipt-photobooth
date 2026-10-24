@@ -49,6 +49,34 @@ import XCTest
         XCTAssertEqual(restored.snapshot.newEventName, "Independent event")
     }
 
+    func testOpeningBoothDoesNotCreateDraftAndReturningFromFooterKeepsLatestEdits() async throws {
+        let workspace = OperatorWorkspace(directory: root)
+        workspace.select(.booth)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: 834, height: 1194)
+        let host = UIHostingController(rootView: OperatorWorkspaceView(workspace: workspace, loadsRemote: false))
+        window.rootViewController = host; window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertNil(workspace.snapshot.regularBoothDraft, "Opening untouched defaults must not create an edit from the generated studio profile date")
+        workspace.path = [.regularFooter]
+        try await Task.sleep(for: .milliseconds(300))
+        var draft = RegularBoothSettings.load()
+        var profile = draft.profile; profile.receiptDesign.editorialCaption = "LATEST FOOTER"; draft.receiptProfile = profile
+        workspace.saveRegularBoothDraft(draft)
+        workspace.path = []
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(workspace.snapshot.regularBoothDraft?.profile.receiptDesign.editorialCaption, "LATEST FOOTER", "Returning to the parent form cannot overwrite the footer with stale state")
+        workspace.select(.events); workspace.path = [.regularBooth]
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(workspace.primaryDestination, .booth)
+        XCTAssertTrue(workspace.path.isEmpty)
+        workspace.select(.reports); workspace.path = [.recentSessions]
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(workspace.primaryDestination, .sessions)
+        XCTAssertTrue(workspace.path.isEmpty)
+    }
+
     func testThumbnailCancellationBoundsConcurrentReadersAndMemoryWarningEviction() async throws {
         let store = try RecentSessionArchiveStore(directoryURL: root)
         let image = UIGraphicsImageRenderer(size: CGSize(width: 600, height: 800)).image { context in
@@ -114,7 +142,7 @@ import XCTest
 
 }
 
-private final class MetadataLoadProbe: @unchecked Sendable {
+nonisolated private final class MetadataLoadProbe: @unchecked Sendable {
     private let lock = NSLock()
     private var calls = 0
     private let first: [RecentSessionArchiveSummary]

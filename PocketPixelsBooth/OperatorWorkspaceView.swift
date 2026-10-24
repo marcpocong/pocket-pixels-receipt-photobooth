@@ -45,7 +45,9 @@ struct OperatorWorkspaceView: View {
                                 .toolbar(.hidden, for: .navigationBar)
                                 .navigationDestination(for: OperatorWorkspaceRoute.self) { route in
                                     Group {
-                                        if route == .regularFooter { RegularBoothSettingsView(workspace: workspace, footerOnly: true) }
+                                        if route == .regularBooth || route == .recentSessions {
+                                            Color.clear.task { workspace.navigate(to: route) }
+                                        } else if route == .regularFooter { RegularBoothSettingsView(workspace: workspace, footerOnly: true) }
                                         else { route.destination }
                                     }.toolbar(.visible, for: .navigationBar)
                                 }

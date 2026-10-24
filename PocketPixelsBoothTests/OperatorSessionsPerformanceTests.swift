@@ -89,6 +89,7 @@ import SwiftUI
         model.usesPhotoGrid = false
         model.selectedArchiveID = originalID
         try await capture(NavigationStack { RecentSessionsView(viewModel: model) }, name: "session-detail-portrait", size: portrait)
+        try await captureOriginalGallery(model: model, originalID: originalID)
         try await capture(NavigationStack { RecentSessionsView(viewModel: model) }, name: "sessions-split-landscape", size: CGSize(width: 1194, height: 834))
         model.selectedArchiveID = nil
         let preserved = try model.loadArchive(originalID)
@@ -110,6 +111,26 @@ import SwiftUI
         try await measureScrolling(model: model)
     }
 
+    private func captureOriginalGallery(model: RecentSessionsViewModel, originalID: String) async throws {
+        let summary = try XCTUnwrap(model.summaries.first { $0.archiveID == originalID })
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: 834, height: 1194)
+        let host = UIHostingController(rootView: NavigationStack { ArchivedSessionDetailView(summary: summary, rootViewModel: model) })
+        window.rootViewController = host; window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        try await Task.sleep(for: .milliseconds(700)); host.view.layoutIfNeeded()
+        func find(_ view: UIView) -> UIScrollView? {
+            if let scroll = view as? UIScrollView, scroll.contentSize.height > scroll.bounds.height { return scroll }
+            return view.subviews.lazy.compactMap(find).first
+        }
+        let scroll = try XCTUnwrap(find(host.view))
+        scroll.setContentOffset(CGPoint(x: 0, y: min(1450, max(0, scroll.contentSize.height - scroll.bounds.height))), animated: false)
+        try await Task.sleep(for: .milliseconds(150))
+        let image = UIGraphicsImageRenderer(size: window.bounds.size).image { _ in window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) }
+        add(ScreenshotHarness.attachment(image, name: "original-gallery-portrait"))
+        try image.pngData()?.write(to: URL(fileURLWithPath: "/tmp/v4-original-gallery-portrait.png"))
+    }
+
     private func measureScrolling(model: RecentSessionsViewModel) async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: 834, height: 1194)
@@ -128,6 +149,7 @@ import SwiftUI
         probe.start()
         try await Task.sleep(for: .seconds(4))
         probe.stop()
+        XCTAssertGreaterThan(scroll.contentOffset.y, 500, "The real scroll view must move during the callback sample")
         let sorted = probe.intervals.sorted()
         XCTAssertGreaterThan(sorted.count, 30)
         let result: [String: Any] = ["samples": sorted.count, "durationSeconds": 4, "maximumCallbackGapMS": (sorted.last ?? 0) * 1000,
@@ -138,9 +160,14 @@ import SwiftUI
         let before = CFAbsoluteTimeGetCurrent()
         model.selectedArchiveID = model.summaries.first?.archiveID
         try await Task.sleep(for: .milliseconds(100))
-        model.selectedArchiveID = nil
+        let selected = model.selectedArchiveID
         window.frame.size = CGSize(width: 1194, height: 834); host.view.frame = window.bounds; host.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(model.selectedArchiveID, selected)
         window.frame.size = CGSize(width: 834, height: 1194); host.view.frame = window.bounds; host.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(model.selectedArchiveID, selected)
+        model.selectedArchiveID = nil
         XCTAssertEqual(model.searchText, "")
         XCTAssertEqual(model.summaries.count, 1000)
         XCTAssertFalse(model.usesPhotoGrid)
