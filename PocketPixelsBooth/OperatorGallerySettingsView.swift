@@ -24,12 +24,12 @@ struct OperatorGallerySettingsView: View {
             }.disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).count < 24 || operations.isUploadWorkerRunning)
             Section("Local Photo Retention") {
                 Toggle("Keep Original Photos for Export", isOn: $keepsOriginals)
-                LabeledContent("Retained originals", value: originalStorage)
+                LabeledContent("Archived original files", value: originalStorage)
                 if retentionNeedsReview {
                     Label("An original-photo write failed. Review recent sessions and free storage. Receipts and gallery recovery were retained independently.", systemImage: "exclamationmark.triangle")
                     Button("Acknowledge Retention Warning") { retentionNeedsReview = false }.frame(minHeight: 44)
                 }
-                Text("Applies to future captures. Disabling keeps existing originals. Protected app files are excluded from device backup; exports to Photos require a separate Save action. Delete Local Session removes the app's media; public galleries and Photos copies remain.").font(.footnote)
+                Text("Applies to future captures. Disabling keeps existing originals. Recovery copies may use additional app storage. Protected app files are excluded from device backup; exports to Photos require a separate Save action. Delete Local Session removes the app's media; public galleries and Photos copies remain.").font(.footnote)
             }
             Section("Delivery diagnostics") {
                 LabeledContent("Waiting galleries", value: "\(operations.pendingUploadCount)")

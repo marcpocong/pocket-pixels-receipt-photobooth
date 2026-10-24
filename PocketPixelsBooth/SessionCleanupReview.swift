@@ -19,8 +19,8 @@ struct SessionCleanupReview: View {
             List {
                 Section("Delete Local Sessions") {
                     Text("\(candidates.count) sessions · approximately \(ByteCountFormatter.string(fromByteCount: Int64(sizes.values.reduce(0, +)), countStyle: .file))")
-                    Text("Saved receipts, thermal previews, retained original photos, thumbnails and local reprint data will be removed. Local reprinting will become unavailable.")
-                    Text("Public galleries, payment records, event statistics and print audits remain. Copies already saved to Photos remain in Photos.")
+                    Text("Saved receipts, thermal previews, original photo files, thumbnails and reprint data in the selected local archives will be removed. Local reprinting will become unavailable.")
+                    Text("Public galleries, payment records, event statistics, print audits and separately protected recovery copies remain. Copies already saved to Photos remain in Photos.")
                 }
                 Section("Dependency Review") {
                     ForEach(candidates) { summary in

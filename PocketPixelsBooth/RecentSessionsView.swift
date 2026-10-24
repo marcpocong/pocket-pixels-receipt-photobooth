@@ -191,7 +191,7 @@ final class RecentSessionsViewModel: ObservableObject {
     }
 
     /// Explicit operator action; one read at a time, at least one second apart. No upload or token creation.
-    func verifyGalleries(_ selected: [RecentSessionArchiveSummary]) {
+    func verifyGalleries(_ selected: [RecentSessionArchiveSummary], includeReady: Bool = false) {
         guard !isVerifying else { return }
         isVerifying = true
         verificationTask = Task {
@@ -204,7 +204,7 @@ final class RecentSessionsViewModel: ObservableObject {
             defer { if recheckSession == nil { session.invalidateAndCancel() }; isVerifying = false }
             for summary in selected {
                 if Task.isCancelled { skipped += selected.count - ready - unknown - failed - skipped; break }
-                if galleryStatus(for: summary) == .verified { skipped += 1; continue }
+                if !includeReady && galleryStatus(for: summary) == .verified { skipped += 1; continue }
                 guard let url = summary.frozenGalleryURL, ArchivedGalleryLink(galleryURL: url, galleryToken: summary.archiveID).isValid else { skipped += 1; continue }
                 recheckObservations[summary.archiveID] = .uploading
                 galleryStatuses[summary.archiveID] = .uploading
@@ -1160,7 +1160,7 @@ struct ArchivedSessionDetailView: View {
                         .accessibilityAddTraits(.updatesFrequently)
                 }
             }
-            Button(rootViewModel.isVerifying ? "Verifying…" : "Verify Gallery") { rootViewModel.verifyGalleries([summary]) }
+            Button(rootViewModel.isVerifying ? "Verifying…" : "Verify Gallery") { rootViewModel.verifyGalleries([summary], includeReady: true) }
                 .buttonStyle(.bordered).frame(minHeight: 44).disabled(rootViewModel.isVerifying || galleryLink?.url == nil)
             if !rootViewModel.verificationResult.isEmpty { Text(rootViewModel.verificationResult).font(.footnote) }
             NavigationLink {

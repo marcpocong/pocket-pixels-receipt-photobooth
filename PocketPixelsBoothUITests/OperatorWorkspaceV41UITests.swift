@@ -3,8 +3,10 @@ import XCTest
 /// Native system menus, dialogs and gestures against isolated simulator-only SwiftUI fixtures.
 final class OperatorWorkspaceV41UITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
-    private func launch(_ screen: String = "Sessions") -> XCUIApplication {
-        let app = XCUIApplication(); app.launchArguments = ["--operator-v41-ui-fixture"]; app.launch()
+    private func launch(_ screen: String = "Sessions", galleryReady: Bool = false) -> XCUIApplication {
+        let app = XCUIApplication(); app.launchArguments = ["--operator-v41-ui-fixture"]
+        if galleryReady { app.launchArguments.append("--gallery-ready-response") }
+        app.launch()
         XCTAssertTrue(app.buttons["Sessions"].waitForExistence(timeout: 30))
         if screen != "Sessions" { app.buttons[screen].tap() }
         return app
@@ -36,6 +38,9 @@ final class OperatorWorkspaceV41UITests: XCTestCase {
         receipt.doubleTap()
         XCTAssertTrue((receipt.value as? String)?.contains("200%") == true)
         try capture("receipt-zoomed")
+        receipt.pinch(withScale: 1.2, velocity: 1)
+        XCTAssertFalse((receipt.value as? String)?.contains("100%") == true)
+        receipt.swipeUp()
         receipt.doubleTap()
         XCTAssertTrue((receipt.value as? String)?.contains("100%") == true)
         app.buttons["Done"].tap(); app.buttons.matching(identifier: "Sessions").allElementsBoundByIndex.last!.tap()
@@ -78,6 +83,13 @@ final class OperatorWorkspaceV41UITests: XCTestCase {
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Archive keeps reconciliation'")).firstMatch.waitForExistence(timeout: 10))
         try capture("checkout-delete-review")
     }
+    func testHistoricalGalleryRecheckShowsReadyAndResultCounts() throws {
+        let app = launch(galleryReady: true)
+        tapWhenVisible("Recheck Unverified Galleries", in: app)
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS '1 verified' AND label CONTAINS '0 failed'")).firstMatch.waitForExistence(timeout: 15))
+        try capture("gallery-recheck-results-ready")
+    }
+
     func testGalleryFailurePhotosPermissionAndHealth() throws {
         let app = launch()
         app.buttons["Manage session"].firstMatch.tap(); app.buttons["View Session"].tap()

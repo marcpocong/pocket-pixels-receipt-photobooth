@@ -122,6 +122,19 @@ import UIKit
         XCTAssertEqual(callbacks, 1)
         XCTAssertNil(try queue.load(galleryToken: token))
     }
+    func testAmbiguousUploadReconciliationStorageFailureBecomesVerificationOnly() async throws {
+        let queue = try GalleryPendingUploadStore(directoryURL: root.appendingPathComponent("queue")); try queue.save(payload())
+        try queue.updateDeliveryState(.deliveryUnknown, galleryToken: token)
+        let bad = try GalleryVerificationStore(directory: root.appendingPathComponent("evidence"), writer: { _, _ in throw CocoaError(.fileWriteOutOfSpace) })
+        let service = GoogleDriveGalleryUploadService(urlSession: network(), pendingStore: queue, verificationStore: bad)
+        do { _ = try await service.uploadPendingGallery(galleryToken: token, deviceToken: String(repeating: "x", count: 32)); XCTFail() } catch { }
+        XCTAssertEqual(try queue.load(galleryToken: token)?.deliveryState, .posted)
+        V41GalleryProtocol.mode = .offline
+        do { _ = try await service.uploadPendingGallery(galleryToken: token, deviceToken: String(repeating: "x", count: 32)); XCTFail() } catch { }
+        XCTAssertFalse(V41GalleryProtocol.methods.contains("POST"))
+        XCTAssertNotNil(try queue.load(galleryToken: token))
+    }
+
     func testHistoricalRecheckIsBoundedCancellableAndIncremental() async throws {
         let archive = try RecentSessionArchiveStore(directoryURL: root.appendingPathComponent("archive"))
         let evidence = try GalleryVerificationStore(directory: root.appendingPathComponent("evidence"))

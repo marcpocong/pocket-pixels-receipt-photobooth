@@ -53,6 +53,7 @@ struct OperatorWorkspaceUITestFixture: View {
                 let token = String(repeating: index == 0 ? "a" : "b", count: 64)
                 let url = URL(string: "https://synthetic.example.test/?g=\(token)")!
                 let id = "PP-20261025-12000\(index)-" + UUID().uuidString.lowercased()
+                FixtureGalleryProtocol.sessionIDs[token] = id
                 let date = Date().addingTimeInterval(Double(-index * 60))
                 let session = CommittedGallerySession(sessionIdentifier: id, createdAt: date, galleryToken: token, galleryURL: url, photos: [photo], format: .solo, eventProfile: nil)
                 let receipt = try ReceiptComposer.compose(photos: [photo], sessionIdentifier: id, date: date, galleryURL: url, format: .solo)
@@ -114,9 +115,17 @@ private struct FixtureRecoveryReader: CheckoutRecoveryReading {
     }
 }
 private final class FixtureGalleryProtocol: URLProtocol {
+    nonisolated(unsafe) static var sessionIDs: [String: String] = [:]
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-    override func startLoading() { client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet)) }
+    override func startLoading() {
+        guard ProcessInfo.processInfo.arguments.contains("--gallery-ready-response"),
+              let url = request.url, let token = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "g" })?.value,
+              let id = Self.sessionIDs[token] else { client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet)); return }
+        let body = "{\"statusVersion\":1,\"ok\":true,\"status\":\"complete\",\"galleryToken\":\"\(token)\",\"sessionID\":\"\(id)\",\"schemaVersion\":2,\"fileCount\":4}"
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8)); client?.urlProtocolDidFinishLoading(self)
+    }
     override func stopLoading() {}
 }
 #endif

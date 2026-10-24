@@ -147,6 +147,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         // otherwise the backend's same-token idempotent POST reconciles incomplete delivery.
         if payload.deliveryState == .deliveryUnknown,
            (try? await verifyPublicGallery(payload)) != nil {
+            try pendingStore.updateDeliveryState(.posted, galleryToken: payload.galleryToken)
             try recordVerifiedDelivery(payload)
             try pendingStore.clear(galleryToken: payload.galleryToken)
             return GalleryUploadResult(galleryToken: payload.galleryToken, galleryURL: payload.galleryURL, status: .existingComplete)
@@ -234,6 +235,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             try Task.checkCancellation()
             return nil // Public delay/offline is not permission to discard the payload.
         }
+        try pendingStore?.updateDeliveryState(.posted, galleryToken: payload.galleryToken)
         try recordVerifiedDelivery(payload)
         try pendingStore?.clear(galleryToken: galleryToken)
         return GalleryUploadResult(galleryToken: galleryToken, galleryURL: payload.galleryURL, status: .existingComplete)
@@ -250,6 +252,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         }
         let exact = pending.map(GalleryVerificationTarget.init) ?? target
         let source = try await GalleryPublicVerifier.verify(exact, session: verificationSession)
+        if let pending, pending.deliveryState != .posted { try pendingStore?.updateDeliveryState(.posted, galleryToken: target.token) }
         try recordVerifiedDelivery(exact, source: source)
         if pending != nil { try pendingStore?.clear(galleryToken: target.token) }
     }
