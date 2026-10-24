@@ -24,8 +24,19 @@ final class RecentSessionsViewModel: ObservableObject {
     @Published var dateFrom: Date? { didSet { rebuildFilters() } }
     @Published var dateThrough: Date? { didSet { rebuildFilters() } }
     @Published var usesPhotoGrid = false
-    @Published var selectedArchiveID: String?
-    var scrollAnchor: String?
+    @Published var selectedArchiveID: String? {
+        willSet {
+            if newValue != nil && selectedArchiveID == nil { detailReturnOffset = browserOffset }
+        }
+    }
+    // Geometry updates do not publish or rebuild every row during a scroll.
+    private var browserOffsets: [Bool: CGFloat] = [:]
+    private(set) var detailReturnOffset: CGFloat = 0
+    var browserOffset: CGFloat { browserOffsets[usesPhotoGrid] ?? 0 }
+    func recordBrowserOffset(_ offset: CGFloat) {
+        guard selectedArchiveID == nil else { return }
+        browserOffsets[usesPhotoGrid] = max(0, offset)
+    }
     @Published var statusMessage = ""
     @Published private(set) var loadError: String?
     let thumbnails = SessionThumbnailCache()
@@ -434,9 +445,12 @@ struct RecentSessionsView: View {
     @StateObject private var viewModel: RecentSessionsViewModel
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var filtersPresented = false
+    @State private var scrollPosition: ScrollPosition
     init(initialSearch: String = "", viewModel: RecentSessionsViewModel? = nil) {
         self.initialSearch = initialSearch
-        _viewModel = StateObject(wrappedValue: viewModel ?? RecentSessionsViewModel())
+        let model = viewModel ?? RecentSessionsViewModel()
+        _viewModel = StateObject(wrappedValue: model)
+        _scrollPosition = State(initialValue: ScrollPosition(idType: String.self, y: model.browserOffset))
     }
 
     var body: some View {
@@ -497,7 +511,7 @@ struct RecentSessionsView: View {
                     VStack(alignment: .leading) { filterControls; displayControl }
                 }
             }.padding(16)
-            ScrollViewReader { scroll in
+            ScrollViewReader { _ in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         if !viewModel.hasLoaded {
@@ -526,12 +540,18 @@ struct RecentSessionsView: View {
                                 }
                             }
                         }
-                    }.padding(.bottom, 16).scrollTargetLayout()
+                    }.padding(.bottom, 16)
                 }
-                .scrollPosition(id: Binding(get: { viewModel.scrollAnchor }, set: { viewModel.scrollAnchor = $0 }), anchor: .top)
+                .scrollPosition($scrollPosition)
+                .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y }) { _, offset in
+                    viewModel.recordBrowserOffset(offset)
+                }
                 .refreshable { viewModel.refresh() }
-                .onChange(of: viewModel.selectedArchiveID) { previous, current in
-                    if current == nil, let anchor = viewModel.scrollAnchor ?? previous { scroll.scrollTo(anchor, anchor: .top) }
+                .onChange(of: viewModel.selectedArchiveID) { _, current in
+                    if current == nil { scrollPosition.scrollTo(y: viewModel.detailReturnOffset) }
+                }
+                .onChange(of: viewModel.usesPhotoGrid) { _, _ in
+                    scrollPosition.scrollTo(y: viewModel.browserOffset)
                 }
             }
             if !viewModel.statusMessage.isEmpty {

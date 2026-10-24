@@ -158,6 +158,9 @@ import SwiftUI
             "note": "Simulator CADisplayLink callbacks during programmatic scroll; not physical-device FPS or Instruments hitch measurement"]
         try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]).write(to: URL(fileURLWithPath: "/tmp/pp-v4-scroll.json"))
         let before = CFAbsoluteTimeGetCurrent()
+        let originalOffset = scroll.contentOffset.y
+        let originalPosition = model.browserOffset
+        XCTAssertGreaterThan(originalPosition, 500, "The browser must retain its real observed scroll position")
         model.selectedArchiveID = model.summaries.first?.archiveID
         try await Task.sleep(for: .milliseconds(100))
         let selected = model.selectedArchiveID
@@ -168,6 +171,10 @@ import SwiftUI
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(model.selectedArchiveID, selected)
         model.selectedArchiveID = nil
+        try await Task.sleep(for: .milliseconds(200))
+        host.view.layoutIfNeeded()
+        XCTAssertLessThanOrEqual(abs(scroll.contentOffset.y - originalOffset), 200, "Closing detail after rotation must return within the same nearby rows, not the top of the archive")
+        print("V4_SCROLL_RESTORATION before=\(originalOffset) after=\(scroll.contentOffset.y) observedBefore=\(originalPosition) observedAfter=\(model.browserOffset)")
         XCTAssertEqual(model.searchText, "")
         XCTAssertEqual(model.summaries.count, 1000)
         XCTAssertFalse(model.usesPhotoGrid)
