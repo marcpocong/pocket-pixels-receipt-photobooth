@@ -344,32 +344,58 @@ struct PaymentsOperatorView: View {
 /// Shared by Help & Recovery and payment maintenance; financial follow-up never disappears
 /// merely because an operator released the kiosk for a different guest.
 struct CheckoutRecoverySection: View {
-    @ObservedObject private var recovery = PaymentRecoveryCoordinator.shared
+    @ObservedObject private var recovery: PaymentRecoveryCoordinator
     @ObservedObject private var operations = EventOperationalState.shared
     @State private var resumeCandidate: CheckoutRecoveryItem?
     @State private var status = ""
+    @State private var selecting = false
+    @State private var selectedIDs = Set<String>()
+    @State private var cleanupIDs: [String] = []
+    @State private var cleanupPresented = false
+    @State private var showsArchived = false
+    @State private var detailItem: CheckoutRecoveryItem?
+    init(recovery: PaymentRecoveryCoordinator = .shared, showsArchived: Bool = false) { _recovery = ObservedObject(wrappedValue: recovery); _showsArchived = State(initialValue: showsArchived) }
     var body: some View {
         Section {
-            if let fault = CheckoutCheckpointStore.shared?.integrityFault {
+            if let fault = recovery.managementStore?.integrityFault {
                 Label(fault, systemImage: "exclamationmark.octagon").foregroundStyle(.red)
                 Button("Acknowledge (server orders remain listed)", role: .destructive) {
-                    do { try CheckoutCheckpointStore.shared?.acknowledgeIntegrityFault() }
+                    do { try recovery.managementStore?.acknowledgeIntegrityFault() }
                     catch { status = "Could not save the acknowledgement: \(error.localizedDescription)" }
                     Task { await recovery.refresh() }
                 }
             }
-            if CheckoutCheckpointStore.shared == nil {
+            if recovery.managementStore == nil {
                 Label("Checkout storage is unavailable. Free iPad storage and reopen Help & Recovery; no records were cleared.", systemImage: "exclamationmark.octagon").foregroundStyle(.red)
             }
-            if recovery.items.isEmpty, CheckoutCheckpointStore.shared != nil {
+            if recovery.items.isEmpty, recovery.managementStore != nil {
                 Text("No interrupted paid checkouts on this iPad.").foregroundStyle(.secondary)
             }
-            ForEach(recovery.activeItems + recovery.outstandingItems) { item in
+            HStack {
+                Button(selecting ? "Done Selecting" : "Bulk Select") { selecting.toggle(); selectedIDs.removeAll() }.frame(minHeight: 44)
+                if selecting {
+                    Button("Delete Eligible Selected") { cleanupIDs = Array(selectedIDs); cleanupPresented = true }.disabled(selectedIDs.isEmpty)
+                }
+            }
+            if selecting {
+                Button("Archive Selected") {
+                    var saved = 0, failed = 0
+                    for id in selectedIDs {
+                        do { try recovery.setCheckoutHidden(id: id, hidden: true); saved += 1 } catch { failed += 1 }
+                    }
+                    status = "\(saved) archived · \(failed) retained. Close active interactions before archiving."
+                }.disabled(selectedIDs.isEmpty).frame(minHeight: 44)
+            }
+            Text("Active Interruptions · \(recovery.activeInterruptionCount)").font(.headline).accessibilityAddTraits(.isHeader)
+            ForEach(recovery.activeItems + recovery.outstandingItems.filter { $0.checkpoint.hiddenAt == nil }) { item in
+                if item.id == recovery.outstandingItems.first(where: { $0.checkpoint.hiddenAt == nil })?.id {
+                    Text("Parked / Outstanding · \(recovery.parkedFollowUpCount)").font(.headline).accessibilityAddTraits(.isHeader)
+                }
                 VStack(alignment: .leading, spacing: 6) {
                     Text("\(item.checkpoint.copies)× \(item.checkpoint.format) · \(PHPPriceFormatter.string(centavos: item.checkpoint.unitPriceCentavos * item.checkpoint.copies))")
                         .font(.headline)
                     if item.checkpoint.isParked {
-                        Label("Outstanding Payment · Guest Interaction Closed", systemImage: "tray.full").font(.headline)
+                        Label("Parked Financial Follow-up · Guest Interaction Closed", systemImage: "tray.full").font(.headline)
                         Text("This item does not block unrelated guests or event setup. Resume only the original checkout; do not accept a second payment for it.").font(.footnote).foregroundStyle(.secondary)
                     }
                     Text(item.classification.operatorDescription).font(.subheadline)
@@ -383,7 +409,7 @@ struct CheckoutRecoverySection: View {
                         Text("Closed locally \(date.formatted()) · \(reason). Financial status unchanged.").font(.caption).foregroundStyle(.secondary)
                     }
                     if let failure = recovery.resolutionFailures[item.id] { Text(failure).foregroundStyle(.orange) }
-                    Text("Checkout \(item.checkpoint.id) · started \(item.checkpoint.createdAt.formatted(date: .omitted, time: .shortened))")
+                    Text("Started \(item.checkpoint.createdAt.formatted())")
                         .font(.caption).foregroundStyle(.secondary)
                     if let reference = item.checkpoint.recoveryReference {
                         Text("Recovery reference: \(reference)")
@@ -391,6 +417,22 @@ struct CheckoutRecoverySection: View {
                             .fixedSize(horizontal: false, vertical: true)
                         Text("Match the guest's saved reference, then verify this checkout. The reference alone does not authorize recovery.")
                             .font(.caption).foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        if selecting {
+                            Button(selectedIDs.contains(item.id) ? "Selected ✓" : "Select") {
+                                if !selectedIDs.insert(item.id).inserted { selectedIDs.remove(item.id) }
+                            }.frame(minHeight: 44)
+                        }
+                        Menu {
+                            Button("View Details") { detailItem = item }
+                            if item.classification.isResumable { Button("Resume Original Checkout") { resumeCandidate = item } }
+                            Button("Archive Checkout") {
+                                do { try recovery.setCheckoutHidden(id: item.id, hidden: true); status = "Archived. Financial follow-up remains in Health and History." }
+                                catch { status = error.localizedDescription }
+                            }
+                            Button("Delete Eligible Checkout", role: .destructive) { cleanupIDs = [item.id]; cleanupPresented = true }
+                        } label: { Label("Manage", systemImage: "ellipsis.circle").frame(minHeight: 44) }
                     }
                     HStack {
                         if item.classification.isResumable {
@@ -404,6 +446,31 @@ struct CheckoutRecoverySection: View {
                     }
                 }
                 .padding(.vertical, 4)
+            }
+            if recovery.outstandingItems.filter({ $0.checkpoint.hiddenAt == nil }).isEmpty {
+                Text("Parked / Outstanding · \(recovery.parkedFollowUpCount)").font(.headline)
+            }
+            DisclosureGroup("Resolved / Archived · \(recovery.archivedCheckpoints.count)", isExpanded: $showsArchived) {
+                ForEach(recovery.archivedCheckpoints) { checkpoint in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(checkpoint.format) · \(checkpoint.createdAt.formatted())").font(.subheadline.weight(.semibold))
+                            Text(checkpoint.isResolved ? "Resolved local checkpoint" : "Archived · financial follow-up remains outstanding").font(.caption)
+                        }
+                        Spacer()
+                        Menu {
+                            if checkpoint.hiddenAt != nil {
+                                Button("Restore Visibility") { do { try recovery.setCheckoutHidden(id: checkpoint.id, hidden: false) } catch { status = error.localizedDescription } }
+                            }
+                            Button("Delete Eligible Checkout", role: .destructive) { cleanupIDs = [checkpoint.id]; cleanupPresented = true }
+                            if selecting {
+                                Button(selectedIDs.contains(checkpoint.id) ? "Deselect" : "Select") {
+                                    if !selectedIDs.insert(checkpoint.id).inserted { selectedIDs.remove(checkpoint.id) }
+                                }
+                            }
+                        } label: { Label("Manage", systemImage: "ellipsis.circle").frame(minHeight: 44) }
+                    }
+                }
             }
             if !status.isEmpty { Text(status).foregroundStyle(.orange) }
             if !operations.recoveryActionMessage.isEmpty { Text(operations.recoveryActionMessage).font(.footnote) }
@@ -433,6 +500,18 @@ struct CheckoutRecoverySection: View {
             Button("Cancel", role: .cancel) {}
         } message: { item in
             Text("This returns to the booth and keeps your setup drafts. Ask the guest to tap Make a Memory within 5 minutes. \(item.classification.operatorDescription)")
+        }
+        .sheet(isPresented: $cleanupPresented) { CheckoutCleanupReview(ids: cleanupIDs, recovery: recovery) }
+        .sheet(item: $detailItem) { item in
+            NavigationStack {
+                List {
+                    Text(item.classification.operatorDescription)
+                    LabeledContent("Started", value: item.checkpoint.createdAt.formatted())
+                    LabeledContent("Checkout", value: item.id)
+                    Text("Closing or hiding an interaction does not settle its payment. Original payment and print records remain authoritative.")
+                }.navigationTitle("Checkout Details")
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { detailItem = nil } } }
+            }
         }
         .task { await recovery.refresh() }
     }

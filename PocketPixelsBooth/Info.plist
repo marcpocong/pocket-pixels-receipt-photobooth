@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Save the receipt or selected session photos to Photos when the operator chooses Save.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Authenticate the device owner before opening operator controls.</string>
 	<key>CFBundleDisplayName</key>

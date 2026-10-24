@@ -27,6 +27,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
     private let verificationSession: URLSession
     private let connectivityTester: GalleryBackendConnectivityTester
     private let pendingStore: GalleryPendingUploadStore?
+    private let verificationStore: GalleryVerificationStore?
     private let onPublicGalleryVerified: @MainActor (String) -> Void
     private static var activeUploadToken: String?
     private static var isQueueProcessing = false
@@ -38,10 +39,12 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         urlSession: URLSession = GoogleDriveGalleryUploadService.makeUploadSession(),
         connectivityTester: GalleryBackendConnectivityTester = GalleryBackendConnectivityTester(),
         pendingStore: GalleryPendingUploadStore? = nil,
+        verificationStore: GalleryVerificationStore? = nil,
         onPublicGalleryVerified: @escaping @MainActor (String) -> Void = { sessionID in
             EventRunStore.shared.updateSession(id: sessionID) { if $0.galleryVerifiedAt == nil { $0.galleryVerifiedAt = Date() } }
         }
     ) {
+        self.verificationStore = verificationStore ?? (try? GalleryVerificationStore())
         self.onPublicGalleryVerified = onPublicGalleryVerified
         self.configurationProvider = configurationProvider
         self.customerGalleryConfigurationProvider = customerGalleryConfigurationProvider
@@ -129,14 +132,22 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         guard let payload = try pendingStore.load(galleryToken: payload.galleryToken) else {
             // A preceding owner cleared it only after verifying this exact public URL.
             try await verifyPublicGallery(payload)
-            recordVerifiedDelivery(sessionID: payload.sessionID)
+            try recordVerifiedDelivery(payload)
+            return GalleryUploadResult(galleryToken: payload.galleryToken, galleryURL: payload.galleryURL, status: .existingComplete)
+        }
+        if payload.deliveryState == .posted {
+            // Backend accepted completion already: retry only the frozen public read and local
+            // evidence commit. A disk failure must never turn verification into another POST.
+            try await verifyPublicGallery(payload)
+            try recordVerifiedDelivery(payload)
+            try pendingStore.clear(galleryToken: payload.galleryToken)
             return GalleryUploadResult(galleryToken: payload.galleryToken, galleryURL: payload.galleryURL, status: .existingComplete)
         }
         // A previous POST may already have completed. Reconcile the frozen public QR first;
         // otherwise the backend's same-token idempotent POST reconciles incomplete delivery.
         if payload.deliveryState == .deliveryUnknown,
            (try? await verifyPublicGallery(payload)) != nil {
-            recordVerifiedDelivery(sessionID: payload.sessionID)
+            try recordVerifiedDelivery(payload)
             try pendingStore.clear(galleryToken: payload.galleryToken)
             return GalleryUploadResult(galleryToken: payload.galleryToken, galleryURL: payload.galleryURL, status: .existingComplete)
         }
@@ -223,9 +234,24 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             try Task.checkCancellation()
             return nil // Public delay/offline is not permission to discard the payload.
         }
-        recordVerifiedDelivery(sessionID: payload.sessionID)
+        try recordVerifiedDelivery(payload)
         try pendingStore?.clear(galleryToken: galleryToken)
         return GalleryUploadResult(galleryToken: galleryToken, galleryURL: payload.galleryURL, status: .existingComplete)
+    }
+
+    /// Explicit historical repair. Shares the upload lease, so it cannot clear a payload while
+    /// another worker owns its POST. Never sends content or creates a replacement identity.
+    func verifyOriginalGallery(_ target: GalleryVerificationTarget) async throws {
+        try await beginUpload(galleryToken: target.token)
+        defer { endUpload(galleryToken: target.token) }
+        let pending = try pendingStore?.load(galleryToken: target.token)
+        if let pending {
+            guard pending.sessionID == target.sessionID, pending.galleryURL == target.url else { throw GalleryUploadError.deliveryUnknown }
+        }
+        let exact = pending.map(GalleryVerificationTarget.init) ?? target
+        let source = try await GalleryPublicVerifier.verify(exact, session: verificationSession)
+        try recordVerifiedDelivery(exact, source: source)
+        if pending != nil { try pendingStore?.clear(galleryToken: target.token) }
     }
 
     func testBackendConnectivity() async -> GalleryBackendConnectivityState {
@@ -437,72 +463,51 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
     ) async throws -> GalleryUploadResult {
         do {
             let result = try await post(payload: payload, deviceToken: deviceToken, configuration: configuration)
+            try pendingStore?.updateDeliveryState(.posted, galleryToken: payload.galleryToken)
             // The upload response proves backend acceptance; only a completed public page proves
             // delivery through the exact front door printed on this guest's receipt. This bounded
             // read runs in the gallery task and never gates physical receipt printing.
             Self.currentActivity = "Verifying public delivery · \(payload.sessionID)"
             try await verifyPublicGallery(payload)
-            recordVerifiedDelivery(sessionID: payload.sessionID)
+            try recordVerifiedDelivery(payload)
             try pendingStore?.clear(galleryToken: payload.galleryToken)
             return result
         } catch GalleryUploadError.deliveryUnknown {
-            try pendingStore?.updateDeliveryState(.deliveryUnknown, galleryToken: payload.galleryToken, lastSafeError: GalleryUploadError.deliveryUnknown.localizedDescription)
+            try retainDeliveryState(payload, lastSafeError: GalleryUploadError.deliveryUnknown.localizedDescription)
             throw GalleryUploadError.deliveryUnknown
         } catch GalleryUploadError.network(let message) {
-            try pendingStore?.updateDeliveryState(.deliveryUnknown, galleryToken: payload.galleryToken, lastSafeError: message)
+            try retainDeliveryState(payload, lastSafeError: message)
             throw GalleryUploadError.pendingNoInternet
         } catch GalleryUploadError.timeout {
-            try pendingStore?.updateDeliveryState(.deliveryUnknown, galleryToken: payload.galleryToken, lastSafeError: GalleryUploadError.timeout.localizedDescription)
+            try retainDeliveryState(payload, lastSafeError: GalleryUploadError.timeout.localizedDescription)
             throw GalleryUploadError.deliveryUnknown
         } catch {
-            try? pendingStore?.updateDeliveryState(.deliveryUnknown, galleryToken: payload.galleryToken, lastSafeError: error.localizedDescription)
+            try? retainDeliveryState(payload, lastSafeError: error.localizedDescription)
             throw error
         }
     }
 
-    private func recordVerifiedDelivery(sessionID: String) {
-        onPublicGalleryVerified(sessionID)
+    private func retainDeliveryState(_ payload: GalleryPreparedUploadPayload, lastSafeError: String) throws {
+        let state = try pendingStore?.load(galleryToken: payload.galleryToken)?.deliveryState
+        try pendingStore?.updateDeliveryState(state == .posted ? .posted : .deliveryUnknown,
+            galleryToken: payload.galleryToken, lastSafeError: lastSafeError)
+    }
+
+    private func recordVerifiedDelivery(_ payload: GalleryPreparedUploadPayload) throws {
+        try recordVerifiedDelivery(GalleryVerificationTarget(payload), source: "upload-public-readiness")
+    }
+    private func recordVerifiedDelivery(_ target: GalleryVerificationTarget, source: String) throws {
+        guard let verificationStore else { throw GalleryUploadError.configuration("Gallery verification storage is unavailable. The pending gallery is retained; retry verification after checking storage.") }
+        do {
+            try verificationStore.record(sessionID: target.sessionID, token: target.token, url: target.url, source: source)
+        } catch {
+            throw GalleryUploadError.configuration("Gallery is online, but its local verification could not be saved. The pending gallery is retained. Check storage and retry verification.")
+        }
+        onPublicGalleryVerified(target.sessionID)
     }
 
     private func verifyPublicGallery(_ payload: GalleryPreparedUploadPayload) async throws {
-        let startedAt = Date()
-        var components = URLComponents(url: payload.galleryURL, resolvingAgainstBaseURL: false)
-        let queryItems = components?.queryItems ?? []
-        components?.queryItems = queryItems.filter { $0.name != "galleryStatus" } + [URLQueryItem(name: "galleryStatus", value: "1")]
-        guard let url = components?.url else { throw GalleryUploadError.invalidGalleryURL }
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
-        request.setValue("application/json,text/html;q=0.9", forHTTPHeaderField: "Accept")
-        do {
-            let (data, response) = try await verificationSession.data(for: request)
-            guard let response = response as? HTTPURLResponse, response.statusCode == 200 else { throw GalleryUploadError.deliveryUnknown }
-            if let status = try? JSONDecoder().decode(GalleryPublicReadiness.self, from: data) {
-                // Photos, the color receipt and the manifest, plus each optional asset. Typed
-                // steps keep older compilers from timing out on one long expression.
-                var expectedFileCount: Int = payload.photos.count + 2
-                if payload.thermalReceipt != nil { expectedFileCount += 1 }
-                if payload.gif != nil { expectedFileCount += 1 }
-                if payload.shareColorReceipt != nil { expectedFileCount += 1 }
-                guard status.statusVersion == 1, status.ok, status.status == "complete",
-                      status.galleryToken == payload.galleryToken, status.sessionID == payload.sessionID,
-                      status.schemaVersion == payload.schemaVersion,
-                      status.fileCount == expectedFileCount
-                else { throw GalleryUploadError.deliveryUnknown }
-            } else {
-                // Historical front doors ignore the status query and still serve their full page.
-                guard let html = String(data: data, encoding: .utf8), html.contains("data-pocket-pixels-gallery-status=\"complete\"") else { throw GalleryUploadError.deliveryUnknown }
-            }
-            Self.performanceLogger.info("Public gallery verified: elapsedMs=\(Int(Date().timeIntervalSince(startedAt)*1000)) responseBytes=\(data.count)")
-        } catch { throw GalleryUploadError.deliveryUnknown }
-    }
-
-    private struct GalleryPublicReadiness: Decodable {
-        let statusVersion: Int
-        let ok: Bool
-        let status: String
-        let galleryToken: String?
-        let sessionID: String?
-        let schemaVersion: Int?
-        let fileCount: Int?
+        _ = try await GalleryPublicVerifier.verify(GalleryVerificationTarget(payload), session: verificationSession)
     }
 
     private func post(

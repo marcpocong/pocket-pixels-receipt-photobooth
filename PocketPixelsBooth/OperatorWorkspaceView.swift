@@ -141,7 +141,31 @@ nonisolated enum OperatorWorkspaceLayout {
 struct OperatorEventsView: View {
     @ObservedObject var workspace: OperatorWorkspace
     @ObservedObject var runs: EventRunStore
-    @ObservedObject private var library = EventDesignLibraryStore.shared
+    @ObservedObject private var library: EventDesignLibraryStore
+    @State private var showsArchived = false
+    @State private var deletionDesignID: String?
+    @State private var deletionRunID: String?
+    @State private var managementMessage = ""
+
+    init(workspace: OperatorWorkspace, runs: EventRunStore, library: EventDesignLibraryStore = .shared) {
+        self.workspace = workspace; self.runs = runs; _library = ObservedObject(wrappedValue: library)
+    }
+    private func manage(_ action: () throws -> Void) {
+        do { try action(); managementMessage = "Saved." }
+        catch { managementMessage = error.localizedDescription }
+    }
+    private func deleteDesign(_ id: String) {
+        manage {
+            let archives = try RecentSessionArchiveStore().summaries(includePayloadSize: false)
+            try library.deleteUnusedDesign(id: id, runs: runs.runs, archives: archives, historyAvailable: !runs.historyUnreadable, deletedSessions: try RecentSessionArchiveStore().deletedSessionEvidence())
+        }
+    }
+    private func deleteRun(_ id: String) {
+        manage {
+            let archives = try RecentSessionArchiveStore().summaries(includePayloadSize: false)
+            try runs.deleteUnusedRun(id: id, archives: archives, inspectionComplete: !runs.historyUnreadable)
+        }
+    }
 
     var body: some View {
         List {
@@ -164,19 +188,48 @@ struct OperatorEventsView: View {
                 }
             } footer: { Text("Setup is staged. Guests keep their current configuration until an explicit Review & Start.") }
             Section("Saved Events") {
-                if library.library.events.filter({ $0.archivedAt == nil }).isEmpty {
-                    Text("No saved events yet. Create an event once, then reuse its design and payment settings.").foregroundStyle(OperatorPalette.secondaryText)
-                }
-                ForEach(library.library.events.filter { $0.archivedAt == nil }.sorted { $0.updatedAt > $1.updatedAt }) { event in
-                    NavigationLink(value: OperatorWorkspaceRoute.savedEvent(event.id)) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(event.displayName).font(.headline)
-                            Text(event.venue.isEmpty ? "Reusable event setup" : event.venue).font(.callout).foregroundStyle(OperatorPalette.secondaryText)
-                        }.padding(.vertical, 4)
+                Toggle("Show Archived Events", isOn: $showsArchived)
+                ForEach(library.library.events.filter { showsArchived || $0.archivedAt == nil }.sorted { $0.updatedAt > $1.updatedAt }) { event in
+                    HStack {
+                        NavigationLink(value: OperatorWorkspaceRoute.savedEvent(event.id)) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(event.displayName).font(.headline)
+                                Text(event.archivedAt != nil ? "Archived local design" : (event.venue.isEmpty ? "Local saved design" : event.venue))
+                                    .font(.callout).foregroundStyle(OperatorPalette.secondaryText)
+                            }.padding(.vertical, 4)
+                        }
+                        Menu {
+                            NavigationLink("Edit", value: OperatorWorkspaceRoute.savedEvent(event.id))
+                            NavigationLink("View History", value: OperatorWorkspaceRoute.eventHistory)
+                            if event.archivedAt == nil {
+                                Button("Archive") { manage { try library.archiveDesign(id: event.id) } }
+                            } else {
+                                Button("Restore") { manage { try library.restoreDesign(id: event.id) } }
+                            }
+                            Button("Delete Permanently", role: .destructive) { deletionDesignID = event.id }
+                        } label: { Label("Manage", systemImage: "ellipsis.circle").frame(minWidth: 44, minHeight: 44) }
                     }
                 }
                 NavigationLink("Event History & Earlier Sessions", value: OperatorWorkspaceRoute.eventHistory)
                 NavigationLink("Manage Saved Events & Archived Designs", value: OperatorWorkspaceRoute.eventLibrary)
+            }
+            Section("Local Event Runs") {
+                ForEach(runs.runs.filter { showsArchived || $0.status != .archived }.sorted { $0.createdAt > $1.createdAt }) { run in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(run.context.name).font(.headline)
+                            Text("\(run.status.rawValue.capitalized) · \(run.createdAt.formatted(date: .abbreviated, time: .omitted))").font(.caption)
+                        }
+                        Spacer()
+                        Menu {
+                            NavigationLink("View History", value: OperatorWorkspaceRoute.eventHistory)
+                            Button("Archive Run") { manage { try runs.transition(id: run.id, to: .archived) } }
+                            Button("Delete Unused Local Run", role: .destructive) { deletionRunID = run.id }
+                        } label: { Label("Manage", systemImage: "ellipsis.circle").frame(minWidth: 44, minHeight: 44) }
+                    }
+                }
+                Text("Local cleanup keeps server-managed commercial events and financial history. Used designs and runs can be archived.").font(.footnote).foregroundStyle(.secondary)
+                if !managementMessage.isEmpty { Text(managementMessage).font(.callout) }
             }
             Section("Guest Experience") {
                 NavigationLink(value: OperatorWorkspaceRoute.branding) { Label("Event Customization", systemImage: "paintpalette") }
@@ -186,6 +239,14 @@ struct OperatorEventsView: View {
             if let error = runs.storageError { Section { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.danger) } }
             if let error = library.storageError { Section { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.danger) } }
         }
+        .confirmationDialog("Delete this unused local event design?", isPresented: Binding(get: { deletionDesignID != nil }, set: { if !$0 { deletionDesignID = nil } }), titleVisibility: .visible) {
+            Button("Delete Permanently", role: .destructive) { if let id = deletionDesignID { deleteDesign(id) }; deletionDesignID = nil }
+            Button("Cancel", role: .cancel) { deletionDesignID = nil }
+        } message: { Text("Eligibility is checked again before removal. Designs with applied, commercial or session history must be archived. No payment-server event is deleted.") }
+        .confirmationDialog("Delete this unused local run?", isPresented: Binding(get: { deletionRunID != nil }, set: { if !$0 { deletionRunID = nil } }), titleVisibility: .visible) {
+            Button("Delete Unused Local Run", role: .destructive) { if let id = deletionRunID { deleteRun(id) }; deletionRunID = nil }
+            Button("Cancel", role: .cancel) { deletionRunID = nil }
+        } message: { Text("Current runs, commercial identities and runs with session history are protected. Archive a completed run to retain its history.") }
         .navigationTitle("Events").navigationBarTitleDisplayMode(.inline)
         .scrollContentBackground(.hidden).background(OperatorPalette.canvas)
         .environment(\.defaultMinListRowHeight, 52)

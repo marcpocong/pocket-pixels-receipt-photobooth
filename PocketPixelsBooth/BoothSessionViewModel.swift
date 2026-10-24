@@ -18,6 +18,7 @@ final class BoothSessionViewModel: ObservableObject {
     @Published var statusMessage = "Ready."
     @Published var errorMessage: String?
     @Published var capturedPhotos: [UIImage] = []
+    private var originalCaptureBytes: [Int: Data] = [:]
     @Published var transientCapturedPhoto: UIImage?
     @Published private(set) var transientCapturedPhotoIndex: Int?
     @Published var composedReceipt: ComposedReceipt?
@@ -1394,6 +1395,7 @@ final class BoothSessionViewModel: ObservableObject {
         }
 
         capturedPhotos.removeAll()
+        originalCaptureBytes.removeAll()
         transientCapturedPhoto = nil
         transientCapturedPhotoIndex = nil
         receiptImage = nil
@@ -1515,6 +1517,7 @@ final class BoothSessionViewModel: ObservableObject {
         }
 
         capturedPhotos.removeAll()
+        originalCaptureBytes.removeAll()
         transientCapturedPhoto = nil
         transientCapturedPhotoIndex = nil
         receiptImage = nil
@@ -2488,11 +2491,16 @@ final class BoothSessionViewModel: ObservableObject {
         statusMessage = "Capturing photo \(index + 1)."
 
         do {
-            let image = try await capturePhoto()
+            let capture = try await capturePhoto()
+            let image = capture.image
             guard !Task.isCancelled else { return }
             guard isCurrentCustomerSession(sessionGeneration) else {
                 debugLog("[Session] ignored stale captured photo")
                 return
+            }
+
+            if !environment.isQualification && SessionMediaExport.keepsOriginals {
+                originalCaptureBytes[index] = capture.encodedData
             }
 
             if replacing, capturedPhotos.indices.contains(index) {
@@ -2539,13 +2547,13 @@ final class BoothSessionViewModel: ObservableObject {
         }
     }
 
-    private func capturePhoto() async throws -> UIImage {
+    private func capturePhoto() async throws -> CameraCapture {
         let format = selectedBoothFormat
         return try await withCheckedThrowingContinuation { continuation in
-            cameraService.capturePhoto { result in
+            cameraService.captureOriginalPhoto { result in
                 switch result {
-                case .success(let image):
-                    continuation.resume(returning: Self.normalizedCapture(image, format: format))
+                case .success(let capture):
+                    continuation.resume(returning: CameraCapture(image: Self.normalizedCapture(capture.image, format: format), encodedData: capture.encodedData))
                 case .failure(let error):
                     continuation.resume(throwing: error)
                 }
@@ -2595,6 +2603,7 @@ final class BoothSessionViewModel: ObservableObject {
     private func clearCustomerData() {
         detachedRecoveryReference = nil
         capturedPhotos.removeAll()
+        originalCaptureBytes.removeAll()
         transientCapturedPhoto = nil
         transientCapturedPhotoIndex = nil
         composedReceipt = nil
@@ -2954,7 +2963,8 @@ final class BoothSessionViewModel: ObservableObject {
             passport: committedGallerySession?.passport,
             receiptPrintOptions: sessionPrintOptions,
             galleryReceiptStyle: sessionGalleryReceiptStyle,
-            checkpointID: UUID().uuidString
+            checkpointID: UUID().uuidString,
+            originalCaptureData: originalCaptureBytes.isEmpty ? nil : capturedPhotos.indices.map { originalCaptureBytes[$0] }
         )
         return snapshot
     }
@@ -2978,6 +2988,8 @@ final class BoothSessionViewModel: ObservableObject {
         )
         archiveCommitPayload = payload
         let archiveDirectory = environment.archiveDirectory
+        let originalData = committedSession.photos.indices.compactMap { originalCaptureBytes[$0] }
+        let retainsOriginals = !environment.isQualification && SessionMediaExport.keepsOriginals && originalData.count == committedSession.photos.count
         archiveCommitTask = Task.detached(priority: .userInitiated) {
             do {
                 let store = try BoothSessionEnvironment.makeArchiveStore(directory: archiveDirectory)
@@ -2991,6 +3003,16 @@ final class BoothSessionViewModel: ObservableObject {
                 // Never fall back to the production archive if a diagnostic store cannot open.
                 guard let store = try? BoothSessionEnvironment.makeArchiveStore(directory: archiveDirectory) else { return }
                 SessionArchiveCommitter.attachThumbnails(for: committedSession, store: store)
+                if retainsOriginals {
+                    do { try store.attachOriginalPhotos(archiveID: committedSession.galleryToken, sessionID: committedSession.sessionIdentifier, photos: originalData) }
+                    catch {
+                        // A media export failure never blocks an already durable receipt or print.
+                        await MainActor.run {
+                            UserDefaults.standard.set(true, forKey: SessionMediaExport.retentionErrorKey)
+                            NotificationCenter.default.post(name: .originalPhotoRetentionFailed, object: nil)
+                        }
+                    }
+                }
             }
             return nil
         }
@@ -3007,12 +3029,24 @@ final class BoothSessionViewModel: ObservableObject {
         guard let failure = await task.value else { return nil }
         BoothDiagnostics.archive.notice("Retrying archive commit before printing: \(failure, privacy: .public)")
         let archiveDirectory = environment.archiveDirectory
+        let originals = payload.committedSession.photos.indices.compactMap { originalCaptureBytes[$0] }
+        let retainsOriginals = !environment.isQualification && SessionMediaExport.keepsOriginals && originals.count == payload.committedSession.photos.count
         let retry = Task.detached(priority: .userInitiated) { () -> String? in
             do {
                 let store = try BoothSessionEnvironment.makeArchiveStore(directory: archiveDirectory)
                 try SessionArchiveCommitter.commitPrintPayload(payload, store: store)
                 Task.detached(priority: .utility) {
                     SessionArchiveCommitter.attachThumbnails(for: payload.committedSession, store: store)
+                    if retainsOriginals {
+                        do { try store.attachOriginalPhotos(archiveID: payload.committedSession.galleryToken, sessionID: payload.committedSession.sessionIdentifier, photos: originals) }
+                        catch {
+                            await MainActor.run {
+                                UserDefaults.standard.set(true, forKey: SessionMediaExport.retentionErrorKey)
+                                NotificationCenter.default.post(name: .originalPhotoRetentionFailed, object: nil)
+                            }
+                        }
+                    }
+
                 }
                 return nil
             } catch {

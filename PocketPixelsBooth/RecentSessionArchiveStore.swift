@@ -5,6 +5,7 @@
 
 import CryptoKit
 import Foundation
+import ImageIO
 
 struct RecentSessionArchiveSummary: Identifiable, Equatable, Sendable {
     var id: String { archiveID }
@@ -26,6 +27,8 @@ struct RecentSessionArchiveSummary: Identifiable, Equatable, Sendable {
     let payloadSizeBytes: Int
     var eventRunID: String? = nil
     var eventDesignID: String? = nil
+    var frozenGalleryURL: URL? = nil
+    var isHidden = false
 }
 
 struct RecentSessionArchive: Sendable {
@@ -74,6 +77,7 @@ enum RecentSessionArchiveError: Error, LocalizedError, Equatable {
 }
 
 nonisolated struct RecentSessionArchiveStore: Sendable {
+    private static let ioLock = NSRecursiveLock()
     static let schemaVersion = 1
     static let retentionAge: TimeInterval = 7 * 24 * 60 * 60
     static let retentionCount = 250
@@ -96,6 +100,7 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
         }
 
         try ensureArchiveDirectory()
+        try recoverInterruptedDeletions()
         // A concurrent archive save may own a staging directory; reads must not remove it.
         // Event archives are retained until an explicit, delivery-aware cleanup is available.
     }
@@ -105,12 +110,14 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
     }
 
     nonisolated func save(_ payload: RecentSessionArchivePayload) throws {
+        Self.ioLock.lock(); defer { Self.ioLock.unlock() }
         let archiveID = archiveID(for: payload.committedSession)
         guard isValidArchiveID(archiveID) else {
             throw RecentSessionArchiveError.invalidArchiveID
         }
 
         try ensureArchiveDirectory()
+        guard !isDeleted(archiveID) else { throw RecentSessionArchiveError.archiveNotFound }
         try validateRaster(payload.rasterizedImage)
 
         let finalURL = archiveDirectoryURL(for: archiveID)
@@ -153,7 +160,8 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
     }
 
     nonisolated func summaries(includePayloadSize: Bool = true) throws -> [RecentSessionArchiveSummary] {
-        try archiveDirectories().compactMap { directory in
+        Self.ioLock.lock(); defer { Self.ioLock.unlock() }
+        return try archiveDirectories().filter { !isDeleted($0.lastPathComponent) }.compactMap { directory in
             do {
                 try Task.checkCancellation()
                 let metadata = try loadMetadata(from: directory)
@@ -174,7 +182,7 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
                     reprintCount: metadata.reprintCount,
                     payloadSizeBytes: includePayloadSize ? payloadSize(at: directory) : 0,
                     eventRunID: metadata.eventRunID,
-                    eventDesignID: metadata.eventDesignID
+                    eventDesignID: metadata.eventDesignID, frozenGalleryURL: metadata.galleryURL, isHidden: isHidden(archiveID: metadata.archiveID)
                 )
             } catch is CancellationError {
                 throw CancellationError()
@@ -202,7 +210,9 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
     }
 
     nonisolated func summary(archiveID: String) throws -> RecentSessionArchiveSummary? {
+        Self.ioLock.lock(); defer { Self.ioLock.unlock() }
         guard isValidArchiveID(archiveID) else { throw RecentSessionArchiveError.invalidArchiveID }
+        guard !isDeleted(archiveID) else { throw RecentSessionArchiveError.archiveNotFound }
         let directory = archiveDirectoryURL(for: archiveID)
         guard fileManager.fileExists(atPath: directory.path) else { return nil }
         let m = try loadMetadata(from: directory)
@@ -210,14 +220,16 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
             format: m.format, eventName: m.eventName, eventLocation: m.eventLocation, photoCount: m.photoCount,
             receiptWidth: m.receiptWidth, receiptHeight: m.receiptHeight, estimatedLengthMillimeters: m.estimatedLengthMillimeters,
             rasterFingerprint: m.rasterFingerprint, thumbnailFilenames: m.thumbnailFilenames, lastReprintedAt: m.lastReprintedAt,
-            reprintCount: m.reprintCount, payloadSizeBytes: 0, eventRunID: m.eventRunID, eventDesignID: m.eventDesignID)
+            reprintCount: m.reprintCount, payloadSizeBytes: 0, eventRunID: m.eventRunID, eventDesignID: m.eventDesignID, frozenGalleryURL: m.galleryURL, isHidden: isHidden(archiveID: m.archiveID))
     }
 
     nonisolated func load(archiveID: String) throws -> RecentSessionArchive {
+        Self.ioLock.lock(); defer { Self.ioLock.unlock() }
         guard isValidArchiveID(archiveID) else {
             throw RecentSessionArchiveError.invalidArchiveID
         }
 
+        guard !isDeleted(archiveID) else { throw RecentSessionArchiveError.archiveNotFound }
         let directory = archiveDirectoryURL(for: archiveID)
         guard fileManager.fileExists(atPath: directory.path) else {
             throw RecentSessionArchiveError.archiveNotFound
@@ -272,7 +284,7 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
             reprintCount: metadata.reprintCount,
             payloadSizeBytes: payloadSize(at: directory),
             eventRunID: metadata.eventRunID,
-            eventDesignID: metadata.eventDesignID
+            eventDesignID: metadata.eventDesignID, frozenGalleryURL: metadata.galleryURL, isHidden: isHidden(archiveID: metadata.archiveID)
         )
 
         return RecentSessionArchive(
@@ -293,9 +305,11 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
     /// written after the durable print payload, so a failure here never affects reprints.
     /// Idempotent: an archive that already lists thumbnails is left unchanged.
     nonisolated func attachThumbnails(archiveID: String, thumbnails: [Data]) throws {
+        Self.ioLock.lock(); defer { Self.ioLock.unlock() }
         guard isValidArchiveID(archiveID) else {
             throw RecentSessionArchiveError.invalidArchiveID
         }
+        guard !isDeleted(archiveID) else { throw RecentSessionArchiveError.archiveNotFound }
         let directory = archiveDirectoryURL(for: archiveID)
         guard fileManager.fileExists(atPath: directory.path) else {
             throw RecentSessionArchiveError.archiveNotFound
@@ -316,6 +330,7 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
     }
 
     nonisolated func markReprinted(archiveID: String, date: Date = Date(), copies: Int) throws {
+        Self.ioLock.lock(); defer { Self.ioLock.unlock() }
         guard isValidArchiveID(archiveID) else {
             throw RecentSessionArchiveError.invalidArchiveID
         }
@@ -328,22 +343,125 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
     }
 
     nonisolated func delete(archiveID: String) throws {
+        Self.ioLock.lock(); defer { Self.ioLock.unlock() }
         guard isValidArchiveID(archiveID) else {
             throw RecentSessionArchiveError.invalidArchiveID
         }
 
+        let tombstones = directoryURL.appendingPathComponent(".deleted", isDirectory: true)
+        try fileManager.createDirectory(at: tombstones, withIntermediateDirectories: true)
+        let marker = tombstones.appendingPathComponent(archiveID)
+        if !fileManager.fileExists(atPath: marker.path) {
+            let metadata = try loadMetadata(from: archiveDirectoryURL(for: archiveID))
+            let evidence = DeletedSessionEvidence(sessionID: metadata.sessionIdentifier, createdAt: metadata.createdAt,
+                eventRunID: metadata.eventRunID, eventDesignID: metadata.eventDesignID)
+            try DurableFileWriter.write(JSONEncoder().encode(evidence), to: marker)
+        }
         let directory = archiveDirectoryURL(for: archiveID)
         guard fileManager.fileExists(atPath: directory.path) else { return }
         try fileManager.removeItem(at: directory)
     }
 
+    struct DeletedSessionEvidence: Codable, Sendable {
+        let sessionID: String
+        let createdAt: Date
+        let eventRunID: String?
+        let eventDesignID: String?
+    }
+    nonisolated func deletedSessionEvidence() throws -> [DeletedSessionEvidence] {
+        Self.ioLock.lock(); defer { Self.ioLock.unlock() }
+        let root = directoryURL.appendingPathComponent(".deleted", isDirectory: true)
+        guard fileManager.fileExists(atPath: root.path) else { return [] }
+        return try fileManager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil).filter { isValidArchiveID($0.lastPathComponent) }.map {
+            try JSONDecoder().decode(DeletedSessionEvidence.self, from: Data(contentsOf: $0))
+        }
+    }
+
+    private struct OriginalManifest: Codable {
+        let sessionID: String
+        let token: String
+        let filenames: [String]
+    }
+    /// Separate, non-print-critical transaction. The manifest becomes visible only after all
+    /// exact camera bytes are durable. Interrupted attempts can be retried without duplication.
+    nonisolated func attachOriginalPhotos(archiveID: String, sessionID: String, photos: [Data]) throws {
+        Self.ioLock.lock(); defer { Self.ioLock.unlock() }
+        guard isValidArchiveID(archiveID), !isDeleted(archiveID) else { throw RecentSessionArchiveError.archiveNotFound }
+        let root = archiveDirectoryURL(for: archiveID)
+        let metadata = try loadMetadata(from: root)
+        guard metadata.sessionIdentifier == sessionID, photos.count == metadata.photoCount else { throw RecentSessionArchiveError.conflictingArchive }
+        let folder = root.appendingPathComponent("OriginalPhotos", isDirectory: true)
+        try fileManager.createDirectory(at: folder, withIntermediateDirectories: true,
+            attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
+        let names = try photos.enumerated().map { index, bytes in
+            guard CGImageSourceCreateWithData(bytes as CFData, nil) != nil else { throw RecentSessionArchiveError.corruptedArchive("Original capture could not be read.") }
+            let name = "capture-\(index).image"
+            let path = folder.appendingPathComponent(name)
+            if fileManager.fileExists(atPath: path.path) {
+                guard try Data(contentsOf: path) == bytes else { throw RecentSessionArchiveError.conflictingArchive }
+            } else { try DurableFileWriter.write(bytes, to: path) }
+            try applyStorageAttributes(to: path)
+            return name
+        }
+        try DurableFileWriter.write(JSONEncoder().encode(OriginalManifest(sessionID: sessionID, token: archiveID, filenames: names)),
+            to: folder.appendingPathComponent("manifest.json"))
+        try applyStorageAttributes(to: folder)
+    }
+    nonisolated func originalPhotos(archiveID: String, sessionID: String) throws -> [SessionPhotoSource] {
+        Self.ioLock.lock(); defer { Self.ioLock.unlock() }
+        guard isValidArchiveID(archiveID), !isDeleted(archiveID) else { throw RecentSessionArchiveError.archiveNotFound }
+        let folder = archiveDirectoryURL(for: archiveID).appendingPathComponent("OriginalPhotos", isDirectory: true)
+        let manifestURL = folder.appendingPathComponent("manifest.json")
+        guard fileManager.fileExists(atPath: manifestURL.path) else { return [] }
+        let manifest = try JSONDecoder().decode(OriginalManifest.self, from: Data(contentsOf: manifestURL))
+        guard manifest.sessionID == sessionID, manifest.token == archiveID,
+              manifest.filenames.allSatisfy({ isSafeFilename($0) }) else { throw RecentSessionArchiveError.conflictingArchive }
+        return try manifest.filenames.enumerated().map { index, name in
+            SessionPhotoSource(id: index, quality: .original, data: try Data(contentsOf: folder.appendingPathComponent(name)))
+        }
+    }
+    nonisolated func originalPhotoStorageBytes() throws -> Int {
+        Self.ioLock.lock(); defer { Self.ioLock.unlock() }
+        return try archiveDirectories().reduce(0) { $0 + payloadSize(at: $1.appendingPathComponent("OriginalPhotos", isDirectory: true)) }
+    }
+
+    nonisolated func setHidden(archiveID: String, hidden: Bool) throws {
+        Self.ioLock.lock(); defer { Self.ioLock.unlock() }
+        guard isValidArchiveID(archiveID), !isDeleted(archiveID) else { throw RecentSessionArchiveError.archiveNotFound }
+        let path = archiveDirectoryURL(for: archiveID).appendingPathComponent("hidden")
+        if hidden { try DurableFileWriter.write(Data("hidden".utf8), to: path) }
+        else if fileManager.fileExists(atPath: path.path) { try fileManager.removeItem(at: path) }
+    }
+    nonisolated func isHidden(archiveID: String) -> Bool {
+        fileManager.fileExists(atPath: archiveDirectoryURL(for: archiveID).appendingPathComponent("hidden").path)
+    }
+    private func recoverInterruptedDeletions() throws {
+        Self.ioLock.lock(); defer { Self.ioLock.unlock() }
+        let root = directoryURL.appendingPathComponent(".deleted", isDirectory: true)
+        guard fileManager.fileExists(atPath: root.path) else { return }
+        for marker in try fileManager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) where isValidArchiveID(marker.lastPathComponent) {
+            let target = archiveDirectoryURL(for: marker.lastPathComponent)
+            if fileManager.fileExists(atPath: target.path) { try fileManager.removeItem(at: target) }
+        }
+    }
+    private func isDeleted(_ id: String) -> Bool {
+        fileManager.fileExists(atPath: directoryURL.appendingPathComponent(".deleted").appendingPathComponent(id).path)
+    }
+
+    nonisolated func storageBytes(archiveID: String) -> Int {
+        Self.ioLock.lock(); defer { Self.ioLock.unlock() }
+        guard isValidArchiveID(archiveID) else { return 0 }
+        return payloadSize(at: archiveDirectoryURL(for: archiveID))
+    }
+
     nonisolated func clearAll(excluding excludedArchiveIDs: Set<String> = []) throws {
         for directory in try archiveDirectories() where !excludedArchiveIDs.contains(directory.lastPathComponent) {
-            try fileManager.removeItem(at: directory)
+            try delete(archiveID: directory.lastPathComponent)
         }
     }
 
     nonisolated func thumbnailData(archiveID: String, filename: String) -> Data? {
+        Self.ioLock.lock(); defer { Self.ioLock.unlock() }
         guard isValidArchiveID(archiveID), isSafeFilename(filename) else {
             return nil
         }
