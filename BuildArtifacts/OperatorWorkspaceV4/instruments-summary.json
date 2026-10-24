@@ -1,0 +1,550 @@
+{
+  "recordedSeconds": 16.632363,
+  "samples": 7013,
+  "thumbnailCacheSamples": 236,
+  "thumbnailCacheSamplesOnMain": 1,
+  "imageIOThumbnailSamples": 201,
+  "imageIOThumbnailSamplesOnMain": 0,
+  "hangs": [
+    {
+      "startSeconds": 1.567003875,
+      "durationMilliseconds": 417.698833,
+      "mainThreadSamples": 401,
+      "relevantFrames": [
+        [
+          "OperatorSessionsPerformanceTests.renderEvidence(model:store:originalID:)",
+          362
+        ],
+        [
+          "@objc closure #1 in OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          362
+        ],
+        [
+          "OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          362
+        ],
+        [
+          "OperatorSessionsPerformanceTests.capture<A>(_:name:size:)",
+          362
+        ],
+        [
+          "partial apply for @objc closure #1 in OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          362
+        ],
+        [
+          "static ScreenshotHarness.attachment(_:name:)",
+          223
+        ],
+        [
+          "static ScreenshotHarness.render<A>(_:size:scene:settle:)",
+          54
+        ],
+        [
+          "-[UIGraphicsRenderer runDrawingActions:completionActions:format:error:]",
+          47
+        ],
+        [
+          "-[UIGraphicsRenderer runDrawingActions:completionActions:error:]",
+          47
+        ],
+        [
+          "-[UIGraphicsImageRenderer imageWithActions:]",
+          47
+        ],
+        [
+          "-[UIGraphicsImageRendererContext currentImage]",
+          39
+        ],
+        [
+          "__44-[UIGraphicsImageRenderer imageWithActions:]_block_invoke",
+          39
+        ]
+      ]
+    },
+    {
+      "startSeconds": 2.744690416,
+      "durationMilliseconds": 455.062667,
+      "mainThreadSamples": 429,
+      "relevantFrames": [
+        [
+          "OperatorSessionsPerformanceTests.renderEvidence(model:store:originalID:)",
+          351
+        ],
+        [
+          "@objc closure #1 in OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          351
+        ],
+        [
+          "OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          351
+        ],
+        [
+          "OperatorSessionsPerformanceTests.capture<A>(_:name:size:)",
+          351
+        ],
+        [
+          "partial apply for @objc closure #1 in OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          351
+        ],
+        [
+          "static ScreenshotHarness.attachment(_:name:)",
+          233
+        ],
+        [
+          "static ScreenshotHarness.render<A>(_:size:scene:settle:)",
+          32
+        ],
+        [
+          "-[UIGraphicsRenderer runDrawingActions:completionActions:format:error:]",
+          28
+        ],
+        [
+          "-[UIGraphicsRenderer runDrawingActions:completionActions:error:]",
+          28
+        ],
+        [
+          "-[UIGraphicsImageRenderer imageWithActions:]",
+          28
+        ],
+        [
+          "-[UIGraphicsImageRendererContext currentImage]",
+          24
+        ],
+        [
+          "__44-[UIGraphicsImageRenderer imageWithActions:]_block_invoke",
+          24
+        ]
+      ]
+    },
+    {
+      "startSeconds": 3.909501958,
+      "durationMilliseconds": 421.87475,
+      "mainThreadSamples": 404,
+      "relevantFrames": [
+        [
+          "OperatorSessionsPerformanceTests.renderEvidence(model:store:originalID:)",
+          369
+        ],
+        [
+          "@objc closure #1 in OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          369
+        ],
+        [
+          "OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          369
+        ],
+        [
+          "partial apply for @objc closure #1 in OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          369
+        ],
+        [
+          "OperatorSessionsPerformanceTests.capture<A>(_:name:size:)",
+          366
+        ],
+        [
+          "static ScreenshotHarness.attachment(_:name:)",
+          232
+        ],
+        [
+          "static ScreenshotHarness.render<A>(_:size:scene:settle:)",
+          49
+        ],
+        [
+          "-[UIGraphicsRenderer runDrawingActions:completionActions:format:error:]",
+          46
+        ],
+        [
+          "-[UIGraphicsRenderer runDrawingActions:completionActions:error:]",
+          46
+        ],
+        [
+          "-[UIGraphicsImageRenderer imageWithActions:]",
+          46
+        ],
+        [
+          "-[UIGraphicsImageRendererContext currentImage]",
+          39
+        ],
+        [
+          "__44-[UIGraphicsImageRenderer imageWithActions:]_block_invoke",
+          39
+        ]
+      ]
+    },
+    {
+      "startSeconds": 5.165292833,
+      "durationMilliseconds": 453.343833,
+      "mainThreadSamples": 424,
+      "relevantFrames": [
+        [
+          "OperatorSessionsPerformanceTests.renderEvidence(model:store:originalID:)",
+          372
+        ],
+        [
+          "@objc closure #1 in OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          372
+        ],
+        [
+          "OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          372
+        ],
+        [
+          "partial apply for @objc closure #1 in OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          372
+        ],
+        [
+          "OperatorSessionsPerformanceTests.captureOriginalGallery(model:originalID:)",
+          371
+        ],
+        [
+          "static ScreenshotHarness.attachment(_:name:)",
+          233
+        ],
+        [
+          "-[UIGraphicsRenderer runDrawingActions:completionActions:format:error:]",
+          46
+        ],
+        [
+          "-[UIGraphicsRenderer runDrawingActions:completionActions:error:]",
+          46
+        ],
+        [
+          "-[UIGraphicsImageRenderer imageWithActions:]",
+          46
+        ],
+        [
+          "-[UIGraphicsImageRendererContext currentImage]",
+          40
+        ],
+        [
+          "__44-[UIGraphicsImageRenderer imageWithActions:]_block_invoke",
+          40
+        ],
+        [
+          "thunk for @callee_guaranteed (@guaranteed UIGraphicsImageRendererContext) -> ()",
+          6
+        ]
+      ]
+    },
+    {
+      "startSeconds": 6.366968625,
+      "durationMilliseconds": 411.529208,
+      "mainThreadSamples": 389,
+      "relevantFrames": [
+        [
+          "OperatorSessionsPerformanceTests.renderEvidence(model:store:originalID:)",
+          382
+        ],
+        [
+          "@objc closure #1 in OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          382
+        ],
+        [
+          "OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          382
+        ],
+        [
+          "partial apply for @objc closure #1 in OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          382
+        ],
+        [
+          "OperatorSessionsPerformanceTests.capture<A>(_:name:size:)",
+          369
+        ],
+        [
+          "static ScreenshotHarness.attachment(_:name:)",
+          234
+        ],
+        [
+          "static ScreenshotHarness.render<A>(_:size:scene:settle:)",
+          48
+        ],
+        [
+          "-[UIGraphicsRenderer runDrawingActions:completionActions:format:error:]",
+          47
+        ],
+        [
+          "-[UIGraphicsRenderer runDrawingActions:completionActions:error:]",
+          47
+        ],
+        [
+          "-[UIGraphicsImageRenderer imageWithActions:]",
+          47
+        ],
+        [
+          "-[UIGraphicsImageRendererContext currentImage]",
+          40
+        ],
+        [
+          "__44-[UIGraphicsImageRenderer imageWithActions:]_block_invoke",
+          40
+        ]
+      ]
+    },
+    {
+      "startSeconds": 7.598644916,
+      "durationMilliseconds": 316.168042,
+      "mainThreadSamples": 294,
+      "relevantFrames": [
+        [
+          "OperatorSessionsPerformanceTests.renderEvidence(model:store:originalID:)",
+          270
+        ],
+        [
+          "@objc closure #1 in OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          270
+        ],
+        [
+          "OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          270
+        ],
+        [
+          "OperatorSessionsPerformanceTests.capture<A>(_:name:size:)",
+          270
+        ],
+        [
+          "partial apply for @objc closure #1 in OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          270
+        ],
+        [
+          "static ScreenshotHarness.attachment(_:name:)",
+          171
+        ],
+        [
+          "static ScreenshotHarness.render<A>(_:size:scene:settle:)",
+          35
+        ],
+        [
+          "-[UIGraphicsRenderer runDrawingActions:completionActions:format:error:]",
+          32
+        ],
+        [
+          "-[UIGraphicsRenderer runDrawingActions:completionActions:error:]",
+          32
+        ],
+        [
+          "-[UIGraphicsImageRenderer imageWithActions:]",
+          32
+        ],
+        [
+          "-[UIGraphicsImageRendererContext currentImage]",
+          25
+        ],
+        [
+          "__44-[UIGraphicsImageRenderer imageWithActions:]_block_invoke",
+          25
+        ]
+      ]
+    },
+    {
+      "startSeconds": 8.667399125,
+      "durationMilliseconds": 400.041,
+      "mainThreadSamples": 384,
+      "relevantFrames": [
+        [
+          "OperatorSessionsPerformanceTests.renderEvidence(model:store:originalID:)",
+          362
+        ],
+        [
+          "@objc closure #1 in OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          362
+        ],
+        [
+          "OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          362
+        ],
+        [
+          "OperatorSessionsPerformanceTests.capture<A>(_:name:size:)",
+          362
+        ],
+        [
+          "partial apply for @objc closure #1 in OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          362
+        ],
+        [
+          "static ScreenshotHarness.attachment(_:name:)",
+          233
+        ],
+        [
+          "static ScreenshotHarness.render<A>(_:size:scene:settle:)",
+          47
+        ],
+        [
+          "-[UIGraphicsRenderer runDrawingActions:completionActions:format:error:]",
+          41
+        ],
+        [
+          "-[UIGraphicsRenderer runDrawingActions:completionActions:error:]",
+          41
+        ],
+        [
+          "-[UIGraphicsImageRenderer imageWithActions:]",
+          41
+        ],
+        [
+          "-[UIGraphicsImageRendererContext currentImage]",
+          34
+        ],
+        [
+          "__44-[UIGraphicsImageRenderer imageWithActions:]_block_invoke",
+          34
+        ]
+      ]
+    },
+    {
+      "startSeconds": 9.834379041,
+      "durationMilliseconds": 378.888334,
+      "mainThreadSamples": 364,
+      "relevantFrames": [
+        [
+          "OperatorSessionsPerformanceTests.renderEvidence(model:store:originalID:)",
+          361
+        ],
+        [
+          "@objc closure #1 in OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          361
+        ],
+        [
+          "OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          361
+        ],
+        [
+          "OperatorSessionsPerformanceTests.capture<A>(_:name:size:)",
+          361
+        ],
+        [
+          "partial apply for @objc closure #1 in OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          361
+        ],
+        [
+          "static ScreenshotHarness.attachment(_:name:)",
+          232
+        ],
+        [
+          "static ScreenshotHarness.render<A>(_:size:scene:settle:)",
+          46
+        ],
+        [
+          "-[UIGraphicsRenderer runDrawingActions:completionActions:format:error:]",
+          41
+        ],
+        [
+          "-[UIGraphicsRenderer runDrawingActions:completionActions:error:]",
+          41
+        ],
+        [
+          "-[UIGraphicsImageRenderer imageWithActions:]",
+          41
+        ],
+        [
+          "-[UIGraphicsImageRendererContext currentImage]",
+          35
+        ],
+        [
+          "__44-[UIGraphicsImageRenderer imageWithActions:]_block_invoke",
+          35
+        ]
+      ]
+    },
+    {
+      "startSeconds": 11.009900041,
+      "durationMilliseconds": 336.805292,
+      "mainThreadSamples": 328,
+      "relevantFrames": [
+        [
+          "OperatorSessionsPerformanceTests.renderEvidence(model:store:originalID:)",
+          326
+        ],
+        [
+          "@objc closure #1 in OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          326
+        ],
+        [
+          "OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          326
+        ],
+        [
+          "partial apply for @objc closure #1 in OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          326
+        ],
+        [
+          "OperatorSessionsPerformanceTests.capture<A>(_:name:size:)",
+          323
+        ],
+        [
+          "static ScreenshotHarness.attachment(_:name:)",
+          221
+        ],
+        [
+          "static ScreenshotHarness.render<A>(_:size:scene:settle:)",
+          18
+        ],
+        [
+          "-[UIGraphicsRenderer runDrawingActions:completionActions:format:error:]",
+          16
+        ],
+        [
+          "-[UIGraphicsRenderer runDrawingActions:completionActions:error:]",
+          16
+        ],
+        [
+          "-[UIGraphicsImageRenderer imageWithActions:]",
+          16
+        ],
+        [
+          "-[UIGraphicsImageRendererContext currentImage]",
+          14
+        ],
+        [
+          "__44-[UIGraphicsImageRenderer imageWithActions:]_block_invoke",
+          14
+        ]
+      ]
+    },
+    {
+      "startSeconds": 16.02230225,
+      "durationMilliseconds": 572.690041,
+      "mainThreadSamples": 571,
+      "relevantFrames": [
+        [
+          "@objc closure #1 in OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          560
+        ],
+        [
+          "OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          560
+        ],
+        [
+          "partial apply for @objc closure #1 in OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          560
+        ],
+        [
+          "$defer #1 () in OperatorSessionsPerformanceTests.testArchiveBrowserScaling()",
+          555
+        ],
+        [
+          "@objc _NSFileManagerBridge.removeItem(at:)",
+          555
+        ],
+        [
+          "_NSFileManagerBridge.removeItem(at:)",
+          555
+        ],
+        [
+          "OperatorSessionsPerformanceTests.renderEvidence(model:store:originalID:)",
+          4
+        ],
+        [
+          "OperatorSessionsPerformanceTests.measureScrolling(model:)",
+          3
+        ],
+        [
+          "$defer #1 () in OperatorSessionsPerformanceTests.measureScrolling(model:)",
+          3
+        ]
+      ]
+    }
+  ],
+  "tracePath": "/tmp/pp-v4-profiled-sessions.trace",
+  "warning": "Instruments reported one table without a known input source; statistical time-profile and potential-hangs tables exported successfully. This trace includes XCTest fixture setup, screenshot drawing, and teardown as well as browser interaction."
+}

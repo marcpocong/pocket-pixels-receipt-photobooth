@@ -178,6 +178,16 @@ import SwiftUI
         XCTAssertEqual(model.searchText, "")
         XCTAssertEqual(model.summaries.count, 1000)
         XCTAssertFalse(model.usesPhotoGrid)
+        let restoredOffset = scroll.contentOffset.y
+        window.rootViewController = nil
+        let recreated = UIHostingController(rootView: RecentSessionsView(viewModel: model))
+        window.rootViewController = recreated; window.makeKeyAndVisible()
+        recreated.view.frame = window.bounds; recreated.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(400))
+        let recreatedScroll = try XCTUnwrap(findScroll(recreated.view))
+        XCTAssertFalse(recreatedScroll === scroll, "Re-entry must be checked with a genuinely recreated scroll view")
+        XCTAssertLessThanOrEqual(abs(recreatedScroll.contentOffset.y - restoredOffset), 200, "Switching away and recreating Sessions must retain the same nearby rows")
+        print("V4_SECTION_REENTRY before=\(restoredOffset) after=\(recreatedScroll.contentOffset.y)")
         print("V4_RETURN_AND_ROTATE_MS \((CFAbsoluteTimeGetCurrent() - before) * 1000)")
     }
 

@@ -1,0 +1,21 @@
+Final signed Release compiler warnings, deduplicated by source file/message:
+
+ArchivedSessionPresentation.swift: main actor-isolated property 'operatorTitle' can not be referenced from a nonisolated context
+BoothSessionViewModel.swift: initialization of immutable value 'format' was never used; consider replacing with assignment to '_' or removing it [#NoUsage]
+BoothSessionViewModel.swift: main actor-isolated static property 'shared' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+CustomerExperienceSupport.swift: main actor-isolated conformance of 'BoothSessionState' to 'Equatable' cannot be used in nonisolated context; this is an error in the Swift 6 language mode [#IsolatedConformances]
+DetachedCheckoutStore.swift: main actor-isolated static property 'shared' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+EventDesignLibrary.swift: call to main actor-isolated static method 'load()' in a synchronous nonisolated context [#ActorIsolatedCall]
+EventLifecycleCoordinator.swift: main actor-isolated static property 'shared' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+GoogleDriveGalleryConfiguration.swift: main actor-isolated property 'displayName' can not be referenced from a nonisolated context
+GoogleDriveGalleryUploadService.swift: main actor-isolated conformance of 'GalleryUploadRequest' to 'Encodable' cannot be used in @concurrent context; this is an error in the Swift 6 language mode [#IsolatedConformances]
+RegularBoothMode.swift: main actor-isolated static property 'shared' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+SamplePrintStudioModel.swift: call to main actor-isolated static method 'load()' in a synchronous nonisolated context [#ActorIsolatedCall]
+SamplePrintStudioView.swift: backward matching of the unlabeled trailing closure is deprecated; label the argument with 'completion' to suppress this warning [#TrailingClosureMatching]
+SamplePrintStudioView.swift: main actor-isolated property 'isImporting' can not be referenced from a Sendable closure
+SavedDrafts.swift: call to main actor-isolated static method 'load()' in a synchronous nonisolated context [#ActorIsolatedCall]
+SavedDraftsView.swift: main actor-isolated static property 'shared' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+StickerStudioOperatorView.swift: main actor-isolated static property 'samples' can not be referenced from a nonisolated context
+
+Messages not found in the initial Debug baseline:
+

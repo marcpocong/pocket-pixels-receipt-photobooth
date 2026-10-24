@@ -1,0 +1,22 @@
+[
+  {
+    "filterMilliseconds" : 0.12279748916625977,
+    "loadMilliseconds" : 113.65997791290283,
+    "sessions" : 50
+  },
+  {
+    "filterMilliseconds" : 0.63936710357666016,
+    "loadMilliseconds" : 518.54801177978516,
+    "sessions" : 250
+  },
+  {
+    "filterMilliseconds" : 1.2185335159301758,
+    "loadMilliseconds" : 976.60493850708008,
+    "sessions" : 500
+  },
+  {
+    "filterMilliseconds" : 2.4011691411336265,
+    "loadMilliseconds" : 1949.7569799423218,
+    "sessions" : 1000
+  }
+]

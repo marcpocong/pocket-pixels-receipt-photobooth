@@ -1,0 +1,3 @@
+Main run 40067595200, iOS job 120793993951, Xcode_16.4.app / iPhoneSimulator18.5.sdk
+2026-10-24T05:54:40.4341880Z EventOperationalState.swift:354:9: error: the compiler is unable to type-check this expression in reasonable time; try breaking up the expression into distinct sub-expressions
+Inspected through the connected GitHub job-log tool. The full downloaded log remains in the task tool history.

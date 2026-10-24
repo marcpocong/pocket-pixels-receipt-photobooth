@@ -1,0 +1,158 @@
+{
+  "sourceCommit": "83f97cb808c37d97881c9f3498dd72ebb06d7747",
+  "runID": 40107876873,
+  "url": "https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/40107876873",
+  "conclusion": "success",
+  "toolchain": "Xcode 16.4 / iPhoneSimulator18.5.sdk",
+  "xctestCount": 692,
+  "swiftTestingCount": 96,
+  "totalPassed": 788,
+  "failed": 0,
+  "skipped": 0,
+  "scrollRestoration": [
+    "2026-10-24T15:55:43.9081130Z V4_SCROLL_RESTORATION before=5736.0 after=5736.0 observedBefore=5736.0 observedAfter=5736.0"
+  ],
+  "jobs": [
+    {
+      "id": 120913234246,
+      "name": "ios",
+      "status": "completed",
+      "conclusion": "success",
+      "run_id": 40107876873,
+      "logs_url": null,
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2
+        },
+        {
+          "name": "Select and boot one iPad simulator",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3
+        },
+        {
+          "name": "Generate synthetic gallery browser fixtures",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4
+        },
+        {
+          "name": "Build for testing",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5
+        },
+        {
+          "name": "Run XCTest production suite",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6
+        },
+        {
+          "name": "Summarize test failures",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 7
+        },
+        {
+          "name": "Collect simulator diagnostics",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 8
+        },
+        {
+          "name": "Upload test results",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19
+        }
+      ]
+    },
+    {
+      "id": 120913234368,
+      "name": "backend",
+      "status": "completed",
+      "conclusion": "success",
+      "run_id": 40107876873,
+      "logs_url": null,
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2
+        },
+        {
+          "name": "Run actions/setup-node@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3
+        },
+        {
+          "name": "Payments Worker tests",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4
+        },
+        {
+          "name": "Gallery Worker tests",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5
+        },
+        {
+          "name": "Apps Script pure checks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6
+        },
+        {
+          "name": "Post Run actions/setup-node@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13
+        }
+      ]
+    }
+  ],
+  "evidence": "Completed connected GitHub job metadata and job log: 692 XCTest tests with zero failures plus 96 Swift Testing tests passed; no test-skip lines. The full xcresult artifact remains on GitHub."
+}

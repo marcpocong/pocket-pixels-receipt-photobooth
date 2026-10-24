@@ -1,0 +1,55 @@
+payments:
+✔ paid policy requires a positive price and at least one method (8.236083ms)
+✔ prepaid policy cannot accidentally retain a guest price (18.704333ms)
+✔ test webhook signature accepts raw payload and rejects alteration (10.613084ms)
+✔ signature rejects wrong environment and stale timestamp (1.14075ms)
+ℹ tests 223
+ℹ suites 0
+ℹ pass 223
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 13531.314125
+payments-syntax:
+
+> check
+> node --check src/index.js && node --check src/domain.js
+
+monitoring:
+✔ recovered incidents after Telegram failure cannot block delivery of newer alerts (144.710459ms)
+✔ payment backend failures are authenticated, deduplicated and recover after cooldown (127.34775ms)
+✔ wrong payment environment or disabled LIVE gate raises a backend incident (253.676375ms)
+✔ stale reconciliation raises its own incident without claiming a backend outage (138.468625ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1608.965791
+gallery:
+✔ readiness rejects invalid identity/protocol {"statusVersion":1,"ok":true,"status":"complete","galleryToken":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sessionID":"not-a-session","schemaVersion":4,"fileCount":9} (0.829833ms)
+✔ readiness rejects invalid identity/protocol {"statusVersion":1,"ok":true,"status":"complete","galleryToken":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sessionID":"PP-20261020-120000","schemaVersion":5,"fileCount":9} (0.923542ms)
+✔ readiness rejects Google login HTML and supports HEAD without a body (1.125708ms)
+✔ readiness schedules public HTML warming outside the completion response (1.075958ms)
+ℹ tests 39
+ℹ suites 0
+ℹ pass 39
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 329.196625
+appsscript:
+Grid 6 backend validation passed: existing counts, six filenames, upper bound, sixth image validation.
+Black & white receipt: smooth/new, historical raster derivation and schema-v1 checks passed.
+Made to Keep Studios gallery branding checks passed (v1, v2, pending, invalid, too large).
+Made to Keep customer gallery property precedence and host-independent rendering checks passed.
+Schema-v2 QR gallery GIF HTML and render-budget checks passed.
+Editorial collage, legacy receipt and concise UUID session reference checks passed.
+Receipt style schema matrix passed: 12 cases, invalid enums/assets/manifests and size rejection.
+Drive storage/retry contract passed: v1/v2/v3, missing files, partial repair, completed retry, metadata conflict and property-order independence.
+Fast upload schema 4/readiness passed: six footer/default cases, size rejection, no stored B&W, exact-file enforcement.
+Readiness integration passed: single folder scan, no image blob reads, unknown files rejected.

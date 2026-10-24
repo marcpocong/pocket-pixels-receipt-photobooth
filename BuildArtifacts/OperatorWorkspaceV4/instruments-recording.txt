@@ -1,0 +1,10 @@
+Starting recording with the Time Profiler template. Attaching to: Made to Keep Studios (10051). Time limit: 20.0 s
+Ctrl-C to stop the recording
+Target app exited, ending recording...
+Run issues were detected (trace is still ready to be viewed):
+* [Warning] This configuration of instruments creates 1 table without a known input source.
+
+	* [Warning] Recovery Suggestion: This could be due to a missing package, or an error in a package under development.
+
+Recording completed. Saving output file...
+Output file saved as: pp-v4-profiled-sessions.trace
