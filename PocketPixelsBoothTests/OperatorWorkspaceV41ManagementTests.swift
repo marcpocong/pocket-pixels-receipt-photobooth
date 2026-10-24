@@ -54,6 +54,17 @@ import XCTest
         XCTAssertEqual(CheckoutDeletionPolicy.decide(checkpoint: checkpoint, server: try server(state: "QR_EXPIRED_CONFIRMED"), dependencies: .init()).category, .eligible)
         XCTAssertEqual(CheckoutDeletionPolicy.decide(checkpoint: checkpoint, server: try server(state: "PAID_VERIFIED", entitlement: "CONSUMED"), dependencies: .init()).category, .eligible)
     }
+    func testConsumedOpenOrderCannotHideAnotherUnresolvedAttempt() throws {
+        let cp = checkpoint(method: "QRPH", phase: .completed)
+        let completed = try server(state: "PAID_VERIFIED", entitlement: "CONSUMED")
+        let pending = try server(state: "UNKNOWN_RECONCILIATION")
+        // The classifier chooses the first matching open order. An additional older attempt
+        // still belongs to the original checkout and must survive local checkpoint cleanup.
+        let combined = CheckoutRecoveryResponse(checkoutSessionId: cp.id, orders: completed.orders + pending.orders,
+            openOrderId: completed.openOrderId, serverTime: Date())
+        XCTAssertEqual(CheckoutDeletionPolicy.decide(checkpoint: cp, server: combined, dependencies: .init()).category, .archiveInstead)
+    }
+
     func testLatePaymentBetweenPreflightAndDeleteIsRechecked() async throws {
         let store = try CheckoutCheckpointStore(directory: root), cp = checkpoint(method: "QRPH", phase: .awaitingProvider); try store.begin(cp)
         let reader = V41RecoveryReader(); reader.response = try server(state: "QR_EXPIRED_CONFIRMED")
@@ -119,11 +130,20 @@ import XCTest
         var payload = try V41ArchiveFixture.payload(); payload.eventDesignID = "used-design"; payload.eventRunID = "used-run"
         try SessionArchiveCommitter.commitPrintPayload(payload, store: store)
         XCTAssertEqual(try store.summaries().first?.eventDesignID, "used-design", "Print-critical commit preserves attribution")
+        try store.markReprinted(archiveID: payload.committedSession.galleryToken, copies: 3)
+        let run = EventRunRecord(id: "used-run", context: .init(designID: "used-design", commercialEventID: nil, serverBinding: nil, name: "Synthetic used event"), createdAt: Date(), status: .completed)
+        let before = HistoricalActivityReport(archives: try store.reportingSummaries(), sessions: [], runs: [run], attributions: [], printEntries: [])
         try store.delete(archiveID: payload.committedSession.galleryToken)
         XCTAssertTrue(try store.summaries().isEmpty)
         let evidence = try store.deletedSessionEvidence()
         XCTAssertEqual(evidence.map(\.eventRunID), ["used-run"]); XCTAssertEqual(evidence.map(\.eventDesignID), ["used-design"])
         XCTAssertEqual(evidence.map(\.sessionID), [payload.committedSession.sessionIdentifier])
+        let retained = try store.reportingSummaries()
+        XCTAssertEqual(retained.count, 1); XCTAssertTrue(retained[0].mediaRemoved)
+        XCTAssertEqual(retained[0].reprintCount, 3); XCTAssertEqual(retained[0].photoCount, payload.committedSession.photos.count)
+        let after = HistoricalActivityReport(archives: retained, sessions: [], runs: [run], attributions: [], printEntries: [])
+        XCTAssertEqual(after.exactByRun, before.exactByRun)
+
     }
 }
 

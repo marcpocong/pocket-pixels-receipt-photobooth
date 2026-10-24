@@ -70,19 +70,7 @@ import XCTest
         try await capture(NavigationStack { RecentSessionsView(viewModel: fixture.model) }, name: "sessions-landscape", size: .init(width: 1194, height: 834))
         try await capture(NavigationStack { RecentSessionsView(viewModel: fixture.model).environment(\.dynamicTypeSize, .accessibility2) }, name: "sessions-accessibility")
     }
-    func testInteractiveEvidence() async throws {
-        guard FileManager.default.fileExists(atPath: "/tmp/pp-v41-interactive") else { throw XCTSkip("Local-only interactive screenshot harness; regular screenshots run automatically.") }
-        let fixture = try await fixture()
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let host = UIHostingController(rootView: V41InteractiveEvidence(fixture: fixture))
-        let window = UIWindow(windowScene: scene); window.rootViewController = host; window.makeKeyAndVisible()
-        defer { window.isHidden = true; window.rootViewController = nil }
-        try Data("ready".utf8).write(to: URL(fileURLWithPath: "/tmp/pp-v41-interactive-ready"))
-        for _ in 0..<900 {
-            if !FileManager.default.fileExists(atPath: "/tmp/pp-v41-interactive") { return }
-            try await Task.sleep(for: .milliseconds(500))
-        }
-    }
+
 }
 
 @MainActor private struct V41VisualFixture {
@@ -92,23 +80,4 @@ import XCTest
     let workspace: OperatorWorkspace
     let runs: EventRunStore
     let library: EventDesignLibraryStore
-}
-@MainActor private struct V41InteractiveEvidence: View {
-    let fixture: V41VisualFixture
-    @State private var screen = "Sessions"
-    var body: some View {
-        VStack(spacing: 0) {
-            Picker("Synthetic screenshot screen", selection: $screen) {
-                ForEach(["Sessions", "Events", "Checkouts", "Deletion"], id: \.self) { Text($0) }
-            }.pickerStyle(.segmented).padding()
-            NavigationStack {
-                switch screen {
-                case "Sessions": RecentSessionsView(viewModel: fixture.model)
-                case "Events": OperatorEventsView(workspace: fixture.workspace, runs: fixture.runs, library: fixture.library)
-                case "Checkouts": List { CheckoutRecoverySection(recovery: fixture.recovery, showsArchived: true) }.navigationTitle("Checkout Recovery")
-                default: SessionCleanupReview(candidates: fixture.summaries, model: fixture.model)
-                }
-            }
-        }
-    }
 }

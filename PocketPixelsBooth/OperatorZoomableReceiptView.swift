@@ -40,6 +40,7 @@ struct OperatorZoomableReceiptView: View {
                 .overlay { RoundedRectangle(cornerRadius: 10).stroke(MadeToKeepTheme.ColorPalette.hairline) }
                 .accessibilityElement()
                 .accessibilityLabel(accessibilityLabel)
+                .accessibilityIdentifier("operator-receipt-preview")
                 .accessibilityValue("Zoom \(controller.percentText)")
                 .accessibilityHint("Pinch or double-tap to zoom. Swipe up or down with one finger to change zoom.")
                 .accessibilityAction(named: "Fit whole receipt") { controller.zoom(to: 1) }

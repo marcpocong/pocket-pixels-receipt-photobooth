@@ -143,7 +143,13 @@ nonisolated enum CheckoutDeletionPolicy {
                   server.orders.allSatisfy({ $0.order.paymentMethod == nil && $0.attempt == nil && $0.entitlement == nil }) else {
                 return .init(category: .archiveInstead, reason: "Payment or fulfillment evidence remains. Archive this record instead.")
             }
-        case .unpaidClosed, .completed: break
+        case .unpaidClosed: break
+        case .completed:
+            guard server.orders.allSatisfy({ view in
+                if let entitlement = view.entitlement { return entitlement.serverState == "CONSUMED" }
+                if let attempt = view.attempt { return attempt.isConclusivelyUnpaid }
+                return view.order.paymentMethod == nil
+            }) else { return .init(category: .archiveInstead, reason: "Another original payment attempt still needs reconciliation. Archive this checkout instead.") }
         default: return .init(category: .archiveInstead, reason: classification.operatorDescription + " Archive keeps reconciliation available.")
         }
         return .eligible

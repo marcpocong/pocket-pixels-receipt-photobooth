@@ -47,7 +47,7 @@ nonisolated enum ArchivedGalleryStatus: Equatable, Sendable {
         case .waiting(let detail):
             "\(detail). This is the original QR, but the photos may not be ready yet."
         case .needsAttention(let detail):
-            "\(detail). Photos are saved on this iPad; retry from Manage Gallery Upload."
+            "\(detail). The original link is unchanged; verify again or inspect any pending upload."
         case .unknown:
             "This iPad has no delivery confirmation for this session. The QR is the original link, but it may not be ready."
         case .invalidLink:
@@ -73,8 +73,8 @@ nonisolated enum ArchivedGalleryStatus: Equatable, Sendable {
         case .uploading: "Uploading"
         case .unavailable: "Gallery Unavailable"
         case .verified: "Gallery Ready"
-        case .waiting: "Gallery waiting"
-        case .needsAttention: "Gallery needs attention"
+        case .waiting: "Waiting for Upload"
+        case .needsAttention: "Needs Attention"
         case .unknown: "Not Yet Verified"
         case .invalidLink: "Invalid Gallery Link"
         }
@@ -82,7 +82,7 @@ nonisolated enum ArchivedGalleryStatus: Equatable, Sendable {
 
     var isAttention: Bool {
         switch self {
-        case .needsAttention, .invalidLink: true
+        case .needsAttention, .invalidLink, .unavailable: true
         default: false
         }
     }

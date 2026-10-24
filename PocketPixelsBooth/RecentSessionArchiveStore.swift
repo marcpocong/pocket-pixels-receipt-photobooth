@@ -29,6 +29,7 @@ struct RecentSessionArchiveSummary: Identifiable, Equatable, Sendable {
     var eventDesignID: String? = nil
     var frozenGalleryURL: URL? = nil
     var isHidden = false
+    var mediaRemoved = false
 }
 
 struct RecentSessionArchive: Sendable {
@@ -354,7 +355,8 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
         if !fileManager.fileExists(atPath: marker.path) {
             let metadata = try loadMetadata(from: archiveDirectoryURL(for: archiveID))
             let evidence = DeletedSessionEvidence(sessionID: metadata.sessionIdentifier, createdAt: metadata.createdAt,
-                eventRunID: metadata.eventRunID, eventDesignID: metadata.eventDesignID)
+                eventRunID: metadata.eventRunID, eventDesignID: metadata.eventDesignID,
+                format: metadata.format, photoCount: metadata.photoCount, reprintCount: metadata.reprintCount, eventName: metadata.eventName)
             try DurableFileWriter.write(JSONEncoder().encode(evidence), to: marker)
         }
         let directory = archiveDirectoryURL(for: archiveID)
@@ -367,13 +369,35 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
         let createdAt: Date
         let eventRunID: String?
         let eventDesignID: String?
+        var format: BoothFormat? = nil
+        var photoCount: Int? = nil
+        var reprintCount: Int? = nil
+        var eventName: String? = nil
+        var localArchiveID: String? = nil
+    }
+    /// Read-only reporting retains occurrence/count evidence after removable media is gone.
+    /// These summaries never enter the ordinary media browser or enable a local reprint.
+    nonisolated func reportingSummaries() throws -> [RecentSessionArchiveSummary] {
+        Self.ioLock.lock(); defer { Self.ioLock.unlock() }
+        let live = try summaries(includePayloadSize: false)
+        let removed = try deletedSessionEvidence().compactMap { evidence -> RecentSessionArchiveSummary? in
+            guard let id = evidence.localArchiveID else { return nil }
+            return RecentSessionArchiveSummary(archiveID: id, sessionIdentifier: evidence.sessionID, createdAt: evidence.createdAt,
+                format: evidence.format ?? .solo, eventName: evidence.eventName, eventLocation: nil, photoCount: evidence.photoCount ?? 0,
+                receiptWidth: 0, receiptHeight: 0, estimatedLengthMillimeters: 0, rasterFingerprint: "MEDIA_REMOVED", thumbnailFilenames: [],
+                lastReprintedAt: nil, reprintCount: evidence.reprintCount ?? 0, payloadSizeBytes: 0,
+                eventRunID: evidence.eventRunID, eventDesignID: evidence.eventDesignID, mediaRemoved: true)
+        }
+        return (live + removed).sorted { $0.createdAt > $1.createdAt }
     }
     nonisolated func deletedSessionEvidence() throws -> [DeletedSessionEvidence] {
         Self.ioLock.lock(); defer { Self.ioLock.unlock() }
         let root = directoryURL.appendingPathComponent(".deleted", isDirectory: true)
         guard fileManager.fileExists(atPath: root.path) else { return [] }
         return try fileManager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil).filter { isValidArchiveID($0.lastPathComponent) }.map {
-            try JSONDecoder().decode(DeletedSessionEvidence.self, from: Data(contentsOf: $0))
+            var evidence = try JSONDecoder().decode(DeletedSessionEvidence.self, from: Data(contentsOf: $0))
+            evidence.localArchiveID = $0.lastPathComponent
+            return evidence
         }
     }
 

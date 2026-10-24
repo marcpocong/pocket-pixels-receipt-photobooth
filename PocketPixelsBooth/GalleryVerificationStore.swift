@@ -93,6 +93,19 @@ nonisolated enum GalleryPublicVerifier {
         let schemaVersion: Int?
         let fileCount: Int?
     }
+    private static func supportedFileCount(_ count: Int, photoCount: Int, schema: Int) -> Bool {
+        guard (1...6).contains(photoCount) else { return false }
+        // Receipt + manifest are mandatory; schemas 2/3 also require thermal. GIF and
+        // schema 3/4 share receipts are optional, and are checked exactly by the backend.
+        switch schema {
+        case 1: return count == photoCount + 2
+        case 2: return (photoCount + 3...photoCount + 4).contains(count)
+        case 3: return (photoCount + 3...photoCount + 5).contains(count)
+        case 4: return (photoCount + 2...photoCount + 4).contains(count)
+        default: return false
+        }
+    }
+
     /// GET only. Legacy HTML is accepted only with the existing backend completion marker.
     /// A missing page or an offline check remains unknown, never confirmed unavailable.
     static func verify(_ target: GalleryVerificationTarget, session: URLSession) async throws -> String {
@@ -118,7 +131,7 @@ nonisolated enum GalleryPublicVerifier {
                   status.galleryToken == target.token, status.sessionID == target.sessionID,
                   let schema = status.schemaVersion, (1...4).contains(schema),
                   let files = status.fileCount,
-                  files >= target.photoCount + 2, files <= target.photoCount + 5,
+                  supportedFileCount(files, photoCount: target.photoCount, schema: schema),
                   target.schemaVersion == nil || target.schemaVersion == schema,
                   target.fileCount == nil || target.fileCount == files else { throw GalleryUploadError.deliveryUnknown }
             return "public-readiness-v1"

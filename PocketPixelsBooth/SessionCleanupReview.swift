@@ -1,5 +1,10 @@
 import SwiftUI
 
+struct SessionCleanupRequest: Identifiable {
+    let id = UUID()
+    let candidates: [RecentSessionArchiveSummary]
+}
+
 struct SessionCleanupReview: View {
     let candidates: [RecentSessionArchiveSummary]
     @ObservedObject var model: RecentSessionsViewModel

@@ -71,6 +71,13 @@ import UIKit
         V41GalleryProtocol.mode = .empty200
         do { _ = try await GalleryPublicVerifier.verify(target, session: network()); XCTFail() } catch { }
     }
+    func testHistoricalReadinessStillRequiresSchemaMandatoryAssets() async throws {
+        V41GalleryProtocol.mode = .wrongCount
+        let historical = GalleryVerificationTarget(sessionID: sessionID, token: token, url: url, photoCount: 1)
+        do { _ = try await GalleryPublicVerifier.verify(historical, session: network()); XCTFail("Schema 2 cannot omit its mandatory thermal receipt") }
+        catch GalleryUploadError.deliveryUnknown { }
+    }
+
     func testAuthoritativeUnavailableRateLimitAndRedirectedIdentityRemainDistinct() async throws {
         V41GalleryProtocol.mode = .unavailable
         do { _ = try await GalleryPublicVerifier.verify(target, session: network()); XCTFail() }

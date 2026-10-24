@@ -1,5 +1,10 @@
 import SwiftUI
 
+struct CheckoutCleanupRequest: Identifiable {
+    let id = UUID()
+    let ids: [String]
+}
+
 struct CheckoutCleanupReview: View {
     let ids: [String]
     @ObservedObject var recovery: PaymentRecoveryCoordinator

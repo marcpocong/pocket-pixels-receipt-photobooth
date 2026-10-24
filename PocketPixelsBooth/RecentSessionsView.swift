@@ -610,8 +610,7 @@ struct RecentSessionsView: View {
     @State private var filtersPresented = false
     @State private var selecting = false
     @State private var selectedIDs = Set<String>()
-    @State private var cleanupCandidates: [RecentSessionArchiveSummary] = []
-    @State private var cleanupPresented = false
+    @State private var cleanupRequest: SessionCleanupRequest?
     @State private var scrollPosition: ScrollPosition
     init(initialSearch: String = "", viewModel: RecentSessionsViewModel? = nil, initialSelection: Set<String>? = nil) {
         self.initialSearch = initialSearch
@@ -659,7 +658,7 @@ struct RecentSessionsView: View {
             viewModel.refresh()
         }
         .sheet(isPresented: $filtersPresented) { filterSheet }
-        .sheet(isPresented: $cleanupPresented) { SessionCleanupReview(candidates: cleanupCandidates, model: viewModel) }
+        .sheet(item: $cleanupRequest, onDismiss: { selectedIDs.formIntersection(Set(viewModel.summaries.map(\.archiveID))) }) { request in SessionCleanupReview(candidates: request.candidates, model: viewModel) }
     }
 
     private func browser(wide: Bool) -> some View {
@@ -775,7 +774,7 @@ struct RecentSessionsView: View {
     @ViewBuilder private var selectedActions: some View {
         Button("Hide Selected") { viewModel.setHidden(selectedIDs, hidden: true); selectedIDs.removeAll() }.frame(minHeight: 44).disabled(selectedIDs.isEmpty)
         Button("Delete Selected", role: .destructive) {
-            cleanupCandidates = viewModel.summaries.filter { selectedIDs.contains($0.archiveID) }; cleanupPresented = true
+            cleanupRequest = SessionCleanupRequest(candidates: viewModel.summaries.filter { selectedIDs.contains($0.archiveID) })
         }.frame(minHeight: 44).disabled(selectedIDs.isEmpty)
     }
     private func sessionButton(_ summary: RecentSessionArchiveSummary, grid: Bool) -> some View {
@@ -796,7 +795,7 @@ struct RecentSessionsView: View {
                 Button("Save Receipt to Photos") { viewModel.exportReceipt(summary.archiveID) }
                 Button("Save Available Photos") { viewModel.exportPhotos(summary.archiveID) }
                 Button(summary.isHidden ? "Restore Visibility" : "Hide Session") { viewModel.setHidden([summary.archiveID], hidden: !summary.isHidden) }
-                Button("Delete Local Session Permanently", role: .destructive) { cleanupCandidates = [summary]; cleanupPresented = true }
+                Button("Delete Local Session Permanently", role: .destructive) { cleanupRequest = SessionCleanupRequest(candidates: [summary]) }
             } label: { Label("Manage", systemImage: "ellipsis.circle").labelStyle(.iconOnly).frame(width: 44, height: 44) }
                 .accessibilityLabel("Manage session")
         }

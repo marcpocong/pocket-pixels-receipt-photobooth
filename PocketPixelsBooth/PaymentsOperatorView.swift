@@ -350,8 +350,7 @@ struct CheckoutRecoverySection: View {
     @State private var status = ""
     @State private var selecting = false
     @State private var selectedIDs = Set<String>()
-    @State private var cleanupIDs: [String] = []
-    @State private var cleanupPresented = false
+    @State private var cleanupRequest: CheckoutCleanupRequest?
     @State private var showsArchived = false
     @State private var detailItem: CheckoutRecoveryItem?
     init(recovery: PaymentRecoveryCoordinator = .shared, showsArchived: Bool = false) { _recovery = ObservedObject(wrappedValue: recovery); _showsArchived = State(initialValue: showsArchived) }
@@ -374,7 +373,7 @@ struct CheckoutRecoverySection: View {
             HStack {
                 Button(selecting ? "Done Selecting" : "Bulk Select") { selecting.toggle(); selectedIDs.removeAll() }.frame(minHeight: 44)
                 if selecting {
-                    Button("Delete Eligible Selected") { cleanupIDs = Array(selectedIDs); cleanupPresented = true }.disabled(selectedIDs.isEmpty)
+                    Button("Delete Eligible Selected") { cleanupRequest = CheckoutCleanupRequest(ids: Array(selectedIDs)) }.disabled(selectedIDs.isEmpty)
                 }
             }
             if selecting {
@@ -431,7 +430,7 @@ struct CheckoutRecoverySection: View {
                                 do { try recovery.setCheckoutHidden(id: item.id, hidden: true); status = "Archived. Financial follow-up remains in Health and History." }
                                 catch { status = error.localizedDescription }
                             }
-                            Button("Delete Eligible Checkout", role: .destructive) { cleanupIDs = [item.id]; cleanupPresented = true }
+                            Button("Delete Eligible Checkout", role: .destructive) { cleanupRequest = CheckoutCleanupRequest(ids: [item.id]) }
                         } label: { Label("Manage", systemImage: "ellipsis.circle").frame(minHeight: 44) }
                     }
                     HStack {
@@ -462,7 +461,7 @@ struct CheckoutRecoverySection: View {
                             if checkpoint.hiddenAt != nil {
                                 Button("Restore Visibility") { do { try recovery.setCheckoutHidden(id: checkpoint.id, hidden: false) } catch { status = error.localizedDescription } }
                             }
-                            Button("Delete Eligible Checkout", role: .destructive) { cleanupIDs = [checkpoint.id]; cleanupPresented = true }
+                            Button("Delete Eligible Checkout", role: .destructive) { cleanupRequest = CheckoutCleanupRequest(ids: [checkpoint.id]) }
                             if selecting {
                                 Button(selectedIDs.contains(checkpoint.id) ? "Deselect" : "Select") {
                                     if !selectedIDs.insert(checkpoint.id).inserted { selectedIDs.remove(checkpoint.id) }
@@ -478,7 +477,7 @@ struct CheckoutRecoverySection: View {
                 Label("Armed: the next tap on the welcome screen continues checkout \(armed.item.id) (until \(armed.expiresAt.formatted(date: .omitted, time: .shortened))).", systemImage: "hand.tap")
                 Button("Cancel Armed Resume") { recovery.disarmResume() }
             }
-            Button("Check Interrupted Checkouts") { Task { await recovery.refresh() } }
+            managementPresenter
             if !recovery.lastRefreshMessage.isEmpty {
                 Text(recovery.lastRefreshMessage).font(.footnote).foregroundStyle(.secondary)
             }
@@ -487,6 +486,11 @@ struct CheckoutRecoverySection: View {
         } footer: {
             Text("Resume only with the paying guest present. Resuming continues the original checkout with the same copies; it never charges again or shows earlier photos. Close Session & Continue parks the guest workflow. The original payment stays listed here until authoritatively reconciled; paid entitlement and copy counts are preserved.")
         }
+        .task { await recovery.refresh() }
+    }
+
+    private var managementPresenter: some View {
+        Button("Check Interrupted Checkouts") { Task { await recovery.refresh() } }
         .confirmationDialog("Resume this paid session?", isPresented: Binding(get: { resumeCandidate != nil }, set: { if !$0 { resumeCandidate = nil } }), titleVisibility: .visible, presenting: resumeCandidate) { item in
             Button("Resume for Guest Present Now") {
                 guard OperatorAccessPermit.shared.isAuthorized, recovery.armResume(item) else {
@@ -501,7 +505,7 @@ struct CheckoutRecoverySection: View {
         } message: { item in
             Text("This returns to the booth and keeps your setup drafts. Ask the guest to tap Make a Memory within 5 minutes. \(item.classification.operatorDescription)")
         }
-        .sheet(isPresented: $cleanupPresented) { CheckoutCleanupReview(ids: cleanupIDs, recovery: recovery) }
+        .sheet(item: $cleanupRequest) { request in CheckoutCleanupReview(ids: request.ids, recovery: recovery) }
         .sheet(item: $detailItem) { item in
             NavigationStack {
                 List {
@@ -513,6 +517,5 @@ struct CheckoutRecoverySection: View {
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { detailItem = nil } } }
             }
         }
-        .task { await recovery.refresh() }
     }
 }
