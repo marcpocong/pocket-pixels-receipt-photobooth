@@ -134,6 +134,27 @@ private actor V41PhotosWriter: PhotosLibraryWriting {
         try Data([1]).write(to: markers)
         XCTAssertThrowsError(try store.delete(archiveID: other))
     }
+    func testChangingZoomedShortAndLongImagesResetsToWholeImageFit() throws {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let images = [1000, 9000, 800].map { height in
+            UIGraphicsImageRenderer(size: CGSize(width: 576, height: height), format: format).image { context in
+                UIColor.white.setFill(); context.fill(CGRect(x: 0, y: 0, width: 576, height: height))
+            }
+        }
+        let originals = images.map { $0.pngData() }
+        let view = ReceiptZoomScrollView(frame: CGRect(x: 0, y: 0, width: 500, height: 700))
+        for image in images {
+            view.display(image, rendering: .smooth); view.layoutIfNeeded()
+            XCTAssertEqual(view.zoomScale, view.fitScale, accuracy: 0.001)
+            XCTAssertLessThanOrEqual(view.imageView.frame.width, view.bounds.width + 1)
+            XCTAssertLessThanOrEqual(view.imageView.frame.height, view.bounds.height + 1)
+            XCTAssertFalse(view.panGestureRecognizer.isEnabled)
+            view.zoom(toRelative: 3, animated: false)
+            XCTAssertTrue(view.panGestureRecognizer.isEnabled)
+        }
+        XCTAssertEqual(images.map { $0.pngData() }, originals)
+    }
+
     func testTargetedThumbnailEvictionRetainsUnrelatedCacheEntries() async throws {
         let store = try RecentSessionArchiveStore(directoryURL: root), payload = try V41ArchiveFixture.payload()
         let second = try V41ArchiveFixture.payload(token: String(repeating: "b", count: 64), sessionID: "PP-other")

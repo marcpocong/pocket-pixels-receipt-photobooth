@@ -128,6 +128,12 @@ final class ReceiptZoomScrollView: UIScrollView, UIScrollViewDelegate {
 
     func display(_ image: UIImage, rendering: OperatorZoomableReceiptView.Rendering) {
         self.rendering = rendering
+        // Restore a neutral UIKit zoom coordinate system before replacing image dimensions.
+        // The previous receipt may have had a maximum scale below 1 (a very long receipt).
+        let callback = onZoomChange
+        onZoomChange = nil
+        maximumZoomScale = max(1, maximumZoomScale)
+        minimumZoomScale = 1
         setZoomScale(1, animated: false)
         imageView.transform = .identity
         imageView.image = image
@@ -137,7 +143,14 @@ final class ReceiptZoomScrollView: UIScrollView, UIScrollViewDelegate {
         contentSize = image.size
         lastBoundsSize = .zero
         pendingRelative = 1
+        onZoomChange = callback
         setNeedsLayout()
+        // SwiftUI may be updating this representable. Publish the actual resulting zoom after
+        // that update rather than changing observable state from inside updateUIView.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.onZoomChange?(self.zoomScale / max(self.fitScale, 0.0001))
+        }
     }
 
     /// Fit = the largest scale at which the whole receipt is visible. Recomputed on rotation or

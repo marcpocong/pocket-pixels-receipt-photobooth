@@ -135,6 +135,53 @@ import UIKit
         XCTAssertNotNil(try queue.load(galleryToken: token))
     }
 
+    func testMetadataIdentityChangeCannotReuseCachedProofForAnotherFrozenURL() async throws {
+        let directory = root.appendingPathComponent("archive")
+        let archive = try RecentSessionArchiveStore(directoryURL: directory)
+        let payload = try V41ArchiveFixture.payload(token: token, sessionID: sessionID)
+        try archive.save(payload)
+        let evidence = try GalleryVerificationStore(directory: root.appendingPathComponent("evidence"))
+        try evidence.record(sessionID: sessionID, token: token, url: payload.committedSession.galleryURL, source: "test")
+        let model = RecentSessionsViewModel(store: archive, verificationStore: evidence)
+        model.refresh()
+        for _ in 0..<100 where model.summaries.first.map({ model.galleryStatus(for: $0) }) != .verified { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(model.summaries.first.map { model.galleryStatus(for: $0) }, .verified)
+        let path = directory.appendingPathComponent(token).appendingPathComponent("metadata.json")
+        var metadata = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: path)) as? [String: Any])
+        metadata["galleryURL"] = "https://changed.example.test/?g=\(token)"
+        try JSONSerialization.data(withJSONObject: metadata).write(to: path)
+        model.refresh()
+        while model.isLoading { try await Task.sleep(for: .milliseconds(10)) }
+        let changed = try XCTUnwrap(model.summaries.first)
+        XCTAssertNotEqual(changed.frozenGalleryURL, payload.committedSession.galleryURL)
+        XCTAssertEqual(model.galleryStatus(for: changed), .unknown)
+    }
+
+    func testBackgroundProofSupersedesEarlierRecheckFailureBeforeQueueClear() async throws {
+        let archive = try RecentSessionArchiveStore(directoryURL: root.appendingPathComponent("archive"))
+        let evidence = try GalleryVerificationStore(directory: root.appendingPathComponent("evidence"))
+        let summary = RecentSessionArchiveSummary(archiveID: token, sessionIdentifier: sessionID, createdAt: Date(), format: .solo, eventName: nil, eventLocation: nil,
+            photoCount: 1, receiptWidth: 576, receiptHeight: 1000, estimatedLengthMillimeters: 125, rasterFingerprint: "fixture", thumbnailFilenames: [],
+            lastReprintedAt: nil, reprintCount: 0, payloadSizeBytes: 0, frozenGalleryURL: url)
+        let queue = try GalleryPendingUploadStore(directoryURL: root.appendingPathComponent("queue"))
+        try queue.save(payload()); try queue.updateDeliveryState(.deliveryUnknown, galleryToken: token)
+        let pending = try queue.summaries()
+        let model = RecentSessionsViewModel(store: archive, summaryLoader: { [summary] }, verificationStore: evidence, recheckSession: network())
+        model.refresh()
+        while !model.hasLoaded { try await Task.sleep(for: .milliseconds(10)) }
+        model.updatePendingUploadSnapshot(pending)
+        V41GalleryProtocol.mode = .offline
+        model.verifyGalleries([summary])
+        while model.isVerifying { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertNotEqual(model.galleryStatus(for: summary), .verified)
+        try evidence.record(sessionID: sessionID, token: token, url: url, source: "background-public-readiness")
+        let queuedStatus = ArchivedGalleryStatus.needsAttention(GalleryDeliveryState.deliveryUnknown.operatorTitle)
+        for _ in 0..<100 where model.galleryStatus(for: summary) != queuedStatus { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(model.galleryStatus(for: summary), queuedStatus, "The proof notification was applied while the old queue snapshot was still published")
+        model.updatePendingUploadSnapshot([])
+        XCTAssertEqual(model.galleryStatus(for: summary), .verified, "An old failed recheck cannot hide a later durable successful delivery")
+    }
+
     func testHistoricalRecheckIsBoundedCancellableAndIncremental() async throws {
         let archive = try RecentSessionArchiveStore(directoryURL: root.appendingPathComponent("archive"))
         let evidence = try GalleryVerificationStore(directory: root.appendingPathComponent("evidence"))

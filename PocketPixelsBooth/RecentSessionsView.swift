@@ -46,6 +46,8 @@ final class RecentSessionsViewModel: ObservableObject {
     private var statusTask: Task<Void, Never>?
     private var subscriptions = Set<AnyCancellable>()
     private var verifiedArchives = Set<String>()
+    private var verificationRevision = 0
+    private var incrementalProofRevisions: [String: Int] = [:]
     private var verificationTask: Task<Void, Never>?
     private var recheckObservations: [String: ArchivedGalleryStatus] = [:]
     @Published private(set) var isVerifying = false
@@ -79,8 +81,7 @@ final class RecentSessionsViewModel: ObservableObject {
         }.store(in: &subscriptions)
         operations.$pendingUploads.sink { [weak self] pending in
             guard let self else { return }
-            self.pendingIndex = Dictionary(grouping: pending, by: \.galleryToken).compactMapValues(\.first)
-            self.rebuildGalleryStatuses()
+            self.updatePendingUploadSnapshot(pending)
         }.store(in: &subscriptions)
         NotificationCenter.default.publisher(for: .originalPhotoRetentionFailed)
             .receive(on: RunLoop.main)
@@ -143,6 +144,18 @@ final class RecentSessionsViewModel: ObservableObject {
         guard let store, let filename = summary.thumbnailFilenames.first else { return nil }
         return await thumbnails.image(archiveID: summary.archiveID, filename: filename, store: store)
     }
+    func updatePendingUploadSnapshot(_ pending: [GalleryPendingUploadSummary]) {
+        pendingIndex = Dictionary(grouping: pending, by: \.galleryToken).compactMapValues(\.first)
+        rebuildGalleryStatuses()
+    }
+    private func acceptIncrementalProof(_ archiveID: String) {
+        verificationRevision += 1
+        incrementalProofRevisions[archiveID] = verificationRevision
+        verifiedArchives.insert(archiveID)
+        // A new successful public read supersedes an earlier failed recheck. The queue may
+        // still publish its old entry until the worker clears it immediately after this commit.
+        recheckObservations[archiveID] = nil
+    }
     private func rebuildGalleryStatuses() {
         galleryStatuses = Dictionary(uniqueKeysWithValues: summaries.map { summary in
             (summary.archiveID, recheckObservations[summary.archiveID] ?? ArchivedGalleryStatus.resolve(linkIsValid: summary.frozenGalleryURL.map { ArchivedGalleryLink(galleryURL: $0, galleryToken: summary.archiveID).isValid } ?? GalleryTokenGenerator.isValidGalleryToken(summary.archiveID),
@@ -158,9 +171,10 @@ final class RecentSessionsViewModel: ObservableObject {
             let exists = await Task.detached(priority: .utility) {
                 (try? verificationStore.evidence(sessionID: summary.sessionIdentifier, token: summary.archiveID, url: url)) != nil
             }.value
-            guard exists else { return }
-            verifiedArchives.insert(summary.archiveID)
-            if pendingIndex[summary.archiveID] == nil { recheckObservations[summary.archiveID] = nil; galleryStatuses[summary.archiveID] = .verified }
+            guard exists, summaries.contains(where: { $0.archiveID == summary.archiveID && $0.sessionIdentifier == summary.sessionIdentifier && $0.frozenGalleryURL == url }) else { return }
+            acceptIncrementalProof(summary.archiveID)
+            galleryStatuses[summary.archiveID] = ArchivedGalleryStatus.resolve(linkIsValid: true,
+                pendingItem: pendingIndex[summary.archiveID], verifiedAt: Date())
             rebuildFilters()
         }
     }
@@ -169,6 +183,7 @@ final class RecentSessionsViewModel: ObservableObject {
         statusTask?.cancel()
         let snapshot = summaries
         let evidenceStore = verificationStore
+        let revisionAtStart = verificationRevision
         statusTask = Task {
             let result = await Task.detached(priority: .utility) { () -> (Set<String>, Bool) in
                 var verified = Set<String>(); var failed = false
@@ -184,7 +199,8 @@ final class RecentSessionsViewModel: ObservableObject {
                 return (verified, failed)
             }.value
             guard !Task.isCancelled else { return }
-            verifiedArchives = result.0
+            let newerProofs = Set(incrementalProofRevisions.filter { $0.value > revisionAtStart }.keys)
+            verifiedArchives = result.0.union(newerProofs)
             if result.1 { statusMessage = "Some local gallery evidence could not be read. Recheck the original gallery after checking storage." }
             rebuildGalleryStatuses()
         }
@@ -212,7 +228,7 @@ final class RecentSessionsViewModel: ObservableObject {
                     let target = GalleryVerificationTarget(sessionID: summary.sessionIdentifier, token: summary.archiveID, url: url, photoCount: summary.photoCount)
                     try await verifier.verifyOriginalGallery(target)
                     pendingIndex[summary.archiveID] = nil
-                    verifiedArchives.insert(summary.archiveID); galleryStatuses[summary.archiveID] = .verified; ready += 1
+                    acceptIncrementalProof(summary.archiveID); galleryStatuses[summary.archiveID] = .verified; ready += 1
                 } catch is CancellationError {
                     galleryStatuses[summary.archiveID] = .unknown; skipped += 1
                 } catch GalleryPublicVerificationError.rateLimited {
@@ -247,6 +263,14 @@ final class RecentSessionsViewModel: ObservableObject {
             switch result {
             case .success(let loaded):
                 loadError = nil
+                if !summaries.isEmpty {
+                    let prior = Dictionary(uniqueKeysWithValues: summaries.map { ($0.archiveID, $0) })
+                    for changed in loaded where prior[changed.archiveID].map({ $0.sessionIdentifier != changed.sessionIdentifier || $0.frozenGalleryURL != changed.frozenGalleryURL }) == true {
+                        verifiedArchives.remove(changed.archiveID)
+                        recheckObservations[changed.archiveID] = nil
+                        incrementalProofRevisions[changed.archiveID] = nil
+                    }
+                }
                 summaries = loaded
                 searchIndex = Dictionary(uniqueKeysWithValues: loaded.map {
                     ($0.archiveID, [$0.sessionIdentifier, $0.archiveID, $0.format.displayName, $0.format.rawValue, $0.eventName ?? "Regular Booth"].joined(separator: " ").lowercased())
