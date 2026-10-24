@@ -1,0 +1,38 @@
+[
+  {
+    "cacheDecodedBytes" : 9830400,
+    "cacheEntries" : 50,
+    "filterMilliseconds" : 0.15733639399210611,
+    "firstThumbnailMillisecondsAfterMetadata" : 34.295916557312012,
+    "loadMilliseconds" : 12.227058410644531,
+    "processFootprintBytesAfterCacheWarmup" : 35047896,
+    "sessions" : 50
+  },
+  {
+    "cacheDecodedBytes" : 12582912,
+    "cacheEntries" : 64,
+    "filterMilliseconds" : 0.78776677449544275,
+    "firstThumbnailMillisecondsAfterMetadata" : 1.231074333190918,
+    "loadMilliseconds" : 18.872976303100586,
+    "processFootprintBytesAfterCacheWarmup" : 35621360,
+    "sessions" : 250
+  },
+  {
+    "cacheDecodedBytes" : 12582912,
+    "cacheEntries" : 64,
+    "filterMilliseconds" : 1.521599292755127,
+    "firstThumbnailMillisecondsAfterMetadata" : 2.0170211791992188,
+    "loadMilliseconds" : 33.094048500061035,
+    "processFootprintBytesAfterCacheWarmup" : 39782896,
+    "sessions" : 500
+  },
+  {
+    "cacheDecodedBytes" : 12582912,
+    "cacheEntries" : 64,
+    "filterMilliseconds" : 2.9318014780680337,
+    "firstThumbnailMillisecondsAfterMetadata" : 2.9829740524291992,
+    "loadMilliseconds" : 71.811079978942871,
+    "processFootprintBytesAfterCacheWarmup" : 40192496,
+    "sessions" : 1000
+  }
+]
