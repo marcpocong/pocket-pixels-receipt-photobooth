@@ -52,4 +52,4 @@ Inspection corrected the hidden Booth Save bar, three-column portrait quick acti
 
 The return-position regression has [before-fix failure evidence](scroll-restoration-before-fix.json), [passing native restoration](scroll-restoration-verified-ios27.json), [measured offsets](scroll-restoration.txt) and [recreated-view re-entry evidence](section-reentry-verified-ios26.json). The offset assertion was retained and passed with zero observed return displacement.
 
-Physical acceptance remains required for Carlo touch scrolling, real keyboard and rotation, VoiceOver, camera, paper/printer recovery, force quit/relaunch and separately authorized payment reconciliation. No physical device was installed, reset or updated.
+Physical acceptance remains required for Carlo touch scrolling, real keyboard and rotation, VoiceOver, camera, paper/printer recovery, force quit/relaunch and separately authorized payment reconciliation. The owner subsequently authorized an in-place Carlo update; [installation/retention evidence](carlo-installation.json) and the report record successful build/install/launch and the remaining physical acceptance limits.
