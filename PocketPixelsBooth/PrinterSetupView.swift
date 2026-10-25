@@ -27,6 +27,10 @@ struct PrinterSetupView: View {
             } else {
                 Label(printerCoordinator.currentPrinterLabel, systemImage: "printer.fill").font(.headline)
                 Text(printerCoordinator.operatorState.label).font(.title3)
+                if printerCoordinator.isWorking {
+                    Label("Finish the active print job before reconnecting or changing printers.", systemImage: "info.circle")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
                 if printerCoordinator.operatorState == .unresolved {
                     Text("A receipt may already have printed. Check the paper before continuing.")
                     NavigationLink("Check Previous Receipt") { OperatorRecoveryView() }.buttonStyle(.borderedProminent)

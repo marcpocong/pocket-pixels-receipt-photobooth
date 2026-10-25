@@ -1,0 +1,8 @@
+{
+  "callbackGapsOver34MS" : 0,
+  "durationSeconds" : 4,
+  "maximumCallbackGapMS" : 32.725333333473827,
+  "note" : "Simulator CADisplayLink callbacks during programmatic scroll; not physical-device FPS or Instruments hitch measurement",
+  "p95CallbackGapMS" : 16.740916666094563,
+  "samples" : 238
+}

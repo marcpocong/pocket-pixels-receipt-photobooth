@@ -56,7 +56,7 @@ struct EventRunReportingView: View {
     @State private var selectedRunID: String?
     @State private var showsArchived = false
     @State private var loading = true
-    @State private var message = ""
+    @State private var feedback: OperatorActionFeedback?
     @State private var pendingAction: String?
     @State private var designCandidate: SavedEventDesign?
     @State private var financials: EventRunFinancialTotals?
@@ -142,7 +142,10 @@ struct EventRunReportingView: View {
             case .history: historyTab
             case .manage: manageTab
             }
-            if !message.isEmpty { Section { Text(message).font(.callout) } }
+
+        }
+        .safeAreaInset(edge: .top) {
+            if let feedback { OperatorFeedbackBanner(feedback: feedback) { self.feedback = nil }.padding(.horizontal, 16) }
         }
         .navigationTitle(tab == .history ? "Event History" : tab == .manage ? "Saved Events" : "Reports")
         .navigationBarTitleDisplayMode(.inline)
@@ -173,13 +176,13 @@ struct EventRunReportingView: View {
             Button(pendingAction == "delete" ? "Delete Unused Run" : "Archive Run", role: pendingAction == "delete" ? .destructive : nil) { perform() }
             Button("Cancel", role: .cancel) { }
         } message: { Text(dialogMessage) }
-        .confirmationDialog("Delete unused design \(designCandidate?.displayName ?? "")?", isPresented: Binding(get: { designCandidate != nil }, set: { if !$0 { designCandidate = nil } })) {
-            Button("Delete Unused Design", role: .destructive) { deleteDesign() }
+        .confirmationDialog("Remove saved design \(designCandidate?.displayName ?? "")?", isPresented: Binding(get: { designCandidate != nil }, set: { if !$0 { designCandidate = nil } })) {
+            Button("Remove Saved Design", role: .destructive) { deleteDesign() }
             Button("Cancel", role: .cancel) { }
-        } message: { Text("Applied, commercially linked and historically referenced designs cannot be deleted. Artwork and customer records are never removed.") }
+        } message: { Text("Only the reusable configuration is removed. Historical identity, commercial events, financial records, artwork and customer records are retained.") }
         .sheet(item: $attributionSelection) { selection in
             LegacyAttributionSheet(archives: selection.archives, store: store, attributions: attributionStore, exactSessionIDs: Set(sessions.map(\.sessionID))) { result in
-                if let result { message = result; selectedArchiveIDs = [] }
+                if let result { feedback = .init(message: result); selectedArchiveIDs = [] }
                 attributionSelection = nil
                 Task { await loadLocal() }
             }
@@ -228,7 +231,7 @@ struct EventRunReportingView: View {
                 DisclosureGroup("Timing, design & payment") {
                 LabeledContent("Event", value: run.context.name.isEmpty ? "Regular Sessions" : run.context.name)
                 LabeledContent("Status", value: statusText(run).capitalized)
-                LabeledContent("Design", value: library.design(id: run.context.designID)?.displayName ?? "Studio branding")
+                LabeledContent("Design", value: library.library.historicalName(id: run.context.designID) ?? "Studio branding")
                 LabeledContent("Payment", value: run.context.commercialEventID == nil ? "No payment (prepaid / free)" : "Paid — \(run.context.serverBinding?.hasPrefix("live:") == true ? "LIVE" : "TEST")")
                 LabeledContent("Started", value: run.createdAt.formatted(date: .abbreviated, time: .shortened))
                 if let ended = run.endedAt { LabeledContent("Ended", value: ended.formatted(date: .abbreviated, time: .shortened)) }
@@ -521,21 +524,23 @@ struct EventRunReportingView: View {
                     Menu("Manage") {
                         if design.archivedAt == nil { Button("Archive Design") { archiveDesign(design) } }
                         else { Button("Restore Design") { restoreDesign(design) } }
-                        if library.deletionIneligibility(id: design.id, runs: store.runs, archives: archives,
-                            historyAvailable: localError == nil && !loading && store.storageError == nil
-                                && OperatorWorkspace.shared.persistenceError == nil
-                                && OperatorWorkspace.shared.designDraft(id: design.id) == nil
-                                && OperatorWorkspace.shared.snapshot.sessionSetup?.designID != design.id
-                                && CommercialEventCreationStore.shared.storageError == nil
-                                && !CommercialEventCreationStore.shared.intents.contains(where: { $0.isOpen && $0.designID == design.id })) == nil {
-                            Button("Delete Unused Design…", role: .destructive) { designCandidate = design }
-                        }
+                        Button("Remove Saved Design…", role: .destructive) { designCandidate = design }
                     }
                 }.frame(minHeight: 48)
             }
             NavigationLink("Event Setup — create or reuse a design", value: OperatorWorkspaceRoute.sessionSetup)
         } header: { Text("Reusable designs") } footer: {
-            Text("Archiving a design never archives its runs or paid events. Only designs with no run, archive or paid-event history can be deleted.")
+            Text("Archiving a design never archives its runs or paid events. Removing reusable configuration retains its historical identity and commercial links.")
+        }
+        if showsArchived, let removed = library.library.removedDesigns, !removed.isEmpty {
+            Section("Removed Saved Designs · History Only") {
+                ForEach(removed, id: \.id) { reference in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(reference.name)
+                        Text("Reusable configuration removed · original identity retained").font(.caption).foregroundStyle(OperatorPalette.secondaryText)
+                    }
+                }
+            }
         }
     }
 
@@ -609,14 +614,15 @@ struct EventRunReportingView: View {
         defer { pendingAction = nil }
         do {
             if pendingAction == "delete", let run = selected {
-                try store.deleteUnusedRun(id: run.id, archives: archives, inspectionComplete: localError == nil && !loading)
-                selectedRunID = nil; message = "Unused local run removed. Other history and records are kept."
+                try store.deleteUnusedRun(id: run.id, archives: archives, inspectionComplete: localError == nil && !loading,
+                    deletedSessions: RecentSessionArchiveStore(directoryURL: archiveDirectory).deletedSessionEvidence())
+                selectedRunID = nil; feedback = .init(message: "Unused local run removed. Other history and records are kept.")
             }
             if pendingAction == "archive", let run = selected {
                 try store.transition(id: run.id, to: .archived); selectedRunID = nil
-                message = "Run archived. Its history and reports were retained."
+                feedback = .init(message: "Run archived. Its history and reports were retained.")
             }
-        } catch { message = error.localizedDescription }
+        } catch { feedback = .init(message: error.localizedDescription, isError: true) }
     }
 
     private func toggle(_ archive: RecentSessionArchiveSummary) {
@@ -624,26 +630,23 @@ struct EventRunReportingView: View {
     }
 
     private func restoreDesign(_ design: SavedEventDesign) {
-        do { try library.restoreDesign(id: design.id); message = "Design restored to the event library. Guest setup is unchanged." }
-        catch { message = error.localizedDescription }
+        do { try library.restoreDesign(id: design.id); feedback = .init(message: "Design restored to the event library. Guest setup is unchanged.") }
+        catch { feedback = .init(message: error.localizedDescription, isError: true) }
     }
 
     private func archiveDesign(_ design: SavedEventDesign) {
-        do { try library.archiveDesign(id: design.id); message = "Design archived; history and artwork retained." }
-        catch { message = error.localizedDescription }
+        do { try library.archiveDesign(id: design.id); feedback = .init(message: "Design archived; history and artwork retained.") }
+        catch { feedback = .init(message: error.localizedDescription, isError: true) }
     }
     private func deleteDesign() {
         defer { designCandidate = nil }
         guard let designCandidate else { return }
         do {
-            guard localError == nil, !loading, OperatorWorkspace.shared.persistenceError == nil,
-                  OperatorWorkspace.shared.designDraft(id: designCandidate.id) == nil,
-                  OperatorWorkspace.shared.snapshot.sessionSetup?.designID != designCandidate.id,
-                  CommercialEventCreationStore.shared.storageError == nil,
-                  !CommercialEventCreationStore.shared.intents.contains(where: { $0.isOpen && $0.designID == designCandidate.id }) else { throw SetupFailure("Load event history and finish saved drafts or pending event creation before deleting a design.") }
-            try library.deleteUnusedDesign(id: designCandidate.id, runs: store.runs, archives: archives, historyAvailable: store.storageError == nil)
-            message = "Unused design removed. Artwork, drafts and customer records were retained."
-        } catch { message = error.localizedDescription }
+            try library.removeSavedDesign(id: designCandidate.id, runs: store.runs,
+                historyAvailable: !store.historyUnreadable && store.pendingTransition == nil,
+                pendingCreation: CommercialEventCreationStore.shared.intents.contains { $0.isOpen && $0.designID == designCandidate.id })
+            feedback = .init(message: "Saved design removed. Historical identity, customer records and payments are kept.")
+        } catch { feedback = .init(message: error.localizedDescription, isError: true) }
     }
     private func export() {
         guard let selected, localError == nil else { return }
@@ -651,7 +654,7 @@ struct EventRunReportingView: View {
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("event-run-\(selected.id).csv")
             try Data(EventRunCSV.make(run: selected, sessions: runSessions).utf8).write(to: url, options: [.atomic, .completeFileProtection])
             exportURL = url
-        } catch { message = "CSV export failed: \(error.localizedDescription)" }
+        } catch { feedback = .init(message: "CSV export failed: \(error.localizedDescription)", isError: true) }
     }
 }
 

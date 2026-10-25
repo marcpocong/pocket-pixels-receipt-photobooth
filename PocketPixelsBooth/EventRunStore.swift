@@ -313,25 +313,40 @@ nonisolated struct EventRunSession: Codable, Identifiable, Equatable, Sendable {
         try commitManifest(next, currentID: currentRunID)
     }
 
+    func restoreArchivedRun(id: String) throws {
+        try checkOperatorTransition()
+        guard let index = runs.firstIndex(where: { $0.id == id }), runs[index].status == .archived else {
+            throw SetupFailure("Choose an archived run to restore.")
+        }
+        var next = runs
+        next[index].status = .completed
+        next[index].archivedAt = nil
+        try commitManifest(next, currentID: currentRunID)
+    }
+
     func unusedRunDeletionReason(id: String, archives: [RecentSessionArchiveSummary], inspectionComplete: Bool) -> String? {
         guard inspectionComplete, !historyUnreadable, pendingTransition == nil, storageError == nil else { return "Dependency inspection is incomplete." }
         guard let run = runs.first(where: { $0.id == id }) else { return "Run not found." }
         guard id != currentRunID, [.draft, .completed, .archived].contains(run.status), run.context.commercialEventID == nil else { return "Current and commercially linked runs are protected. Archive completed runs instead." }
         guard !runs.contains(where: { $0.previousRunID == id }) else { return "Another occurrence references this run." }
+        let legacy = LegacyAttributionStore(directory: directory)
+        guard legacy.storageError == nil else { return "Earlier-session attribution could not be inspected. Keep this run archived until history can be read." }
+        guard !legacy.attributions.contains(where: { $0.runID == id }) else { return "Earlier sessions were explicitly attributed to this run. Archive it to keep that history." }
+        guard !archives.contains(where: { $0.rasterFingerprint == "CORRUPT" }) else { return "Some session identities are unreadable. Keep this run archived until dependencies can be inspected." }
         do {
             guard try !Self.loadSessions(directory: directory).contains(where: { $0.runID == id }),
-                  !archives.contains(where: { $0.eventRunID == id || $0.rasterFingerprint == "CORRUPT" || ($0.eventRunID == nil && $0.createdAt >= run.createdAt) }) else { return "This run has session or receipt history. Archive it instead." }
+                  !archives.contains(where: { $0.eventRunID == id }) else { return "This run has session or receipt history. Archive it instead." }
         } catch { return "Session dependencies could not be read." }
         return nil
     }
 
-    func deleteUnusedRun(id: String, archives: [RecentSessionArchiveSummary], inspectionComplete: Bool) throws {
+    func deleteUnusedRun(id: String, archives: [RecentSessionArchiveSummary], inspectionComplete: Bool, deletedSessions: [RecentSessionArchiveStore.DeletedSessionEvidence]? = nil) throws {
         try checkOperatorTransition()
         // Idempotent after a successful removal; no other record is ever removed by a replay.
         guard runs.contains(where: { $0.id == id }) else { return }
         if let reason = unusedRunDeletionReason(id: id, archives: archives, inspectionComplete: inspectionComplete) { throw SetupFailure(reason) }
-        let deleted = try RecentSessionArchiveStore().deletedSessionEvidence()
-        if let run = runs.first(where: { $0.id == id }), deleted.contains(where: { $0.eventRunID == id || ($0.eventRunID == nil && $0.createdAt >= run.createdAt) }) {
+        let deleted = try deletedSessions ?? RecentSessionArchiveStore().deletedSessionEvidence()
+        if deleted.contains(where: { $0.eventRunID == id }) {
             throw SetupFailure("Removed local media still has historical session evidence. Archive this run instead.")
         }
         try commitManifest(runs.filter { $0.id != id }, currentID: currentRunID)

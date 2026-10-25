@@ -81,3 +81,14 @@ import XCTest
     let runs: EventRunStore
     let library: EventDesignLibraryStore
 }
+
+extension OperatorWorkspaceV41VisualTests {
+    func testReducedWidthSessionsAndAccessibleSelection() async throws {
+        let fixture = try await fixture()
+        try await capture(NavigationStack { RecentSessionsView(viewModel: fixture.model) }, name: "sessions-reduced-width", size: .init(width: 600, height: 1000))
+        try await capture(NavigationStack {
+            RecentSessionsView(viewModel: fixture.model, initialSelection: Set(fixture.summaries.map(\.archiveID)))
+                .environment(\.dynamicTypeSize, .accessibility3)
+        }, name: "sessions-reduced-width-accessible-selection", size: .init(width: 600, height: 1000))
+    }
+}

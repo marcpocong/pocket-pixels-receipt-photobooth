@@ -23,7 +23,7 @@ final class RecentSessionsViewModel: ObservableObject {
     @Published var eventFilter: String? { didSet { rebuildFilters() } }
     @Published var dateFrom: Date? { didSet { rebuildFilters() } }
     @Published var dateThrough: Date? { didSet { rebuildFilters() } }
-    @Published var usesPhotoGrid = false
+    @Published var usesPhotoGrid = true
     @Published var showsHidden = false { didSet { rebuildFilters() } }
     @Published var selectedArchiveID: String? {
         willSet {
@@ -85,7 +85,9 @@ final class RecentSessionsViewModel: ObservableObject {
         }.store(in: &subscriptions)
         NotificationCenter.default.publisher(for: .originalPhotoRetentionFailed)
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.statusMessage = "Original photo retention failed. Saved receipts and printing remain available. Check storage before the next session." }.store(in: &subscriptions)
+            .sink { [weak self] _ in
+                self?.retentionFailure = .init(message: "Original photo retention failed. Saved receipts and printing remain available. Check storage before the next session.", isError: true)
+            }.store(in: &subscriptions)
         NotificationCenter.default.publisher(for: GalleryVerificationStore.changed)
             .receive(on: RunLoop.main)
             .sink { [weak self] notification in
@@ -201,7 +203,7 @@ final class RecentSessionsViewModel: ObservableObject {
             guard !Task.isCancelled else { return }
             let newerProofs = Set(incrementalProofRevisions.filter { $0.value > revisionAtStart }.keys)
             verifiedArchives = result.0.union(newerProofs)
-            if result.1 { statusMessage = "Some local gallery evidence could not be read. Recheck the original gallery after checking storage." }
+            if result.1 { announce("Some local gallery evidence could not be read. Recheck the original gallery after checking storage.", isError: true) }
             rebuildGalleryStatuses()
         }
     }
@@ -248,12 +250,13 @@ final class RecentSessionsViewModel: ObservableObject {
                 do { try await Task.sleep(for: .seconds(1)) } catch { }
             }
             verificationResult = "\(ready) verified · \(unknown) still unknown · \(failed) failed · \(skipped) skipped" + (Task.isCancelled ? " · cancelled" : rateLimited ? " · paused by gallery service" : "")
+            announce(verificationResult, isError: failed > 0 || unknown > 0 || rateLimited)
         }
     }
     func cancelVerification() { verificationTask?.cancel() }
 
     func refresh() {
-        guard let store else { statusMessage = "Recent Sessions storage is unavailable."; hasLoaded = true; return }
+        guard let store else { loadError = "Recent Sessions storage is unavailable. Check local storage and retry."; hasLoaded = true; return }
         refreshTask?.cancel(); isLoading = true
         let loader = summaryLoader
         refreshTask = Task {
@@ -306,6 +309,12 @@ final class RecentSessionsViewModel: ObservableObject {
 
     @Published private(set) var isExporting = false
     @Published private(set) var exportMessage = ""
+    @Published var actionFeedback: OperatorActionFeedback?
+    @Published var retentionFailure: OperatorActionFeedback?
+    func dismissFeedback() { actionFeedback = nil; exportMessage = "" }
+    private func announce(_ message: String, isError: Bool = false) {
+        actionFeedback = .init(message: message, isError: isError)
+    }
     func availablePhotos(_ archiveID: String) async throws -> [SessionPhotoSource] {
         guard let store else { throw MediaExportError.unavailable }
         return try await Task.detached(priority: .userInitiated) {
@@ -323,7 +332,11 @@ final class RecentSessionsViewModel: ObservableObject {
                 let archive = try await loadArchiveResult(archiveID).get()
                 try await SessionMediaExport.save(data: [archive.receiptPreviewPNGData], writer: photosWriter)
                 exportMessage = "Receipt saved to Photos"
-            } catch { exportMessage = (error as? MediaExportError)?.localizedDescription ?? "Could not save; source media or storage unavailable." }
+                announce(exportMessage)
+            } catch {
+                exportMessage = (error as? MediaExportError)?.localizedDescription ?? "Could not save; source media or storage unavailable."
+                announce(exportMessage, isError: true)
+            }
         }
     }
     func exportPhotos(_ archiveID: String, index: Int? = nil) {
@@ -336,12 +349,16 @@ final class RecentSessionsViewModel: ObservableObject {
                 let selected = index.map { target in sources.filter { $0.id == target } } ?? sources
                 try await SessionMediaExport.save(data: selected.map(\.data), writer: photosWriter)
                 exportMessage = "\(selected.count) \(selected.count == 1 ? "photo" : "photos") saved to Photos"
-            } catch { exportMessage = (error as? MediaExportError)?.localizedDescription ?? "Could not save; source media or storage unavailable." }
+                announce(exportMessage)
+            } catch {
+                exportMessage = (error as? MediaExportError)?.localizedDescription ?? "Could not save; source media or storage unavailable."
+                announce(exportMessage, isError: true)
+            }
         }
     }
 
     func setHidden(_ ids: Set<String>, hidden: Bool) {
-        guard managementAuthorized(), let store else { statusMessage = "Unlock operator controls first."; return }
+        guard managementAuthorized(), let store else { announce("Unlock operator controls first.", isError: true); return }
         var saved = 0, failed = 0
         for id in ids {
             do {
@@ -351,7 +368,7 @@ final class RecentSessionsViewModel: ObservableObject {
             } catch { failed += 1 }
         }
         rebuildFilters()
-        statusMessage = "\(saved) visibility changes saved · \(failed) failed. Recovery and financial warnings remain available."
+        announce(failed == 0 ? "\(saved) \(saved == 1 ? "session" : "sessions") \(hidden ? "hidden" : "restored")." : "\(saved) changed · \(failed) could not be saved. Check local storage and retry.", isError: failed > 0)
     }
 
     func deletionDecision(_ summary: RecentSessionArchiveSummary) -> RecordCleanupDecision {
@@ -628,6 +645,7 @@ final class ArchivedReceiptReprintController: ObservableObject {
 }
 
 struct RecentSessionsView: View {
+    @FocusState private var searchFocused: Bool
     var initialSearch = ""
     @StateObject private var viewModel: RecentSessionsViewModel
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -692,35 +710,46 @@ struct RecentSessionsView: View {
                     Image(systemName: "magnifyingglass").accessibilityHidden(true)
                     TextField("Search session, event or format", text: $viewModel.searchText)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .accessibilityIdentifier("sessions-search")
+                        .accessibilityIdentifier("sessions-search").focused($searchFocused).submitLabel(.search)
+                        .onSubmit { searchFocused = false }
                     if !viewModel.searchText.isEmpty {
                         Button { viewModel.searchText = "" } label: { Image(systemName: "xmark.circle.fill").frame(width: 44, height: 44) }
                             .accessibilityLabel("Clear search")
                     }
-                }.padding(.horizontal, 12).frame(minHeight: 48)
-                    .background(OperatorPalette.surface, in: RoundedRectangle(cornerRadius: 10))
+                    Button(selecting ? "Done" : "Select") { selecting.toggle(); selectedIDs.removeAll() }
+                        .buttonStyle(.bordered).frame(minHeight: 44).accessibilityIdentifier("sessions-select")
+                }.padding(.horizontal, 12).frame(minHeight: 54)
+                    .background(OperatorPalette.surface, in: RoundedRectangle(cornerRadius: 14))
                 ViewThatFits(in: .horizontal) {
-                    HStack { filterControls; Spacer(minLength: 0); displayControl }
-                    VStack(alignment: .leading) { filterControls; displayControl }
+                    HStack(spacing: 8) { filterControls; Spacer(minLength: 0); displayControl; galleryActions }
+                    VStack(alignment: .leading, spacing: 8) { filterControls; HStack { displayControl; Spacer(); galleryActions } }
                 }
-            }.padding(16)
-            HStack {
-                Button(selecting ? "Done Selecting" : "Select") { selecting.toggle(); selectedIDs.removeAll() }.frame(minHeight: 44)
-                Toggle("Show Hidden", isOn: $viewModel.showsHidden).toggleStyle(.button).frame(minHeight: 44)
-                Spacer()
-            }.padding(.horizontal, 16)
+            }.padding(16).fixedSize(horizontal: false, vertical: true)
             if selecting {
-                VStack(alignment: .leading) {
-                    HStack {
-                        Button("Select All Visible") { selectedIDs = Set(viewModel.filteredSummaries.map(\.archiveID)) }
-                        Button("Deselect") { selectedIDs.removeAll() }
-                        Text("\(selectedIDs.count) selected").font(.caption)
-                    }.frame(minHeight: 44)
-                    ViewThatFits(in: .horizontal) {
-                        HStack { selectedActions }
-                        VStack(alignment: .leading) { selectedActions }
-                    }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) { selectionCount; Spacer(); selectionControls }
+                    VStack(alignment: .leading, spacing: 4) { selectionCount; HStack { selectionControls } }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16).padding(.bottom, 8)
+                    .fixedSize(horizontal: false, vertical: true).background(OperatorPalette.canvas)
+            }
+            if let failure = viewModel.retentionFailure {
+                OperatorFeedbackBanner(feedback: failure) { viewModel.retentionFailure = nil }.padding(.horizontal, 16).padding(.bottom, 8)
+            }
+            if viewModel.isExporting { ProgressView(viewModel.exportMessage).padding(8).accessibilityAddTraits(.updatesFrequently) }
+            if viewModel.isVerifying {
+                HStack {
+                    ProgressView().controlSize(.small)
+                    Text(viewModel.verificationResult.isEmpty ? "Checking original galleries…" : viewModel.verificationResult).font(.caption)
+                    Spacer()
+                    Button("Cancel Recheck") { viewModel.cancelVerification() }.frame(minHeight: 44)
                 }.padding(.horizontal, 16)
+            }
+            if let feedback = viewModel.actionFeedback {
+                OperatorFeedbackBanner(feedback: feedback) { viewModel.dismissFeedback() }.padding(.horizontal, 16).padding(.bottom, 8)
+            }
+            if let error = viewModel.loadError, !viewModel.summaries.isEmpty {
+                Label(error, systemImage: "exclamationmark.triangle").font(.callout).padding(.horizontal, 16)
             }
             ScrollViewReader { _ in
                 ScrollView {
@@ -740,14 +769,14 @@ struct RecentSessionsView: View {
                                     .foregroundStyle(OperatorPalette.secondaryText).padding(.horizontal, 16).padding(.vertical, 12)
                                     .accessibilityAddTraits(.isHeader)
                                 if viewModel.usesPhotoGrid {
-                                    LazyVGrid(columns: [GridItem(.adaptive(minimum: typeSize.isAccessibilitySize ? 260 : 180), spacing: 12)], spacing: 12) {
+                                    LazyVGrid(columns: [GridItem(.adaptive(minimum: typeSize.isAccessibilitySize ? 320 : 235), spacing: 12)], spacing: 12) {
                                         ForEach(summaries) { summary in sessionButton(summary, grid: true).id(summary.archiveID) }
                                     }.padding(.horizontal, 16)
                                 } else {
                                     ForEach(summaries) { summary in
                                         sessionButton(summary, grid: false).id(summary.archiveID)
-                                        Divider().padding(.leading, 92)
-                                    }
+
+                                    }.padding(.horizontal, 16)
                                 }
                             }
                         }
@@ -757,6 +786,7 @@ struct RecentSessionsView: View {
                 .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y }) { _, offset in
                     viewModel.recordBrowserOffset(offset)
                 }
+                .scrollDismissesKeyboard(.interactively)
                 .refreshable { viewModel.refresh() }
                 .onChange(of: viewModel.selectedArchiveID) { _, current in
                     // In landscape the list stays visible and may have been scrolled
@@ -767,19 +797,44 @@ struct RecentSessionsView: View {
                     scrollPosition.scrollTo(y: viewModel.browserOffset)
                 }
             }
-            HStack {
-                Button(viewModel.isVerifying ? "Cancel Recheck" : "Recheck Unverified Galleries") {
-                    if viewModel.isVerifying { viewModel.cancelVerification() }
-                    else { viewModel.verifyGalleries(selectedIDs.isEmpty ? viewModel.filteredSummaries : viewModel.filteredSummaries.filter { selectedIDs.contains($0.archiveID) }) }
-                }.frame(minHeight: 44)
-            }
-            if !viewModel.verificationResult.isEmpty { Text(viewModel.verificationResult).font(.caption).padding(.horizontal) }
-            if !viewModel.exportMessage.isEmpty { Text(viewModel.exportMessage).font(.callout).padding(.horizontal).accessibilityAddTraits(.updatesFrequently) }
-            if !viewModel.statusMessage.isEmpty {
-                Text(viewModel.statusMessage).font(.caption).foregroundStyle(OperatorPalette.secondaryText)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.vertical, 8)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if selecting && !selectedIDs.isEmpty {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 16) { selectionCount; Spacer(); selectedActions }
+                    VStack(alignment: .leading, spacing: 8) { selectionCount; HStack { selectedActions } }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16).fixedSize(horizontal: false, vertical: true).background(.regularMaterial)
+                    .accessibilityIdentifier("sessions-bulk-actions")
             }
         }
+        .onChange(of: viewModel.filteredSummaries.map(\.archiveID)) { _, visible in
+            selectedIDs.formIntersection(Set(visible))
+        }
+    }
+
+    private var selectionCount: some View {
+        Text("\(selectedIDs.count) selected").font(.subheadline.weight(.semibold)).monospacedDigit()
+            .accessibilityIdentifier("sessions-selection-count")
+    }
+    @ViewBuilder private var selectionControls: some View {
+        Button("Select All Visible") { selectedIDs = Set(viewModel.filteredSummaries.map(\.archiveID)) }
+            .frame(minHeight: 44).buttonStyle(.bordered).fixedSize(horizontal: true, vertical: true)
+        if !selectedIDs.isEmpty {
+            Button("Deselect") { selectedIDs.removeAll() }.frame(minHeight: 44).buttonStyle(.bordered).fixedSize(horizontal: true, vertical: true)
+        }
+    }
+    private var galleryActions: some View {
+        Menu {
+            Section("Gallery Actions") {
+                Button("Recheck Unverified Galleries", systemImage: "arrow.clockwise") {
+                    viewModel.verifyGalleries(selectedIDs.isEmpty ? viewModel.filteredSummaries : viewModel.filteredSummaries.filter { selectedIDs.contains($0.archiveID) })
+                }.disabled(viewModel.isVerifying)
+                if viewModel.isVerifying { Button("Cancel Recheck", role: .cancel) { viewModel.cancelVerification() } }
+            }
+            Section("Visibility") { Toggle("Show Hidden", isOn: $viewModel.showsHidden) }
+        } label: { Label("More", systemImage: "ellipsis").frame(minWidth: 44, minHeight: 44) }
+            .buttonStyle(.bordered).accessibilityLabel("Gallery Actions and More")
     }
 
     private var filterControls: some View {
@@ -796,33 +851,47 @@ struct RecentSessionsView: View {
         }.buttonStyle(.bordered).accessibilityIdentifier("sessions-display")
     }
     @ViewBuilder private var selectedActions: some View {
-        Button("Hide Selected") { viewModel.setHidden(selectedIDs, hidden: true); selectedIDs.removeAll() }.frame(minHeight: 44).disabled(selectedIDs.isEmpty)
+        Button("Hide Selected") { viewModel.setHidden(selectedIDs, hidden: true); selectedIDs.removeAll() }.frame(minHeight: 44).buttonStyle(.bordered)
         Button("Delete Selected", role: .destructive) {
             cleanupRequest = SessionCleanupRequest(candidates: viewModel.summaries.filter { selectedIDs.contains($0.archiveID) })
-        }.frame(minHeight: 44).disabled(selectedIDs.isEmpty)
+        }.frame(minHeight: 44).buttonStyle(.borderedProminent).tint(OperatorPalette.danger)
     }
     private func sessionButton(_ summary: RecentSessionArchiveSummary, grid: Bool) -> some View {
-        HStack(spacing: 0) {
-            if selecting {
-                Button {
+        let selected = selectedIDs.contains(summary.archiveID)
+        return ZStack(alignment: .topTrailing) {
+            Button {
+                if selecting {
                     if !selectedIDs.insert(summary.archiveID).inserted { selectedIDs.remove(summary.archiveID) }
-                } label: { Image(systemName: selectedIDs.contains(summary.archiveID) ? "checkmark.circle.fill" : "circle").frame(width: 44, height: 44) }
-                    .accessibilityLabel("Select session at \(summary.createdAt.formatted())")
-                    .accessibilityAddTraits(selectedIDs.contains(summary.archiveID) ? .isSelected : [])
-            }
-            Button { viewModel.selectedArchiveID = summary.archiveID } label: {
+                } else { viewModel.selectedArchiveID = summary.archiveID }
+            } label: {
                 RecentSessionRow(summary: summary, viewModel: viewModel, photoGrid: grid).equatable()
             }.buttonStyle(.plain).accessibilityIdentifier("session-\(summary.archiveID)")
-            Menu {
-                Button("View Session") { viewModel.selectedArchiveID = summary.archiveID }
-                Button("View Original Receipt") { viewModel.selectedArchiveID = summary.archiveID }
-                Button("Save Receipt to Photos") { viewModel.exportReceipt(summary.archiveID) }
-                Button("Save Available Photos") { viewModel.exportPhotos(summary.archiveID) }
-                Button(summary.isHidden ? "Restore Visibility" : "Hide Session") { viewModel.setHidden([summary.archiveID], hidden: !summary.isHidden) }
-                Button("Delete Local Session Permanently", role: .destructive) { cleanupRequest = SessionCleanupRequest(candidates: [summary]) }
-            } label: { Label("Manage", systemImage: "ellipsis.circle").labelStyle(.iconOnly).frame(width: 44, height: 44) }
-                .accessibilityLabel("Manage session")
+                .accessibilityValue(selecting ? (selected ? "Selected" : "Not selected") : "")
+                .accessibilityAddTraits(selected ? .isSelected : [])
+                .accessibilityHint(selecting ? "Double-tap to toggle selection" : "Opens session detail")
+            if selecting {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .font(.title2).foregroundStyle(selected ? OperatorPalette.accent : OperatorPalette.ink)
+                    .frame(width: 44, height: 44).background(.regularMaterial, in: Circle())
+                    .padding(8).allowsHitTesting(false).accessibilityHidden(true)
+            } else {
+                Menu {
+                    Button("View Session") { viewModel.selectedArchiveID = summary.archiveID }
+                    Button("View Original Receipt") { viewModel.selectedArchiveID = summary.archiveID }
+                    Button("Save Receipt to Photos") { viewModel.exportReceipt(summary.archiveID) }
+                    Button("Save Available Photos") { viewModel.exportPhotos(summary.archiveID) }
+                    Button(summary.isHidden ? "Restore Visibility" : "Hide Session") { viewModel.setHidden([summary.archiveID], hidden: !summary.isHidden) }
+                    Button("Delete Local Session Permanently", role: .destructive) { cleanupRequest = SessionCleanupRequest(candidates: [summary]) }
+                } label: {
+                    Image(systemName: "ellipsis").font(.headline).frame(width: 44, height: 44)
+                        .background(.regularMaterial, in: Circle())
+                }.buttonStyle(.borderless).accessibilityLabel("Manage session").padding(8)
+            }
         }
+        .background(OperatorPalette.surface, in: RoundedRectangle(cornerRadius: 16))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay { if selected { RoundedRectangle(cornerRadius: 16).strokeBorder(OperatorPalette.accent, lineWidth: 3) } }
+        .padding(.bottom, grid ? 0 : 10)
     }
     private var filterSheet: some View {
         NavigationStack {
@@ -876,30 +945,36 @@ struct RecentSessionRow: View, Equatable {
     }
     private var isCorrupt: Bool { summary.rasterFingerprint == "CORRUPT" }
     var body: some View {
-        let layout = photoGrid ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10)) : AnyLayout(HStackLayout(spacing: 14))
+        let layout = photoGrid ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0)) : AnyLayout(HStackLayout(spacing: 14))
         layout {
-            SessionThumbnailView(summary: summary, model: viewModel)
-                .frame(width: photoGrid ? nil : 60, height: photoGrid ? 160 : 80)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+            if photoGrid {
+                GeometryReader { geometry in
+                    SessionThumbnailView(summary: summary, model: viewModel)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                }.aspectRatio(1, contentMode: .fit).clipped()
+            } else {
+                SessionThumbnailView(summary: summary, model: viewModel)
+                    .frame(width: 84, height: 108).clipShape(RoundedRectangle(cornerRadius: 10))
+            }
             VStack(alignment: .leading, spacing: 4) {
                 Text(isCorrupt ? "Unreadable archive" : RecentSessionsViewModel.rowTimeFormatter.string(from: summary.createdAt))
                     .font(.headline).foregroundStyle(OperatorPalette.ink)
-                Text(summary.eventName ?? "Regular Booth").font(.subheadline.weight(.medium)).foregroundStyle(OperatorPalette.ink).lineLimit(2)
+                Text(summary.eventName ?? "Regular Booth").font(.subheadline.weight(.medium)).foregroundStyle(OperatorPalette.ink).lineLimit(2, reservesSpace: photoGrid)
                 Text(summary.format.displayName).font(.caption).foregroundStyle(OperatorPalette.secondaryText)
                 if showsOperationalContext {
                     Text(isCorrupt ? "Archive needs attention" : print.title + " · " + gallery.shortTitle)
                         .font(.caption).foregroundStyle(isCorrupt || print.isAttention || gallery.isAttention ? OperatorPalette.warning : OperatorPalette.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(2, reservesSpace: photoGrid).fixedSize(horizontal: false, vertical: true)
                 }
                 if summary.reprintCount > 0 { Text("Operator reprints: \(summary.reprintCount)").font(.caption).foregroundStyle(OperatorPalette.secondaryText) }
             }.frame(maxWidth: .infinity, alignment: .leading)
-            if !photoGrid { Image(systemName: "chevron.right").font(.caption).foregroundStyle(OperatorPalette.secondaryText).accessibilityHidden(true) }
+                .padding(photoGrid ? 12 : 0).padding(.trailing, photoGrid ? 0 : 44)
         }
-        .padding(photoGrid ? 12 : 16)
+        .padding(photoGrid ? 0 : 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(OperatorPalette.surface)
         .contentShape(Rectangle()).accessibilityElement(children: .combine)
-        .accessibilityHint("Opens original receipt, photos, gallery QR and explicit operator reprint")
+
     }
 }
 
@@ -969,6 +1044,17 @@ struct ArchivedSessionDetailView: View {
                 .frame(maxWidth: .infinity)
             }
         }
+        .safeAreaInset(edge: .top) {
+            VStack(spacing: 8) {
+                if let failure = rootViewModel.retentionFailure {
+                    OperatorFeedbackBanner(feedback: failure) { rootViewModel.retentionFailure = nil }.padding(.horizontal, 16)
+                }
+                if rootViewModel.isExporting { ProgressView(rootViewModel.exportMessage).padding(8) }
+                if let feedback = rootViewModel.actionFeedback {
+                    OperatorFeedbackBanner(feedback: feedback) { rootViewModel.dismissFeedback() }.padding(.horizontal, 16)
+                }
+            }
+        }
         .background(OperatorPalette.canvas.ignoresSafeArea())
         .navigationTitle(summary.eventName ?? "Archived Session")
         .navigationBarTitleDisplayMode(.inline)
@@ -1002,9 +1088,15 @@ struct ArchivedSessionDetailView: View {
                 VStack {
                     SessionPhotoPreview(source: photo)
                     Text(photo.quality.rawValue).font(.callout)
+                    if rootViewModel.isExporting { ProgressView(rootViewModel.exportMessage) }
                     Button("Save Photo to Photos") { rootViewModel.exportPhotos(summary.archiveID, index: photo.id) }.frame(minHeight: 44).disabled(rootViewModel.isExporting)
-                    if !rootViewModel.exportMessage.isEmpty { Text(rootViewModel.exportMessage).font(.callout) }
+
                 }.padding().navigationTitle("Photo \(photo.id + 1)")
+                    .safeAreaInset(edge: .top) {
+                        if let feedback = rootViewModel.actionFeedback {
+                            OperatorFeedbackBanner(feedback: feedback) { rootViewModel.dismissFeedback() }.padding(.horizontal, 16)
+                        }
+                    }
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { selectedPhoto = nil } } }
             }
         }
@@ -1120,7 +1212,7 @@ struct ArchivedSessionDetailView: View {
                 Button { rootViewModel.exportReceipt(summary.archiveID) } label: {
                     Label("Save Receipt to Photos", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity, minHeight: 44)
                 }.buttonStyle(.borderedProminent).tint(OperatorPalette.accent).disabled(rootViewModel.isExporting)
-                if !rootViewModel.exportMessage.isEmpty { Text(rootViewModel.exportMessage).font(.callout).accessibilityAddTraits(.updatesFrequently) }
+
             } else {
                 Text("This archive does not include a readable receipt preview.")
                     .foregroundStyle(OperatorPalette.secondaryText)

@@ -167,3 +167,21 @@ private actor V41PhotosWriter: PhotosLibraryWriting {
         let stats = await cache.statistics(); XCTAssertEqual(stats.count, 1)
     }
 }
+
+
+extension OperatorWorkspaceV41MediaTests {
+    func testUnresolvedRetentionWarningSurvivesSuccessfulUnrelatedExportAndFeedbackDismissal() async throws {
+        let store = try RecentSessionArchiveStore(directoryURL: root), payload = try V41ArchiveFixture.payload()
+        try store.save(payload)
+        let model = RecentSessionsViewModel(store: store, photosWriter: V41PhotosWriter())
+        NotificationCenter.default.post(name: .originalPhotoRetentionFailed, object: nil)
+        for _ in 0..<50 where model.retentionFailure == nil { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertTrue(model.retentionFailure?.isError == true)
+        model.exportReceipt(payload.committedSession.galleryToken)
+        while model.isExporting { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(model.actionFeedback?.message, "Receipt saved to Photos")
+        model.dismissFeedback()
+        XCTAssertNil(model.actionFeedback)
+        XCTAssertTrue(model.retentionFailure?.isError == true, "An unrelated routine success must never clear an unresolved media-retention warning")
+    }
+}

@@ -181,7 +181,7 @@ struct CurrentEventCard: View {
             DisclosureGroup("Event controls") {
                 VStack(alignment: .leading, spacing: 12) {
                     if let run {
-                        fact("Design", library.design(id: run.context.designID)?.displayName ?? "Studio branding")
+                        fact("Design", library.library.historicalName(id: run.context.designID) ?? "Studio branding")
                         fact("Started", run.createdAt.formatted(date: .abbreviated, time: .shortened))
                     }
                     actionButton("Detailed Booth Health", systemImage: "stethoscope") { showsHealth = true }
