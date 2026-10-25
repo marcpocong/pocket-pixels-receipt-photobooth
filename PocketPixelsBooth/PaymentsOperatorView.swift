@@ -432,6 +432,7 @@ struct CheckoutRecoverySection: View {
                             }
                             Button("Delete Eligible Checkout", role: .destructive) { cleanupRequest = CheckoutCleanupRequest(ids: [item.id]) }
                         } label: { Label("Manage", systemImage: "ellipsis.circle").frame(minHeight: 44) }
+                        .buttonStyle(.borderless)
                     }
                     HStack {
                         if item.classification.isResumable {
@@ -468,6 +469,7 @@ struct CheckoutRecoverySection: View {
                                 }
                             }
                         } label: { Label("Manage", systemImage: "ellipsis.circle").frame(minHeight: 44) }
+                        .buttonStyle(.borderless)
                     }
                 }
             }

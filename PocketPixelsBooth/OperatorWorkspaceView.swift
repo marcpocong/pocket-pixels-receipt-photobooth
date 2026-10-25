@@ -208,6 +208,7 @@ struct OperatorEventsView: View {
                             }
                             Button("Delete Permanently", role: .destructive) { deletionDesignID = event.id }
                         } label: { Label("Manage", systemImage: "ellipsis.circle").frame(minWidth: 44, minHeight: 44) }
+                        .buttonStyle(.borderless)
                     }
                 }
                 NavigationLink("Event History & Earlier Sessions", value: OperatorWorkspaceRoute.eventHistory)
@@ -226,6 +227,7 @@ struct OperatorEventsView: View {
                             Button("Archive Run") { manage { try runs.transition(id: run.id, to: .archived) } }
                             Button("Delete Unused Local Run", role: .destructive) { deletionRunID = run.id }
                         } label: { Label("Manage", systemImage: "ellipsis.circle").frame(minWidth: 44, minHeight: 44) }
+                        .buttonStyle(.borderless)
                     }
                 }
                 Text("Local cleanup keeps server-managed commercial events and financial history. Used designs and runs can be archived.").font(.footnote).foregroundStyle(.secondary)

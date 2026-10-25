@@ -33,12 +33,16 @@ final class OperatorWorkspaceV41UITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [visible], timeout: timeout), .completed)
         return try XCTUnwrap(target)
     }
-    private func tapNativeButton(_ button: XCUIElement) throws {
+    private func tapVisibleMenu(_ button: XCUIElement, in app: XCUIApplication) {
         XCTAssertTrue(button.waitForExistence(timeout: 10))
-        if button.isHittable { button.tap(); return }
-        // Some supported SwiftUI runtimes expose Menu as a labeled wrapper around a native
-        // button. Exercise that real button, rather than tapping an unhittable wrapper.
-        try hittableElement(in: button.descendants(matching: .button)).tap()
+        // Some SwiftUI runtimes return no AX hit point for either Menu wrapper or child.
+        // Send a real touch inside its fully visible 44-point control. The subsequent menu
+        // and cleanup assertions must still succeed; this never invokes an app action directly.
+        XCTAssertTrue(button.isEnabled)
+        XCTAssertGreaterThanOrEqual(button.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(button.frame.height, 44)
+        XCTAssertTrue(app.frame.contains(button.frame))
+        button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
     }
     func testSessionMenusSelectionReceiptFitAndZoom() throws {
         let app = launch()
@@ -78,7 +82,7 @@ final class OperatorWorkspaceV41UITests: XCTestCase {
     func testEventsExposeManageAndProtectedDeletionExplanation() throws {
         let app = launch("Events")
         let manage = app.buttons["Manage"].firstMatch
-        try tapNativeButton(manage)
+        tapVisibleMenu(manage, in: app)
         XCTAssertTrue(app.buttons["Archive"].waitForExistence(timeout: 5))
         try capture("event-manage-menu")
         app.buttons["Delete Permanently"].tap()
@@ -92,7 +96,7 @@ final class OperatorWorkspaceV41UITests: XCTestCase {
         let app = launch("Checkouts")
         XCTAssertTrue(app.staticTexts["Active Interruptions · 1"].waitForExistence(timeout: 10))
         try capture("checkout-management-and-parked-history")
-        try tapNativeButton(app.buttons["Manage"].firstMatch)
+        tapVisibleMenu(app.buttons["Manage"].firstMatch, in: app)
         XCTAssertTrue(app.buttons["Delete Eligible Checkout"].waitForExistence(timeout: 5))
         try capture("checkout-manage-menu")
         app.buttons["Delete Eligible Checkout"].tap()
