@@ -15,6 +15,10 @@ Baseline main was `211c7e44b977e75f05410f0b845ba35809c8d5f5`, with [passing Prod
 - `local-toolchain.txt`: Xcode 27.1. The generic-device Release build also passed with signing disabled only for that compile command; project bundle/signing settings are unchanged.
 - `local-full-release-candidate.json` records 828 passed / 0 failed / 0 skipped; `local-final-safety.json` records the final 37 safety/identity/viewer cases passed / 0 failed / 0 skipped. Exact final PR head and post-merge main gate are linked in the PR's delivery record. Only the final-head gate authorizes merge.
 
+- `ci-first-head-failure.json`: the initial evidence-head gate passed 826 non-UI tests but failed three native UI targeting interactions (828 passed / 3 failed overall). Inspection showed covered/compound accessibility targets on the actual CI iOS 26.2 runtime. Hittable inspector/native-button targeting preserves all behavior assertions; subsequent final-head checks are authoritative.
+
+- `local-ui-compat-ios26.json` / `local-ui-compat-ios27.json`: all five revised native UI cases passed on both runtimes. The iOS 27 result collector delayed finalization and logged a diagnostic-collection timeout after the tests passed; xcodebuild completed successfully.
+
 ## Performance
 
 `performance-baseline.json` / `performance-final.json` and `scroll-baseline.json` / `scroll-final.json` are sequential fresh-process runs on the same M4 iPad simulator and iOS 27.0 runtime. Metadata at 1,000 records was 71.81 → 112.89 ms; the added 41 ms is explicit. Scrolling had zero >34 ms callback gaps in either four-second sample, with approximately 16.74 ms p95 intervals. The decoded cache stayed bounded at 12 MiB. These are simulator samples, not physical FPS, an Instruments trace or controlled cold-disk measurements. Full results and storage implications are in the report.

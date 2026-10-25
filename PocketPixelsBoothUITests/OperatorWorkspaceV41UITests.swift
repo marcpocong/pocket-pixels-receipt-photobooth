@@ -24,6 +24,22 @@ final class OperatorWorkspaceV41UITests: XCTestCase {
         }
         XCTFail("Missing action: \(name)")
     }
+    private func hittableElement(in query: XCUIElementQuery, timeout: TimeInterval = 10) throws -> XCUIElement {
+        var target: XCUIElement?
+        let visible = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            target = query.allElementsBoundByIndex.first(where: \.isHittable)
+            return target != nil
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [visible], timeout: timeout), .completed)
+        return try XCTUnwrap(target)
+    }
+    private func tapNativeButton(_ button: XCUIElement) throws {
+        XCTAssertTrue(button.waitForExistence(timeout: 10))
+        if button.isHittable { button.tap(); return }
+        // Some supported SwiftUI runtimes expose Menu as a labeled wrapper around a native
+        // button. Exercise that real button, rather than tapping an unhittable wrapper.
+        try hittableElement(in: button.descendants(matching: .button)).tap()
+    }
     func testSessionMenusSelectionReceiptFitAndZoom() throws {
         let app = launch()
         let manage = app.buttons["Manage session"].firstMatch
@@ -32,8 +48,9 @@ final class OperatorWorkspaceV41UITests: XCTestCase {
         try capture("session-manage-menu")
         app.buttons["View Original Receipt"].tap()
         tapWhenVisible("Full Screen", in: app)
-        let receipt = app.otherElements["operator-receipt-preview"].firstMatch
-        XCTAssertTrue(receipt.waitForExistence(timeout: 10))
+        // A sheet can leave the covered inline preview in the accessibility tree. Only the
+        // visible inspector is the gesture target; zoom assertions still verify real input.
+        let receipt = try hittableElement(in: app.otherElements.matching(identifier: "operator-receipt-preview"))
         try capture("receipt-fit-full-screen")
         receipt.doubleTap()
         XCTAssertTrue((receipt.value as? String)?.contains("200%") == true)
@@ -61,7 +78,7 @@ final class OperatorWorkspaceV41UITests: XCTestCase {
     func testEventsExposeManageAndProtectedDeletionExplanation() throws {
         let app = launch("Events")
         let manage = app.buttons["Manage"].firstMatch
-        XCTAssertTrue(manage.waitForExistence(timeout: 10)); manage.tap()
+        try tapNativeButton(manage)
         XCTAssertTrue(app.buttons["Archive"].waitForExistence(timeout: 5))
         try capture("event-manage-menu")
         app.buttons["Delete Permanently"].tap()
@@ -75,7 +92,7 @@ final class OperatorWorkspaceV41UITests: XCTestCase {
         let app = launch("Checkouts")
         XCTAssertTrue(app.staticTexts["Active Interruptions · 1"].waitForExistence(timeout: 10))
         try capture("checkout-management-and-parked-history")
-        app.buttons["Manage"].firstMatch.tap()
+        try tapNativeButton(app.buttons["Manage"].firstMatch)
         XCTAssertTrue(app.buttons["Delete Eligible Checkout"].waitForExistence(timeout: 5))
         try capture("checkout-manage-menu")
         app.buttons["Delete Eligible Checkout"].tap()
