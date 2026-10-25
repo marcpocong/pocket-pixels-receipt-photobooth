@@ -83,6 +83,7 @@ import SwiftUI
 
     private func renderEvidence(model: RecentSessionsViewModel, store: RecentSessionArchiveStore, originalID: String) async throws {
         let portrait = CGSize(width: 834, height: 1194)
+        model.usesPhotoGrid = false
         try await capture(NavigationStack { RecentSessionsView(viewModel: model) }, name: "sessions-list-portrait", size: portrait)
         model.usesPhotoGrid = true
         try await capture(NavigationStack { RecentSessionsView(viewModel: model) }, name: "sessions-grid-portrait", size: portrait)

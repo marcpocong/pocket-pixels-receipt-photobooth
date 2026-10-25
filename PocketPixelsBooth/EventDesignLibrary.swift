@@ -135,6 +135,15 @@ nonisolated struct SavedEventDesign: Codable, Equatable, Identifiable, Sendable 
     }
 }
 
+/// Identity-only history, separate from a reusable receipt/guest-screen configuration.
+nonisolated struct RemovedEventDesignReference: Codable, Equatable, Sendable {
+    let id: String
+    let name: String
+    let createdAt: Date
+    let removedAt: Date
+    let serverEventIDs: [String: [String]]
+}
+
 /// The library file. Selection here is what was last applied, not the operator's draft.
 nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
     var schemaVersion = 1
@@ -147,6 +156,12 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
     var migratedLegacyProfile = false
     /// Binding → regular-session commercial events replaced after they ended. Append-only.
     var retiredRegularServerEvents: [String: [String]]? = nil
+    var removedDesigns: [RemovedEventDesignReference]? = nil
+
+    func historicalName(id: String?) -> String? {
+        guard let id else { return nil }
+        return design(id: id)?.displayName ?? removedDesigns?.first(where: { $0.id == id })?.name
+    }
 
     func design(id: String?) -> SavedEventDesign? {
         guard let id else { return nil }
@@ -162,6 +177,7 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
         var ids = Set(events.flatMap { $0.allServerEventIDs(binding: binding) })
         if let regular = regularServerEvents[binding] { ids.insert(regular) }
         ids.formUnion(retiredRegularServerEvents?[binding] ?? [])
+        ids.formUnion((removedDesigns ?? []).flatMap { $0.serverEventIDs[binding] ?? [] })
         return ids
     }
 
@@ -239,6 +255,9 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
 
     /// Inserts or replaces one event's saved design.
     func save(_ design: SavedEventDesign) throws {
+        guard !(library.removedDesigns ?? []).contains(where: { $0.id == design.id }) else {
+            throw SetupFailure("This saved design was removed. Create a new event to use these edits; its historical identity is retained.")
+        }
         var next = library
         var value = design
         value.updatedAt = Date()
@@ -262,6 +281,9 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
     /// Links a saved event to a server event in one payments environment. A server event is
     /// linked to at most one saved event per environment.
     func link(designID: String, binding: String, serverEventID: String) throws {
+        guard !(library.removedDesigns ?? []).contains(where: { $0.serverEventIDs[binding]?.contains(serverEventID) == true }) else {
+            throw SetupFailure("That commercial event belongs to a removed saved design. Its original history is retained.")
+        }
         var next = library
         for index in next.events.indices where next.events[index].serverEvents[binding] == serverEventID && next.events[index].id != designID {
             next.events[index].serverEvents.removeValue(forKey: binding)
@@ -275,6 +297,9 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
     /// The saved event for a server event, creating a plain (logo off) design the first time.
     func adopt(serverEventID: String, name: String, venue: String, binding: String) throws -> SavedEventDesign {
         if let existing = library.design(linkedTo: serverEventID, binding: binding) { return existing }
+        guard !(library.removedDesigns ?? []).contains(where: { $0.serverEventIDs[binding]?.contains(serverEventID) == true }) else {
+            throw SetupFailure("This commercial event is retained in history. Start a new event for a new occurrence.")
+        }
         var design = SavedEventDesign.new(name: name, venue: venue)
         design.serverEvents[binding] = serverEventID
         try save(design)
@@ -307,6 +332,9 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
     }
 
     func setRegularServerEvent(_ serverEventID: String, binding: String) throws {
+        guard !(library.removedDesigns ?? []).contains(where: { $0.serverEventIDs[binding]?.contains(serverEventID) == true }) else {
+            throw SetupFailure("That commercial event belongs to a removed saved design. Start a new event for Regular Booth checkout.")
+        }
         var next = library
         next.regularServerEvents[binding] = serverEventID
         try commit(next)
@@ -324,7 +352,6 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
 
     func archiveDesign(id: String, now: Date = Date()) throws {
         guard operationAuthorized() else { throw PaymentsAPIError.unauthorized }
-        if let reason = operationBlockingReason() { throw SetupFailure(reason) }
         guard id != library.appliedEventID else { throw SetupFailure("Choose a different design in Session Setup before archiving the applied design.") }
         guard let index = library.events.firstIndex(where: { $0.id == id }) else { throw SetupFailure("Design not found.") }
         var next = library
@@ -334,7 +361,6 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
 
     func restoreDesign(id: String) throws {
         guard operationAuthorized() else { throw PaymentsAPIError.unauthorized }
-        if let reason = operationBlockingReason() { throw SetupFailure(reason) }
         guard let index = library.events.firstIndex(where: { $0.id == id }) else { throw SetupFailure("Design not found.") }
         var next = library; next.events[index].archivedAt = nil
         try commit(next)
@@ -344,7 +370,7 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
         guard historyAvailable, storageError == nil, !archives.contains(where: { $0.rasterFingerprint == "CORRUPT" }) else { return "Dependency inspection is incomplete. Recover history before deleting." }
         guard let design = design(id: id) else { return "Design not found." }
         if library.appliedEventID == id || design.hasCommercialHistory || runs.contains(where: { $0.context.designID == id })
-            || archives.contains(where: { $0.eventDesignID == id || ($0.eventDesignID == nil && $0.createdAt >= design.createdAt) }) {
+            || archives.contains(where: { $0.eventDesignID == id }) {
             return "This design has applied, commercial or historical dependencies. Archive it instead."
         }
         return nil
@@ -354,7 +380,7 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
         guard operationAuthorized() else { throw PaymentsAPIError.unauthorized }
         if let reason = operationBlockingReason() { throw SetupFailure(reason) }
         let deleted = try deletedSessions ?? RecentSessionArchiveStore().deletedSessionEvidence()
-        if deleted.contains(where: { $0.eventDesignID == id || ($0.eventDesignID == nil && $0.createdAt >= (design(id: id)?.createdAt ?? .distantPast)) }) {
+        if deleted.contains(where: { $0.eventDesignID == id }) {
             throw SetupFailure("Local session media was removed, but this design has historical use. Archive it instead.")
         }
         if let reason = deletionIneligibility(id: id, runs: runs, archives: archives, historyAvailable: historyAvailable) { throw SetupFailure(reason) }
@@ -362,10 +388,33 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
         guard let design = design(id: id) else { throw SetupFailure("Design not found.") }
         guard library.appliedEventID != id, !design.hasCommercialHistory,
               !runs.contains(where: { $0.context.designID == id }),
-              !archives.contains(where: { $0.eventDesignID == id || ($0.eventDesignID == nil && $0.createdAt >= design.createdAt) }) else {
+              !archives.contains(where: { $0.eventDesignID == id }) else {
             throw SetupFailure("This design is applied or may have protected history. Archive it instead; photos, artwork and payment records are retained.")
         }
         var next = library; next.events.removeAll { $0.id == id }
+        try commit(next)
+    }
+
+    /// Removes only reusable configuration. Reports, media, financial records and commercial
+    /// ownership remain intact, so unrelated archive failures do not gate this operation.
+    func removeSavedDesign(id: String, runs: [EventRunRecord], historyAvailable: Bool,
+                           pendingCreation: Bool = false, now: Date = Date()) throws {
+        guard operationAuthorized() else { throw PaymentsAPIError.unauthorized }
+        guard historyAvailable else { throw SetupFailure("Event operation could not be checked. Recover event-run storage before removing this design.") }
+        guard !pendingCreation else { throw SetupFailure("This event is waiting for a save operation to finish. Review Event Setup first.") }
+        guard library.appliedEventID != id else {
+            throw SetupFailure("This design is currently applied. End the running event, or switch to Regular Booth when idle, then remove it.")
+        }
+        guard !runs.contains(where: { $0.context.designID == id && [.active, .paused].contains($0.status) }) else {
+            throw SetupFailure("This event is currently running. End it first; its history will be kept.")
+        }
+        guard let design = design(id: id) else { return } // idempotent; never remove another ID
+        let bindings = Set(design.serverEvents.keys).union(design.retiredServerEvents?.keys.map { $0 } ?? [])
+        let reference = RemovedEventDesignReference(id: id, name: design.displayName, createdAt: design.createdAt,
+            removedAt: now, serverEventIDs: Dictionary(uniqueKeysWithValues: bindings.map { ($0, Array(design.allServerEventIDs(binding: $0)).sorted()) }))
+        var next = library
+        next.removedDesigns = (next.removedDesigns ?? []) + [reference]
+        next.events.removeAll { $0.id == id }
         try commit(next)
     }
 

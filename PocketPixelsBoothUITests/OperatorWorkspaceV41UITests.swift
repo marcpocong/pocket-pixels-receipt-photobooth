@@ -3,8 +3,8 @@ import XCTest
 /// Native system menus, dialogs and gestures against isolated simulator-only SwiftUI fixtures.
 final class OperatorWorkspaceV41UITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
-    private func launch(_ screen: String = "Sessions", galleryReady: Bool = false) -> XCUIApplication {
-        let app = XCUIApplication(); app.launchArguments = ["--operator-v41-ui-fixture"]
+    private func launch(_ screen: String = "Sessions", galleryReady: Bool = false, extra: [String] = []) -> XCUIApplication {
+        let app = XCUIApplication(); app.launchArguments = ["--operator-v41-ui-fixture", "--fixture-id", UUID().uuidString] + extra
         if galleryReady { app.launchArguments.append("--gallery-ready-response") }
         app.launch()
         XCTAssertTrue(app.buttons["Sessions"].waitForExistence(timeout: 30))
@@ -12,6 +12,8 @@ final class OperatorWorkspaceV41UITests: XCTestCase {
         return app
     }
     private func capture(_ name: String) throws {
+        // Allow native glass/symbol transitions to settle before reviewing layout evidence.
+        Thread.sleep(forTimeInterval: 0.6)
         let shot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: shot); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
         try shot.pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/v41-ui-\(name).png"))
@@ -76,22 +78,92 @@ final class OperatorWorkspaceV41UITests: XCTestCase {
         XCTAssertTrue(delete.isEnabled); delete.tap()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH '2 deleted'")).firstMatch.waitForExistence(timeout: 10))
         try capture("synthetic-session-deletion-results")
-        app.buttons["Done"].tap()
+        try hittableElement(in: app.buttons.matching(identifier: "Done")).tap()
         XCTAssertTrue(app.staticTexts["No sessions yet"].waitForExistence(timeout: 5))
     }
-    func testEventsExposeManageAndProtectedDeletionExplanation() throws {
+    func testSuccessfulUnusedEventDeletionPersistsAcrossRelaunchWithLaterRegularSessions() throws {
         let app = launch("Events")
-        let manage = app.buttons["Manage"].firstMatch
-        tapVisibleMenu(manage, in: app)
-        XCTAssertTrue(app.buttons["Archive"].waitForExistence(timeout: 5))
+        try capture("events-saved-designs")
+        tapVisibleMenu(app.buttons["Manage Unused Test Setup"], in: app)
+        XCTAssertTrue(app.buttons["Delete Event"].waitForExistence(timeout: 5))
         try capture("event-manage-menu")
-        app.buttons["Delete Permanently"].tap()
-        XCTAssertTrue(app.buttons["Delete Permanently"].waitForExistence(timeout: 5))
+        app.buttons["Delete Event"].tap()
+        XCTAssertTrue(app.buttons["Remove Saved Design"].waitForExistence(timeout: 5))
         try capture("event-deletion-confirmation")
-        app.buttons["Delete Permanently"].tap()
-        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'dependencies'")).firstMatch.waitForExistence(timeout: 5))
-        try capture("event-deletion-eligibility")
+        app.buttons["Remove Saved Design"].tap()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'Saved design removed'")).firstMatch.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Manage Unused Test Setup"].exists)
+        XCTAssertTrue(app.buttons["Manage Garden Celebration"].exists)
+        try capture("event-deletion-success")
+        app.terminate(); app.launch()
+        XCTAssertTrue(app.buttons["Events"].waitForExistence(timeout: 30)); app.buttons["Events"].tap()
+        XCTAssertTrue(app.buttons["Manage Garden Celebration"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["Manage Unused Test Setup"].exists)
+        try capture("event-deletion-after-relaunch")
     }
+
+    func testHistoricalRemovalAndArchiveRestoreKeepOccurrence() throws {
+        let app = launch("Events")
+        tapVisibleMenu(app.buttons["Manage Garden Celebration"], in: app)
+        app.buttons["Archive"].tap()
+        XCTAssertFalse(app.buttons["Manage Garden Celebration"].exists)
+        let archived = app.switches["Show Archived Events"]
+        XCTAssertTrue(archived.exists)
+        archived.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5)).withOffset(CGVector(dx: -25, dy: 0)).tap()
+        XCTAssertEqual(archived.value as? String, "1")
+        XCTAssertTrue(app.buttons["Manage Garden Celebration"].waitForExistence(timeout: 5))
+        try capture("event-archived-design")
+        tapVisibleMenu(app.buttons["Manage Garden Celebration"], in: app)
+        app.buttons["Restore"].tap()
+        try capture("event-restored-design")
+        tapVisibleMenu(app.buttons["Manage Garden Celebration"], in: app)
+        app.buttons["Remove Saved Design"].tap()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'historical name and identity'")).firstMatch.waitForExistence(timeout: 5))
+        try capture("historical-design-removal-explanation")
+        app.buttons["Remove Saved Design"].tap()
+        XCTAssertFalse(app.buttons["Manage Garden Celebration"].exists)
+        XCTAssertTrue(app.staticTexts["Garden Celebration"].exists, "The original occurrence remains in history")
+        try capture("historical-design-removed-run-retained")
+    }
+
+    func testInactiveAppliedDesignCanSwitchToRegularAndThenBeRemoved() throws {
+        let app = launch("Events", extra: ["--fixture-applied"])
+        tapVisibleMenu(app.buttons["Manage Garden Celebration"], in: app)
+        app.buttons["Remove Saved Design"].tap(); app.buttons["Remove Saved Design"].tap()
+        XCTAssertTrue(app.alerts["Event action could not finish"].waitForExistence(timeout: 5))
+        try capture("inactive-applied-design-explanation")
+        app.alerts.buttons["Switch to Regular Booth"].tap()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Regular Booth is ready'")).firstMatch.waitForExistence(timeout: 10))
+        tapVisibleMenu(app.buttons["Manage Garden Celebration"], in: app)
+        app.buttons["Remove Saved Design"].tap(); app.buttons["Remove Saved Design"].tap()
+        XCTAssertFalse(app.buttons["Manage Garden Celebration"].exists)
+        try capture("inactive-applied-design-removed")
+    }
+
+    func testEventStorageFailureShowsImmediateErrorWithoutRemovingDesign() throws {
+        let app = launch("Events", extra: ["--fixture-storage-failure"])
+        tapVisibleMenu(app.buttons["Manage Unused Test Setup"], in: app)
+        app.buttons["Delete Event"].tap(); app.buttons["Remove Saved Design"].tap()
+        XCTAssertTrue(app.alerts["Event action could not finish"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.alerts.staticTexts.containing(NSPredicate(format: "label CONTAINS 'could not be saved'")).firstMatch.exists)
+        try capture("event-storage-failure")
+        app.alerts.buttons["OK"].tap()
+        XCTAssertTrue(app.buttons["Manage Unused Test Setup"].exists)
+    }
+
+    func testActiveGuestCannotLoseAppliedDesignOrEndEvent() throws {
+        let app = launch("Events", extra: ["--fixture-active-guest"])
+        tapVisibleMenu(app.buttons["Manage Garden Celebration"], in: app)
+        app.buttons["Remove Saved Design"].tap(); app.buttons["Remove Saved Design"].tap()
+        XCTAssertTrue(app.alerts["Event action could not finish"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.alerts.staticTexts.containing(NSPredicate(format: "label CONTAINS 'currently applied'")).firstMatch.exists)
+        try capture("active-event-deletion-explanation")
+        app.alerts.buttons["End Event on This iPad"].tap()
+        XCTAssertTrue(app.staticTexts["Finish the active guest first."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Manage Garden Celebration"].exists)
+        try capture("active-guest-transition-blocked")
+    }
+
     func testCheckoutManageReviewAndParkedHistory() throws {
         let app = launch("Checkouts")
         XCTAssertTrue(app.staticTexts["Active Interruptions · 1"].waitForExistence(timeout: 10))
@@ -104,11 +176,88 @@ final class OperatorWorkspaceV41UITests: XCTestCase {
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Archive keeps reconciliation'")).firstMatch.waitForExistence(timeout: 10))
         try capture("checkout-delete-review")
     }
+    func testPortraitGridSelectionFiltersListAndTransientExport() throws {
+        let app = launch(extra: ["--fixture-many-sessions", "--fixture-photos-success"])
+        let cards = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'session-'"))
+        XCTAssertTrue(cards.firstMatch.waitForExistence(timeout: 15))
+        XCTAssertGreaterThanOrEqual(app.buttons.matching(identifier: "Manage session").count, 3)
+        try capture("sessions-grid-portrait")
+        // Three equal columns on the selected 11-inch portrait simulator.
+        let first = cards.element(boundBy: 0).frame, second = cards.element(boundBy: 1).frame, third = cards.element(boundBy: 2).frame
+        XCTAssertEqual(first.minY, second.minY, accuracy: 2); XCTAssertEqual(second.minY, third.minY, accuracy: 2)
+        XCTAssertEqual(first.width, third.width, accuracy: 2)
+        app.buttons["Select"].tap()
+        XCTAssertFalse(app.buttons["Delete Selected"].exists)
+        XCTAssertFalse(app.buttons["Manage session"].exists)
+        try capture("sessions-selection-empty")
+        cards.element(boundBy: 0).tap(); cards.element(boundBy: 1).tap()
+        XCTAssertEqual(cards.element(boundBy: 0).value as? String, "Selected")
+        XCTAssertTrue(app.buttons["Delete Selected"].isHittable)
+        try capture("sessions-several-selected-bulk-bar")
+        app.buttons["Select All Visible"].tap()
+        XCTAssertTrue(app.staticTexts.matching(identifier: "8 selected").firstMatch.exists)
+        try capture("sessions-select-all-visible")
+        // Search narrows both visible records and the selection set.
+        let search = app.textFields["sessions-search"]
+        search.tap(); search.typeText("120000")
+        try capture("sessions-selection-keyboard")
+        search.typeText("\n")
+        XCTAssertTrue(app.staticTexts.matching(identifier: "1 selected").firstMatch.exists)
+        app.buttons["Clear search"].tap()
+        app.buttons["Hide Selected"].tap()
+        XCTAssertTrue(app.staticTexts["1 session hidden."].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Delete Selected"].exists)
+        app.buttons["Done"].tap()
+        app.buttons["List"].tap()
+        XCTAssertTrue(app.buttons["Photos"].exists)
+        try capture("sessions-list-portrait")
+        app.buttons["Manage session"].firstMatch.tap()
+        try capture("sessions-integrated-menu")
+        app.buttons["Save Receipt to Photos"].tap()
+        XCTAssertTrue(app.staticTexts["Receipt saved to Photos"].waitForExistence(timeout: 10))
+        try capture("sessions-export-success")
+        let disappears = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.staticTexts["Receipt saved to Photos"])
+        XCTAssertEqual(XCTWaiter.wait(for: [disappears], timeout: 10), .completed)
+        app.buttons["Gallery Actions and More"].tap()
+        XCTAssertTrue(app.buttons["Recheck Unverified Galleries"].waitForExistence(timeout: 5))
+        try capture("sessions-gallery-actions-menu")
+    }
+
+    func testSessionsLandscapeAccessibilityAndEmptyState() throws {
+        let app = launch(extra: ["--fixture-many-sessions", "--fixture-accessibility"])
+        XCTAssertTrue(app.buttons["Manage session"].firstMatch.waitForExistence(timeout: 15))
+        try capture("sessions-accessibility-portrait")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let rotated = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in app.frame.width > app.frame.height }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [rotated], timeout: 10), .completed)
+        try capture("sessions-landscape")
+        app.buttons["Select"].tap(); app.buttons["Select All Visible"].tap()
+        XCTAssertTrue(app.buttons["Delete Selected"].isHittable)
+        try capture("sessions-accessibility-landscape-selection")
+        XCUIDevice.shared.orientation = .portrait
+        app.terminate()
+        let empty = launch(extra: ["--fixture-empty"])
+        XCTAssertTrue(empty.staticTexts["No sessions yet"].waitForExistence(timeout: 15))
+        try capture("sessions-empty")
+    }
+
     func testHistoricalGalleryRecheckShowsReadyAndResultCounts() throws {
         let app = launch(galleryReady: true)
+        app.buttons["Gallery Actions and More"].tap()
         tapWhenVisible("Recheck Unverified Galleries", in: app)
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS '1 verified' AND label CONTAINS '0 failed'")).firstMatch.waitForExistence(timeout: 15))
         try capture("gallery-recheck-results-ready")
+    }
+
+    func testIndividualPhotoExportFeedbackIsVisibleInsidePhotoSheet() throws {
+        let app = launch()
+        app.buttons["Manage session"].firstMatch.tap(); app.buttons["View Session"].tap()
+        tapWhenVisible("View photo 1, Original capture", in: app)
+        XCTAssertTrue(app.navigationBars["Photo 1"].waitForExistence(timeout: 5))
+        app.buttons["Save Photo to Photos"].tap()
+        let feedback = try hittableElement(in: app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'permission required'")))
+        XCTAssertTrue(feedback.isHittable)
+        try capture("photo-sheet-export-error")
     }
 
     func testGalleryFailurePhotosPermissionAndHealth() throws {

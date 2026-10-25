@@ -825,3 +825,50 @@ import SwiftUI
         }
     }
 }
+
+extension EventLifecycleIntegrationTests {
+    func testInactiveAppliedDesignDetachesThroughRegularTransitionAndRemovalSurvivesRelaunch() async throws {
+        let booth = Booth(); defer { booth.cleanup() }
+        let design = try booth.library.create(name: "Ended legacy setup", venue: "")
+        try booth.library.recordApplied(eventModeEnabled: true, eventID: design.id)
+        try booth.acceptance.save(.init(mode: .localPrepaid, boothMode: .event))
+        booth.busyReason = "Finish the active guest first."
+        let blocked = await booth.lifecycle().returnToRegular()
+        XCTAssertFalse(blocked); XCTAssertEqual(booth.library.library.appliedEventID, design.id)
+        booth.busyReason = nil
+        let switched = await booth.lifecycle().returnToRegular()
+        XCTAssertTrue(switched); XCTAssertNil(booth.library.library.appliedEventID)
+        try booth.library.removeSavedDesign(id: design.id, runs: booth.runs.runs, historyAvailable: true)
+        booth.relaunch()
+        XCTAssertNil(booth.library.design(id: design.id))
+        XCTAssertEqual(booth.library.library.historicalName(id: design.id), design.displayName)
+        let nextGuest = try await booth.admitGuest(session: "next-regular-guest")
+        XCTAssertEqual(nextGuest, "regular-booth")
+    }
+
+    func testRemovingCompletedPaidDesignPreservesFinancialTotalsOriginalSessionsAndServerEvent() async throws {
+        let booth = Booth(); defer { booth.cleanup() }
+        _ = await startPaid(booth)
+        let run = try XCTUnwrap(booth.runs.current), designID = try XCTUnwrap(run.context.designID)
+        _ = try await booth.admitGuest(session: "historical-paid-guest")
+        let ended = await booth.lifecycle().end(scope: .thisBoothAndCommercialEvent)
+        XCTAssertTrue(ended)
+        let sessions = try EventRunStore.loadSessions(directory: booth.runs.directory), originalRuns = booth.runs.runs
+        let orders = [OperatorOrderRow(id: "original-order", createdAt: Date(), boothFormat: "solo", copies: 1, totalCentavos: 7500, state: "COMPLETE", method: nil, paymentState: nil,
+            category: "QRPH_VERIFIED_LIVE", entitlementState: "CONSUMED", confirmedPrints: 1, uncertainPrints: 0, lastReconcileError: nil, sessionId: "historical-paid-guest")]
+        let totals = try EventRunFinancialTotals(orders: EventRunFinancialTotals.matchingOrders(orders, sessions: sessions))
+        let calls = booth.server.calls
+        try booth.library.removeSavedDesign(id: designID, runs: booth.runs.runs, historyAvailable: true)
+        booth.relaunch()
+        XCTAssertEqual(booth.server.calls, calls, "Removing local configuration makes no payment-server request")
+        XCTAssertEqual(booth.server.events[run.context.commercialEventID!]?.lifecycle, .ended)
+        XCTAssertEqual(try EventRunStore.loadSessions(directory: booth.runs.directory), sessions)
+        XCTAssertEqual(booth.runs.runs, originalRuns)
+        XCTAssertEqual(try EventRunFinancialTotals(orders: EventRunFinancialTotals.matchingOrders(orders, sessions: EventRunStore.loadSessions(directory: booth.runs.directory))), totals)
+        XCTAssertEqual(booth.library.library.historicalName(id: designID), run.context.name)
+        XCTAssertTrue(booth.library.library.knownServerEventIDs(binding: booth.binding).contains(run.context.commercialEventID!))
+        XCTAssertNil(booth.library.design(id: designID))
+        let nextGuest = try await booth.admitGuest(session: "next-guest-after-design-removal")
+        XCTAssertEqual(nextGuest, "regular-booth")
+    }
+}

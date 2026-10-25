@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# Superseded PR candidates share a group; each main commit keeps its own release gate.
+concurrency:
+  group: production-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   ios:
     runs-on: macos-15

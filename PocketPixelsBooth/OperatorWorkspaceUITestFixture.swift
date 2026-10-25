@@ -17,7 +17,7 @@ struct OperatorWorkspaceUITestFixture: View {
                     }.pickerStyle(.segmented).padding()
                     NavigationStack {
                         switch screen {
-                        case "Events": OperatorEventsView(workspace: fixture.workspace, runs: fixture.runs, library: fixture.library)
+                        case "Events": OperatorEventsView(workspace: fixture.workspace, runs: fixture.runs, library: fixture.library, lifecycle: fixture.lifecycle, sessionArchives: { fixture.archiveStore }, creationPending: { _ in false })
                         case "Checkouts": List { CheckoutRecoverySection(recovery: fixture.recovery, showsArchived: true) }.navigationTitle("Checkout Recovery")
                         case "Health": ProductionHealthSheet(lifecycle: fixture.lifecycle, isPresented: .constant(true), loadsRemote: false, reportOverride: fixture.health)
                         default: RecentSessionsView(viewModel: fixture.sessions)
@@ -26,13 +26,15 @@ struct OperatorWorkspaceUITestFixture: View {
                 }
             } else if !failure.isEmpty { Text(failure) }
             else { ProgressView("Preparing synthetic records…") }
-        }.task {
+        }.environment(\.dynamicTypeSize, ProcessInfo.processInfo.arguments.contains("--fixture-accessibility") ? .accessibility2 : .large)
+        .task {
             guard fixture == nil else { return }
             do { fixture = try await Fixture() } catch { failure = "Synthetic fixture could not be prepared." }
         }
     }
 
     @MainActor private struct Fixture {
+        let archiveStore: RecentSessionArchiveStore
         let sessions: RecentSessionsViewModel
         let workspace: OperatorWorkspace
         let runs: EventRunStore
@@ -41,16 +43,31 @@ struct OperatorWorkspaceUITestFixture: View {
         let lifecycle: EventLifecycleCoordinator
         let health: ProductionHealthReport
         init() async throws {
-            let root = FileManager.default.temporaryDirectory.appendingPathComponent("V41UITest-" + UUID().uuidString)
+            let args = ProcessInfo.processInfo.arguments
+            let fixtureID = args.firstIndex(of: "--fixture-id").flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil } ?? UUID().uuidString
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("V41UITest-" + fixtureID.filter { $0.isLetter || $0.isNumber || $0 == "-" })
+            let seedMarker = root.appendingPathComponent("seeded")
+            let seeded = FileManager.default.fileExists(atPath: seedMarker.path)
+            let activeGuest = args.contains("--fixture-active-guest")
             let store = try RecentSessionArchiveStore(directoryURL: root.appendingPathComponent("archive"))
+            archiveStore = store
             let proofs = try GalleryVerificationStore(directory: root.appendingPathComponent("proof"))
-            for index in 0..<2 {
+            for index in 0..<(seeded || args.contains("--fixture-empty") ? 0 : args.contains("--fixture-many-sessions") ? 8 : 2) {
                 let format = UIGraphicsImageRendererFormat(); format.scale = 1
                 let photo = UIGraphicsImageRenderer(size: CGSize(width: 900, height: 1200), format: format).image { context in
-                    UIColor.systemTeal.setFill(); context.fill(CGRect(x: 0, y: 0, width: 900, height: 1200))
-                    "SYNTHETIC PHOTO \(index + 1)".draw(at: CGPoint(x: 70, y: 500), withAttributes: [.font: UIFont.boldSystemFont(ofSize: 52), .foregroundColor: UIColor.white])
+                    let colors: [UIColor] = [.init(red: 0.36, green: 0.58, blue: 0.54, alpha: 1), .init(red: 0.74, green: 0.47, blue: 0.40, alpha: 1), .init(red: 0.48, green: 0.47, blue: 0.64, alpha: 1), .init(red: 0.70, green: 0.57, blue: 0.36, alpha: 1)]
+                    colors[index % colors.count].setFill(); context.fill(CGRect(x: 0, y: 0, width: 900, height: 1200))
+                    UIColor.white.withAlphaComponent(0.12).setFill()
+                    for stripe in 0..<6 { context.fill(CGRect(x: stripe * 180 - 100, y: 0, width: 60, height: 1200)) }
+                    UIColor(red: 0.23, green: 0.29, blue: 0.32, alpha: 1).setFill()
+                    UIBezierPath(ovalIn: CGRect(x: 170, y: 640, width: 560, height: 620)).fill()
+                    UIColor(red: 0.95, green: 0.78, blue: 0.62, alpha: 1).setFill()
+                    UIBezierPath(ovalIn: CGRect(x: 300, y: 320, width: 300, height: 380)).fill()
+                    UIColor(red: 0.20, green: 0.18, blue: 0.19, alpha: 1).setFill()
+                    UIBezierPath(ovalIn: CGRect(x: 280, y: 270, width: 340, height: 160)).fill()
+                    "SYNTHETIC SAMPLE \(index + 1)".draw(at: CGPoint(x: 60, y: 1080), withAttributes: [.font: UIFont.boldSystemFont(ofSize: 42), .foregroundColor: UIColor.white])
                 }
-                let token = String(repeating: index == 0 ? "a" : "b", count: 64)
+                let token = index < 2 ? String(repeating: index == 0 ? "a" : "b", count: 64) : String(format: "%064x", index)
                 let url = URL(string: "https://synthetic.example.test/?g=\(token)")!
                 let id = "PP-20261025-12000\(index)-" + UUID().uuidString.lowercased()
                 FixtureGalleryProtocol.sessionIDs[token] = id
@@ -74,7 +91,10 @@ struct OperatorWorkspaceUITestFixture: View {
             sessions = RecentSessionsViewModel(store: store, verificationStore: proofs, recheckSession: URLSession(configuration: config), photosWriter: FixturePhotosWriter(),
                 managementAuthorized: { true }, mediaDeletionInspector: { try SessionMediaOperations.sessionDeletionDecision($0, checkpoints: checkpoints, outbox: outbox, recoveryStore: recoveryStore, pendingStore: pending) })
             sessions.refresh()
-            for index in 0..<3 {
+            for summary in try store.summaries() {
+                FixtureGalleryProtocol.sessionIDs[summary.archiveID] = summary.sessionIdentifier
+            }
+            for index in 0..<(seeded ? 0 : 3) {
                 let id = "synthetic-checkout-\(index)"
                 try checkpoints.begin(.init(id: id, environment: "test", eventID: "synthetic-event", policyRevisionID: "synthetic-policy", unitPriceCentavos: 5000,
                     copies: 1, format: "solo", method: "QRPH", phase: .awaitingProvider, createdAt: Date(), updatedAt: Date()))
@@ -86,11 +106,29 @@ struct OperatorWorkspaceUITestFixture: View {
             await recovery.refresh()
             runs = EventRunStore(directory: root.appendingPathComponent("runs"), authorized: { true }, blockingReason: { nil })
             workspace = OperatorWorkspace(directory: root.appendingPathComponent("workspace"))
-            library = EventDesignLibraryStore(directory: root.appendingPathComponent("designs"), legacyProfile: { .pocketPixelsDefault }, legacyName: { "" }, operationAuthorized: { true }, operationBlockingReason: { nil })
-            _ = try library.create(name: "Unused Test Setup", venue: "")
-            let used = try library.create(name: "Garden Celebration", venue: "Synthetic venue")
-            _ = try runs.createHistoricalRun(name: "Garden Celebration", designID: used.id, startedAt: Date().addingTimeInterval(-3600), endedAt: Date())
-            lifecycle = EventLifecycleCoordinator(runs: runs, authorized: { true }, blockingReason: { nil }, recoveryReason: { nil }, source: { .localPrepaid })
+            var rejectsDesignWrites = false
+            library = EventDesignLibraryStore(directory: root.appendingPathComponent("designs"), write: { data, url in
+                if rejectsDesignWrites && args.contains("--fixture-storage-failure") { throw CocoaError(.fileWriteOutOfSpace) }
+                try DurableFileWriter.write(data, to: url)
+            }, legacyProfile: { .pocketPixelsDefault }, legacyName: { "" }, operationAuthorized: { true }, operationBlockingReason: { activeGuest ? "Finish the active guest first." : nil })
+            if !seeded {
+                var unused = try library.create(name: "Unused Test Setup", venue: "")
+                unused.createdAt = Date().addingTimeInterval(-7200); try library.save(unused)
+                let used = try library.create(name: "Garden Celebration", venue: "Synthetic venue")
+                _ = try runs.createHistoricalRun(name: "Garden Celebration", designID: used.id, startedAt: Date().addingTimeInterval(-3600), endedAt: Date())
+                if args.contains("--fixture-applied") || activeGuest {
+                    try library.recordApplied(eventModeEnabled: true, eventID: used.id)
+                    if activeGuest { _ = try runs.startNewRun(context: .init(designID: used.id, commercialEventID: nil, serverBinding: nil, name: used.displayName)) }
+                }
+                try Data("synthetic fixture only".utf8).write(to: seedMarker)
+            }
+            rejectsDesignWrites = true
+            let acceptance = SessionAcceptanceStore(directory: root)
+            let fixtureLibrary = library
+            lifecycle = EventLifecycleCoordinator(runs: runs, acceptance: acceptance, authorized: { true },
+                blockingReason: { activeGuest ? "Finish the active guest first." : nil }, recoveryReason: { nil }, source: { .localPrepaid },
+                appliedContext: { .init(designID: fixtureLibrary.library.appliedEventID, commercialEventID: nil, serverBinding: nil, name: "Synthetic") },
+                applyRegularConfiguration: { try fixtureLibrary.recordApplied(eventModeEnabled: false, eventID: nil) })
             health = ProductionHealthReport(.init(admissionOpen: true, eventStatus: .regular, runID: nil, runStatus: nil, paid: false,
                 commercialEventID: nil, commercial: .notNeeded, lastEventCheck: nil, paymentsConfigured: false, environment: nil,
                 printerRequiresRecovery: false, unresolvedPrint: false, printerLastReported: "Not checked", printAccountingConflicts: 0, printAccountingPending: 0,
@@ -101,8 +139,11 @@ struct OperatorWorkspaceUITestFixture: View {
 }
 
 private struct FixturePhotosWriter: PhotosLibraryWriting {
-    func requestAddAccess() async -> Bool { false }
-    func save(files: [URL]) async throws { throw MediaExportError.permission }
+    func requestAddAccess() async -> Bool { ProcessInfo.processInfo.arguments.contains("--fixture-photos-success") }
+    func save(files: [URL]) async throws {
+        guard ProcessInfo.processInfo.arguments.contains("--fixture-photos-success") else { throw MediaExportError.permission }
+        // Deliberately no Photos transaction: all UI acceptance stays within synthetic storage.
+    }
 }
 private struct FixtureRecoveryReader: CheckoutRecoveryReading {
     let environment = "test"

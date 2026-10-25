@@ -1,5 +1,33 @@
 import SwiftUI
 
+struct OperatorActionFeedback: Identifiable, Equatable {
+    let id = UUID()
+    let message: String
+    var isError = false
+}
+
+/// Success clears after six seconds; actionable failures stay until explicitly dismissed.
+struct OperatorFeedbackBanner: View {
+    let feedback: OperatorActionFeedback
+    let dismiss: () -> Void
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: feedback.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                .foregroundStyle(feedback.isError ? OperatorPalette.danger : OperatorPalette.ink)
+            Text(feedback.message).font(.callout).frame(maxWidth: .infinity, alignment: .leading)
+            Button(action: dismiss) { Image(systemName: "xmark").frame(width: 44, height: 44) }
+                .accessibilityLabel("Dismiss message").buttonStyle(.plain)
+        }
+        .padding(.leading, 16).padding(.vertical, 6)
+        .background(OperatorPalette.surface, in: RoundedRectangle(cornerRadius: 14))
+        .accessibilityElement(children: .contain).accessibilityAddTraits(.updatesFrequently)
+        .task(id: feedback.id) {
+            guard !feedback.isError else { return }
+            do { try await Task.sleep(for: .seconds(6)); dismiss() } catch { }
+        }
+    }
+}
+
 /// One authenticated workspace and one detail stack. Resizing never replaces the stack or drafts.
 struct OperatorWorkspaceView: View {
     @Environment(\.dismiss) private var dismiss
@@ -63,7 +91,7 @@ struct OperatorWorkspaceView: View {
             }
         }
         .background(OperatorPalette.canvas)
-        .tint(OperatorPalette.accent)
+        .tint(OperatorPalette.ink)
         .environment(\.colorScheme, .light)
     }
 
@@ -98,7 +126,7 @@ struct OperatorWorkspaceView: View {
         case .home: OperatorDashboardView(lifecycle: lifecycle, workspace: workspace, loadsRemote: loadsRemote)
         case .booth: RegularBoothSettingsView(workspace: workspace)
         case .sessions: RecentSessionsView(viewModel: sessions)
-        case .events: OperatorEventsView(workspace: workspace, runs: lifecycle.runs)
+        case .events: OperatorEventsView(workspace: workspace, runs: lifecycle.runs, lifecycle: lifecycle)
         case .reports: EventRunReportingView(store: lifecycle.runs, loadsRemote: loadsRemote, workspace: workspace)
         case .system: OperatorEquipmentView()
         }
@@ -118,7 +146,7 @@ struct OperatorWorkspaceView: View {
                     }
                     .frame(maxWidth: .infinity, minHeight: 48)
                     .padding(.horizontal, vertical ? 14 : 6)
-                    .foregroundStyle(selected ? OperatorPalette.accent : OperatorPalette.ink)
+                    .foregroundStyle(selected ? OperatorPalette.ink : OperatorPalette.ink)
                     .background(selected ? OperatorPalette.selected : .clear, in: RoundedRectangle(cornerRadius: 10))
                     .contentShape(Rectangle())
                 }
@@ -145,26 +173,53 @@ struct OperatorEventsView: View {
     @State private var showsArchived = false
     @State private var deletionDesignID: String?
     @State private var deletionRunID: String?
-    @State private var managementMessage = ""
+    @State private var feedback: OperatorActionFeedback?
+    @State private var managementError: String?
+    @State private var confirmsRegular = false
+    @StateObject private var lifecycle: EventLifecycleCoordinator
+    private let creationPending: @MainActor (String) -> Bool
+    private let sessionArchives: () throws -> RecentSessionArchiveStore
 
-    init(workspace: OperatorWorkspace, runs: EventRunStore, library: EventDesignLibraryStore = .shared) {
+    init(workspace: OperatorWorkspace, runs: EventRunStore, library: EventDesignLibraryStore = .shared,
+         lifecycle: EventLifecycleCoordinator? = nil,
+         sessionArchives: @escaping () throws -> RecentSessionArchiveStore = { try RecentSessionArchiveStore() },
+         creationPending: @escaping @MainActor (String) -> Bool = { id in
+             CommercialEventCreationStore.shared.intents.contains { $0.isOpen && $0.designID == id }
+         }) {
         self.workspace = workspace; self.runs = runs; _library = ObservedObject(wrappedValue: library)
+        _lifecycle = StateObject(wrappedValue: lifecycle ?? EventLifecycleCoordinator(runs: runs))
+        self.creationPending = creationPending
+        self.sessionArchives = sessionArchives
     }
-    private func manage(_ action: () throws -> Void) {
-        do { try action(); managementMessage = "Saved." }
-        catch { managementMessage = error.localizedDescription }
+    private func manage(_ success: String, _ action: () throws -> Void) {
+        do { try action(); feedback = .init(message: success) }
+        catch { managementError = error.localizedDescription }
     }
     private func deleteDesign(_ id: String) {
-        manage {
-            let archives = try RecentSessionArchiveStore().summaries(includePayloadSize: false)
-            try library.deleteUnusedDesign(id: id, runs: runs.runs, archives: archives, historyAvailable: !runs.historyUnreadable, deletedSessions: try RecentSessionArchiveStore().deletedSessionEvidence())
+        manage("Saved design removed. Event history, customer media and financial records are kept.") {
+            try library.removeSavedDesign(id: id, runs: runs.runs, historyAvailable: !runs.historyUnreadable && runs.pendingTransition == nil,
+                pendingCreation: creationPending(id))
         }
     }
     private func deleteRun(_ id: String) {
-        manage {
-            let archives = try RecentSessionArchiveStore().summaries(includePayloadSize: false)
-            try runs.deleteUnusedRun(id: id, archives: archives, inspectionComplete: !runs.historyUnreadable)
+        manage("Unused local run deleted.") {
+            let store = try sessionArchives()
+            try runs.deleteUnusedRun(id: id, archives: store.summaries(includePayloadSize: false), inspectionComplete: !runs.historyUnreadable,
+                deletedSessions: store.deletedSessionEvidence())
         }
+    }
+
+    private func performRegularTransition() {
+        Task {
+            let succeeded: Bool
+            if runs.current != nil { succeeded = await lifecycle.end(scope: .thisBooth) }
+            else { succeeded = await lifecycle.returnToRegular() }
+            feedback = .init(message: lifecycle.message, isError: !succeeded)
+        }
+    }
+
+    private func designRemovalTitle(_ design: SavedEventDesign) -> String {
+        design.hasCommercialHistory || runs.runs.contains(where: { $0.context.designID == design.id }) ? "Remove Saved Design" : "Delete Event"
     }
 
     var body: some View {
@@ -180,6 +235,10 @@ struct OperatorEventsView: View {
                     .frame(minHeight: 52)
                 }
                 NavigationLink(value: OperatorWorkspaceRoute.sessionSetup) { Label("Review Current Setup", systemImage: "checklist") }
+                if library.library.appliedEventID != nil || runs.current != nil {
+                    Button(runs.operational == nil ? "Switch to Regular Booth" : "End Event on This iPad") { confirmsRegular = true }
+                        .buttonStyle(.bordered).frame(minHeight: 44)
+                }
             }
             Section {
                 NavigationLink(value: OperatorWorkspaceRoute.newEvent) { Label("Start Event", systemImage: "plus.circle") }
@@ -187,7 +246,7 @@ struct OperatorEventsView: View {
                     Label("Saved Drafts · \(SavedDraftCatalog.entries(workspace: workspace, library: library.library).count)", systemImage: "doc.text")
                 }
             } footer: { Text("Setup is staged. Guests keep their current configuration until an explicit Review & Start.") }
-            Section("Saved Events") {
+            Section("Saved Event Designs") {
                 Toggle("Show Archived Events", isOn: $showsArchived)
                 ForEach(library.library.events.filter { showsArchived || $0.archivedAt == nil }.sorted { $0.updatedAt > $1.updatedAt }) { event in
                     HStack {
@@ -202,14 +261,14 @@ struct OperatorEventsView: View {
                             NavigationLink("Edit", value: OperatorWorkspaceRoute.savedEvent(event.id))
                             NavigationLink("View History", value: OperatorWorkspaceRoute.eventHistory)
                             if event.archivedAt == nil {
-                                Button("Archive") { manage { try library.archiveDesign(id: event.id) } }
+                                Button("Archive") { manage("Design archived. History is kept.") { try library.archiveDesign(id: event.id) } }
                             } else {
-                                Button("Restore") { manage { try library.restoreDesign(id: event.id) } }
+                                Button("Restore") { manage("Design restored to the reusable library.") { try library.restoreDesign(id: event.id) } }
                             }
-                            Button("Delete Permanently", role: .destructive) { deletionDesignID = event.id }
+                            Button(designRemovalTitle(event), role: .destructive) { deletionDesignID = event.id }
                         } label: { Label("Manage", systemImage: "ellipsis.circle").frame(minWidth: 44, minHeight: 44) }
-                        .buttonStyle(.borderless)
-                    }
+                        .buttonStyle(.borderless).accessibilityIdentifier("manage-design-\(event.id)").accessibilityLabel("Manage \(event.displayName)")
+                    }.accessibilityIdentifier("saved-design-\(event.id)")
                 }
                 NavigationLink("Event History & Earlier Sessions", value: OperatorWorkspaceRoute.eventHistory)
                 NavigationLink("Manage Saved Events & Archived Designs", value: OperatorWorkspaceRoute.eventLibrary)
@@ -224,14 +283,15 @@ struct OperatorEventsView: View {
                         Spacer()
                         Menu {
                             NavigationLink("View History", value: OperatorWorkspaceRoute.eventHistory)
-                            Button("Archive Run") { manage { try runs.transition(id: run.id, to: .archived) } }
+                            if run.status == .archived {
+                                Button("Restore Run") { manage("Run restored to history.") { try runs.restoreArchivedRun(id: run.id) } }
+                            } else { Button("Archive Run") { manage("Run archived. Reports are kept.") { try runs.transition(id: run.id, to: .archived) } } }
                             Button("Delete Unused Local Run", role: .destructive) { deletionRunID = run.id }
                         } label: { Label("Manage", systemImage: "ellipsis.circle").frame(minWidth: 44, minHeight: 44) }
                         .buttonStyle(.borderless)
                     }
                 }
-                Text("Local cleanup keeps server-managed commercial events and financial history. Used designs and runs can be archived.").font(.footnote).foregroundStyle(.secondary)
-                if !managementMessage.isEmpty { Text(managementMessage).font(.callout) }
+                Text("Saved designs are reusable configurations. Local runs are historical occurrences. Removing a design keeps reports, receipts and server-managed commercial events.").font(.footnote).foregroundStyle(.secondary)
             }
             Section("Guest Experience") {
                 NavigationLink(value: OperatorWorkspaceRoute.branding) { Label("Event Customization", systemImage: "paintpalette") }
@@ -241,10 +301,25 @@ struct OperatorEventsView: View {
             if let error = runs.storageError { Section { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.danger) } }
             if let error = library.storageError { Section { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.danger) } }
         }
-        .confirmationDialog("Delete this unused local event design?", isPresented: Binding(get: { deletionDesignID != nil }, set: { if !$0 { deletionDesignID = nil } }), titleVisibility: .visible) {
-            Button("Delete Permanently", role: .destructive) { if let id = deletionDesignID { deleteDesign(id) }; deletionDesignID = nil }
+        .safeAreaInset(edge: .top) {
+            if let feedback { OperatorFeedbackBanner(feedback: feedback) { self.feedback = nil }.padding(.horizontal).padding(.top, 8) }
+        }
+        .alert("Event action could not finish", isPresented: Binding(get: { managementError != nil }, set: { if !$0 { managementError = nil } })) {
+            if library.library.appliedEventID != nil || runs.operational != nil {
+                Button(runs.operational == nil ? "Switch to Regular Booth" : "End Event on This iPad", role: .destructive) { performRegularTransition() }
+            }
+            Button("OK", role: .cancel) { managementError = nil }
+        } message: { Text(managementError ?? "") }
+        .confirmationDialog("Remove \(library.design(id: deletionDesignID)?.displayName ?? "saved design")?", isPresented: Binding(get: { deletionDesignID != nil }, set: { if !$0 { deletionDesignID = nil } }), titleVisibility: .visible) {
+            Button("Remove Saved Design", role: .destructive) { if let id = deletionDesignID { deleteDesign(id) }; deletionDesignID = nil }
             Button("Cancel", role: .cancel) { deletionDesignID = nil }
-        } message: { Text("Eligibility is checked again before removal. Designs with applied, commercial or session history must be archived. No payment-server event is deleted.") }
+        } message: { Text("Removes the reusable local configuration. Its historical name and identity, event runs, customer media, prints and financial records are kept. No server event is deleted.") }
+        .confirmationDialog(runs.operational == nil ? "Switch to Regular Booth?" : "End Event on This iPad?", isPresented: $confirmsRegular, titleVisibility: .visible) {
+            Button("Switch to Regular Booth", role: .destructive) {
+                performRegularTransition()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: { Text("Guest admission and unfinished receipts are checked again. This iPad returns to Regular Booth; other booths, event history and payments are kept. Remove the saved design afterward.") }
         .confirmationDialog("Delete this unused local run?", isPresented: Binding(get: { deletionRunID != nil }, set: { if !$0 { deletionRunID = nil } }), titleVisibility: .visible) {
             Button("Delete Unused Local Run", role: .destructive) { if let id = deletionRunID { deleteRun(id) }; deletionRunID = nil }
             Button("Cancel", role: .cancel) { deletionRunID = nil }
