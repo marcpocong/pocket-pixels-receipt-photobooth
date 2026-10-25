@@ -350,9 +350,13 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
         return nil
     }
 
-    func deleteUnusedDesign(id: String, runs: [EventRunRecord], archives: [RecentSessionArchiveSummary], historyAvailable: Bool) throws {
+    func deleteUnusedDesign(id: String, runs: [EventRunRecord], archives: [RecentSessionArchiveSummary], historyAvailable: Bool, deletedSessions: [RecentSessionArchiveStore.DeletedSessionEvidence]? = nil) throws {
         guard operationAuthorized() else { throw PaymentsAPIError.unauthorized }
         if let reason = operationBlockingReason() { throw SetupFailure(reason) }
+        let deleted = try deletedSessions ?? RecentSessionArchiveStore().deletedSessionEvidence()
+        if deleted.contains(where: { $0.eventDesignID == id || ($0.eventDesignID == nil && $0.createdAt >= (design(id: id)?.createdAt ?? .distantPast)) }) {
+            throw SetupFailure("Local session media was removed, but this design has historical use. Archive it instead.")
+        }
         if let reason = deletionIneligibility(id: id, runs: runs, archives: archives, historyAvailable: historyAvailable) { throw SetupFailure(reason) }
         guard historyAvailable, !archives.contains(where: { $0.rasterFingerprint == "CORRUPT" }) else { throw SetupFailure("Recover unreadable event history before deleting a design. Archiving retains all dependencies.") }
         guard let design = design(id: id) else { throw SetupFailure("Design not found.") }

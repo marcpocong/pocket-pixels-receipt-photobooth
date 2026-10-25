@@ -24,6 +24,7 @@
 		49010BBE30435BC500D6BB84 /* PocketPixelsBooth.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PocketPixelsBooth.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		498E48F13046934400FB5DDE /* PocketPixelsTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketPixelsTheme.swift; sourceTree = "<group>"; };
 		A80000000000000000000002 /* PocketPixelsBoothTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PocketPixelsBoothTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B41000000000000000000002 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = PocketPixelsBoothUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -50,6 +51,7 @@
 			path = PocketPixelsBoothTests;
 			sourceTree = "<group>";
 		};
+		B41000000000000000000003 = {isa = PBXFileSystemSynchronizedRootGroup; path = PocketPixelsBoothUITests; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -67,6 +69,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B41000000000000000000005 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -75,6 +78,7 @@
 			children = (
 				49010BC030435BC500D6BB84 /* PocketPixelsBooth */,
 				A80000000000000000000003 /* PocketPixelsBoothTests */,
+				B41000000000000000000003 /* PocketPixelsBoothUITests */,
 				49010BBF30435BC500D6BB84 /* Products */,
 				498E48F13046934400FB5DDE /* PocketPixelsTheme.swift */,
 			);
@@ -85,6 +89,7 @@
 			children = (
 				49010BBE30435BC500D6BB84 /* PocketPixelsBooth.app */,
 				A80000000000000000000002 /* PocketPixelsBoothTests.xctest */,
+				B41000000000000000000002 /* PocketPixelsBoothUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -135,6 +140,18 @@
 			productReference = A80000000000000000000002 /* PocketPixelsBoothTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		B41000000000000000000001 = {
+            isa = PBXNativeTarget;
+            buildConfigurationList = B4100000000000000000000B;
+            buildPhases = (B41000000000000000000004, B41000000000000000000005, B41000000000000000000006);
+            buildRules = ();
+            dependencies = (A80000000000000000000008);
+            fileSystemSynchronizedGroups = (B41000000000000000000003);
+            name = PocketPixelsBoothUITests;
+            productName = PocketPixelsBoothUITests;
+            productReference = B41000000000000000000002;
+            productType = "com.apple.product-type.bundle.ui-testing";
+        };
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -148,6 +165,7 @@
 					49010BBD30435BC500D6BB84 = {
 						CreatedOnToolsVersion = 26.6;
 					};
+					B41000000000000000000001 = {CreatedOnToolsVersion = 27.1; TestTargetID = 49010BBD30435BC500D6BB84; };
 					A80000000000000000000001 = {
 						CreatedOnToolsVersion = 26.6;
 						TestTargetID = 49010BBD30435BC500D6BB84;
@@ -168,6 +186,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+				B41000000000000000000001,
 				A80000000000000000000001 /* PocketPixelsBoothTests */,
 				49010BBD30435BC500D6BB84 /* PocketPixelsBooth */,
 			);
@@ -189,6 +208,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B41000000000000000000006 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -207,6 +227,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B41000000000000000000004 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -484,6 +505,38 @@
 			};
 			name = Release;
 		};
+        B41000000000000000000009 = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                CODE_SIGN_STYLE = Automatic;
+                GENERATE_INFOPLIST_FILE = YES;
+                IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+                PRODUCT_BUNDLE_IDENTIFIER = com.pocketpixels.PocketPixelsBoothUITests;
+                PRODUCT_NAME = "$(TARGET_NAME)";
+                SDKROOT = iphoneos;
+                SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+                SWIFT_VERSION = 5.0;
+                TARGETED_DEVICE_FAMILY = 2;
+                TEST_TARGET_NAME = PocketPixelsBooth;
+            };
+            name = Debug;
+        };
+        B4100000000000000000000A = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                CODE_SIGN_STYLE = Automatic;
+                GENERATE_INFOPLIST_FILE = YES;
+                IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+                PRODUCT_BUNDLE_IDENTIFIER = com.pocketpixels.PocketPixelsBoothUITests;
+                PRODUCT_NAME = "$(TARGET_NAME)";
+                SDKROOT = iphoneos;
+                SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+                SWIFT_VERSION = 5.0;
+                TARGETED_DEVICE_FAMILY = 2;
+                TEST_TARGET_NAME = PocketPixelsBooth;
+            };
+            name = Release;
+        };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -514,6 +567,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+        B4100000000000000000000B = {isa = XCConfigurationList; buildConfigurations = (B41000000000000000000009, B4100000000000000000000A); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 	};
 	rootObject = 49010BB630435BC500D6BB84 /* Project object */;

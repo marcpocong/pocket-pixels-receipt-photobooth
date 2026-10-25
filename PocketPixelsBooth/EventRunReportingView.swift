@@ -312,7 +312,7 @@ struct EventRunReportingView: View {
                 let rows = filteredRunSessions
                 if rows.isEmpty { Text(runSessions.isEmpty ? "No sessions recorded for this run." : "No sessions match these filters.").foregroundStyle(OperatorPalette.secondaryText) }
                 ForEach(rows) { session in
-                    if let archive = archives.first(where: { $0.sessionIdentifier == session.sessionID && $0.eventRunID == selected.id }) {
+                    if let archive = archives.first(where: { $0.sessionIdentifier == session.sessionID && $0.eventRunID == selected.id && !$0.mediaRemoved }) {
                         NavigationLink {
                             ArchivedSessionDetailView(summary: archive, rootViewModel: archiveModel)
                         } label: {
@@ -446,6 +446,7 @@ struct EventRunReportingView: View {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text("\(archive.createdAt.formatted(date: .omitted, time: .shortened)) · \(archive.format.displayName)")
                                             .foregroundStyle(MadeToKeepTheme.ColorPalette.ink)
+                                        if archive.mediaRemoved { Text("Local media removed · historical activity retained").font(.caption).foregroundStyle(OperatorPalette.secondaryText) }
                                         Text(archive.eventName.flatMap { $0.isEmpty ? nil : "Receipt: \($0)" } ?? "No receipt event name").font(.caption).foregroundStyle(OperatorPalette.secondaryText)
                                     }
                                 }
@@ -550,7 +551,7 @@ struct EventRunReportingView: View {
             await store.reconcilePrintEvidence(entries)
             let loaded = try await Task.detached { try EventRunStore.loadSessions(directory: directory) }.value
             let archiveDirectory = archiveDirectory
-            let saved = try await Task.detached { try RecentSessionArchiveStore(directoryURL: archiveDirectory).summaries() }.value
+            let saved = try await Task.detached { try RecentSessionArchiveStore(directoryURL: archiveDirectory).reportingSummaries() }.value
             guard !Task.isCancelled else { return }
             sessions = loaded; archives = saved; localError = nil; loading = false
             archiveModel.refresh()

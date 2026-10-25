@@ -41,9 +41,15 @@ enum CameraServiceEvent {
     case runtimeError(String, shouldRestart: Bool)
 }
 
+struct CameraCapture {
+    let image: UIImage
+    let encodedData: Data
+}
+
 final class CameraService: NSObject {
     typealias Completion = (Result<Void, CameraServiceError>) -> Void
     typealias PhotoCompletion = (Result<UIImage, CameraServiceError>) -> Void
+    typealias CaptureCompletion = (Result<CameraCapture, CameraServiceError>) -> Void
     typealias MessageHandler = (String) -> Void
     typealias EventHandler = (CameraServiceEvent) -> Void
 
@@ -142,6 +148,10 @@ final class CameraService: NSObject {
     }
 
     func capturePhoto(completion: @escaping PhotoCompletion) {
+        captureOriginalPhoto { completion($0.map(\.image)) }
+    }
+
+    func captureOriginalPhoto(completion: @escaping CaptureCompletion) {
         sessionQueue.async {
             guard !self.isCaptureInProgress else {
                 self.completePhotoOnMain(.failure(.captureInProgress), completion: completion)
@@ -354,7 +364,7 @@ final class CameraService: NSObject {
         }
     }
 
-    private func completePhotoOnMain(_ result: Result<UIImage, CameraServiceError>, completion: @escaping PhotoCompletion) {
+    private func completePhotoOnMain(_ result: Result<CameraCapture, CameraServiceError>, completion: @escaping CaptureCompletion) {
         DispatchQueue.main.async {
             completion(result)
         }
@@ -362,9 +372,9 @@ final class CameraService: NSObject {
 }
 
 private final class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate {
-    private let completion: (Result<UIImage, CameraServiceError>) -> Void
+    private let completion: (Result<CameraCapture, CameraServiceError>) -> Void
 
-    init(completion: @escaping (Result<UIImage, CameraServiceError>) -> Void) {
+    init(completion: @escaping (Result<CameraCapture, CameraServiceError>) -> Void) {
         self.completion = completion
     }
 
@@ -384,6 +394,6 @@ private final class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegat
             return
         }
 
-        completion(.success(image))
+        completion(.success(CameraCapture(image: image, encodedData: data)))
     }
 }

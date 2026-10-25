@@ -59,6 +59,12 @@ actor SessionThumbnailCache {
         tick &+= 1; entries[key] = Entry(image: image, cost: cost, used: tick); bytes += cost
         return image
     }
+    func remove(archiveID: String) {
+        generation &+= 1
+        for key in entries.keys.filter({ $0.hasPrefix(archiveID + "/") }) {
+            if let removed = entries.removeValue(forKey: key) { bytes -= removed.cost }
+        }
+    }
     func removeAll() { generation &+= 1; entries.removeAll(); bytes = 0 }
     func statistics() -> Statistics { Statistics(count: entries.count, bytes: bytes, hits: hits, misses: misses) }
 }

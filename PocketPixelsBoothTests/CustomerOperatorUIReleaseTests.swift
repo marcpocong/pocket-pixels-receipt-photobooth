@@ -184,7 +184,7 @@ final class CustomerOperatorUIReleaseTests: XCTestCase {
                                         metrics: GalleryPreparedUploadMetrics(files: [], totalDecodedBytes: 0, estimatedBase64JSONBytes: 0), payloadSizeBytes: 0, retryAttemptCount: 0, lastAttemptAt: nil, lastSafeError: nil)
         }
         XCTAssertEqual(ArchivedGalleryStatus.resolve(linkIsValid: true, pendingItem: pending(.notStarted), verifiedAt: nil), .waiting("Waiting to upload"))
-        XCTAssertEqual(ArchivedGalleryStatus.resolve(linkIsValid: true, pendingItem: pending(.posted), verifiedAt: nil), .waiting("Posted; awaiting delivery confirmation"))
+        XCTAssertEqual(ArchivedGalleryStatus.resolve(linkIsValid: true, pendingItem: pending(.posted), verifiedAt: nil), .uploading)
         XCTAssertEqual(ArchivedGalleryStatus.resolve(linkIsValid: true, pendingItem: pending(.deliveryUnknown), verifiedAt: nil), .needsAttention("Delivery unknown; retry safely"))
         // A queued item outranks an older verification: the queue is the live truth.
         XCTAssertEqual(ArchivedGalleryStatus.resolve(linkIsValid: true, pendingItem: pending(.notStarted), verifiedAt: Date()), .waiting("Waiting to upload"))
@@ -327,7 +327,7 @@ final class CustomerOperatorUIReleaseTests: XCTestCase {
         XCTAssertEqual(RecentSessionArchiveStore.rasterFingerprint(for: after.rasterizedImage), before.summary.rasterFingerprint)
     }
 
-    func testZoomViewerToolbarFitsWithAVeryTallReceipt() async throws {
+    func testGestureOnlyZoomViewerFitsWithAVeryTallReceipt() async throws {
         let image = tallReceipt(width: 576, height: 9_000)
         let view = OperatorZoomableReceiptView(image: image, rendering: .exactRaster).frame(width: 300, height: 560).padding()
         let rendered = try await ScreenshotHarness.render(view.background(Color.white), size: CGSize(width: 340, height: 620), scene: scene)

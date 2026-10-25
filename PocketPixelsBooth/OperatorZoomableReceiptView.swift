@@ -4,7 +4,7 @@
 //
 //  Display-only receipt inspector for operator screens. The whole receipt fits the viewport by
 //  default (top and bottom visible together, aspect preserved, no crop); pinch, pan, double-tap
-//  and Fit / 150 % / 200 % / 300 % / Reset presets inspect details. Percentages are relative to
+//  and accessibility adjustments inspect details. Zoom is relative to
 //  the Fit scale, so they behave the same for a short Solo and a very long Grid Six.
 //
 //  Zooming only changes a UIScrollView transform. It never re-renders, recomposes, rasterizes,
@@ -30,7 +30,6 @@ struct OperatorZoomableReceiptView: View {
 
     @StateObject private var controller = ZoomController()
 
-    static let presets: [CGFloat] = [1.5, 2, 3]
     static let maximumZoom: CGFloat = 4
 
     var body: some View {
@@ -41,8 +40,10 @@ struct OperatorZoomableReceiptView: View {
                 .overlay { RoundedRectangle(cornerRadius: 10).stroke(MadeToKeepTheme.ColorPalette.hairline) }
                 .accessibilityElement()
                 .accessibilityLabel(accessibilityLabel)
+                .accessibilityIdentifier("operator-receipt-preview")
                 .accessibilityValue("Zoom \(controller.percentText)")
                 .accessibilityHint("Pinch or double-tap to zoom. Swipe up or down with one finger to change zoom.")
+                .accessibilityAction(named: "Fit whole receipt") { controller.zoom(to: 1) }
                 .accessibilityAdjustableAction { direction in
                     switch direction {
                     case .increment: controller.zoom(to: min(Self.maximumZoom, controller.relativeZoom + 0.5))
@@ -50,52 +51,12 @@ struct OperatorZoomableReceiptView: View {
                     @unknown default: break
                     }
                 }
-            toolbar
         }
     }
 
-    private var toolbar: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 6) { toolbarContent }
-            ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 6) { toolbarContent } }
-        }
-    }
-
-    @ViewBuilder
-    private var toolbarContent: some View {
-        presetButton("Fit", relative: 1)
-        ForEach(Self.presets, id: \.self) { preset in
-            presetButton("\(Int(preset * 100))%", relative: preset)
-        }
-        Button {
-            controller.zoom(to: 1, animated: true)
-        } label: {
-            Label("Reset", systemImage: "arrow.counterclockwise")
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.large)
-        .accessibilityHint("Shows the whole receipt again.")
-        Text(controller.percentText)
-            .font(.footnote.monospacedDigit())
-            .foregroundStyle(.secondary)
-            .fixedSize()
-            .frame(minWidth: 44)
-            .accessibilityHidden(true)
-    }
-
-    private func presetButton(_ title: String, relative: CGFloat) -> some View {
-        let selected = abs(controller.relativeZoom - relative) < 0.02
-        return Button(title) { controller.zoom(to: relative, animated: true) }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .fixedSize()
-            .tint(selected ? MadeToKeepTheme.ColorPalette.burgundy : nil)
-            .accessibilityLabel(relative == 1 ? "Fit whole receipt" : "Zoom \(title)")
-            .accessibilityAddTraits(selected ? .isSelected : [])
-    }
 }
 
-/// Bridges SwiftUI buttons to the scroll view. Zoom is reported relative to the Fit scale.
+/// Bridges accessibility zoom adjustments to the scroll view. Zoom is reported relative to the Fit scale.
 @MainActor
 final class ZoomController: ObservableObject {
     @Published private(set) var relativeZoom: CGFloat = 1
@@ -167,6 +128,14 @@ final class ReceiptZoomScrollView: UIScrollView, UIScrollViewDelegate {
 
     func display(_ image: UIImage, rendering: OperatorZoomableReceiptView.Rendering) {
         self.rendering = rendering
+        // Restore a neutral UIKit zoom coordinate system before replacing image dimensions.
+        // The previous receipt may have had a maximum scale below 1 (a very long receipt).
+        let callback = onZoomChange
+        onZoomChange = nil
+        maximumZoomScale = max(1, maximumZoomScale)
+        minimumZoomScale = 1
+        setZoomScale(1, animated: false)
+        imageView.transform = .identity
         imageView.image = image
         imageView.layer.magnificationFilter = rendering == .exactRaster ? .nearest : .linear
         imageView.layer.minificationFilter = .trilinear
@@ -174,7 +143,14 @@ final class ReceiptZoomScrollView: UIScrollView, UIScrollViewDelegate {
         contentSize = image.size
         lastBoundsSize = .zero
         pendingRelative = 1
+        onZoomChange = callback
         setNeedsLayout()
+        // SwiftUI may be updating this representable. Publish the actual resulting zoom after
+        // that update rather than changing observable state from inside updateUIView.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.onZoomChange?(self.zoomScale / max(self.fitScale, 0.0001))
+        }
     }
 
     /// Fit = the largest scale at which the whole receipt is visible. Recomputed on rotation or

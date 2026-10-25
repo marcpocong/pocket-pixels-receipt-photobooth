@@ -1,0 +1,41 @@
+Payments
+ℹ tests 223
+ℹ suites 0
+ℹ pass 223
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 14731.452209
+
+Monitoring
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1676.159208
+
+Gallery proxy
+ℹ tests 39
+ℹ suites 0
+ℹ pass 39
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 300.417292
+
+Apps Script
+Grid 6 backend validation passed: existing counts, six filenames, upper bound, sixth image validation.
+Black & white receipt: smooth/new, historical raster derivation and schema-v1 checks passed.
+Made to Keep Studios gallery branding checks passed (v1, v2, pending, invalid, too large).
+Made to Keep customer gallery property precedence and host-independent rendering checks passed.
+Schema-v2 QR gallery GIF HTML and render-budget checks passed.
+Editorial collage, legacy receipt and concise UUID session reference checks passed.
+Receipt style schema matrix passed: 12 cases, invalid enums/assets/manifests and size rejection.
+Drive storage/retry contract passed: v1/v2/v3, missing files, partial repair, completed retry, metadata conflict and property-order independence.
+Fast upload schema 4/readiness passed: six footer/default cases, size rejection, no stored B&W, exact-file enforcement.
+Readiness integration passed: single folder scan, no image blob reads, unknown files rejected.

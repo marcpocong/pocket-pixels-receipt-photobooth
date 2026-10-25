@@ -14,6 +14,8 @@ import UIKit
 nonisolated enum ArchivedGalleryStatus: Equatable, Sendable {
     /// The public gallery page was fetched and confirmed complete for this session.
     case verified
+    case uploading
+    case unavailable
     /// Saved on this iPad and queued; the QR may not open the photos yet.
     case waiting(String)
     /// Queued, but the last attempt could not confirm delivery: an operator should retry.
@@ -26,22 +28,26 @@ nonisolated enum ArchivedGalleryStatus: Equatable, Sendable {
 
     var title: String {
         switch self {
-        case .verified: "Gallery ready"
-        case .waiting: "Waiting for upload"
-        case .needsAttention: "Needs attention"
-        case .unknown: "Delivery not verified"
-        case .invalidLink: "Gallery link unavailable"
+        case .uploading: "Uploading"
+        case .unavailable: "Gallery Unavailable"
+        case .verified: "Gallery Ready"
+        case .waiting: "Waiting for Upload"
+        case .needsAttention: "Needs Attention"
+        case .unknown: "Not Yet Verified"
+        case .invalidLink: "Invalid Gallery Link"
         }
     }
 
     var detail: String {
         switch self {
+        case .uploading: "Upload or public completion verification is in progress."
+        case .unavailable: "An authoritative check confirmed this original gallery is unavailable."
         case .verified:
             "The customer gallery was verified online. Scanning opens these photos."
         case .waiting(let detail):
             "\(detail). This is the original QR, but the photos may not be ready yet."
         case .needsAttention(let detail):
-            "\(detail). Photos are saved on this iPad; retry from Manage Gallery Upload."
+            "\(detail). The original link is unchanged; verify again or inspect any pending upload."
         case .unknown:
             "This iPad has no delivery confirmation for this session. The QR is the original link, but it may not be ready."
         case .invalidLink:
@@ -51,6 +57,8 @@ nonisolated enum ArchivedGalleryStatus: Equatable, Sendable {
 
     var systemImage: String {
         switch self {
+        case .uploading: "arrow.triangle.2.circlepath"
+        case .unavailable: "icloud.slash"
         case .verified: "checkmark.seal.fill"
         case .waiting: "arrow.up.circle"
         case .needsAttention: "exclamationmark.triangle.fill"
@@ -62,17 +70,19 @@ nonisolated enum ArchivedGalleryStatus: Equatable, Sendable {
     /// Short card label.
     var shortTitle: String {
         switch self {
-        case .verified: "Gallery ready"
-        case .waiting: "Gallery waiting"
-        case .needsAttention: "Gallery needs attention"
-        case .unknown: "Gallery unverified"
-        case .invalidLink: "No gallery link"
+        case .uploading: "Uploading"
+        case .unavailable: "Gallery Unavailable"
+        case .verified: "Gallery Ready"
+        case .waiting: "Waiting for Upload"
+        case .needsAttention: "Needs Attention"
+        case .unknown: "Not Yet Verified"
+        case .invalidLink: "Invalid Gallery Link"
         }
     }
 
     var isAttention: Bool {
         switch self {
-        case .needsAttention, .invalidLink: true
+        case .needsAttention, .invalidLink, .unavailable: true
         default: false
         }
     }
@@ -85,7 +95,8 @@ nonisolated enum ArchivedGalleryStatus: Equatable, Sendable {
         guard linkIsValid else { return .invalidLink }
         if let pendingItem {
             switch pendingItem.deliveryState {
-            case .notStarted, .posted:
+            case .posted: return .uploading
+            case .notStarted:
                 return .waiting(pendingItem.deliveryState.operatorTitle)
             case .deliveryUnknown:
                 return .needsAttention(pendingItem.deliveryState.operatorTitle)
