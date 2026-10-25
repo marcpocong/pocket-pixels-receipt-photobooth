@@ -1,0 +1,17 @@
+{
+  "runID": 40157370418,
+  "url": "https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/40157370418",
+  "head": "bf43ef28117654dd90fb43a73e79c878e2458ac4",
+  "source": "completed Production Gate job log",
+  "result": "Failed",
+  "xctestPassed": 730,
+  "swiftTestingPassed": 96,
+  "nativeUIPassed": 3,
+  "nativeUIFailed": 2,
+  "remainingFailures": [
+    "checkout Menu wrapper/native-child AX hit point",
+    "event Menu wrapper/native-child AX hit point"
+  ],
+  "receiptGestureRegression": "Passed",
+  "nextRepair": "Explicit borderless List menus; real touches inside fully visible enabled 44-point controls, retaining menu and cleanup assertions."
+}

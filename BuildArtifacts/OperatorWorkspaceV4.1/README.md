@@ -4,7 +4,7 @@ All media and records here are synthetic. The QR codes point to test domains wit
 
 See the [implementation and Carlo acceptance report](../../docs/operator-workspace-v4-1.md), [PR #18 delivery record](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/pull/18) and [final-head checks](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/pull/18/checks).
 
-Baseline main was `211c7e44b977e75f05410f0b845ba35809c8d5f5`, with [passing Production Gate](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/40115475524). Final implementation source is `16b19feb0577e90c9b37ea352c5ee441cc78b5bb`; evidence-only commits can follow it.
+Baseline main was `211c7e44b977e75f05410f0b845ba35809c8d5f5`, with [passing Production Gate](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/40115475524). Final implementation source is `159baccdde50d9d90236920940be1275aa397d3c`; evidence-only commits can follow it.
 
 ## Validation records
 
@@ -18,6 +18,10 @@ Baseline main was `211c7e44b977e75f05410f0b845ba35809c8d5f5`, with [passing Prod
 - `ci-first-head-failure.json`: the initial evidence-head gate passed 826 non-UI tests but failed three native UI targeting interactions (828 passed / 3 failed overall). Inspection showed covered/compound accessibility targets on the actual CI iOS 26.2 runtime. Hittable inspector/native-button targeting preserves all behavior assertions; subsequent final-head checks are authoritative.
 
 - `local-ui-compat-ios26.json` / `local-ui-compat-ios27.json`: all five revised native UI cases passed on both runtimes. The iOS 27 result collector delayed finalization and logged a diagnostic-collection timeout after the tests passed; xcodebuild completed successfully.
+
+- `ci-second-head-failure.json`: all 826 non-UI cases and the repaired receipt interaction passed; two List Menu hit-point queries still failed. The final repair isolates row menus with borderless styling and sends real center touches inside verified visible/enabled 44-point bounds, with the same behavior assertions.
+
+- `local-final-ui-awake.json`: final source, five native UI cases passed / zero failures or skips in about 98 seconds. The 13 focused cleanup tests also passed. A preceding UI run was interrupted by confirmed Mac sleep and is excluded from acceptance. The final Release compile passed.
 
 ## Performance
 

@@ -75,7 +75,7 @@ Do not delete Carlo's existing customer records to perform acceptance. This impl
 
 ## Performance and release validation record
 
-The final code implementation is `16b19feb0577e90c9b37ea352c5ee441cc78b5bb`. Application/test/project file changes are listed in the evidence directory's `changed-files.txt`; this report and the evidence files are additional delivery material.
+The final code implementation is `159baccdde50d9d90236920940be1275aa397d3c`. Application/test/project file changes are listed in the evidence directory's `changed-files.txt`; this report and the evidence files are additional delivery material.
 
 Sequential fresh-process benchmarks compared baseline `211c7e4` and V4.1 on the same iPad Pro 11-inch (M4) simulator, iOS 27.0, Xcode 27.1, after compilation had stopped. Both used the existing 50/250/500/1,000 independent synthetic-archive benchmark. These are wall-clock observations with ordinary filesystem caching, not a controlled cold-storage or physical-iPad study.
 
@@ -98,10 +98,12 @@ Final gallery testing also covers a background success superseding an earlier fa
 
 The first evidence-head CI run [40125835772](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/40125835772) compiled and passed all 826 non-UI cases, but failed three UI interactions (828 passed / 3 failed overall). Its actual runner selected iOS 26.2 under the unchanged workflow. Screenshots and accessibility hierarchies showed a covered inline receipt preceding the modal inspector, and labeled Menu wrappers containing native buttons. UI tests now select the hittable inspector and native button instead of an arbitrary first accessibility match. Menu, zoom, result-count and synthetic deletion assertions remain intact. All five revised native UI tests then passed on both local iOS 26.5 and 27.0. The iOS 27 result collector delayed finalization and logged a diagnostic-collection timeout after the tests passed; xcodebuild completed successfully. This compatibility failure is retained in `ci-first-head-failure.json`; only the subsequent final-head passing gate permits merge.
 
+The next gate [40157370418](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/40157370418) passed all 826 non-UI cases and the receipt interaction, but its two List Menu wrappers and children still exposed no AX hit point. The final repair gives those row menus explicit borderless button styling and validates real center touches inside fully visible, enabled, at-least-44-point bounds. Expected menu, deletion review and cleanup result assertions are unchanged. A subsequent local run was interrupted by confirmed Mac sleep and is excluded from acceptance; the awake rerun is recorded separately. The final generic-device Release build passed. With idle sleep inhibited, all five native UI cases passed again in about 98 seconds, with zero failures/skips; all 13 focused cleanup cases also passed. Native evidence screenshots were refreshed and inspected after the final menu styling.
+
 ## Git delivery
 
 - Feature branch: `feature/operator-workspace-v4-1-management-gallery-export`.
-- Implementation source commit: `16b19feb0577e90c9b37ea352c5ee441cc78b5bb`.
+- Implementation source commit: `159baccdde50d9d90236920940be1275aa397d3c`.
 - Pull request and authoritative final delivery receipt: [PR #18](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/pull/18).
 - Exact final PR head/checks: [PR checks](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/pull/18/checks).
 - The PR delivery record identifies the final head, merge commit, fetched main commit and the exact post-merge Production Gate URL/result after they exist. The final owner handoff links the completed receipt and gate.
