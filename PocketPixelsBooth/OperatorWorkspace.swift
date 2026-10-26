@@ -21,7 +21,7 @@ nonisolated enum OperatorPrimaryDestination: String, Codable, CaseIterable, Iden
 }
 
 nonisolated enum OperatorWorkspaceRoute: Codable, Hashable, Sendable {
-    case manageEvent, payments, charging, eventSetup, boothCheck, receiptDesign, stickers, samplePrints
+    case liveEvent, manageEvent, payments, charging, eventSetup, boothCheck, receiptDesign, stickers, samplePrints
     case equipment, advanced, printer, recovery, camera, gallery, waitingGalleries, recentSessions, storage, printHistory
     case serverEvent(String)
     case sessionSetup, branding, sales, eventReport(String), eventMaintenance(String)
@@ -41,6 +41,7 @@ nonisolated enum OperatorWorkspaceRoute: Codable, Hashable, Sendable {
 
     var title: String {
         switch self {
+        case .liveEvent: "Edit Live Event"
         case .newEvent: "Quick Start Event"
         case .savedEvent: "Event Setup"
         case .eventHistory: "Event History"
@@ -93,7 +94,7 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
     static let didUnlock = Notification.Name("pocketPixels.operator.didUnlock")
     static let didStartSessions = Notification.Name("pocketPixels.operator.didStartSessions")
     static let didResumeCheckout = Notification.Name("pocketPixels.operator.didResumeCheckout")
-    nonisolated struct Snapshot: Codable {
+    nonisolated struct Snapshot: Codable, Sendable {
         var schemaVersion = 1
         var resumeSetup = false
         var path: [OperatorWorkspaceRoute] = []
@@ -130,11 +131,16 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
     private let file: URL
     private let write: (Data, URL) throws -> Void
     private var unreadableOriginal = false
+    private let backgroundWrites: Bool
+    private let diskQueue = DispatchQueue(label: "com.pocketpixels.workspace-drafts", qos: .utility)
+    private var writeRevision = 0
+    private let diskResult = WorkspaceDraftResult()
 
-    init(directory: URL? = nil, write: @escaping (Data, URL) throws -> Void = { try DurableFileWriter.write($0, to: $1) }) {
+    init(directory: URL? = nil, backgroundWrites: Bool? = nil, write: @escaping (Data, URL) throws -> Void = { try DurableFileWriter.write($0, to: $1) }) {
         let root = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         file = root.appendingPathComponent("OperatorWorkspaceV1", isDirectory: true).appendingPathComponent("setup.json")
         self.write = write
+        self.backgroundWrites = backgroundWrites ?? (directory == nil)
         var loaded = Snapshot()
         if FileManager.default.fileExists(atPath: file.path) {
             do {
@@ -227,26 +233,45 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
         snapshot.serverDrafts["\(serverBinding):\(eventID)"]
     }
     func saveServerDraft(_ draft: OperatorServerSetupDraft) {
+        guard snapshot.serverDrafts["\(draft.serverBinding):\(draft.eventID)"] != draft else { return }
         snapshot.serverDrafts["\(draft.serverBinding):\(draft.eventID)"] = draft
         persist()
     }
     func removeServerDraft(eventID: String) {
+        guard snapshot.serverDrafts["\(serverBinding):\(eventID)"] != nil else { return }
         snapshot.serverDrafts.removeValue(forKey: "\(serverBinding):\(eventID)")
         persist()
     }
-    func saveRegularBoothDraft(_ draft: RegularBoothSettings?) { snapshot.regularBoothDraft = draft; persist() }
-    func saveBrandingDraft(_ draft: EventProfile?) { snapshot.brandingDraft = draft; persist() }
-    func savePrepaidDraft(_ draft: CommercialEventRun?) { snapshot.prepaidDraft = draft; persist() }
-    func saveSessionSetup(_ draft: OperatorSessionSetupDraft?) { snapshot.sessionSetup = draft; persist() }
+    func saveRegularBoothDraft(_ draft: RegularBoothSettings?) { guard snapshot.regularBoothDraft != draft else { return }; snapshot.regularBoothDraft = draft; persist() }
+    func saveBrandingDraft(_ draft: EventProfile?) { guard snapshot.brandingDraft != draft else { return }; snapshot.brandingDraft = draft; persist() }
+    func savePrepaidDraft(_ draft: CommercialEventRun?) { guard snapshot.prepaidDraft != draft else { return }; snapshot.prepaidDraft = draft; persist() }
+    func saveSessionSetup(_ draft: OperatorSessionSetupDraft?) { guard snapshot.sessionSetup != draft else { return }; snapshot.sessionSetup = draft; persist() }
     func designDraft(id: String) -> SavedEventDesign? { snapshot.designDrafts?[id] }
     func saveDesignDraft(_ draft: SavedEventDesign?, id: String) {
+        guard snapshot.designDrafts?[id] != draft else { return }
         var drafts = snapshot.designDrafts ?? [:]
         drafts[id] = draft
         snapshot.designDrafts = drafts.isEmpty ? nil : drafts
         persist()
     }
     func saveNewEvent(name: String, venue: String) {
+        guard snapshot.newEventName != name || snapshot.newEventVenue != venue else { return }
         snapshot.newEventName = name; snapshot.newEventVenue = venue; persist()
+    }
+
+    func restoreEventDrafts(from original: Snapshot, designID: String?, eventID: String?) {
+        if let designID {
+            var drafts = snapshot.designDrafts ?? [:]
+            drafts[designID] = original.designDrafts?[designID]
+            snapshot.designDrafts = drafts.isEmpty ? nil : drafts
+        }
+        if let eventID {
+            let key = "\(serverBinding):\(eventID)"
+            snapshot.serverDrafts[key] = original.serverDrafts[key]
+        }
+        snapshot.prepaidDraft = original.prepaidDraft
+        snapshot.sessionSetup = original.sessionSetup
+        persist()
     }
 
     var storedDraftIDs: [SavedDraftID] {
@@ -277,9 +302,13 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
         candidate.resumeSetup = !candidate.serverDrafts.isEmpty || candidate.brandingDraft != nil || candidate.prepaidDraft != nil
             || candidate.sessionSetup != nil || !candidate.newEventName.isEmpty || !candidate.newEventVenue.isEmpty || !(candidate.designDrafts ?? [:]).isEmpty || candidate.regularBoothDraft != nil
         do {
+            diskQueue.sync {}
             try write(JSONEncoder().encode(candidate), file)
             try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete, .posixPermissions: 0o600], ofItemAtPath: file.path)
             snapshot = candidate
+            writeRevision += 1
+            let result = diskResult
+            diskQueue.sync { result.error = nil }
             persistenceError = nil
         } catch {
             persistenceError = "The draft could not be discarded. Your edits are still saved; try again."
@@ -287,17 +316,51 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
         }
     }
 
-    private func persist() {
-        guard !unreadableOriginal else { return }
-        snapshot.resumeSetup = hasUnsavedDrafts
-        do {
-            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try write(JSONEncoder().encode(snapshot), file)
-            try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete,
-                .posixPermissions: 0o600], ofItemAtPath: file.path)
-            persistenceError = nil
-        } catch {
-            persistenceError = "Setup could not be saved on this iPad. Keep the app open; your edits are still in memory."
+    /// Flush before reporting an explicit save as durable. Navigation and keystrokes enqueue
+    /// ordered writes without making the UI wait for F_FULLFSYNC.
+    func flush() async {
+        guard backgroundWrites else { return }
+        let result = diskResult
+        persistenceError = await withCheckedContinuation { continuation in
+            diskQueue.async { continuation.resume(returning: result.error) }
         }
     }
+
+    private func persist() {
+        guard !unreadableOriginal else { return }
+        if snapshot.resumeSetup != hasUnsavedDrafts { snapshot.resumeSetup = hasUnsavedDrafts }
+        let value = snapshot, file = file, write = write
+        writeRevision += 1
+        let revision = writeRevision
+        let job = WorkspaceDraftWrite(value: value, file: file, write: write)
+        let result = diskResult
+        if backgroundWrites {
+            diskQueue.async { [weak self] in
+                let error = job.perform()
+                result.error = error
+                Task { @MainActor [weak self] in
+                    guard let self, self.writeRevision == revision else { return }
+                    self.persistenceError = error
+                }
+            }
+        } else { persistenceError = job.perform() }
+    }
 }
+
+/// Only draft bytes cross this serial queue. Admission, creation intents and print journals
+/// keep their own durability barriers; a background draft write cannot authorize a guest.
+nonisolated private struct WorkspaceDraftWrite: @unchecked Sendable {
+    let value: OperatorWorkspace.Snapshot
+    let file: URL
+    let write: (Data, URL) throws -> Void
+    func perform() -> String? {
+        do {
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try write(JSONEncoder().encode(value), file)
+            try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete, .posixPermissions: 0o600], ofItemAtPath: file.path)
+            return nil
+        } catch { return "Setup could not be saved on this iPad. Keep the app open; your edits are still in memory." }
+    }
+}
+
+nonisolated private final class WorkspaceDraftResult: @unchecked Sendable { var error: String? }

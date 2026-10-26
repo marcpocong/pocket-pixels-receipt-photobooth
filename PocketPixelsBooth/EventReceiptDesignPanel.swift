@@ -10,6 +10,7 @@ struct EventReceiptDesignPanel: View {
     let save: () -> Void
     let discard: () -> Void
     var isRegularBooth = false
+    var editsLiveEvent = false
 
     @State private var photoItem: PhotosPickerItem?
     @State private var isPhotoPickerPresented = false
@@ -36,7 +37,7 @@ struct EventReceiptDesignPanel: View {
                 Text("Use Device Default").tag(Optional<GalleryReceiptStyle>.none)
                 ForEach(GalleryReceiptStyle.allCases) { style in Text(style.title).tag(Optional(style)) }
             }
-            Text(isRegularBooth ? "Save Regular Booth Defaults to apply to the next guest." : "Customer Gallery only. Save Design, then Review & Start to apply.").font(.footnote).foregroundStyle(.secondary)
+            Text(isRegularBooth ? "Save Regular Booth Defaults to apply to the next guest." : (editsLiveEvent ? "Staged for the next sessions. Use Apply to Next Sessions when ready." : "Customer Gallery only. Save Design, then Review & Start to apply.")).font(.footnote).foregroundStyle(.secondary)
 
             Toggle(isOn: personalizeBinding) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -61,7 +62,7 @@ struct EventReceiptDesignPanel: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
 
-            if isDirty {
+            if isDirty && !editsLiveEvent {
                 HStack(spacing: 12) {
                     Label("Unsaved design changes", systemImage: "pencil.circle.fill").foregroundStyle(.orange).font(.callout)
                     Spacer()

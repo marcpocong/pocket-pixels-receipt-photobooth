@@ -11,11 +11,19 @@ import SwiftUI
 struct PocketPixelsBoothApp: App {
     var body: some Scene {
         WindowGroup {
-#if DEBUG && targetEnvironment(simulator)
+#if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("--event-operations-validation") {
+                EventOperationsValidationView()
+            } else {
+#if targetEnvironment(simulator)
             if ProcessInfo.processInfo.arguments.contains("--operator-v41-ui-fixture") {
                 OperatorWorkspaceUITestFixture()
             } else {
                 ContentView()
+            }
+#else
+            ContentView()
+#endif
             }
 #else
             ContentView()

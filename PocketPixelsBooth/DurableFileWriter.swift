@@ -52,3 +52,16 @@ nonisolated enum DurableFileWriter {
         }
     }
 }
+
+/// Configuration snapshots are encoded and flushed off MainActor. The owning store commits
+/// its in-memory state only after this returns; recovery and admission remain fail-closed.
+nonisolated struct DurableJSONWrite<Value: Encodable & Sendable>: @unchecked Sendable {
+    let value: Value
+    let file: URL
+    let write: (Data, URL) throws -> Void
+    func perform() throws {
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try write(JSONEncoder().encode(value), file)
+        try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete, .posixPermissions: 0o600], ofItemAtPath: file.path)
+    }
+}

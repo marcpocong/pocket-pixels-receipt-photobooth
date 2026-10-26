@@ -56,7 +56,8 @@ nonisolated struct CommercialEventCreationIntent: Codable, Equatable, Identifiab
     private let file: URL
     private let writer: (Data, URL) throws -> Void
     private var unreadable = false
-    private struct Journal: Codable { var schemaVersion = 1; var intents: [CommercialEventCreationIntent] }
+    private var committing = false
+    nonisolated private struct Journal: Codable, Sendable { var schemaVersion = 1; var intents: [CommercialEventCreationIntent] }
 
     init(directory: URL? = nil, writer: @escaping (Data, URL) throws -> Void = { try DurableFileWriter.write($0, to: $1) }) {
         let root = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -95,6 +96,40 @@ nonisolated struct CommercialEventCreationIntent: Codable, Equatable, Identifiab
         }
         guard self.intent(id: intent.id) == nil else { return }
         try commit(intents + [intent])
+    }
+
+    func beginAsync(_ intent: CommercialEventCreationIntent) async throws {
+        if let open = open(binding: intent.serverBinding), open.id != intent.id {
+            throw SetupFailure("An earlier paid-event creation still needs confirmation. Resolve it in Event Setup first.")
+        }
+        guard self.intent(id: intent.id) == nil else { return }
+        try await commitAsync(intents + [intent])
+    }
+
+    func markCreatedAsync(id: String, eventID: String) async throws {
+        let next = try changing(id) { intent in
+            guard intent.state == .requested || (intent.state == .created && intent.eventID == eventID) else {
+                throw SetupFailure("This creation was already resolved differently. Nothing was changed.")
+            }
+            intent.state = .created; intent.eventID = eventID
+        }
+        try await commitAsync(next)
+    }
+
+    func markLinkedAsync(id: String) async throws {
+        let next = try changing(id) { intent in
+            guard intent.state == .created || intent.state == .linked, intent.eventID != nil else { throw SetupFailure("The created event has not been confirmed yet.") }
+            intent.state = .linked; intent.resolvedAt = intent.resolvedAt ?? Date()
+        }
+        try await commitAsync(next)
+    }
+
+    func markNotCreatedAsync(id: String, reason: String) async throws {
+        let next = try changing(id) { intent in
+            guard intent.state == .requested else { throw SetupFailure("This creation already has a confirmed event.") }
+            intent.state = .notCreated; intent.resolution = reason; intent.resolvedAt = Date()
+        }
+        try await commitAsync(next)
     }
 
     func markCreated(id: String, eventID: String) throws {
@@ -141,20 +176,38 @@ nonisolated struct CommercialEventCreationIntent: Codable, Equatable, Identifiab
     }
 
     private func change(_ id: String, _ body: (inout CommercialEventCreationIntent) throws -> Void) throws {
+        try commit(changing(id, body))
+    }
+
+    private func changing(_ id: String, _ body: (inout CommercialEventCreationIntent) throws -> Void) throws -> [CommercialEventCreationIntent] {
         guard let index = intents.firstIndex(where: { $0.id == id }) else { throw SetupFailure("Creation record not found.") }
         var next = intents
         try body(&next[index])
-        try commit(next)
+        return next
     }
 
-    private func commit(_ next: [CommercialEventCreationIntent]) throws {
-        guard !unreadable else { throw SetupFailure(storageError ?? "Creation records are unavailable.") }
+    private func prepared(_ next: [CommercialEventCreationIntent]) throws -> [CommercialEventCreationIntent] {
+        guard !unreadable, !committing else { throw SetupFailure(storageError ?? "Creation records are unavailable.") }
         var pruned = next
         let resolved = pruned.filter { !$0.isOpen }
         if resolved.count > Self.retainedResolvedCount {
             let drop = Set(resolved.sorted { ($0.resolvedAt ?? $0.createdAt) < ($1.resolvedAt ?? $1.createdAt) }.prefix(resolved.count - Self.retainedResolvedCount).map(\.id))
             pruned.removeAll { drop.contains($0.id) }
         }
+        return pruned
+    }
+
+    private func commitAsync(_ next: [CommercialEventCreationIntent]) async throws {
+        let pruned = try prepared(next)
+        committing = true; defer { committing = false }
+        let job = DurableJSONWrite(value: Journal(intents: pruned), file: file, write: writer)
+        do { try await Task.detached(priority: .userInitiated) { try job.perform() }.value }
+        catch { storageError = "Paid-event creation record not saved: \(error.localizedDescription)"; throw error }
+        intents = pruned; storageError = nil
+    }
+
+    private func commit(_ next: [CommercialEventCreationIntent]) throws {
+        let pruned = try prepared(next)
         do {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true,
                 attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication, .posixPermissions: 0o700])

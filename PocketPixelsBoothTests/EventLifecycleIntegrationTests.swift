@@ -202,6 +202,24 @@ import SwiftUI
 }
 
 @MainActor final class EventLifecycleIntegrationTests: XCTestCase {
+    func testInFlightSetupCannotBeContradictedByEndOrPauseAfterNavigation() async throws {
+        let booth = Booth(); defer { booth.cleanup() }
+        _ = await startPrepaid(booth)
+        let runID = booth.runs.currentRunID
+        let lifecycle = booth.lifecycle()
+        let operation = try booth.acceptance.beginSetupOperation()
+        let ended = await lifecycle.end(scope: .thisBooth)
+        XCTAssertFalse(ended)
+        await lifecycle.pauseBooth()
+        XCTAssertEqual(booth.runs.currentRunID, runID)
+        XCTAssertEqual(booth.runs.current?.status, .active)
+        XCTAssertFalse(booth.acceptance.state.blocked)
+        XCTAssertTrue(lifecycle.message.contains("still finishing"))
+        booth.acceptance.finishSetupOperation(operation)
+        await lifecycle.pauseBooth()
+        XCTAssertEqual(booth.runs.current?.status, .paused)
+    }
+
     func testAcknowledgedUnknownPrintAllowsRelaunchRegularGuestEventStartAndEnd() async throws {
         let booth = Booth()
         let defaultsName = "recovery-cycle-\(UUID())"

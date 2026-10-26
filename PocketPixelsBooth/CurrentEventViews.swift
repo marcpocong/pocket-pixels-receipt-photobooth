@@ -35,13 +35,14 @@ struct CurrentEventCard: View {
     private var regular: Bool { RegularBoothMode.isEnabled(acceptance: acceptance, runs: runs) }
     private var local: CommercialEventRun { regular ? RegularBoothSettings.load().configuration : CommercialEventRunStore.load() }
     private var paid: Bool { CommercialPolicySource.load() == .serverManaged }
-    private var busy: Bool { lifecycle.operation != nil }
+    private var busy: Bool { lifecycle.operation != nil || acceptance.setupOperationID != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
             facts
             warnings
+            if acceptance.setupOperationID != nil { ProgressView("Finishing event setup…") }
             actions
             eventControls
             if !lifecycle.message.isEmpty {
@@ -112,6 +113,11 @@ struct CurrentEventCard: View {
         let columns = [GridItem(.adaptive(minimum: 200), spacing: 12)]
         LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
             primaryAction
+            if run?.status == .active {
+                Button { workspace.navigate(to: .liveEvent) } label: {
+                    Label("Edit Live Event", systemImage: "square.and.pencil").frame(maxWidth: .infinity, minHeight: 48)
+                }.buttonStyle(.borderedProminent).accessibilityIdentifier("edit-live-event")
+            }
             if [.active, .paused].contains(run?.status) {
                 actionButton("End Event", systemImage: "flag.checkered", role: .destructive) { showsEnd = true }
                     .disabled(SessionSetupSafety.blockingReason != nil).accessibilityIdentifier("end-event")
@@ -227,7 +233,7 @@ struct CurrentEventCard: View {
 
     private var eventName: String {
         if regular { return "Regular Booth" }
-        if let run { return run.context.name.isEmpty ? "Regular Sessions" : run.context.name }
+        if let run { return library.library.historicalName(id: run.context.designID) ?? (run.context.name.isEmpty ? "Regular Sessions" : run.context.name) }
         return "Made to Keep Studios"
     }
     private var appliedDesign: String { library.design(id: library.library.appliedEventID)?.displayName ?? "Studio branding" }

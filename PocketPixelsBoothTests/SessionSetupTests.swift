@@ -12,17 +12,23 @@ import SwiftUI
     var name = "Regular Sessions"
     var venue = ""
     var calls: [String] = []
+    var listGate: CheckedContinuation<Void, Never>?
+    var delaysList = false
+    var createDelay: UInt64 = 0
+    var detailDelay: UInt64 = 0
     var failAfterCommit: String?
     var onTransition: (() -> Void)?
     var barrier: (() -> Bool)?
     var acknowledgements: [(String?, Int?)] = []
     @MainActor func listEvents() async throws -> [OperatorEventSummary] {
         calls.append("list")
+        if delaysList { await withCheckedContinuation { listGate = $0 } }
         return [.init(id: "event", name: name, venue: venue, lifecycle: lifecycle.rawValue,
             activePolicyRevisionId: active?.id, version: version, updatedAt: Date())]
     }
     @MainActor func eventDetail(id: String) async throws -> OperatorEventDetail {
         calls.append("detail")
+        if detailDelay > 0 { try await Task.sleep(nanoseconds: detailDelay) }
         return .init(event: .init(id: "event", name: name, venue: venue, lifecycle: lifecycle, version: version,
             updatedAt: Date(), activePolicyRevisionId: active?.id), activePolicy: active, latestRevision: latest,
             hasUnpublishedRevision: latest.id != active?.id, outstandingEntitlements: 0, serverTime: Date())
@@ -32,6 +38,8 @@ import SwiftUI
     }
     @MainActor func createEvent(name: String, venue: String, operationID: String) async throws -> OperatorCreatedEvent {
         calls.append("create"); self.name = name; self.venue = venue
+        if createDelay > 0 { try await Task.sleep(nanoseconds: createDelay) }
+        if failAfterCommit == "create" { throw PaymentsAPIError.outcomeUnknown }
         return .init(id: "event", lifecycle: "DRAFT", version: 1)
     }
     @MainActor func saveDraft(eventID: String, expectedVersion: Int, name: String, venue: String, policy: ServerPolicyDraft.RequestBody) async throws -> OperatorEventUpdate {
@@ -94,8 +102,8 @@ import SwiftUI
         library = EventDesignLibraryStore(directory: directory, legacyProfile: { .pocketPixelsDefault }, legacyName: { "" })
         api.barrier = { [weak self] in self?.acceptance.state.blocked == true }
     }
-    func makeModel() -> SessionSetupCoordinator {
-        .init(workspace: workspace, acceptance: acceptance, library: library, eventRuns: runs, creations: CommercialEventCreationStore(directory: directory), api: { self.api }, authorized: { self.permitted },
+    func makeModel(live: Bool = false, timeout: TimeInterval = 15) -> SessionSetupCoordinator {
+        .init(editingLiveEvent: live, requestTimeout: timeout, workspace: workspace, acceptance: acceptance, library: library, eventRuns: runs, creations: CommercialEventCreationStore(directory: directory), api: { self.api }, authorized: { self.permitted },
               blockingReason: { self.blockedReason }, loadLocal: { self.local }, saveLocal: { self.local = $0 },
               source: { self.source }, saveSource: { self.source = $0 }, currentProfile: { self.profile },
               applyProfile: { self.profile = $0; self.applied.append($0) }, artworkAvailable: { $0.map(self.usableArtwork.contains) ?? false })
@@ -109,6 +117,252 @@ import SwiftUI
         let result = await model.startAccepting()
         XCTAssertEqual(result, expected, model.message, file: file, line: line)
     }
+    func testDuplicatePaidCreateSharesOneOperationAndOnlyOneVerificationRead() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        f.model.mode = .serverManaged; f.api.createDelay = 50_000_000
+        let first = Task { await f.model.createEvent(name: "One event", venue: "Test") }
+        while !f.api.calls.contains("create") { await Task.yield() }
+        await f.model.createEvent(name: "Duplicate tap", venue: "Test")
+        await first.value
+        XCTAssertEqual(f.library.library.events.count, 1)
+        XCTAssertEqual(f.api.calls.filter { $0 == "create" }.count, 1)
+        XCTAssertEqual(f.api.calls.filter { $0 == "detail" }.count, 1)
+        XCTAssertFalse(f.model.busy)
+        XCTAssertEqual(f.model.phase, .completed)
+    }
+
+    func testThermalPreviewWorkerPreservesExactPrinterRaster() async throws {
+        let receipt = try await EventReceiptComposerPreview.makePreviewReceipt(profile: .pocketPixelsDefault, format: .solo)
+        let image = try XCTUnwrap(UIImage(data: receipt.imagePNGData))
+        let expected = try ThermalImageRasterizer.rasterize(image, purpose: .completeReceipt).previewPNGData
+        let actual = try await EventReceiptComposerPreview.makePrinterPreview(receiptPNG: receipt.imagePNGData)
+        XCTAssertEqual(actual, expected)
+    }
+
+    func testReadTimeoutReleasesBusyAndAllowsExplicitRefresh() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        let model = f.makeModel(timeout: 0.02)
+        model.mode = .serverManaged; f.api.detailDelay = 200_000_000
+        await model.select("event")
+        XCTAssertFalse(model.busy)
+        XCTAssertTrue(model.message.contains("timed out"))
+        f.api.detailDelay = 0
+        await model.refresh()
+        XCTAssertNotNil(model.detail); XCTAssertFalse(model.busy)
+    }
+
+    func testCreateTimeoutRetainsOriginalOperationAcrossRelaunchWithoutRetry() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        let model = f.makeModel(timeout: 0.02)
+        model.mode = .serverManaged; f.api.createDelay = 200_000_000
+        await model.createEvent(name: "Uncertain create", venue: "Test")
+        let operation = try XCTUnwrap(model.pendingCreation)
+        XCTAssertEqual(operation.state, .requested)
+        XCTAssertFalse(model.busy)
+        XCTAssertTrue(model.message.contains("Check Original Request"))
+        let reopened = f.makeModel(timeout: 0.02)
+        XCTAssertEqual(reopened.pendingCreation?.id, operation.id)
+        await reopened.createEvent(name: "Never duplicate", venue: "")
+        XCTAssertEqual(f.api.calls.filter { $0 == "create" }.count, 1)
+        XCTAssertEqual(f.library.library.events.count, 1)
+    }
+
+    func testReopeningSetupCannotOverlapAnInFlightActivation() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        await f.paid()
+        let reopened = f.makeModel(); await reopened.refresh()
+        f.api.detailDelay = 100_000_000
+        let first = Task { await f.model.startAccepting() }
+        while f.acceptance.setupOperationID == nil { await Task.yield() }
+        let second = await reopened.startAccepting()
+        XCTAssertFalse(second)
+        XCTAssertTrue(reopened.message.contains("still finishing"))
+        let started = await first.value
+        XCTAssertTrue(started, f.model.message)
+        XCTAssertEqual(f.api.calls.filter { $0 == "activate" }.count, 1)
+        XCTAssertNil(f.acceptance.setupOperationID)
+        XCTAssertFalse(f.model.busy)
+    }
+
+    func testConcurrentRefreshIsCoalesced() async {
+        let f = SetupFixture(); defer { f.cleanup() }
+        f.model.mode = .serverManaged; f.api.delaysList = true
+        let first = Task { await f.model.refresh() }
+        while f.api.listGate == nil { await Task.yield() }
+        let second = Task { await f.model.refresh() }
+        await Task.yield()
+        f.api.delaysList = false; f.api.listGate?.resume(); f.api.listGate = nil
+        await first.value; await second.value
+        XCTAssertEqual(f.api.calls.filter { $0 == "list" }.count, 1)
+        XCTAssertFalse(f.model.busy)
+    }
+
+    func testDraftFlushRunsOffMainAndPreservesLatestValueAcrossRestart() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let workspace = OperatorWorkspace(directory: directory, backgroundWrites: true, write: { data, url in
+            XCTAssertFalse(Thread.isMainThread)
+            Thread.sleep(forTimeInterval: 0.03)
+            try DurableFileWriter.write(data, to: url)
+        })
+        let start = Date()
+        workspace.saveNewEvent(name: "First", venue: "")
+        workspace.saveNewEvent(name: "Latest", venue: "Test")
+        XCTAssertLessThan(Date().timeIntervalSince(start), 0.025)
+        await workspace.flush()
+        XCTAssertNil(workspace.persistenceError)
+        XCTAssertEqual(OperatorWorkspace(directory: directory).snapshot.newEventName, "Latest")
+    }
+
+    func testLivePrepaidChangesPreserveRunAndSessionJournalAndSurviveRestart() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        await f.model.createEvent(name: "Live event", venue: "Original venue")
+        await assertStart(f.model, expected: true)
+        let runID = try XCTUnwrap(f.runs.currentRunID)
+        try f.runs.beginSession(id: "already-captured", runID: runID, format: "solo")
+        let journal = try f.runs.session(id: "already-captured")
+        let frozenProfile = f.profile
+        let live = f.makeModel(live: true)
+        live.design?.name = "Renamed live event"
+        live.design?.venue = "Next venue"
+        live.design?.profile.receiptDesign.editorialCaption = "NEXT GUEST"
+        live.design?.guestScreensEnabled = true
+        live.design?.profile.customerWelcomeMessage = "Welcome to the next session"
+        live.prepaid.activePolicy.maxCopies = 6
+        live.prepaid.activePolicy.defaultCopies = 2
+        live.prepaid.activePolicy.prepaidGuestCopyChoice = true
+        live.prepaid.activePolicy.supportedFormatRawValues = ["solo"]
+        XCTAssertEqual(f.profile, frozenProfile, "Staged changes must not leak to guests")
+        let result = await live.applyLiveChanges()
+        XCTAssertTrue(result, live.message)
+        XCTAssertEqual(f.runs.currentRunID, runID); XCTAssertEqual(f.runs.runs.count, 1)
+        XCTAssertEqual(try f.runs.session(id: "already-captured"), journal)
+        XCTAssertEqual(f.profile.receiptDesign.editorialCaption, "NEXT GUEST")
+        XCTAssertEqual(f.local.activePolicy.maxCopies, 6)
+        XCTAssertEqual(f.local.venue, "Next venue")
+        XCTAssertTrue(f.api.calls.isEmpty)
+        let reopened = f.makeModel(live: true)
+        XCTAssertEqual(reopened.design?.profile.receiptDesign.editorialCaption, "NEXT GUEST")
+        XCTAssertEqual(reopened.prepaid.activePolicy.defaultCopies, 2)
+        XCTAssertEqual(EventRunStore(directory: f.directory.appendingPathComponent("runs")).currentRunID, runID)
+        XCTAssertEqual(EventDesignLibraryStore(directory: f.directory).design(id: live.designID)?.name, "Renamed live event")
+    }
+
+    func testLiveEditsAreStagedDuringGuestAndApplyOnlyWhenGuestFinishes() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        await f.model.createEvent(name: "Running", venue: "")
+        await assertStart(f.model, expected: true)
+        let live = f.makeModel(live: true), original = f.profile
+        f.blockedReason = "A guest is capturing photos"
+        live.design?.profile.receiptDesign.editorialCaption = "NEXT"
+        var result = await live.applyLiveChanges()
+        XCTAssertFalse(result); XCTAssertEqual(f.profile, original)
+        XCTAssertFalse(f.acceptance.state.blocked, "Staging never pauses the active booth")
+        f.blockedReason = nil
+        result = await live.applyLiveChanges()
+        XCTAssertTrue(result, live.message)
+    }
+
+    func testLivePaidPolicyUsesVersionedPublishAndSameEventAndRun() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        await f.paid(); await assertStart(f.model, expected: true)
+        let runID = f.runs.currentRunID, eventID = f.acceptance.state.eventID
+        let originalPrice = f.api.active?.unitPriceCentavos
+        let live = f.makeModel(live: true); await live.refresh()
+        live.policy.priceText = "45"; live.policy.cashEnabled = true
+        live.policy.maxCopies = 5
+        let result = await live.applyLiveChanges()
+        XCTAssertTrue(result, live.message)
+        XCTAssertEqual(f.runs.currentRunID, runID); XCTAssertEqual(f.runs.runs.count, 1)
+        XCTAssertEqual(f.acceptance.state.eventID, eventID)
+        XCTAssertEqual(originalPrice, 2500); XCTAssertEqual(f.api.active?.unitPriceCentavos, 4500)
+        XCTAssertEqual(f.api.acknowledgements.last?.1, 4500)
+        XCTAssertEqual(f.api.calls.filter { $0 == "publish" }.count, 1)
+        XCTAssertFalse(f.api.calls.contains("create")); XCTAssertFalse(f.api.calls.contains("end"))
+    }
+
+    func testLivePaidCosmeticChangesDoNotPublishUnrelatedServerDraft() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        await f.model.createEvent(name: "Branded", venue: "Test")
+        await f.paid(); await assertStart(f.model, expected: true)
+        let live = f.makeModel(live: true); await live.refresh()
+        f.api.calls = []
+        live.design?.profile.receiptDesign.editorialCaption = "NEW CAPTION"
+        let result = await live.applyLiveChanges()
+        XCTAssertTrue(result, live.message)
+        XCTAssertTrue(f.api.calls.isEmpty, "Cosmetic edits do not save, publish, activate or refetch paid policy")
+    }
+
+    func testLiveStaleVersionPreservesEditsAndRunUntilReview() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        await f.paid(); await assertStart(f.model, expected: true)
+        let live = f.makeModel(live: true); await live.refresh()
+        let runID = f.runs.currentRunID
+        live.policy.priceText = "40"; f.api.version += 1
+        let result = await live.applyLiveChanges()
+        XCTAssertFalse(result); XCTAssertTrue(live.conflict); XCTAssertTrue(live.needsRefresh)
+        XCTAssertEqual(live.policy.priceText, "40"); XCTAssertEqual(f.runs.currentRunID, runID)
+        XCTAssertFalse(f.api.calls.contains("publish"))
+    }
+
+    func testLiveUnknownPublishNeverReportsSuccessOrRepeatsMutation() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        await f.paid(); await assertStart(f.model, expected: true)
+        let live = f.makeModel(live: true); await live.refresh()
+        live.policy.priceText = "40"; f.api.failAfterCommit = "publish"
+        var result = await live.applyLiveChanges()
+        XCTAssertFalse(result); XCTAssertTrue(live.needsRefresh); XCTAssertTrue(f.acceptance.state.blocked)
+        result = await live.applyLiveChanges()
+        XCTAssertFalse(result)
+        XCTAssertEqual(f.api.calls.filter { $0 == "publish" }.count, 1)
+    }
+
+    func testCancelLiveChangesRestoresEarlierUnrelatedDraft() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        await f.model.createEvent(name: "Running", venue: "")
+        await assertStart(f.model, expected: true)
+        let id = try XCTUnwrap(f.model.designID)
+        var older = try XCTUnwrap(f.library.design(id: id))
+        older.name = "Earlier saved draft"; f.workspace.saveDesignDraft(older, id: id)
+        let live = f.makeModel(live: true)
+        live.reloadDesignFromStorage()
+        XCTAssertEqual(live.design?.name, "Running", "Open the applied values, not an unrelated draft")
+        live.design?.name = "Discard me"
+        live.cancelLiveChanges()
+        XCTAssertEqual(live.design?.name, "Running")
+        XCTAssertEqual(f.workspace.designDraft(id: id)?.name, "Earlier saved draft")
+        XCTAssertEqual(f.profile.eventName, "Running")
+    }
+
+    func testRefreshAndCreateDoNotLosePaidLinking() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        f.model.mode = .serverManaged
+        f.api.delaysList = true
+        let refresh = Task { await f.model.refresh() }
+        while f.api.listGate == nil { await Task.yield() }
+        let create = Task { await f.model.createEvent(name: "Concurrent event", venue: "Test") }
+        await Task.yield()
+        f.api.delaysList = false
+        f.api.listGate?.resume(); f.api.listGate = nil
+        await refresh.value; await create.value
+        XCTAssertEqual(f.library.library.events.count, 1)
+        XCTAssertEqual(f.model.targetServerEventID, "event", "A background refresh must not silently discard the paid-link action")
+        XCTAssertFalse(f.model.busy)
+    }
+
+    func testUnchangedDraftDoesNotRepeatDurableWrites() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var writes = 0
+        let workspace = OperatorWorkspace(directory: directory, write: { data, url in
+            writes += 1; try DurableFileWriter.write(data, to: url)
+        })
+        workspace.saveNewEvent(name: "Event", venue: "Test")
+        workspace.saveNewEvent(name: "Event", venue: "Test")
+        workspace.saveNewEvent(name: "Event", venue: "Test")
+        XCTAssertEqual(writes, 1, "Unchanged published state must not flush the same JSON repeatedly")
+    }
+
     func testSavingAnEventDuringRecoveryPreservesAdmissionAndActiveProfile() async throws {
         let f = SetupFixture(); defer { f.cleanup() }
         await f.model.createEvent(name: "Later event", venue: "Garden")
@@ -344,6 +598,9 @@ import SwiftUI
         let model = SessionSetupCoordinator(workspace: f.workspace, acceptance: f.acceptance, library: library, eventRuns: f.runs, creations: CommercialEventCreationStore(directory: f.directory),
             api: { f.api }, authorized: { true }, blockingReason: { nil }, loadLocal: { f.local }, saveLocal: { f.local = $0 },
             source: { f.source }, saveSource: { f.source = $0 }, currentProfile: { f.profile }, applyProfile: { f.profile = $0 })
+        await model.createEvent(name: "Identity write under test", venue: "")
+        model.design?.prepaidPolicy = model.prepaid.activePolicy
+        model.saveDesign()
         fail = true
         let started = await model.startAccepting()
         XCTAssertFalse(started)

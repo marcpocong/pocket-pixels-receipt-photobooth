@@ -98,11 +98,11 @@ struct EventRunReportingView: View {
         self.loadsRemote = loadsRemote
     }
 
-    private var selected: EventRunRecord? { store.runs.first { $0.id == (selectedRunID ?? store.currentRunID) } }
+    private var selected: EventRunRecord? { store.visibleRuns(library: library.library, includingArchived: showsArchived).first { $0.id == (selectedRunID ?? store.currentRunID) } }
     private var runSessions: [EventRunSession] { sessions.filter { $0.runID == selected?.id } }
     private var stats: EventRunStatistics { EventRunStatistics(sessions: runSessions) }
     private var blocked: String? { SessionSetupSafety.blockingReason }
-    private var pickerRuns: [EventRunRecord] { store.runs.filter { showsArchived || $0.status != .archived }.reversed() }
+    private var pickerRuns: [EventRunRecord] { store.visibleRuns(library: library.library, includingArchived: showsArchived).reversed() }
 
     var body: some View {
         List {
@@ -173,13 +173,13 @@ struct EventRunReportingView: View {
             Task { await loadFinancials() }
         }
         .confirmationDialog(dialogTitle, isPresented: Binding(get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } }), titleVisibility: .visible) {
-            Button(pendingAction == "delete" ? "Delete Unused Run" : "Archive Run", role: pendingAction == "delete" ? .destructive : nil) { perform() }
+            Button(pendingAction == "delete" ? "Remove Run" : "Archive Run", role: pendingAction == "delete" ? .destructive : nil) { perform() }
             Button("Cancel", role: .cancel) { }
         } message: { Text(dialogMessage) }
         .confirmationDialog("Remove saved design \(designCandidate?.displayName ?? "")?", isPresented: Binding(get: { designCandidate != nil }, set: { if !$0 { designCandidate = nil } })) {
-            Button("Remove Saved Design", role: .destructive) { deleteDesign() }
+            Button("Remove Event", role: .destructive) { deleteDesign() }
             Button("Cancel", role: .cancel) { }
-        } message: { Text("Only the reusable configuration is removed. Historical identity, commercial events, financial records, artwork and customer records are retained.") }
+        } message: { Text("Hides this event and its linked historical runs. Settings, financial records, artwork and customer records are retained. Restore it in Events → Show Removed Events.") }
         .sheet(item: $attributionSelection) { selection in
             LegacyAttributionSheet(archives: selection.archives, store: store, attributions: attributionStore, exactSessionIDs: Set(sessions.map(\.sessionID))) { result in
                 if let result { feedback = .init(message: result); selectedArchiveIDs = [] }
@@ -501,8 +501,8 @@ struct EventRunReportingView: View {
             if let selected, selected.status == .completed || selected.status == .draft {
                 Button("Archive Selected Run…") { pendingAction = "archive" }.disabled(blocked != nil).frame(minHeight: 44)
             }
-            if let selected, store.unusedRunDeletionReason(id: selected.id, archives: archives, inspectionComplete: localError == nil && !loading) == nil {
-                Button("Delete Unused Local Run…", role: .destructive) { pendingAction = "delete" }.disabled(blocked != nil).frame(minHeight: 44)
+            if let selected, ![.active, .paused].contains(selected.status) {
+                Button("Remove Run…", role: .destructive) { pendingAction = "delete" }.disabled(blocked != nil).frame(minHeight: 44)
             }
             Picker("Selected run", selection: $selectedRunID) {
                 Text("Current run").tag(String?.none)
@@ -514,7 +514,7 @@ struct EventRunReportingView: View {
             Text("Reports never change the running event. For fresh statistics, end the event from Current Event, then use Start New Occurrence in Event Setup: it reviews the design and payment setup and keeps the ended run's history. Archiving hides an ended run from everyday lists; its sessions, receipts, galleries, entitlements and reports stay saved.")
         }
         Section {
-            ForEach(library.library.events.filter { showsArchived || $0.archivedAt == nil }) { design in
+            ForEach(library.library.events.filter { $0.removedAt == nil && (showsArchived || $0.archivedAt == nil) }) { design in
                 HStack {
                     VStack(alignment: .leading) {
                         Text(design.displayName)
@@ -524,7 +524,7 @@ struct EventRunReportingView: View {
                     Menu("Manage") {
                         if design.archivedAt == nil { Button("Archive Design") { archiveDesign(design) } }
                         else { Button("Restore Design") { restoreDesign(design) } }
-                        Button("Remove Saved Design…", role: .destructive) { designCandidate = design }
+                        Button("Remove Event…", role: .destructive) { designCandidate = design }
                     }
                 }.frame(minHeight: 48)
             }
@@ -604,9 +604,9 @@ struct EventRunReportingView: View {
 
     // MARK: Actions
 
-    private var dialogTitle: String { "\(pendingAction == "delete" ? "Delete unused" : "Archive") run \(selected?.context.name ?? "")?" }
+    private var dialogTitle: String { "\(pendingAction == "delete" ? "Remove" : "Archive") run \(selected?.context.name ?? "")?" }
     private var dialogMessage: String {
-        if pendingAction == "delete" { return "Only this empty local run is removed. Deletion is refused if any commercial, session, receipt or later-occurrence dependency exists or inspection is incomplete." }
+        if pendingAction == "delete" { return "Hides this run while preserving its original payment, session and receipt associations. Restore it in Events → Show Removed Events." }
         return "The run is hidden from everyday lists. Its sessions, receipts, galleries, payments and reports are kept and stay available under History."
     }
 
@@ -614,9 +614,8 @@ struct EventRunReportingView: View {
         defer { pendingAction = nil }
         do {
             if pendingAction == "delete", let run = selected {
-                try store.deleteUnusedRun(id: run.id, archives: archives, inspectionComplete: localError == nil && !loading,
-                    deletedSessions: RecentSessionArchiveStore(directoryURL: archiveDirectory).deletedSessionEvidence())
-                selectedRunID = nil; feedback = .init(message: "Unused local run removed. Other history and records are kept.")
+                try store.removeRun(id: run.id)
+                selectedRunID = nil; feedback = .init(message: "Run removed. History and financial records are kept.")
             }
             if pendingAction == "archive", let run = selected {
                 try store.transition(id: run.id, to: .archived); selectedRunID = nil
@@ -642,10 +641,10 @@ struct EventRunReportingView: View {
         defer { designCandidate = nil }
         guard let designCandidate else { return }
         do {
-            try library.removeSavedDesign(id: designCandidate.id, runs: store.runs,
+            try library.removeEvent(id: designCandidate.id, runs: store.runs,
                 historyAvailable: !store.historyUnreadable && store.pendingTransition == nil,
                 pendingCreation: CommercialEventCreationStore.shared.intents.contains { $0.isOpen && $0.designID == designCandidate.id })
-            feedback = .init(message: "Saved design removed. Historical identity, customer records and payments are kept.")
+            feedback = .init(message: "Event removed, including its linked historical runs. Customer records and payments are kept.")
         } catch { feedback = .init(message: error.localizedDescription, isError: true) }
     }
     private func export() {

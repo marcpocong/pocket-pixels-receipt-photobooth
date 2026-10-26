@@ -480,10 +480,8 @@ struct EventReceiptComposerPreview: View {
                 guard let image = UIImage(data: receipt.imagePNGData) else {
                     throw ReceiptComposerError.renderFailed
                 }
-                let rasterized = try ThermalImageRasterizer.rasterize(image, purpose: .completeReceipt)
-                guard let printerPreview = UIImage(data: rasterized.previewPNGData) else {
-                    throw ThermalImageRasterizerError.renderFailed
-                }
+                let rasterPNG = try await Self.makePrinterPreview(receiptPNG: receipt.imagePNGData)
+                guard let printerPreview = UIImage(data: rasterPNG) else { throw ThermalImageRasterizerError.renderFailed }
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     guard generation == renderGeneration else { return }
@@ -503,6 +501,20 @@ struct EventReceiptComposerPreview: View {
                 }
             }
         }
+    }
+
+    /// Raster dithering and PNG encoding are CPU-heavy and must not inherit the view's
+    /// MainActor task after receipt composition returns.
+    nonisolated static func makePrinterPreview(receiptPNG: Data) async throws -> Data {
+        let worker = Task.detached(priority: .utility) {
+            assert(!Thread.isMainThread)
+            try Task.checkCancellation()
+            guard let image = UIImage(data: receiptPNG) else { throw ReceiptComposerError.renderFailed }
+            let raster = try ThermalImageRasterizer.rasterize(image, purpose: .completeReceipt)
+            try Task.checkCancellation()
+            return raster.previewPNGData
+        }
+        return try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
     }
 
     /// Composes a guest-receipt preview in memory only. It never touches the print spooler,

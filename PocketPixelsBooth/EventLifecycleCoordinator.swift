@@ -408,6 +408,7 @@ nonisolated enum EventStatusModel {
 
     /// Pause This Booth. Closes admission on this iPad only; it never changes a shared paid event.
     func pauseBooth() async {
+        guard acceptance.setupOperationID == nil else { message = "Event setup is still finishing. Wait for its result before pausing."; return }
         guard operation == nil else { return }
         guard authorized() else { message = "Unlock Operator again before continuing."; return }
         operation = .pausing; defer { operation = nil }
@@ -425,6 +426,7 @@ nonisolated enum EventStatusModel {
 
     /// Pause Commercial Event. An explicit, server-wide transition for every booth on the event.
     func pauseCommercialEvent() async {
+        guard acceptance.setupOperationID == nil else { message = "Event setup is still finishing. Check its result before pausing the paid event."; return }
         guard operation == nil else { return }
         guard authorized() else { message = "Unlock Operator again before continuing."; return }
         guard let eventID = linkedCommercialEventID else { message = "This run has no paid event to pause."; return }
@@ -455,6 +457,7 @@ nonisolated enum EventStatusModel {
     /// Resume goes through the same reviewed Start as Event Setup, so the saved context, payment
     /// policy and server lifecycle are revalidated before admission opens.
     func resume() async -> Bool {
+        guard acceptance.setupOperationID == nil else { message = "Event setup is still finishing. Wait for its result before resuming."; return false }
         guard operation == nil else { return false }
         if RegularBoothMode.isEnabled(acceptance: acceptance, runs: runs) {
             guard authorized(), blockingReason() == nil else { message = blockingReason() ?? "Unlock Operator again before continuing."; return false }
@@ -480,6 +483,7 @@ nonisolated enum EventStatusModel {
     /// The operator's End confirmation explicitly switches this iPad to Regular Booth. The
     /// journal survives every boundary: server mutation, local completion, design and barrier.
     func end(scope: EndScope) async -> Bool {
+        guard acceptance.setupOperationID == nil else { message = "Event setup is still finishing. Wait for its result, then End Event."; return false }
         guard operation == nil else { return false }
         guard authorized() else { message = "Unlock Operator again before continuing."; return false }
         if let reason = blockingReason() { message = reason; return false }
@@ -543,6 +547,7 @@ nonisolated enum EventStatusModel {
     /// Migration of an ended legacy pointer is explicit. For active/paused events the End
     /// confirmation is required instead. No server failure can select free operation.
     func returnToRegular() async -> Bool {
+        guard acceptance.setupOperationID == nil else { message = "Event setup is still finishing. Wait for its result before returning to Regular Booth."; return false }
         if let pending = runs.pendingTransition, pending.returnsToRegular == true {
             await refresh()
             return RegularBoothMode.isEnabled(acceptance: acceptance, runs: runs) && !acceptance.state.blocked
@@ -585,6 +590,7 @@ nonisolated enum EventStatusModel {
     /// admission, prices or payment policy, and never assigns earlier sessions to the run.
     /// Repeating it (or relaunching mid-way) can't create a second run.
     func recordUpgradedRun() async -> Bool {
+        guard acceptance.setupOperationID == nil else { message = "Event setup is still finishing. Wait for its result before recording a run."; return false }
         guard operation == nil else { return false }
         guard authorized() else { message = "Unlock Operator again before continuing."; return false }
         if runs.current != nil { message = "This iPad already has an event run. Nothing was changed."; return false }

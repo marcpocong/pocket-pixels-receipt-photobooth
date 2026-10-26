@@ -19,6 +19,84 @@ import SwiftUI
         return RecentSessionArchivePayload(committedSession: session, composedReceipt: receipt, receiptPreviewPNGData: receipt.imagePNGData,
             thermalPreviewPNGData: raster.previewPNGData, rasterizedImage: raster, photoThumbnailData: [], eventRunID: "exact-run", eventDesignID: "exact-design")
     }
+    func testRemoveCommercialEventHidesAllRunsButPreservesJournalMediaAndOwnershipAcrossRestart() throws {
+        let library = library()
+        let design = try library.create(name: "Commercial history", venue: "Test")
+        try library.link(designID: design.id, binding: "test:synthetic", serverEventID: "financial-event")
+        let runs = EventRunStore(directory: root.appendingPathComponent("runs"), authorized: { true }, blockingReason: { nil })
+        let run = try runs.startNewRun(context: .init(designID: design.id, commercialEventID: "financial-event", serverBinding: "test:synthetic", name: design.name))
+        try runs.beginSession(id: "original-session", runID: run.id, format: "solo")
+        runs.updateSession(id: "original-session") { $0.orderIDs = ["original-order"] }
+        try runs.transition(id: run.id, to: .completed)
+        let archive = try RecentSessionArchiveStore(directoryURL: root.appendingPathComponent("archive"))
+        var media = try payload(); media.eventRunID = run.id; media.eventDesignID = design.id
+        try archive.save(media)
+        let journal = try runs.session(id: "original-session"), summaries = try archive.reportingSummaries()
+        try library.removeEvent(id: design.id, runs: runs.runs, historyAvailable: true)
+        XCTAssertTrue(runs.visibleRuns(library: library.library, includingArchived: true).isEmpty)
+        XCTAssertNil(library.design(id: design.id))
+        XCTAssertEqual(try runs.session(id: "original-session"), journal)
+        XCTAssertEqual(try archive.reportingSummaries(), summaries)
+        let reopened = self.library()
+        XCTAssertEqual(reopened.library.historicalName(id: design.id), design.name)
+        XCTAssertTrue(reopened.library.knownServerEventIDs(binding: "test:synthetic").contains("financial-event"))
+        XCTAssertThrowsError(try reopened.adopt(serverEventID: "financial-event", name: "Stale reconciliation", venue: "", binding: "test:synthetic"))
+        XCTAssertThrowsError(try reopened.save(design))
+        try reopened.restoreRemovedEvent(id: design.id)
+        XCTAssertEqual(reopened.design(id: design.id)?.id, design.id)
+        XCTAssertEqual(reopened.design(id: design.id)?.serverEvents["test:synthetic"], "financial-event")
+        XCTAssertEqual(runs.visibleRuns(library: reopened.library).map(\.id), [run.id])
+        XCTAssertEqual(runs.current?.status, .completed)
+        XCTAssertFalse(reopened.library.appliedEventModeEnabled)
+    }
+
+    func testStandalonePaidRunRemovalAndRestoreKeepStableAssociations() throws {
+        let runs = EventRunStore(directory: root.appendingPathComponent("runs"), authorized: { true }, blockingReason: { nil })
+        let run = try runs.startNewRun(context: .init(designID: nil, commercialEventID: "original-financial-event", serverBinding: "test:synthetic", name: "Paid run"))
+        try runs.beginSession(id: "original-session", runID: run.id, format: "solo")
+        XCTAssertThrowsError(try runs.removeRun(id: run.id))
+        try runs.transition(id: run.id, to: .completed)
+        try runs.transition(id: run.id, to: .archived)
+        let journal = try runs.session(id: "original-session")
+        try runs.removeRun(id: run.id)
+        XCTAssertNil(runs.currentRunID)
+        XCTAssertTrue(runs.visibleRuns(library: library().library, includingArchived: true).isEmpty)
+        let reopened = EventRunStore(directory: root.appendingPathComponent("runs"), authorized: { true })
+        XCTAssertEqual(try reopened.session(id: "original-session"), journal)
+        try reopened.restoreRemovedRun(id: run.id)
+        XCTAssertEqual(reopened.runs.first?.context, run.context)
+        XCTAssertEqual(reopened.runs.first?.status, .archived)
+        XCTAssertNil(reopened.currentRunID)
+    }
+
+    func testRemovalDoesNotTouchAnotherLiveEventAndCannotRelinkItsCommercialRecord() throws {
+        let library = library()
+        let removed = try library.create(name: "Old", venue: "")
+        let current = try library.create(name: "Live", venue: "")
+        try library.link(designID: current.id, binding: "test:synthetic", serverEventID: "current-financial-event")
+        let runs = EventRunStore(directory: root.appendingPathComponent("runs"), authorized: { true }, blockingReason: { nil })
+        let live = try runs.startNewRun(context: .init(designID: current.id, commercialEventID: "current-financial-event", serverBinding: "test:synthetic", name: current.name))
+        try library.recordApplied(eventModeEnabled: true, eventID: current.id)
+        XCTAssertThrowsError(try library.link(designID: removed.id, binding: "test:synthetic", serverEventID: "current-financial-event"))
+        try library.removeEvent(id: removed.id, runs: runs.runs, historyAvailable: true)
+        XCTAssertEqual(runs.current?.id, live.id); XCTAssertEqual(runs.current?.status, .active)
+        XCTAssertEqual(library.library.appliedEventID, current.id)
+        XCTAssertEqual(library.design(id: current.id)?.serverEvents["test:synthetic"], "current-financial-event")
+        XCTAssertThrowsError(try library.removeEvent(id: current.id, runs: runs.runs, historyAvailable: true))
+    }
+
+    func testFailedSoftRemovalCannotHideEventOrReportSuccess() throws {
+        var fails = false
+        let library = EventDesignLibraryStore(directory: root.appendingPathComponent("designs"), write: { data, url in
+            if fails { throw CocoaError(.fileWriteOutOfSpace) }; try DurableFileWriter.write(data, to: url)
+        }, legacyProfile: { .pocketPixelsDefault }, legacyName: { "" }, operationAuthorized: { true })
+        let design = try library.create(name: "Keep on failure", venue: "")
+        fails = true
+        XCTAssertThrowsError(try library.removeEvent(id: design.id, runs: [], historyAvailable: true))
+        XCTAssertNotNil(library.design(id: design.id))
+        XCTAssertNotNil(self.library().design(id: design.id))
+    }
+
     func testArchiveStoresExactRunAndLegacyMetadataLoadsWithoutRewritingOrInference() throws {
         let directory = root.appendingPathComponent("archive")
         let store = try RecentSessionArchiveStore(directoryURL: directory)

@@ -31,6 +31,7 @@ nonisolated struct EventRunRecord: Codable, Identifiable, Equatable, Sendable {
     /// Additive, optional fields: older builds ignore them and older manifests decode without them.
     var endedAt: Date? = nil
     var archivedAt: Date? = nil
+    var removedAt: Date? = nil
     /// A completed record the operator created to hold pre-run (legacy) activity. Never current.
     var historical: Bool? = nil
     /// The occurrence this one followed when it was explicitly started from the same design.
@@ -100,10 +101,11 @@ nonisolated struct EventRunSession: Codable, Identifiable, Equatable, Sendable {
     let directory: URL
     private let writer: (Data, URL) throws -> Void
     private var unreadable = false
+    private var committing = false
     private let authorized: @MainActor () -> Bool
     private let blockingReason: @MainActor () -> String?
     @Published private(set) var pendingTransition: EventTransitionIntent?
-    private struct Manifest: Codable {
+    nonisolated private struct Manifest: Codable, Sendable {
         var schemaVersion = 1; var runs: [EventRunRecord]; var currentRunID: String?
         var pendingTransition: EventTransitionIntent? = nil
     }
@@ -222,6 +224,40 @@ nonisolated struct EventRunSession: Codable, Identifiable, Equatable, Sendable {
         }
     }
 
+    @discardableResult func commitStartAsync(context: EventRunContext, expected: EventOccurrencePlan, allowNewOccurrence: Bool, now: Date = Date()) async throws -> EventRunRecord {
+        try checkOperatorTransition()
+        guard pendingTransition == nil, !committing, occurrencePlan(for: context) == expected else {
+            throw SetupFailure("The event changed while starting. Review Current Event and try again.")
+        }
+        if case .continueActive(let id) = expected { return try record(id) }
+        var next = runs
+        let result: EventRunRecord
+        switch expected {
+        case .continueActive(let id): return try record(id)
+        case .resumePaused(let id):
+            guard let index = next.firstIndex(where: { $0.id == id }) else { throw SetupFailure("Run not found.") }
+            next[index].status = .active; result = next[index]
+        default:
+            var previous: String?
+            if case .requiresNewOccurrence(let id) = expected {
+                guard allowNewOccurrence else { throw SetupFailure("Choose Start New Occurrence before starting this ended event.") }
+                previous = id
+            }
+            if let index = next.firstIndex(where: { $0.id == currentRunID }), [.active, .paused].contains(next[index].status) {
+                next[index].status = .completed; next[index].endedAt = now
+            }
+            result = EventRunRecord(id: UUID().uuidString.lowercased(), context: context, createdAt: now, status: .active, previousRunID: previous)
+            next.append(result)
+        }
+        guard !unreadable else { throw SetupFailure(storageError ?? "Event history is unreadable.") }
+        committing = true; defer { committing = false }
+        let job = DurableJSONWrite(value: Manifest(runs: next, currentRunID: result.id, pendingTransition: pendingTransition), file: directory.appendingPathComponent("runs.json"), write: writer)
+        do { try await Task.detached(priority: .userInitiated) { try job.perform() }.value }
+        catch { storageError = error.localizedDescription; throw error }
+        runs = next; currentRunID = result.id; storageError = nil; revision += 1
+        return result
+    }
+
     private func record(_ id: String) throws -> EventRunRecord {
         guard let run = runs.first(where: { $0.id == id }) else { throw SetupFailure("Event run not found.") }
         return run
@@ -324,6 +360,28 @@ nonisolated struct EventRunSession: Codable, Identifiable, Equatable, Sendable {
         try commitManifest(next, currentID: currentRunID)
     }
 
+    func visibleRuns(library: EventDesignLibrary, includingArchived: Bool = false) -> [EventRunRecord] {
+        let removed = library.removedEventIDs
+        return runs.filter { $0.removedAt == nil && !($0.context.designID.map { removed.contains($0) } ?? false)
+            && (includingArchived || $0.status != .archived) }
+    }
+
+    func removeRun(id: String, now: Date = Date()) throws {
+        guard authorized() else { throw PaymentsAPIError.unauthorized }
+        guard !historyUnreadable, pendingTransition?.runID != id else { throw SetupFailure("Finish this run's pending event operation before removing it.") }
+        guard let index = runs.firstIndex(where: { $0.id == id }) else { return }
+        guard ![.active, .paused].contains(runs[index].status) else { throw SetupFailure("End Event then Remove before removing a running event.") }
+        var next = runs; next[index].removedAt = now
+        try commitManifest(next, currentID: currentRunID == id ? nil : currentRunID)
+    }
+
+    func restoreRemovedRun(id: String) throws {
+        guard authorized() else { throw PaymentsAPIError.unauthorized }
+        guard let index = runs.firstIndex(where: { $0.id == id }), runs[index].removedAt != nil else { return }
+        var next = runs; next[index].removedAt = nil
+        try commitManifest(next, currentID: currentRunID) // History only, never admission.
+    }
+
     func unusedRunDeletionReason(id: String, archives: [RecentSessionArchiveSummary], inspectionComplete: Bool) -> String? {
         guard inspectionComplete, !historyUnreadable, pendingTransition == nil, storageError == nil else { return "Dependency inspection is incomplete." }
         guard let run = runs.first(where: { $0.id == id }) else { return "Run not found." }
@@ -353,6 +411,7 @@ nonisolated struct EventRunSession: Codable, Identifiable, Equatable, Sendable {
     }
 
     private func commitManifest(_ next: [EventRunRecord], currentID: String?, pending: EventTransitionIntent?? = nil) throws {
+        guard !committing else { throw SetupFailure("The event run is still being saved. Try again when Start completes.") }
         do {
             guard !unreadable else { throw SetupFailure(storageError ?? "Event history is unreadable.") }
             let nextPending = pending ?? pendingTransition

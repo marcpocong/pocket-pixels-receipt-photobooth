@@ -171,6 +171,7 @@ struct OperatorEventsView: View {
     @ObservedObject var runs: EventRunStore
     @ObservedObject private var library: EventDesignLibraryStore
     @State private var showsArchived = false
+    @State private var showsRemoved = false
     @State private var deletionDesignID: String?
     @State private var deletionRunID: String?
     @State private var feedback: OperatorActionFeedback?
@@ -195,17 +196,32 @@ struct OperatorEventsView: View {
         do { try action(); feedback = .init(message: success) }
         catch { managementError = error.localizedDescription }
     }
+    private func needsEnd(_ id: String?) -> Bool {
+        guard let id else { return false }
+        return library.library.appliedEventID == id || runs.runs.contains { $0.context.designID == id && [.active, .paused].contains($0.status) }
+    }
     private func deleteDesign(_ id: String) {
-        manage("Saved design removed. Event history, customer media and financial records are kept.") {
-            try library.removeSavedDesign(id: id, runs: runs.runs, historyAvailable: !runs.historyUnreadable && runs.pendingTransition == nil,
-                pendingCreation: creationPending(id))
+        Task {
+            if needsEnd(id) {
+                guard runs.current == nil || runs.current?.context.designID == id else {
+                    managementError = "The current run belongs to another event. Review Current Event before removing this design."; return
+                }
+                let ended = runs.current != nil ? await lifecycle.end(scope: .thisBooth) : await lifecycle.returnToRegular()
+                guard ended else { managementError = lifecycle.message; return }
+            }
+            manage("Event removed. History, customer media and financial records are kept. Restore it under Show Removed Events.") {
+                try library.removeEvent(id: id, runs: runs.runs, historyAvailable: !runs.historyUnreadable,
+                    pendingCreation: creationPending(id))
+            }
         }
     }
     private func deleteRun(_ id: String) {
-        manage("Unused local run deleted.") {
-            let store = try sessionArchives()
-            try runs.deleteUnusedRun(id: id, archives: store.summaries(includePayloadSize: false), inspectionComplete: !runs.historyUnreadable,
-                deletedSessions: store.deletedSessionEvidence())
+        Task {
+            if let run = runs.runs.first(where: { $0.id == id }), [.active, .paused].contains(run.status) {
+                guard runs.currentRunID == id else { managementError = "This run needs review in Current Event before removal."; return }
+                guard await lifecycle.end(scope: .thisBooth) else { managementError = lifecycle.message; return }
+            }
+            manage("Run removed. Its original sessions, reports and payment associations are kept.") { try runs.removeRun(id: id) }
         }
     }
 
@@ -219,7 +235,7 @@ struct OperatorEventsView: View {
     }
 
     private func designRemovalTitle(_ design: SavedEventDesign) -> String {
-        design.hasCommercialHistory || runs.runs.contains(where: { $0.context.designID == design.id }) ? "Remove Saved Design" : "Delete Event"
+        needsEnd(design.id) ? "End Event then Remove" : "Remove Event"
     }
 
     var body: some View {
@@ -233,6 +249,9 @@ struct OperatorEventsView: View {
                         }
                     } icon: { Image(systemName: "house") }
                     .frame(minHeight: 52)
+                }
+                if runs.operational?.status == .active {
+                    NavigationLink(value: OperatorWorkspaceRoute.liveEvent) { Label("Edit Live Event", systemImage: "square.and.pencil") }
                 }
                 NavigationLink(value: OperatorWorkspaceRoute.sessionSetup) { Label("Review Current Setup", systemImage: "checklist") }
                 if library.library.appliedEventID != nil || runs.current != nil {
@@ -248,7 +267,7 @@ struct OperatorEventsView: View {
             } footer: { Text("Setup is staged. Guests keep their current configuration until an explicit Review & Start.") }
             Section("Saved Event Designs") {
                 Toggle("Show Archived Events", isOn: $showsArchived)
-                ForEach(library.library.events.filter { showsArchived || $0.archivedAt == nil }.sorted { $0.updatedAt > $1.updatedAt }) { event in
+                ForEach(library.library.events.filter { $0.removedAt == nil && (showsArchived || $0.archivedAt == nil) }.sorted { $0.updatedAt > $1.updatedAt }) { event in
                     HStack {
                         NavigationLink(value: OperatorWorkspaceRoute.savedEvent(event.id)) {
                             VStack(alignment: .leading, spacing: 4) {
@@ -274,7 +293,7 @@ struct OperatorEventsView: View {
                 NavigationLink("Manage Saved Events & Archived Designs", value: OperatorWorkspaceRoute.eventLibrary)
             }
             Section("Local Event Runs") {
-                ForEach(runs.runs.filter { showsArchived || $0.status != .archived }.sorted { $0.createdAt > $1.createdAt }) { run in
+                ForEach(runs.visibleRuns(library: library.library, includingArchived: showsArchived).sorted { $0.createdAt > $1.createdAt }) { run in
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(run.context.name).font(.headline)
@@ -286,12 +305,29 @@ struct OperatorEventsView: View {
                             if run.status == .archived {
                                 Button("Restore Run") { manage("Run restored to history.") { try runs.restoreArchivedRun(id: run.id) } }
                             } else { Button("Archive Run") { manage("Run archived. Reports are kept.") { try runs.transition(id: run.id, to: .archived) } } }
-                            Button("Delete Unused Local Run", role: .destructive) { deletionRunID = run.id }
+                            Button([.active, .paused].contains(run.status) ? "End Event then Remove Run" : "Remove Run", role: .destructive) { deletionRunID = run.id }
                         } label: { Label("Manage", systemImage: "ellipsis.circle").frame(minWidth: 44, minHeight: 44) }
                         .buttonStyle(.borderless)
                     }
                 }
-                Text("Saved designs are reusable configurations. Local runs are historical occurrences. Removing a design keeps reports, receipts and server-managed commercial events.").font(.footnote).foregroundStyle(.secondary)
+                Text("Saved designs are reusable configurations. Local runs are historical occurrences. Removing an event hides its linked runs and keeps reports, receipts and financial records.").font(.footnote).foregroundStyle(.secondary)
+            }
+            Section {
+                Button(showsRemoved ? "Hide Removed Events" : "Show Removed Events") { showsRemoved.toggle() }
+                if showsRemoved {
+                    ForEach(library.library.events.filter { $0.removedAt != nil }) { event in
+                        LabeledContent(event.displayName) {
+                            Button("Restore Removed Event") {
+                                manage("Event restored. It is not accepting guests.") { try library.restoreRemovedEvent(id: event.id) }
+                            }.accessibilityIdentifier("restore-removed-event-" + event.id)
+                        }
+                    }
+                    ForEach(runs.runs.filter { $0.removedAt != nil && !library.library.removedEventIDs.contains($0.context.designID ?? "") }) { run in
+                        LabeledContent(run.context.name) {
+                            Button("Restore Removed Run") { manage("Run restored to history.") { try runs.restoreRemovedRun(id: run.id) } }
+                        }
+                    }
+                }
             }
             Section("Guest Experience") {
                 NavigationLink(value: OperatorWorkspaceRoute.branding) { Label("Event Customization", systemImage: "paintpalette") }
@@ -311,19 +347,19 @@ struct OperatorEventsView: View {
             Button("OK", role: .cancel) { managementError = nil }
         } message: { Text(managementError ?? "") }
         .confirmationDialog("Remove \(library.design(id: deletionDesignID)?.displayName ?? "saved design")?", isPresented: Binding(get: { deletionDesignID != nil }, set: { if !$0 { deletionDesignID = nil } }), titleVisibility: .visible) {
-            Button("Remove Saved Design", role: .destructive) { if let id = deletionDesignID { deleteDesign(id) }; deletionDesignID = nil }
+            Button(needsEnd(deletionDesignID) ? "End Event then Remove" : "Remove Event", role: .destructive) { if let id = deletionDesignID { deleteDesign(id) }; deletionDesignID = nil }
             Button("Cancel", role: .cancel) { deletionDesignID = nil }
-        } message: { Text("Removes the reusable local configuration. Its historical name and identity, event runs, customer media, prints and financial records are kept. No server event is deleted.") }
+        } message: { Text("Hides this event and its linked historical runs. Running events end on this iPad first. Customer media, prints and financial records are kept. Restore it under Show Removed Events.") }
         .confirmationDialog(runs.operational == nil ? "Switch to Regular Booth?" : "End Event on This iPad?", isPresented: $confirmsRegular, titleVisibility: .visible) {
             Button("Switch to Regular Booth", role: .destructive) {
                 performRegularTransition()
             }
             Button("Cancel", role: .cancel) { }
         } message: { Text("Guest admission and unfinished receipts are checked again. This iPad returns to Regular Booth; other booths, event history and payments are kept. Remove the saved design afterward.") }
-        .confirmationDialog("Delete this unused local run?", isPresented: Binding(get: { deletionRunID != nil }, set: { if !$0 { deletionRunID = nil } }), titleVisibility: .visible) {
-            Button("Delete Unused Local Run", role: .destructive) { if let id = deletionRunID { deleteRun(id) }; deletionRunID = nil }
+        .confirmationDialog("Remove this event run?", isPresented: Binding(get: { deletionRunID != nil }, set: { if !$0 { deletionRunID = nil } }), titleVisibility: .visible) {
+            Button("Remove Run", role: .destructive) { if let id = deletionRunID { deleteRun(id) }; deletionRunID = nil }
             Button("Cancel", role: .cancel) { deletionRunID = nil }
-        } message: { Text("Current runs, commercial identities and runs with session history are protected. Archive a completed run to retain its history.") }
+        } message: { Text("Hides this run from normal lists. A running event ends on this iPad first. Sessions, receipts, payment records and reports remain associated with its original ID. You can restore the run later.") }
         .navigationTitle("Events").navigationBarTitleDisplayMode(.inline)
         .scrollContentBackground(.hidden).background(OperatorPalette.canvas)
         .environment(\.defaultMinListRowHeight, 52)

@@ -377,6 +377,7 @@ private struct OperatorStorageView: View {
 extension OperatorWorkspaceRoute {
     @MainActor @ViewBuilder var destination: some View {
         switch self {
+        case .liveEvent: SessionSetupView(editingLiveEvent: true)
         case .newEvent: SessionSetupView(opensNewEventDraft: true)
         case .savedEvent(let id): OperatorSavedEventSetupView(designID: id)
         case .eventHistory: EventRunReportingView(initialTab: .history)

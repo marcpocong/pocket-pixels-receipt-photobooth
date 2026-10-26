@@ -78,6 +78,8 @@ nonisolated struct SavedEventDesign: Codable, Equatable, Identifiable, Sendable 
     var createdAt: Date
     var updatedAt: Date
     var archivedAt: Date? = nil
+    /// Reversible visibility tombstone. Identity, settings and commercial ownership are retained.
+    var removedAt: Date? = nil
     /// Binding → commercial events this design used for earlier, ended occurrences. Append-only:
     /// a new paid occurrence links a fresh commercial event, and the old one's orders stay with it.
     var retiredServerEvents: [String: [String]]? = nil
@@ -160,16 +162,24 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
 
     func historicalName(id: String?) -> String? {
         guard let id else { return nil }
-        return design(id: id)?.displayName ?? removedDesigns?.first(where: { $0.id == id })?.name
+        return events.first(where: { $0.id == id })?.displayName ?? removedDesigns?.first(where: { $0.id == id })?.name
     }
 
     func design(id: String?) -> SavedEventDesign? {
         guard let id else { return nil }
-        return events.first { $0.id == id }
+        return events.first { $0.id == id && $0.removedAt == nil }
     }
 
     func design(linkedTo serverEventID: String, binding: String) -> SavedEventDesign? {
-        events.first { $0.serverEvents[binding] == serverEventID }
+        events.first { $0.serverEvents[binding] == serverEventID && $0.removedAt == nil }
+    }
+
+    var removedEventIDs: Set<String> {
+        Set(events.filter { $0.removedAt != nil }.map(\.id)).union((removedDesigns ?? []).map(\.id))
+    }
+    func removedServerEventIDs(binding: String) -> Set<String> {
+        Set(events.filter { $0.removedAt != nil }.flatMap { $0.allServerEventIDs(binding: binding) })
+            .union((removedDesigns ?? []).flatMap { $0.serverEventIDs[binding] ?? [] })
     }
 
     /// Commercial events already owned by a design or by regular sessions, current or retired.
@@ -218,6 +228,7 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
     private let file: URL
     private let write: (Data, URL) throws -> Void
     private var unreadableOriginal = false
+    private var committing = false
     private let operationAuthorized: @MainActor () -> Bool
     private let operationBlockingReason: @MainActor () -> String?
 
@@ -254,8 +265,12 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
     func design(id: String?) -> SavedEventDesign? { library.design(id: id) }
 
     /// Inserts or replaces one event's saved design.
-    func save(_ design: SavedEventDesign) throws {
-        guard !(library.removedDesigns ?? []).contains(where: { $0.id == design.id }) else {
+    func save(_ design: SavedEventDesign) throws { try commit(candidateSaving(design)) }
+
+    func saveAsync(_ design: SavedEventDesign) async throws { try await commitAsync(candidateSaving(design)) }
+
+    private func candidateSaving(_ design: SavedEventDesign) throws -> EventDesignLibrary {
+        guard !library.removedEventIDs.contains(design.id) else {
             throw SetupFailure("This saved design was removed. Create a new event to use these edits; its historical identity is retained.")
         }
         var next = library
@@ -264,12 +279,19 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
         if let index = next.events.firstIndex(where: { $0.id == design.id }) {
             // Server links are recorded by `link`; a design draft never removes one.
             value.archivedAt = next.events[index].archivedAt
+            value.removedAt = next.events[index].removedAt
             value.retiredServerEvents = next.events[index].retiredServerEvents
             // The library owns links: a stale draft can add a missing link but never replace one.
             value.serverEvents = next.events[index].serverEvents.merging(design.serverEvents) { stored, _ in stored }
             next.events[index] = value
         } else { next.events.append(value) }
-        try commit(next)
+        return next
+    }
+
+    func createAsync(name: String, venue: String) async throws -> SavedEventDesign {
+        let design = SavedEventDesign.new(name: name.trimmingCharacters(in: .whitespacesAndNewlines), venue: venue.trimmingCharacters(in: .whitespacesAndNewlines))
+        try await saveAsync(design)
+        return design
     }
 
     func create(name: String, venue: String) throws -> SavedEventDesign {
@@ -280,24 +302,29 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
 
     /// Links a saved event to a server event in one payments environment. A server event is
     /// linked to at most one saved event per environment.
-    func link(designID: String, binding: String, serverEventID: String) throws {
-        guard !(library.removedDesigns ?? []).contains(where: { $0.serverEventIDs[binding]?.contains(serverEventID) == true }) else {
+    func link(designID: String, binding: String, serverEventID: String) throws { try commit(candidateLink(designID: designID, binding: binding, serverEventID: serverEventID)) }
+    func linkAsync(designID: String, binding: String, serverEventID: String) async throws { try await commitAsync(candidateLink(designID: designID, binding: binding, serverEventID: serverEventID)) }
+
+    private func candidateLink(designID: String, binding: String, serverEventID: String) throws -> EventDesignLibrary {
+        guard !library.removedServerEventIDs(binding: binding).contains(serverEventID) else {
             throw SetupFailure("That commercial event belongs to a removed saved design. Its original history is retained.")
         }
         var next = library
-        for index in next.events.indices where next.events[index].serverEvents[binding] == serverEventID && next.events[index].id != designID {
-            next.events[index].serverEvents.removeValue(forKey: binding)
+        guard !next.events.contains(where: { $0.id != designID && $0.allServerEventIDs(binding: binding).contains(serverEventID) }),
+              next.regularServerEvents[binding] != serverEventID,
+              !(next.retiredRegularServerEvents?[binding] ?? []).contains(serverEventID) else {
+            throw SetupFailure("That paid event already belongs to another event. Its original association was kept.")
         }
         guard let index = next.events.firstIndex(where: { $0.id == designID }) else { throw SetupFailure("That event is no longer saved.") }
         next.events[index].serverEvents[binding] = serverEventID
         next.events[index].updatedAt = Date()
-        try commit(next)
+        return next
     }
 
     /// The saved event for a server event, creating a plain (logo off) design the first time.
     func adopt(serverEventID: String, name: String, venue: String, binding: String) throws -> SavedEventDesign {
         if let existing = library.design(linkedTo: serverEventID, binding: binding) { return existing }
-        guard !(library.removedDesigns ?? []).contains(where: { $0.serverEventIDs[binding]?.contains(serverEventID) == true }) else {
+        guard !library.removedServerEventIDs(binding: binding).contains(serverEventID) else {
             throw SetupFailure("This commercial event is retained in history. Start a new event for a new occurrence.")
         }
         var design = SavedEventDesign.new(name: name, venue: venue)
@@ -309,7 +336,10 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
     /// Starts a new paid occurrence of a design whose commercial event has ended: the ended
     /// event moves to the design's append-only history and the fresh one becomes current.
     /// `expectedCurrent` guards against a concurrent relink. Old orders are never reassigned.
-    func linkNewCommercialOccurrence(designID: String?, binding: String, expectedCurrent: String, newServerEventID: String) throws {
+    func linkNewCommercialOccurrence(designID: String?, binding: String, expectedCurrent: String, newServerEventID: String) throws { try commit(candidateOccurrence(designID: designID, binding: binding, expectedCurrent: expectedCurrent, newServerEventID: newServerEventID)) }
+    func linkNewCommercialOccurrenceAsync(designID: String?, binding: String, expectedCurrent: String, newServerEventID: String) async throws { try await commitAsync(candidateOccurrence(designID: designID, binding: binding, expectedCurrent: expectedCurrent, newServerEventID: newServerEventID)) }
+
+    private func candidateOccurrence(designID: String?, binding: String, expectedCurrent: String, newServerEventID: String) throws -> EventDesignLibrary {
         guard expectedCurrent != newServerEventID else { throw SetupFailure("A new occurrence needs a new commercial event.") }
         var next = library
         guard !next.knownServerEventIDs(binding: binding).contains(newServerEventID) else { throw SetupFailure("That commercial event already belongs to another occurrence.") }
@@ -328,16 +358,19 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
             next.retiredRegularServerEvents = retired
             next.regularServerEvents[binding] = newServerEventID
         }
-        try commit(next)
+        return next
     }
 
-    func setRegularServerEvent(_ serverEventID: String, binding: String) throws {
-        guard !(library.removedDesigns ?? []).contains(where: { $0.serverEventIDs[binding]?.contains(serverEventID) == true }) else {
+    func setRegularServerEvent(_ serverEventID: String, binding: String) throws { try commit(candidateRegular(serverEventID, binding: binding)) }
+    func setRegularServerEventAsync(_ serverEventID: String, binding: String) async throws { try await commitAsync(candidateRegular(serverEventID, binding: binding)) }
+
+    private func candidateRegular(_ serverEventID: String, binding: String) throws -> EventDesignLibrary {
+        guard !library.removedServerEventIDs(binding: binding).contains(serverEventID) else {
             throw SetupFailure("That commercial event belongs to a removed saved design. Start a new event for Regular Booth checkout.")
         }
         var next = library
         next.regularServerEvents[binding] = serverEventID
-        try commit(next)
+        return next
     }
 
     func recordApplied(eventModeEnabled: Bool, eventID: String?) throws {
@@ -418,7 +451,54 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
         try commit(next)
     }
 
+    /// Hides the saved event and every occurrence of that design through one durable flag.
+    /// Run/session journals and server financial records are never mutated by removal.
+    func removeEvent(id: String, runs: [EventRunRecord], historyAvailable: Bool,
+                     pendingCreation: Bool = false, now: Date = Date()) throws {
+        guard operationAuthorized() else { throw PaymentsAPIError.unauthorized }
+        guard historyAvailable else { throw SetupFailure("Recover event-run storage before removing this event.") }
+        guard !pendingCreation else { throw SetupFailure("Check the original event creation request before removing this event.") }
+        guard library.appliedEventID != id,
+              !runs.contains(where: { $0.context.designID == id && [.active, .paused].contains($0.status) }) else {
+            throw SetupFailure("Use End Event then Remove to finish the running event and keep its history.")
+        }
+        guard let index = library.events.firstIndex(where: { $0.id == id }), library.events[index].removedAt == nil else { return }
+        var next = library; next.events[index].removedAt = now
+        try commit(next)
+    }
+
+    func restoreRemovedEvent(id: String) throws {
+        guard operationAuthorized() else { throw PaymentsAPIError.unauthorized }
+        guard let index = library.events.firstIndex(where: { $0.id == id }), library.events[index].removedAt != nil else {
+            throw SetupFailure("The retained event configuration is unavailable.")
+        }
+        var next = library
+        next.events[index].removedAt = nil
+        next.events[index].archivedAt = nil
+        try commit(next) // Never sets applied identity or starts a run.
+    }
+
+    func recordAppliedAsync(eventModeEnabled: Bool, eventID: String?) async throws {
+        if eventModeEnabled {
+            guard let design = design(id: eventID), design.archivedAt == nil else { throw SetupFailure("Choose an active saved event before applying.") }
+        }
+        var next = library; next.appliedEventModeEnabled = eventModeEnabled; next.appliedEventID = eventModeEnabled ? eventID : nil
+        if next == library { return }
+        try await commitAsync(next)
+    }
+
+    private func commitAsync(_ next: EventDesignLibrary) async throws {
+        guard !unreadableOriginal, !committing else { throw SetupFailure(storageError ?? "An event save is still finishing. Try again when it completes.") }
+        committing = true; defer { committing = false }
+        let job = DurableJSONWrite(value: next, file: file, write: write)
+        do { try await Task.detached(priority: .userInitiated) { try job.perform() }.value }
+        catch { storageError = "Event design could not be saved on this iPad. Your edits are kept in setup; try again."; throw SetupFailure(storageError!) }
+        library = next; storageError = nil
+        NotificationCenter.default.post(name: Self.didChange, object: nil)
+    }
+
     private func commit(_ next: EventDesignLibrary) throws {
+        guard !committing else { throw SetupFailure("An event save is still finishing. Try again when it completes.") }
         if unreadableOriginal { throw SetupFailure(storageError ?? "Saved event designs are unavailable.") }
         try persist(next)
         library = next

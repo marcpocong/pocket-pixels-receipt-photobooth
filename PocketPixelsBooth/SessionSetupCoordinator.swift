@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import OSLog
 
 /// Retained only so setup drafts written by earlier builds keep decoding. Branding is now the
 /// selected event's saved design (or the studio default with Event Mode off).
@@ -25,7 +26,7 @@ nonisolated struct OperatorSessionSetupDraft: Codable, Equatable {
 /// payment entitlement. Existing installs retain their current behavior until an explicit action.
 @MainActor final class SessionAcceptanceStore: ObservableObject {
     static let shared = SessionAcceptanceStore()
-    nonisolated struct State: Codable, Equatable {
+    nonisolated struct State: Codable, Equatable, Sendable {
         var blocked = false
         var eventID: String?
         var serverBinding: String?
@@ -37,7 +38,14 @@ nonisolated struct OperatorSessionSetupDraft: Codable, Equatable {
     }
     @Published private(set) var state = State()
     @Published private(set) var storageError: String?
+    @Published private(set) var setupOperationID: UUID?
+    func beginSetupOperation() throws -> UUID {
+        guard setupOperationID == nil else { throw SetupFailure("Event setup is still finishing on this iPad. Leaving the screen does not cancel it. Wait for its result before starting again.") }
+        let id = UUID(); setupOperationID = id; return id
+    }
+    func finishSetupOperation(_ id: UUID) { if setupOperationID == id { setupOperationID = nil } }
     private let file: URL
+    private var committing = false
     private let write: (Data, URL) throws -> Void
     nonisolated static var committedMode: CommercialPolicySource? {
         guard let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
@@ -55,12 +63,22 @@ nonisolated struct OperatorSessionSetupDraft: Codable, Equatable {
         }
     }
     func save(_ next: State) throws {
+        guard !committing else { throw SetupFailure("Session settings are still being saved.") }
         if let storageError { throw SetupFailure(storageError) }
         // A failed write must not allow another guest in this process.
         state.blocked = true
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try write(JSONEncoder().encode(next), file)
         try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete, .posixPermissions: 0o600], ofItemAtPath: file.path)
+        state = next
+    }
+    func saveAsync(_ next: State) async throws {
+        guard !committing else { throw SetupFailure("Session settings are still being saved.") }
+        if let storageError { throw SetupFailure(storageError) }
+        committing = true; state.blocked = true
+        defer { committing = false }
+        let job = DurableJSONWrite(value: next, file: file, write: write)
+        try await Task.detached(priority: .userInitiated) { try job.perform() }.value
         state = next
     }
     func permits(eventID: String, binding: String) -> Bool {
@@ -84,6 +102,62 @@ nonisolated protocol SessionSetupAPI: Sendable {
     func activeEvent() async throws -> ActiveEventResponse
 }
 extension PaymentsAPIClient: SessionSetupAPI {}
+
+nonisolated enum EventSetupPhase: String, Sendable {
+    case savingEvent = "Saving event", linkingPayments = "Linking payments", loadingSettings = "Loading settings"
+    case activating = "Activating", verifying = "Verifying", completed = "Completed"
+}
+
+nonisolated struct EventSetupRequestTimeout: LocalizedError, Sendable {
+    let phase: EventSetupPhase
+    let mutation: Bool
+    var errorDescription: String? {
+        mutation
+            ? "\(phase.rawValue) timed out. The server may have saved the change. Check its original status before trying again."
+            : "\(phase.rawValue) timed out. Check Current Status to retry this read when the connection is ready."
+    }
+}
+
+/// An absolute deadline supplements URLSession's inactivity timeout. Cancellation of a write
+/// means an unknown outcome, never proof that the server cancelled or rolled it back.
+nonisolated struct EventSetupRequests: SessionSetupAPI {
+    let base: any SessionSetupAPI
+    var timeout: TimeInterval = 15
+    let progress: @MainActor @Sendable (EventSetupPhase) -> Void
+    private func run<T: Sendable>(_ phase: EventSetupPhase, mutation: Bool = false,
+                                 _ operation: @escaping @Sendable () async throws -> T) async throws -> T {
+        await progress(phase)
+        let started = Date()
+        defer {
+            Logger(subsystem: "com.pocketpixels.PocketPixelsBooth", category: "EventSetup")
+                .info("phase=\(phase.rawValue, privacy: .public) mutation=\(mutation) duration_ms=\(Int(Date().timeIntervalSince(started) * 1000))")
+        }
+        return try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(max(0.001, timeout) * 1_000_000_000))
+                throw EventSetupRequestTimeout(phase: phase, mutation: mutation)
+            }
+            defer { group.cancelAll() }
+            return try await group.next()!
+        }
+    }
+    func listEvents() async throws -> [OperatorEventSummary] { try await run(.loadingSettings) { try await base.listEvents() } }
+    func eventDetail(id: String) async throws -> OperatorEventDetail { try await run(.loadingSettings) { try await base.eventDetail(id: id) } }
+    func createEvent(name: String, venue: String, operationID: String) async throws -> OperatorCreatedEvent {
+        try await run(.linkingPayments, mutation: true) { try await base.createEvent(name: name, venue: venue, operationID: operationID) }
+    }
+    func eventCreation(operationID: String) async throws -> OperatorEventCreationLookup {
+        try await run(.verifying) { try await base.eventCreation(operationID: operationID) }
+    }
+    func saveDraft(eventID: String, expectedVersion: Int, name: String, venue: String, policy: ServerPolicyDraft.RequestBody) async throws -> OperatorEventUpdate {
+        try await run(.savingEvent, mutation: true) { try await base.saveDraft(eventID: eventID, expectedVersion: expectedVersion, name: name, venue: venue, policy: policy) }
+    }
+    func transitionEvent(id: String, action: String, expectedVersion: Int, policyRevisionID: String?, acknowledgedUnitPriceCentavos: Int?) async throws -> OperatorEventTransition {
+        try await run(.activating, mutation: true) { try await base.transitionEvent(id: id, action: action, expectedVersion: expectedVersion, policyRevisionID: policyRevisionID, acknowledgedUnitPriceCentavos: acknowledgedUnitPriceCentavos) }
+    }
+    func activeEvent() async throws -> ActiveEventResponse { try await run(.verifying) { try await base.activeEvent() } }
+}
 
 @MainActor enum SessionSetupSafety {
     enum RecoveryIssue: Equatable {
@@ -212,6 +286,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     @Published private(set) var requestedMethods: GuestPaymentChoice? { didSet { persistSelection() } }
     @Published var prepaid: CommercialEventRun {
         didSet {
+            guard !loading else { return }
             workspace.savePrepaidDraft(SavedDraftDiff.prepaid(prepaid, loadLocal()).isEmpty ? nil : prepaid)
             if !loading, mode == .localPrepaid, eventModeEnabled, var next = design, next.prepaidPolicy != prepaid.activePolicy {
                 next.prepaidPolicy = prepaid.activePolicy
@@ -227,6 +302,15 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     @Published private(set) var events: [OperatorEventSummary] = []
     @Published private(set) var message = ""
     @Published private(set) var busy = false
+    @Published private(set) var phase: EventSetupPhase = .loadingSettings
+    private var refreshTask: Task<Void, Never>?
+    private var verifiedCreation: OperatorEventDetail?
+    private let requestTimeout: TimeInterval
+    let editingLiveEvent: Bool
+    private var liveRunID: String?
+    private var liveBaselineDesign: SavedEventDesign?
+    private var liveDraftsBeforeEditing: OperatorWorkspace.Snapshot?
+    private var liveLoadedPolicy = false
     @Published private(set) var conflict = false
     @Published private(set) var needsRefresh = false
     /// The operator's explicit choice to follow an ended occurrence with a fresh one.
@@ -242,7 +326,10 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     let eventRuns: EventRunStore
     let library: EventDesignLibraryStore
     let creations: CommercialEventCreationStore
-    private let api: @MainActor () throws -> any SessionSetupAPI
+    private let makeAPI: @MainActor () throws -> any SessionSetupAPI
+    private func api() throws -> any SessionSetupAPI {
+        EventSetupRequests(base: try makeAPI(), timeout: requestTimeout, progress: { [weak self] in self?.phase = $0 })
+    }
     private let authorized: @MainActor () -> Bool
     private let blockingReason: @MainActor () -> String?
     private let loadLocal: @MainActor () -> CommercialEventRun
@@ -254,7 +341,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     private let artworkAvailable: @MainActor (String?) -> Bool
     private var creationObserver: AnyCancellable?
 
-    init(eventID: String? = nil, draftTarget: SavedDraftID? = nil, workspace: OperatorWorkspace? = nil, acceptance: SessionAcceptanceStore? = nil, library: EventDesignLibraryStore? = nil,
+    init(eventID: String? = nil, editingLiveEvent: Bool = false, requestTimeout: TimeInterval = 15, draftTarget: SavedDraftID? = nil, workspace: OperatorWorkspace? = nil, acceptance: SessionAcceptanceStore? = nil, library: EventDesignLibraryStore? = nil,
          eventRuns: EventRunStore? = nil, creations: CommercialEventCreationStore? = nil,
          api: @escaping @MainActor () throws -> any SessionSetupAPI = {
              guard let c = PaymentsConfiguration.current() else { throw SetupFailure("Set up this iPad in Advanced → Payment Maintenance first.") }
@@ -272,10 +359,11 @@ extension PaymentsAPIClient: SessionSetupAPI {}
          }) {
         let workspace = workspace ?? .shared
         let library = library ?? .shared
+        self.editingLiveEvent = editingLiveEvent
         self.draftTarget = draftTarget
         self.workspace = workspace; self.acceptance = acceptance ?? .shared; self.library = library; self.eventRuns = eventRuns ?? .shared
         self.creations = creations ?? .shared
-        self.api = api; self.authorized = authorized; self.blockingReason = blockingReason
+        self.makeAPI = api; self.requestTimeout = requestTimeout; self.authorized = authorized; self.blockingReason = blockingReason
         self.loadLocal = loadLocal; self.saveLocal = saveLocal; self.source = source; self.saveSource = saveSource
         self.currentProfile = currentProfile; self.applyProfile = applyProfile; self.artworkAvailable = artworkAvailable
         let staged = workspace.snapshot.sessionSetup
@@ -315,10 +403,31 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         if mode == .localPrepaid, workspace.snapshot.prepaidDraft == nil, let policy = design?.prepaidPolicy {
             loading = true; prepaid.activePolicy = policy; loading = false
         }
+        if editingLiveEvent {
+            liveDraftsBeforeEditing = workspace.snapshot
+            loading = true
+            mode = source(); eventModeEnabled = saved.appliedEventModeEnabled
+            designID = saved.appliedEventID; selectedID = self.acceptance.state.eventID
+            pendingServerEventID = nil; requestedMethods = nil
+            prepaid = loadLocal()
+            if var applied = saved.design(id: designID) {
+                let profile = currentProfile().normalized()
+                applied.profile = profile
+                applied.name = profile.eventName.isEmpty ? applied.name : profile.eventName
+                applied.venue = loadLocal().venue.isEmpty ? applied.venue : loadLocal().venue
+                applied.personalizeReceipt = profile.isEnabled
+                applied.guestScreensEnabled = profile.customerScreenEnabled
+                design = applied
+            }
+            liveRunID = self.eventRuns.currentRunID
+            liveBaselineDesign = design
+            loading = false
+        }
         creationObserver = self.creations.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
     var workspaceForEditing: OperatorWorkspace { workspace }
+    var acceptanceForPresentation: SessionAcceptanceStore { acceptance }
 
     // MARK: Payment choice
 
@@ -363,7 +472,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         return eventModeEnabled ? design?.serverEventID(binding: binding) : library.library.regularServerEvents[binding]
     }
 
-    var savedEvents: [SavedEventDesign] { library.library.events.filter { $0.archivedAt == nil }.sorted { $0.updatedAt > $1.updatedAt } }
+    var savedEvents: [SavedEventDesign] { library.library.events.filter { $0.archivedAt == nil && $0.removedAt == nil }.sorted { $0.updatedAt > $1.updatedAt } }
 
     /// Server events not yet linked to a saved event in this environment.
     var unlinkedServerEvents: [OperatorEventSummary] {
@@ -402,17 +511,23 @@ extension PaymentsAPIClient: SessionSetupAPI {}
 
     /// Creates a new saved event (logo off). In a paid setup it is also connected to paid checkout.
     func createEvent(name: String, venue: String) async {
+        if let refreshTask { await refreshTask.value }
+        guard !busy else { message = "An event operation is still running. Wait for its result before creating another event."; return }
+        if mode == .serverManaged, pendingCreation != nil { message = "Check Original Request before creating another paid event."; return }
         guard authorized() else { message = "Unlock Operator again before continuing."; return }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { message = "Enter an event name."; return }
+        busy = true; phase = .savingEvent
         do {
-            let created = try library.create(name: trimmed, venue: venue)
+            let created = try await library.createAsync(name: trimmed, venue: venue)
             workspace.saveNewEvent(name: "", venue: "")
             eventModeEnabled = true
             selectDesign(created.id)
             message = "New event saved. It is not accepting guests."
+            busy = false
             if mode == .serverManaged { await connectPaidCheckout() }
-        } catch { message = error.localizedDescription }
+            else { phase = .completed }
+        } catch { busy = false; message = error.localizedDescription }
     }
 
     /// Adopts a server event created elsewhere as a saved event for this environment.
@@ -444,6 +559,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
 
     /// Picks up design edits made through another screen (drafts are shared via the workspace).
     func reloadDesignFromStorage() {
+        guard !editingLiveEvent else { return }
         guard let id = designID, let stored = workspace.designDraft(id: id) ?? library.design(id: id), stored != design else { return }
         design = stored
     }
@@ -455,7 +571,11 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     }
 
     private func designDidChange(_ old: SavedEventDesign?) {
+        guard !loading else { return }
         guard let design else { return }
+        if let old, old.venue != design.venue, design.profile.location == old.venue {
+            var updated = design; updated.profile.location = design.venue; self.design = updated; return
+        }
         let saved = library.design(id: design.id)
         workspace.saveDesignDraft(SavedDraftDiff.design(design, saved).isEmpty ? nil : design, id: design.id)
         // A linked paid event keeps its server name in step with the event name.
@@ -483,7 +603,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
 
     var dirtyPaid: Bool {
         guard let detail else { return false }
-        guard let latest = detail.latestRevision else { return true }
+        guard let latest = editingLiveEvent ? (detail.activePolicy ?? detail.latestRevision) : detail.latestRevision else { return true }
         let draft = OperatorServerSetupDraft(eventID: detail.event.id, serverBinding: workspace.serverBinding,
                                             baseVersion: baseVersion ?? detail.event.version, name: name, venue: venue, policy: policy)
         let baseline = PaymentDraftBaseline(name: detail.event.name, venue: detail.event.venue, policy: ServerPolicyDraft(revision: latest))
@@ -576,10 +696,16 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     }
 
     var hasUnsavedChanges: Bool {
-        designDirty || (mode == .serverManaged && dirtyPaid) || (mode == .localPrepaid && workspace.snapshot.prepaidDraft != nil)
+        if editingLiveEvent {
+            return design != liveBaselineDesign || (mode == .serverManaged && dirtyPaid)
+                || (mode == .localPrepaid && prepaid.activePolicy != loadLocal().activePolicy)
+                || unattendedQR != (acceptance.state.unattendedQR ?? false)
+        }
+        return designDirty || (mode == .serverManaged && dirtyPaid) || (mode == .localPrepaid && workspace.snapshot.prepaidDraft != nil)
     }
 
     private func persistSelection() {
+        guard !loading else { return }
         if let draftTarget, draftTarget != .sessionSelection && draftTarget != .newEvent { return }
         let applied = library.library
         let sameDesignSelection = eventModeEnabled == applied.appliedEventModeEnabled
@@ -617,6 +743,15 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     // MARK: Server events
 
     func refresh() async {
+        if let refreshTask { await refreshTask.value; return }
+        guard !busy else { return } // A mutation owns its own verification; never overlap it.
+        let task = Task { await self.performRefresh() }
+        refreshTask = task
+        await task.value
+        refreshTask = nil
+    }
+
+    private func performRefresh() async {
         if case .payment(let binding, _) = draftTarget, binding != workspace.serverBinding {
             needsRefresh = true
             message = "This draft belongs to a different payments connection. Reconnect before reviewing its server settings."
@@ -626,12 +761,14 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         busy = true; defer { busy = false }
         do {
             if mode == .localPrepaid, source() == .localPrepaid { needsRefresh = false; return }
-            events = try await api().listEvents()
             if let pending = pendingServerEventID {
                 pendingServerEventID = nil
                 bindSelection(to: pending)
             }
-            adoptCommittedEventIfNeeded()
+            if targetServerEventID == nil {
+                events = try await api().listEvents()
+                adoptCommittedEventIfNeeded()
+            }
             if let target = targetServerEventID {
                 selectedID = target
                 try await loadPaid(target)
@@ -702,6 +839,7 @@ extension PaymentsAPIClient: SessionSetupAPI {}
     /// Creates (or reuses) the server event that carries this context's paid policy. Explicit
     /// operator action; the link is remembered so revisiting setup never creates duplicates.
     func connectPaidCheckout() async {
+        if let refreshTask { await refreshTask.value }
         guard !busy, authorized(), !needsRefresh, mode == .serverManaged, targetServerEventID == nil else { return }
         if let reason = creationBlocker { message = reason; return }
         busy = true; defer { busy = false }
@@ -710,9 +848,9 @@ extension PaymentsAPIClient: SessionSetupAPI {}
             if eventModeEnabled {
                 guard var design else { throw SetupFailure("Choose or create an event first.") }
                 guard !design.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw SetupFailure("Enter an event name first.") }
-                if library.design(id: design.id) == nil { try library.save(design) }
+                if library.design(id: design.id) == nil { try await library.saveAsync(design) }
                 let intent = try await createCommercialEvent(name: design.displayName, venue: design.venue, purpose: .connectDesign(designID: design.id))
-                try completeLink(intent)
+                try await completeLink(intent)
                 design.serverEvents[binding] = intent.eventID
                 self.design = design
             } else {
@@ -728,16 +866,16 @@ extension PaymentsAPIClient: SessionSetupAPI {}
                     guard unlinkedServerEvents.contains(where: { $0.id == reusable.id }) else {
                         throw SetupFailure("Regular sessions are already linked to a saved event. Select that existing event in Event Mode before continuing.")
                     }
-                    try library.setRegularServerEvent(reusable.id, binding: binding)
+                    try await library.setRegularServerEventAsync(reusable.id, binding: binding)
                 } else {
                     let intent = try await createCommercialEvent(name: Self.regularEventName, venue: "", purpose: .regularSessions)
-                    try completeLink(intent)
+                    try await completeLink(intent)
                 }
             }
             guard let target = targetServerEventID else { throw SetupFailure("The paid checkout link was not saved.") }
             selectedID = target; persistSelection()
             try await loadPaid(target)
-            events = try await api().listEvents()
+            phase = .completed
             message = "Paid checkout ready. It is not accepting guests until you review and start."
         } catch {
             creationFailed(error, fallback: "Paid checkout was not confirmed. Check Current Status before trying again.")
@@ -755,16 +893,16 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         let carried = policy
         do {
             let eventName = eventModeEnabled ? (design?.displayName ?? name) : Self.regularEventName
-            if eventModeEnabled, let design, library.design(id: design.id) == nil { try library.save(design) }
+            if eventModeEnabled, let design, library.design(id: design.id) == nil { try await library.saveAsync(design) }
             let intent = try await createCommercialEvent(name: eventName, venue: eventModeEnabled ? (design?.venue ?? "") : "",
                                                          purpose: .newOccurrence(designID: eventModeEnabled ? designID : nil, replacing: ended.event.id))
-            try completeLink(intent)
+            try await completeLink(intent)
             guard let createdID = intent.eventID else { throw SetupFailure("The new paid event was not confirmed.") }
             selectedID = createdID; detail = nil; baseVersion = nil; persistSelection()
             try await loadPaid(createdID)
             policy = carried
             if policy.offlineValidUntil < Date() { policy.offlineCashEnabled = false }
-            events = try await api().listEvents()
+            phase = .completed
             message = "New paid occurrence prepared as a draft. The ended event keeps its orders and reports. Review the price, then start."
         } catch {
             creationFailed(error, fallback: "The new paid occurrence was not confirmed. Check Current Status before trying again.")
@@ -793,25 +931,27 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         let intent = CommercialEventCreationIntent(id: UUID().uuidString.lowercased(), serverBinding: binding, purpose: purpose,
                                                    name: name, venue: venue, createdAt: Date(), state: .requested)
         let client = try api()   // a configuration failure sends nothing, so it records nothing
-        try creations.begin(intent)
+        try await creations.beginAsync(intent)
         let created: OperatorCreatedEvent
         do {
             created = try await client.createEvent(name: name, venue: venue, operationID: intent.id)
         } catch let error as PaymentsAPIError where error.provesNoMutation {
-            try? creations.markNotCreated(id: intent.id, reason: "rejected: \(error.code ?? "request refused")")
+            try? await creations.markNotCreatedAsync(id: intent.id, reason: "rejected: \(error.code ?? "request refused")")
             throw error
         }
         if let echoed = created.operationId, echoed != intent.id { throw SetupFailure("The server answered for a different request. Check the original request.") }
         // The response names the event on the connection the request was sent to.
-        try creations.markCreated(id: intent.id, eventID: created.id)
+        try await creations.markCreatedAsync(id: intent.id, eventID: created.id)
         guard workspace.serverBinding == binding else { throw SetupFailure("The payments connection changed. Switch back to finish linking the new paid event.") }
-        _ = try await api().eventDetail(id: created.id)
+        let verified = try await api().eventDetail(id: created.id)
+        guard verified.event.id == created.id else { throw PaymentsAPIError.invalidResponse }
+        verifiedCreation = verified
         return creations.intent(id: intent.id) ?? intent
     }
 
     /// Saves the local link for a verified creation and closes it. Local only and repeatable:
     /// an already-saved link is recognised, and a conflicting link is refused, not replaced.
-    private func completeLink(_ intent: CommercialEventCreationIntent) throws {
+    private func completeLink(_ intent: CommercialEventCreationIntent) async throws {
         guard let eventID = intent.eventID, intent.state == .created || intent.state == .linked else { throw SetupFailure("The created paid event has not been confirmed.") }
         guard intent.serverBinding == workspace.serverBinding else { throw SetupFailure("This paid event belongs to a different payments connection. Switch back to link it.") }
         let binding = intent.serverBinding
@@ -820,18 +960,18 @@ extension PaymentsAPIClient: SessionSetupAPI {}
             guard let saved = library.design(id: id) else { throw SetupFailure("The saved event for this paid event no longer exists. Review the draft instead.") }
             let current = saved.serverEventID(binding: binding)
             guard current == nil || current == eventID else { throw SetupFailure("This design was connected to another paid event meanwhile. Review the draft instead.") }
-            if current == nil { try library.link(designID: id, binding: binding, serverEventID: eventID) }
+            if current == nil { try await library.linkAsync(designID: id, binding: binding, serverEventID: eventID) }
         case .regularSessions:
             let current = library.library.regularServerEvents[binding]
             guard current == nil || current == eventID else { throw SetupFailure("Regular sessions were connected to another paid event meanwhile. Review the draft instead.") }
-            if current == nil { try library.setRegularServerEvent(eventID, binding: binding) }
+            if current == nil { try await library.setRegularServerEventAsync(eventID, binding: binding) }
         case .newOccurrence(let id, let replacing):
             let current = id.map { library.design(id: $0)?.serverEventID(binding: binding) } ?? library.library.regularServerEvents[binding]
             if current != eventID {
-                try library.linkNewCommercialOccurrence(designID: id, binding: binding, expectedCurrent: replacing, newServerEventID: eventID)
+                try await library.linkNewCommercialOccurrenceAsync(designID: id, binding: binding, expectedCurrent: replacing, newServerEventID: eventID)
             }
         }
-        try creations.markLinked(id: intent.id)
+        try await creations.markLinkedAsync(id: intent.id)
         if let id = intent.designID, id == designID, let stored = library.design(id: id) {
             design?.serverEvents = stored.serverEvents
             design?.retiredServerEvents = stored.retiredServerEvents
@@ -855,12 +995,11 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         do {
             let found = try await api().eventCreation(operationID: intent.id)
             guard found.operationId == intent.id, workspace.serverBinding == intent.serverBinding else { throw PaymentsAPIError.invalidResponse }
-            try creations.markCreated(id: intent.id, eventID: found.event.id)
-            events = (try? await api().listEvents()) ?? events
+            try await creations.markCreatedAsync(id: intent.id, eventID: found.event.id)
             message = "Found the paid event created by the original request (\(found.event.name), \(found.event.lifecycle.capitalized)). Complete Linking to finish."
         } catch let error as PaymentsAPIError where error.code == "creation_not_found" {
             do {
-                try creations.markNotCreated(id: intent.id, reason: "server: no event for this operation")
+                try await creations.markNotCreatedAsync(id: intent.id, reason: "server: no event for this operation")
                 message = "Confirmed: the original request did not create a paid event. You can create it again."
             } catch { message = error.localizedDescription }
         } catch let error as PaymentsAPIError where error.code == "not_found" {
@@ -875,14 +1014,13 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         guard !busy, authorized(), let intent = pendingCreation, intent.state == .created, let eventID = intent.eventID else { return }
         busy = true; defer { busy = false }
         do {
-            _ = try await api().eventDetail(id: eventID)
-            guard workspace.serverBinding == intent.serverBinding else { throw SetupFailure("The payments connection changed.") }
-            try completeLink(intent)
-            events = (try? await api().listEvents()) ?? events
-            needsRefresh = false
-            message = "Linked. The paid event is a draft and isn't accepting guests until you review and start."
-            busy = false
-            await refresh()
+            let fetched = try await api().eventDetail(id: eventID)
+            guard fetched.event.id == eventID, workspace.serverBinding == intent.serverBinding else { throw SetupFailure("The payments connection changed.") }
+            try await completeLink(intent)
+            selectedID = eventID; verifiedCreation = fetched
+            try await loadPaid(eventID)
+            needsRefresh = false; phase = .completed
+            message = "Linked. Review the paid settings before accepting guests."
         } catch { message = "Linking was not completed: \(error.localizedDescription) Nothing else was changed." }
     }
 
@@ -910,13 +1048,20 @@ extension PaymentsAPIClient: SessionSetupAPI {}
 
     private func loadPaid(_ id: String) async throws {
         let binding = workspace.serverBinding
-        let fetched = try await api().eventDetail(id: id)
+        let fetched: OperatorEventDetail
+        if let verified = verifiedCreation, verified.event.id == id { fetched = verified; verifiedCreation = nil }
+        else { fetched = try await api().eventDetail(id: id) }
         guard binding == workspace.serverBinding else { throw SetupFailure("The payments connection changed. Check Current Status.") }
         guard selectedID == id else { return }
         loading = true; defer { loading = false }
         detail = fetched
         loadedBinding = binding
-        if let draft = workspace.serverDraft(eventID: id) {
+        if editingLiveEvent, !liveLoadedPolicy {
+            name = fetched.event.name; venue = fetched.event.venue
+            policy = (fetched.activePolicy ?? fetched.latestRevision).map(ServerPolicyDraft.init(revision:)) ?? ServerPolicyDraft()
+            baseVersion = fetched.event.version; conflict = false; liveLoadedPolicy = true
+            if var applied = design { applied.name = name; applied.venue = venue; design = applied; liveBaselineDesign = applied }
+        } else if let draft = workspace.serverDraft(eventID: id) {
             name = draft.name; venue = draft.venue; policy = draft.policy; baseVersion = draft.baseVersion
             conflict = draft.conflicts(with: fetched.event.version)
         } else {
@@ -944,6 +1089,12 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         guard authorized() else { throw SetupFailure("Unlock Operator again before continuing.") }
         if let operationBinding, operationBinding != workspace.serverBinding { throw SetupFailure("The payments connection changed. Review setup for the current connection.") }
         if requireIdle, let reason = blockingReason() { throw SetupFailure(reason) }
+        if editingLiveEvent {
+            guard let run = eventRuns.current, run.id == liveRunID, run.status == .active,
+                  run.context.matches(runContext), source() == mode else {
+                throw SetupFailure("The live event changed. Reopen Edit Live Event to review the current event.")
+            }
+        }
     }
     /// Saves everything without opening the booth: the event design locally and, for paid
     /// setups, the server event's settings. Guests keep the currently applied setup.
@@ -954,11 +1105,14 @@ extension PaymentsAPIClient: SessionSetupAPI {}
         do {
             stageReusablePrepaidPolicy()
             if eventModeEnabled, let design, designDirty {
-                try library.save(design)
+                try await library.saveAsync(design)
                 self.design = library.design(id: design.id)
                 workspace.saveDesignDraft(nil, id: design.id)
             }
             if mode == .serverManaged { try await savePaid() }
+            await workspace.flush()
+            if let error = workspace.persistenceError { throw SetupFailure(error) }
+            phase = .completed
             message = "Saved — Not Yet Applied. Guests keep the currently applied settings."
         } catch let failure as SetupFailure where mode == .localPrepaid {
             message = failure.localizedDescription
@@ -996,11 +1150,48 @@ extension PaymentsAPIClient: SessionSetupAPI {}
                                           policyRevisionID: revision?.id, acknowledgedUnitPriceCentavos: revision?.unitPriceCentavos)
         return try await api().eventDetail(id: event.event.id)
     }
+    func applyLiveChanges() async -> Bool {
+        guard editingLiveEvent else { message = "Open Edit Live Event from Current Event."; return false }
+        let applied = await startAccepting()
+        if applied {
+            liveBaselineDesign = design
+            liveDraftsBeforeEditing = workspace.snapshot
+            message = "Changes applied to next sessions. The event and run IDs, existing guests and purchased entitlements are unchanged."
+        }
+        return applied
+    }
+
+    func clearMessage() { message = "" }
+
+    func cancelLiveChanges() {
+        guard editingLiveEvent, !busy else { return }
+        guard !needsRefresh else { message = "Check Current Status before discarding edits; a server change may have committed."; return }
+        loading = true
+        design = liveBaselineDesign; prepaid = loadLocal(); requestedMethods = nil
+        unattendedQR = acceptance.state.unattendedQR ?? false
+        if let detail {
+            name = detail.event.name; venue = detail.event.venue
+            policy = (detail.activePolicy ?? detail.latestRevision).map(ServerPolicyDraft.init(revision:)) ?? ServerPolicyDraft()
+            baseVersion = detail.event.version
+        }
+        loading = false; conflict = false
+        if let original = liveDraftsBeforeEditing {
+            workspace.restoreEventDrafts(from: original, designID: designID, eventID: selectedID)
+        }
+        message = "Changes cancelled. The live event keeps its applied settings."
+    }
+
     /// Called only from the reviewed setup's explicit confirmation. Failure leaves the barrier closed.
     func startAccepting() async -> Bool {
-        guard !busy, validation == nil else { return false }
+        if let refreshTask { await refreshTask.value }
+        guard !busy else { message = "The current event operation is still running."; return false }
+        if let reason = validation { message = reason; return false }
+        let operation: UUID
+        do { operation = try acceptance.beginSetupOperation() }
+        catch { message = error.localizedDescription; return false }
+        phase = .savingEvent
         busy = true; operationBinding = workspace.serverBinding
-        defer { busy = false; operationBinding = nil }
+        defer { busy = false; operationBinding = nil; acceptance.finishSetupOperation(operation) }
         do {
             try checkPermit()
             if unattendedQR && paymentChoice != .qrOnly { throw SetupFailure("Unattended operation requires QR Ph only. Choose QR Ph only or turn off Unattended.") }
@@ -1008,6 +1199,9 @@ extension PaymentsAPIClient: SessionSetupAPI {}
             // Decide the occurrence before any change, so an ended run can't be silently reopened.
             let plannedContext = runContext
             let plan = eventRuns.occurrencePlan(for: plannedContext)
+            if editingLiveEvent, plan != .continueActive(runID: liveRunID ?? "") {
+                throw SetupFailure("The event is no longer running. Reopen Current Event before applying changes.")
+            }
             if case .requiresNewOccurrence = plan, !startsNewOccurrence {
                 message = "This event's run has ended. Choose Start New Occurrence to begin fresh statistics; the ended run keeps its history."
                 return false
@@ -1015,12 +1209,15 @@ extension PaymentsAPIClient: SessionSetupAPI {}
             // The reviewed design is saved first; saving never changes what guests receive.
             stageReusablePrepaidPolicy()
             if eventModeEnabled, let design, designDirty {
-                try library.save(design)
+                try await library.saveAsync(design)
                 self.design = library.design(id: design.id)
                 workspace.saveDesignDraft(nil, id: design.id)
             }
             let profile = effectiveProfile
-            try acceptance.save(.init(blocked: true, eventID: acceptance.state.eventID, serverBinding: acceptance.state.serverBinding, mode: source(), startingEventID: mode == .serverManaged ? selectedID : nil, startingBinding: mode == .serverManaged ? workspace.serverBinding : nil))
+            // A guest may have arrived while the staged design was being flushed. Recheck
+            // before closing admission; it keeps its original snapshot and the booth stays open.
+            try checkPermit()
+            try await acceptance.saveAsync(.init(blocked: true, eventID: acceptance.state.eventID, serverBinding: acceptance.state.serverBinding, mode: source(), startingEventID: mode == .serverManaged ? selectedID : nil, startingBinding: mode == .serverManaged ? workspace.serverBinding : nil))
             let nextAcceptance: SessionAcceptanceStore.State
             if mode == .localPrepaid {
                 // A paid → prepaid switch also pauses the current remote event; provider recovery stays live.
@@ -1046,6 +1243,10 @@ extension PaymentsAPIClient: SessionSetupAPI {}
                 prepaid = run; workspace.savePrepaidDraft(nil)
             } else {
                 guard let id = selectedID, id == targetServerEventID, let expectedVersion = baseVersion else { throw SetupFailure("Choose an event.") }
+                if editingLiveEvent, !dirtyPaid, detail?.event.lifecycle == .active {
+                    try checkPermit(); try applyProfile(profile)
+                    nextAcceptance = .init(eventID: id, serverBinding: workspace.serverBinding, mode: .serverManaged, boothMode: .event, unattendedQR: unattendedQR)
+                } else {
                 let fresh = try await api().eventDetail(id: id)
                 guard fresh.event.version == expectedVersion else { self.detail = fresh; conflict = true; throw SetupFailure("Server Settings Changed — Review Required.") }
                 try await savePaid()
@@ -1066,26 +1267,31 @@ extension PaymentsAPIClient: SessionSetupAPI {}
                 try checkPermit(); try applyProfile(profile); saveSource(.serverManaged)
                 nextAcceptance = .init(blocked: false, eventID: id, serverBinding: workspace.serverBinding, mode: .serverManaged, boothMode: .event, unattendedQR: unattendedQR)
                 baseVersion = event.event.version; workspace.removeServerDraft(eventID: id)
+                }
             }
             // Applied identity now anchors durable run reports. Commit it before opening admission.
-            try library.recordApplied(eventModeEnabled: eventModeEnabled, eventID: designID)
+            try await library.recordAppliedAsync(eventModeEnabled: eventModeEnabled, eventID: designID)
             guard runContext.matches(plannedContext) else { throw SetupFailure("The selected event changed while starting. Review setup again.") }
             // The occurrence is committed before admission opens; the first guest never creates it.
-            try eventRuns.commitStart(context: plannedContext, expected: plan, allowNewOccurrence: startsNewOccurrence)
-            try acceptance.save(nextAcceptance)
+            try await eventRuns.commitStartAsync(context: plannedContext, expected: plan, allowNewOccurrence: startsNewOccurrence)
+            try await acceptance.saveAsync(nextAcceptance)
             requestedMethods = nil; startsNewOccurrence = false
-            workspace.saveSessionSetup(nil); message = "Accepting guests. The next session will use the reviewed setup."
+            workspace.saveSessionSetup(nil)
+            await workspace.flush()
+            phase = .completed
+            message = "Accepting guests. The next session will use the reviewed setup."
             return true
         } catch { await handleFailure(error); return false }
     }
     /// Pause This Booth: closes admission on this iPad only. A server-managed event stays open
     /// for other booths; pausing the commercial event is a separate, explicit action.
     func pause() async {
+        guard acceptance.setupOperationID == nil else { message = "Event setup is still finishing. Wait for its result before pausing."; return }
         guard !busy else { return }
         busy = true; defer { busy = false }
         do {
             try checkPermit(requireIdle: false)
-            try acceptance.save(.init(blocked: true, eventID: acceptance.state.eventID, serverBinding: acceptance.state.serverBinding, mode: source()))
+            try await acceptance.saveAsync(.init(blocked: true, eventID: acceptance.state.eventID, serverBinding: acceptance.state.serverBinding, mode: source()))
             if source() == .localPrepaid {
                 var run = loadLocal(); run.lifecycle = .paused; run.updatedAt = Date(); try saveLocal(run)
             }

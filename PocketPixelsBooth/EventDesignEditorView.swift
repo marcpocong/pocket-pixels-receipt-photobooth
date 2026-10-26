@@ -49,7 +49,7 @@ struct EventDesignEditorView: View {
                          : "Personalize Receipt is off, so receipts use the standard Made to Keep design.")
                 }
 
-                if setup.designDirty {
+                if setup.designDirty && !setup.editingLiveEvent {
                     Section {
                         Button("Save Design") { setup.saveDesign() }.font(.headline)
                         Button("Cancel Changes", role: .destructive) { setup.discardDesignChanges() }

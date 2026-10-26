@@ -10,8 +10,8 @@ nonisolated enum OperatorSetupStage: Int, CaseIterable, Identifiable, Sendable {
 
 struct SessionSetupView: View {
     @StateObject private var setup: SessionSetupCoordinator
-    @ObservedObject private var workspace = OperatorWorkspace.shared
-    @ObservedObject private var acceptance = SessionAcceptanceStore.shared
+    @ObservedObject private var workspace: OperatorWorkspace
+    @ObservedObject private var acceptance: SessionAcceptanceStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -23,16 +23,19 @@ struct SessionSetupView: View {
     @State private var confirmPause = false
     @State private var createEvent = false
     @State private var previewExpanded = true
-    @State private var newName = OperatorWorkspace.shared.snapshot.newEventName
-    @State private var newVenue = OperatorWorkspace.shared.snapshot.newEventVenue
-    init(eventID: String? = nil, coordinator: SessionSetupCoordinator? = nil, opensNewEventDraft: Bool = false) {
-        let model = coordinator ?? SessionSetupCoordinator(eventID: eventID)
-        _setup = StateObject(wrappedValue: model)
-        _workspace = ObservedObject(wrappedValue: model.workspaceForEditing)
-        _newName = State(initialValue: model.workspaceForEditing.snapshot.newEventName)
-        _newVenue = State(initialValue: model.workspaceForEditing.snapshot.newEventVenue)
+    @State private var newName = ""
+    @State private var newVenue = ""
+    init(eventID: String? = nil, coordinator: SessionSetupCoordinator? = nil, opensNewEventDraft: Bool = false, editingLiveEvent: Bool = false) {
+        // StateObject owns construction: parent view updates must not recreate a coordinator
+        // and reload configuration while its existing operation is still running.
+        _setup = StateObject(wrappedValue: coordinator ?? SessionSetupCoordinator(eventID: eventID, editingLiveEvent: editingLiveEvent))
+        let workspace = coordinator?.workspaceForEditing ?? .shared
+        _workspace = ObservedObject(wrappedValue: workspace)
+        _acceptance = ObservedObject(wrappedValue: coordinator?.acceptanceForPresentation ?? .shared)
+        _newName = State(initialValue: workspace.snapshot.newEventName)
+        _newVenue = State(initialValue: workspace.snapshot.newEventVenue)
         _createEvent = State(initialValue: opensNewEventDraft)
-        _stage = State(initialValue: opensNewEventDraft ? .details : (OperatorSetupStage(rawValue: model.workspaceForEditing.snapshot.setupStage ?? 0) ?? .details))
+        _stage = State(initialValue: opensNewEventDraft ? .details : (OperatorSetupStage(rawValue: workspace.snapshot.setupStage ?? 0) ?? .details))
     }
 
     private var regular: Bool { horizontalSizeClass == .regular }
@@ -41,6 +44,14 @@ struct SessionSetupView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 header
+                if setup.busy {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ProgressView(setup.phase.rawValue + "…")
+                        Text("You can leave this screen. The operation continues; leaving does not cancel a server change.").font(.footnote).foregroundStyle(.secondary)
+                    }.accessibilityIdentifier("event-operation-phase")
+                } else if !setup.message.isEmpty && !setup.editingLiveEvent {
+                    Text(setup.message).font(.callout).accessibilityIdentifier("event-operation-result")
+                }
                 if let pending = setup.pendingCreation { CreationRecoveryCard(setup: setup, intent: pending) }
                 ForEach(setup.creationsElsewhere) { other in
                     SetupCard {
@@ -55,14 +66,21 @@ struct SessionSetupView: View {
                         Button("Check Current Status") { Task { await setup.refresh() } }.buttonStyle(.borderedProminent)
                     }
                 }
-                stageNavigation
-                SetupSection(number: stage.rawValue + 1, title: stage.title) {
-                    switch stage {
-                    case .details: eventSection
-                    case .payment: paymentSection
-                    case .experience: receiptSection
-                    case .review: summarySection
-                    }
+                if setup.editingLiveEvent {
+                    SetupSection(number: 1, title: "Event Details") { eventSection }.disabled(setup.busy)
+                    SetupSection(number: 2, title: "Payment & Prints") { paymentSection }.disabled(setup.busy)
+                    SetupSection(number: 3, title: "Receipt & Branding") { receiptSection }.disabled(setup.busy)
+                    if let reason = setup.validation { Text(reason).foregroundStyle(OperatorPalette.warning) }
+                } else {
+                    stageNavigation
+                    SetupSection(number: stage.rawValue + 1, title: stage.title) {
+                        switch stage {
+                        case .details: eventSection
+                        case .payment: paymentSection
+                        case .experience: receiptSection
+                        case .review: summarySection
+                        }
+                    }.disabled(setup.busy)
                 }
                 if !draftMessage.isEmpty { Text(draftMessage).font(.callout).foregroundStyle(OperatorPalette.secondaryText).accessibilityIdentifier("setup-draft-message") }
             }
@@ -71,12 +89,16 @@ struct SessionSetupView: View {
             .padding(.vertical, 24)
             .frame(maxWidth: .infinity)
         }
-        .navigationTitle("Quick Start Event")
+        .navigationTitle(setup.editingLiveEvent ? "Edit Live Event" : "Quick Start Event")
         .navigationBarTitleDisplayMode(.inline)
         .tint(OperatorPalette.ink)
         .background(OperatorPalette.canvas)
-        .disabled(setup.busy)
-        .overlay { if setup.busy { ProgressView("Checking setup…").padding(24).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)) } }
+        .safeAreaInset(edge: .top) {
+            if setup.editingLiveEvent, !setup.busy, !setup.message.isEmpty {
+                OperatorFeedbackBanner(feedback: .init(message: setup.message, isError: setup.needsRefresh)) { setup.clearMessage() }
+                    .padding(.horizontal).padding(.top, 8)
+            }
+        }
         .safeAreaInset(edge: .bottom) { bottomBar }
         .task { if setup.mode == .serverManaged { await setup.refresh() } }
         .onAppear { setup.reloadDesignFromStorage(); devicePrintOptions = ReceiptPrintSettingsStore.load() }
@@ -103,14 +125,17 @@ struct SessionSetupView: View {
     // MARK: Header
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Prepare your event").font(.system(.title2, design: .serif).weight(.semibold))
-            Text("Choose the event, how guests pay and the receipt design. Nothing changes for guests until you review and start.")
+        let applied = setup.editingLiveEvent ? !setup.hasUnsavedChanges : setup.isCurrentlyApplied
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(setup.editingLiveEvent ? "Edit the running event" : "Prepare your event").font(.system(.title2, design: .serif).weight(.semibold))
+            Text(setup.editingLiveEvent
+                 ? "Changes are local until you apply them between guest sessions. Existing guests keep their original design, price and purchased copies."
+                 : "Choose the event, how guests pay and the receipt design. Nothing changes for guests until you review and start.")
                 .font(.callout).foregroundStyle(OperatorPalette.secondaryText)
             HStack(spacing: 10) {
-                StatusPill(text: setup.isCurrentlyApplied ? "Currently applied" : (setup.hasUnsavedChanges ? "Unsaved changes" : "Saved — not yet applied"),
-                           systemImage: setup.isCurrentlyApplied ? "checkmark.circle.fill" : "pencil.circle",
-                           color: setup.isCurrentlyApplied ? OperatorPalette.ready : OperatorPalette.warning)
+                StatusPill(text: applied ? "Currently applied" : (setup.hasUnsavedChanges ? "Local edits — not applied" : "Saved — not yet applied"),
+                           systemImage: applied ? "checkmark.circle.fill" : "pencil.circle",
+                           color: applied ? OperatorPalette.ready : OperatorPalette.warning)
                 if acceptance.state.blocked { StatusPill(text: "New sessions paused", systemImage: "pause.circle.fill", color: OperatorPalette.warning) }
             }
         }
@@ -120,6 +145,7 @@ struct SessionSetupView: View {
 
     @ViewBuilder private var eventSection: some View {
         SetupCard {
+            if !setup.editingLiveEvent {
             Toggle(isOn: Binding(get: { setup.eventModeEnabled }, set: { value in Task { await setup.setEventMode(value) } })) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Event Mode").font(.title3.weight(.semibold))
@@ -131,10 +157,11 @@ struct SessionSetupView: View {
             }
             .toggleStyle(.switch)
             .frame(minHeight: 56)
+            }
 
             if setup.eventModeEnabled {
                 Divider()
-                eventPicker
+                if !setup.editingLiveEvent { eventPicker }
                 if let design = Binding($setup.design) {
                     VStack(spacing: 12) {
                         LabeledField(title: "Event name") {
@@ -224,7 +251,7 @@ struct SessionSetupView: View {
         SetupCard {
             Text("How will guests pay?").font(.title3.weight(.semibold))
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: regular ? 2 : 1), spacing: 14) {
-                ForEach(GuestPaymentChoice.allCases) { choice in
+                ForEach(GuestPaymentChoice.allCases.filter { !setup.editingLiveEvent || $0.isPaid == (setup.mode == .serverManaged) }) { choice in
                     PaymentOptionCard(choice: choice, selected: setup.paymentChoice == choice) { Task { await setup.choosePayment(choice) } }
                 }
             }
@@ -379,6 +406,7 @@ struct SessionSetupView: View {
 
     @ViewBuilder private var receiptSection: some View {
         SetupCard {
+            if !setup.editingLiveEvent {
             LabeledContent("Default gallery code", value: devicePrintOptions.footerStyle.displayName).font(.callout)
             NavigationLink(value: OperatorWorkspaceRoute.branding) {
                 Label("Edit Device Gallery Code", systemImage: "qrcode")
@@ -389,12 +417,13 @@ struct SessionSetupView: View {
                 .font(.footnote).foregroundStyle(OperatorPalette.secondaryText)
             Text("Event-specific gallery code, branding and welcome screens stay staged until Review & Start.").font(.footnote).foregroundStyle(OperatorPalette.secondaryText)
             Divider()
+            }
             if setup.eventModeEnabled, let design = Binding($setup.design) {
                 guestScreens(design)
                 Divider()
                 TextField("Receipt footer caption (optional)", text: design.profile.receiptDesign.editorialCaption, axis: .vertical)
                     .lineLimit(2)
-                EventReceiptDesignPanel(design: design, isDirty: setup.designDirty, save: { setup.saveDesign() }, discard: { setup.discardDesignChanges() })
+                EventReceiptDesignPanel(design: design, isDirty: setup.designDirty, save: { if !setup.editingLiveEvent { setup.saveDesign() } }, discard: { setup.editingLiveEvent ? setup.cancelLiveChanges() : setup.discardDesignChanges() }, editsLiveEvent: setup.editingLiveEvent)
                 NavigationLink {
                     EventDesignEditorView(setup: setup)
                 } label: {
@@ -470,6 +499,18 @@ struct SessionSetupView: View {
     private var bottomBar: some View {
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
         return layout {
+            if setup.editingLiveEvent {
+                Button("Cancel Changes") { setup.cancelLiveChanges() }
+                    .buttonStyle(.bordered).disabled(setup.busy || setup.needsRefresh).frame(minHeight: 48)
+                Button {
+                    if setup.mode == .serverManaged && setup.dirtyPaid { review = true }
+                    else { Task { _ = await setup.applyLiveChanges() } }
+                } label: {
+                    Text("Apply to Next Sessions").font(.headline).frame(maxWidth: .infinity, minHeight: 48)
+                }.buttonStyle(.borderedProminent)
+                    .disabled(setup.busy || !setup.hasUnsavedChanges || setup.validation != nil)
+                    .accessibilityIdentifier("apply-live-event")
+            } else {
             Button("Save Draft") {
                 Task {
                     await setup.saveOnly()
@@ -477,7 +518,7 @@ struct SessionSetupView: View {
                     draftMessage = workspace.persistenceError ?? setup.message
                 }
             }
-            .buttonStyle(.bordered).frame(minHeight: 48).accessibilityIdentifier("save-setup-draft")
+            .buttonStyle(.bordered).frame(minHeight: 48).disabled(setup.busy).accessibilityIdentifier("save-setup-draft")
             if stage != .details {
                 Button("Back") { stage = OperatorSetupStage(rawValue: stage.rawValue - 1) ?? .details }
                     .buttonStyle(.bordered).frame(minHeight: 48)
@@ -493,20 +534,21 @@ struct SessionSetupView: View {
                 } label: {
                     Label(setup.requiresPaymentReview ? "Review & Start" : "Start Event", systemImage: "play.fill").font(.headline).frame(maxWidth: .infinity, minHeight: 48)
                 }
-                .buttonStyle(.borderedProminent).disabled(setup.validation != nil).accessibilityIdentifier("review-setup")
+                .buttonStyle(.borderedProminent).disabled(setup.busy || setup.validation != nil).accessibilityIdentifier("review-setup")
             } else {
                 Button { stage = OperatorSetupStage(rawValue: stage.rawValue + 1) ?? .review } label: {
                     Label("Continue", systemImage: "arrow.right").font(.headline).frame(maxWidth: .infinity, minHeight: 48)
                 }.buttonStyle(.borderedProminent).accessibilityIdentifier("setup-continue")
             }
+            }
         }
-        .padding(.horizontal, 24).padding(.vertical, 14).background(.regularMaterial).tint(OperatorPalette.accent).disabled(setup.busy)
+        .padding(.horizontal, 24).padding(.vertical, 14).background(.regularMaterial).tint(OperatorPalette.accent)
     }
 
     private var reviewSheet: some View {
         SessionSetupReviewView(setup: setup, onBack: { review = false }, onFinished: { started in
             review = false
-            if started { NotificationCenter.default.post(name: OperatorWorkspace.didStartSessions, object: nil) }
+            if started && !setup.editingLiveEvent { NotificationCenter.default.post(name: OperatorWorkspace.didStartSessions, object: nil) }
         })
     }
 
@@ -526,8 +568,12 @@ struct SessionSetupView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { createEvent = false } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Create") { Task { createEvent = false; await setup.createEvent(name: newName, venue: newVenue); newName = ""; newVenue = "" } }
-                        .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Button("Create") {
+                        let name = newName, venue = newVenue
+                        createEvent = false
+                        Task { await setup.createEvent(name: name, venue: venue); newName = ""; newVenue = "" }
+                    }
+                        .disabled(setup.busy || newName.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
         }
@@ -591,6 +637,7 @@ struct SessionSetupReviewView: View {
     var body: some View {
         NavigationStack {
             Form {
+                if setup.busy { Section { ProgressView(setup.phase.rawValue + "…"); Text("Leaving this review does not cancel the operation.").font(.footnote) } }
                 Section("Your Next Guest Session") { SetupSummaryRows(setup: setup) }
                 Section("Event Run") {
                     Text(setup.occurrenceSummary)
@@ -607,16 +654,15 @@ struct SessionSetupReviewView: View {
                     if let validation = setup.validation { Text(validation).foregroundStyle(OperatorPalette.warning) }
                     Button {
                         Task {
-                            let started = await setup.startAccepting()
+                            let started = setup.editingLiveEvent ? await setup.applyLiveChanges() : await setup.startAccepting()
                             onFinished(started)
                         }
-                    } label: { Text("Start Accepting Guests").font(.headline).frame(maxWidth: .infinity, minHeight: 48) }
+                    } label: { Text(setup.editingLiveEvent ? "Apply to Next Sessions" : "Start Accepting Guests").font(.headline).frame(maxWidth: .infinity, minHeight: 48) }
                     .buttonStyle(.borderedProminent).disabled(setup.busy || setup.validation != nil || needsOccurrenceChoice)
                 }
             }
-            .navigationTitle("Review Setup").tint(OperatorPalette.ink)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Back to Setup") { onBack() }.disabled(setup.busy) } }
-            .interactiveDismissDisabled(setup.busy)
+            .navigationTitle(setup.editingLiveEvent ? "Review Live Changes" : "Review Setup").tint(OperatorPalette.ink)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Back to Setup") { onBack() } } }
         }
     }
 }
