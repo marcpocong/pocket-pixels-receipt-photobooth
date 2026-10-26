@@ -67,7 +67,7 @@ Physical-only acceptance: actual camera encoded dimensions/orientation, iPad Pho
 - Inspect event Manage, unused deletion and used-event archiving.
 - Inspect checkout groups, archive/restore and cleanup reasons with synthetic records.
 - Compare Home, Health and Recovery active/parked counts; hiding must not settle an obligation.
-- Rotate to landscape and back; confirm selection/scroll behavior.
+- Rotate the physical device left and right; confirm the interface stays in portrait and preserves selection/scroll behavior.
 - Verify the active event/checkout and existing receipts/galleries were not changed.
 
 Do not delete Carlo's existing customer records to perform acceptance. This implementation does not install or reset Carlo.

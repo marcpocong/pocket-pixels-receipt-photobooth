@@ -58,17 +58,34 @@ jobs:
             -resultBundlePath "$RESULTS_DIR/Build.xcresult" \
             $SIGNING_FLAGS
 
+      - name: Run native operator UI suite
+        run: |
+          set -o pipefail
+          # UI checks run first on the same simulator/build so runtime-specific interaction
+          # failures surface before the CPU-heavy receipt suite. No test is removed or retried.
+          xcodebuild test-without-building \
+            -project PocketPixelsBooth.xcodeproj -scheme PocketPixelsBooth \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -derivedDataPath DerivedData \
+            -resultBundlePath "$RESULTS_DIR/NativeUI.xcresult" \
+            -only-testing:PocketPixelsBoothUITests \
+            -parallel-testing-enabled NO \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 600 \
+            -maximum-test-execution-time-allowance 900 \
+            $SIGNING_FLAGS
+
       - name: Run XCTest production suite
         run: |
           set -o pipefail
-          # One booted simulator, tests in order: the suite is CPU-heavy (hundreds of real receipt
-          # compositions) and cloned simulators on a 3-core runner previously failed to launch
-          # the test host. Hung XCTest cases fail with a diagnostic instead of a job timeout.
+          # The other test target includes all XCTest and Swift Testing unit/integration cases.
+          # One booted simulator, no clones; the required iOS job passes only after both suites.
           xcodebuild test-without-building \
             -project PocketPixelsBooth.xcodeproj -scheme PocketPixelsBooth \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             -derivedDataPath DerivedData \
             -resultBundlePath "$RESULTS_DIR/Tests.xcresult" \
+            -only-testing:PocketPixelsBoothTests \
             -parallel-testing-enabled NO \
             -test-timeouts-enabled YES \
             -default-test-execution-time-allowance 600 \
@@ -78,7 +95,7 @@ jobs:
       - name: Summarize test failures
         if: failure()
         run: |
-          for bundle in "$RESULTS_DIR/Build.xcresult" "$RESULTS_DIR/Tests.xcresult"; do
+          for bundle in "$RESULTS_DIR/Build.xcresult" "$RESULTS_DIR/NativeUI.xcresult" "$RESULTS_DIR/Tests.xcresult"; do
             [ -d "$bundle" ] || continue
             xcrun xcresulttool get test-results summary --path "$bundle" --compact > "$bundle.summary.json" 2>/dev/null || continue
             ruby -rjson -e '
@@ -89,7 +106,7 @@ jobs:
                 puts "- **#{failure["testIdentifierString"] || failure["testName"]}**: #{failure["failureText"]}"
               end' "$bundle.summary.json" | tee -a "$GITHUB_STEP_SUMMARY"
           done
-          if [ ! -d "$RESULTS_DIR/Tests.xcresult" ]; then
+          if [ ! -d "$RESULTS_DIR/NativeUI.xcresult" ] && [ ! -d "$RESULTS_DIR/Tests.xcresult" ]; then
             echo "### Build failed before tests ran; see Build.xcresult" | tee -a "$GITHUB_STEP_SUMMARY"
           fi
 

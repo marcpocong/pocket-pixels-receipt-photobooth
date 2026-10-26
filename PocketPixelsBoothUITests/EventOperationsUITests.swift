@@ -4,10 +4,10 @@ import XCTest
 /// app's Debug acceptance mode; these tests cannot issue a payment or physical print.
 final class EventOperationsUITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
-    private func launch() -> XCUIApplication {
+    private func launch(extra: [String] = []) -> XCUIApplication {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
-        app.launchArguments = ["--event-operations-validation", "--fixture-id", UUID().uuidString]
+        app.launchArguments = ["--event-operations-validation", "--fixture-id", UUID().uuidString] + extra
         app.launch()
         XCTAssertTrue(app.navigationBars["Event Validation"].waitForExistence(timeout: 20))
         return app
@@ -16,18 +16,51 @@ final class EventOperationsUITests: XCTestCase {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
     }
-    private func visible(_ element: XCUIElement, in app: XCUIApplication) {
+    private func visible(_ element: XCUIElement, in app: XCUIApplication, requireHitTarget: Bool = true) {
         for _ in 0..<12 {
-            if element.exists && element.isHittable { return }
-            app.swipeUp()
+            let reviewing = app.navigationBars["Review Setup"].exists
+            let workspace = app.scrollViews["event-workspace-scroll"]
+            let form = app.collectionViews["event-review-form"]
+            let reviewScroll = app.scrollViews["event-review-form"]
+            let scroll = reviewing ? (form.exists ? form : (reviewScroll.exists ? reviewScroll : app))
+                : (workspace.exists ? workspace : (app.scrollViews.firstMatch.exists ? app.scrollViews.firstMatch : app))
+            let nav = reviewing ? app.navigationBars["Review Setup"] : app.navigationBars.firstMatch
+            var top = nav.exists ? nav.frame.maxY : app.frame.minY
+            let pinned = app.otherElements["event-pinned-preview"]
+            if !reviewing && pinned.exists { top = max(top, pinned.frame.maxY) }
+            let primary = reviewing ? app.buttons["Start Accepting Guests"]
+                : (app.buttons["apply-live-event"].exists ? app.buttons["apply-live-event"] : app.buttons["review-setup"])
+            let bottom = primary.exists ? primary.frame.minY - 10 : app.frame.maxY
+            let frame = element.exists ? element.frame : .zero
+            if element.exists && (!requireHitTarget || element.isHittable) && frame.height > 0 && frame.width > 0
+                && frame.minY >= top && frame.maxY <= bottom { return }
+            let done = app.buttons["event-finish-editing"]
+            if !reviewing && done.exists && done.isHittable { done.tap(); continue }
+            if element.exists && frame.midY < (top + bottom) / 2 { scroll.swipeDown(velocity: .slow) }
+            else { scroll.swipeUp(velocity: .slow) }
         }
         XCTFail("Element is not visible: \(element)")
     }
+    private func tapVisible(_ query: XCUIElementQuery) throws {
+        var target: XCUIElement?
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let visible = query.allElementsBoundByIndex.filter(\.isHittable)
+            guard visible.count == 1 else { return false }
+            target = visible[0]
+            return true
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 5), .completed)
+        try XCTUnwrap(target).tap()
+    }
+
     func testCreateActivateLiveEditAndRestartPreserveRun() throws {
         let app = launch()
         app.buttons["Create Test Event"].tap()
         let name = app.textFields["Event name"]
         XCTAssertTrue(name.waitForExistence(timeout: 10)); name.tap(); name.typeText("Device Validation Event")
+        XCTAssertEqual(name.value as? String, "Device Validation Event")
+        capture("new-event-portrait-overview")
+        app.buttons["event-finish-editing"].tap()
         let review = app.buttons["review-setup"]
         XCTAssertTrue(review.isEnabled)
         review.tap()
@@ -41,13 +74,12 @@ final class EventOperationsUITests: XCTestCase {
         app.buttons["event-customize-receipt"].tap()
         capture("receipt-editor-portrait")
         XCUIDevice.shared.orientation = .landscapeLeft
-        let rotated = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in app.frame.width > app.frame.height }, object: nil)
+        let rotated = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in app.frame.width < app.frame.height }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [rotated], timeout: 10), .completed)
-        capture("receipt-editor-landscape-two-panels")
+        capture("receipt-editor-stays-portrait-after-rotation")
         let caption = app.textFields["event-footer-caption"]
-        XCTAssertTrue(caption.waitForExistence(timeout: 5)); XCTAssertTrue(caption.isHittable); caption.tap(); caption.typeText("DEVICE NEXT SESSION")
+        XCTAssertTrue(caption.waitForExistence(timeout: 5)); visible(caption, in: app); caption.tap(); caption.typeText("DEVICE NEXT SESSION")
         XCUIDevice.shared.orientation = .portrait
-        app.navigationBars.buttons["Edit Live Event"].tap()
         let apply = app.buttons["apply-live-event"]
         XCTAssertTrue(apply.isEnabled); apply.tap()
         let confirmation = app.staticTexts["Changes applied to next sessions. The event and run IDs, existing guests and purchased entitlements are unchanged."]
@@ -66,16 +98,16 @@ final class EventOperationsUITests: XCTestCase {
         let app = launch()
         app.buttons["Manage Test Checkouts"].tap()
         XCTAssertTrue(app.staticTexts["Parked / Outstanding · 1"].waitForExistence(timeout: 10))
-        let manage = app.buttons["Manage"].firstMatch
-        visible(manage, in: app); manage.tap()
+        let manage = app.buttons["manage-checkout-SYNTHETIC-CHECKOUT-ONLY"]
+        XCTAssertTrue(manage.waitForExistence(timeout: 5)); XCTAssertTrue(manage.isHittable); manage.tap()
         app.buttons["Force Remove from Workspace"].tap()
         XCTAssertTrue(app.staticTexts["Parked / Outstanding · 0"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Financial Follow-up · 1"].exists)
-        let archivedManage = app.buttons["Manage"].firstMatch
-        visible(archivedManage, in: app); archivedManage.tap()
+        let archivedManage = app.buttons["manage-checkout-SYNTHETIC-CHECKOUT-ONLY"]
+        XCTAssertTrue(archivedManage.waitForExistence(timeout: 5)); XCTAssertTrue(archivedManage.isHittable); archivedManage.tap()
         app.buttons["Restore Visibility"].tap()
         XCTAssertTrue(app.staticTexts["Parked / Outstanding · 1"].waitForExistence(timeout: 5))
-        visible(manage, in: app); manage.tap()
+        XCTAssertTrue(manage.isHittable); manage.tap()
         app.buttons["Force Delete Local Checkout"].tap()
         XCTAssertTrue(app.navigationBars["Review Checkout Deletion"].waitForExistence(timeout: 10))
         app.buttons["Force Delete Local Selected"].tap()
@@ -96,10 +128,17 @@ final class EventOperationsUITests: XCTestCase {
         app.buttons["Create Test Event"].tap()
         let name = app.textFields["event-name"]
         XCTAssertTrue(name.waitForExistence(timeout: 10)); name.tap(); name.typeText("Unfinished Workspace")
+        XCTAssertEqual(name.value as? String, "Unfinished Workspace")
+        let saved = app.descendants(matching: .any).matching(identifier: "event-draft-status").firstMatch
+        let committed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", "Saved on this iPad"), object: saved)
+        XCTAssertEqual(XCTWaiter.wait(for: [committed], timeout: 5), .completed)
         app.navigationBars.buttons["Event Validation"].tap()
         app.terminate(); app.launch()
         app.buttons["Create Test Event"].tap()
-        XCTAssertEqual(app.textFields["event-name"].value as? String, "Unfinished Workspace")
+        let restored = app.textFields["event-name"]
+        let loaded = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Unfinished Workspace"), object: restored)
+        XCTAssertEqual(XCTWaiter.wait(for: [loaded], timeout: 5), .completed)
+        XCTAssertEqual(restored.value as? String, "Unfinished Workspace")
         app.navigationBars.buttons["Event Validation"].tap()
         app.buttons["Manage Test Events"].tap()
         let manage = app.buttons["Manage Synthetic Paid History"]
@@ -144,4 +183,137 @@ final class EventOperationsUITests: XCTestCase {
         XCTAssertTrue(manage.waitForExistence(timeout: 10))
         capture("commercial-history-restored")
     }
+    func testPortraitInlineControlsPreviewAndStickerReview() throws {
+        let app = launch()
+        XCTAssertLessThan(app.frame.width, app.frame.height)
+        app.buttons["Create Test Event"].tap()
+        app.buttons["review-setup"].tap()
+        let name = app.textFields["event-name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 10)); XCTAssertTrue(name.isHittable)
+        capture("portrait-required-name-validation")
+        name.tap(); name.typeText("Portrait Studio Fixture")
+        let payment = app.buttons["event-payment-prints"]
+        visible(payment, in: app); payment.tap()
+        XCTAssertEqual(payment.value as? String, "Expanded")
+        let cash = app.buttons["Cash Only"]
+        visible(cash, in: app); cash.tap()
+        let price = app.textFields["0.00"]
+        visible(price, in: app); price.tap(); price.typeText("25.00")
+        capture("portrait-inline-paid-settings-keyboard")
+        XCTAssertTrue(app.buttons["review-setup"].isHittable, "Keyboard leaves the action bar reachable")
+        app.buttons["event-finish-editing"].tap()
+        visible(payment, in: app)
+        let free = app.buttons["No Payment Required"]
+        visible(free, in: app); try tapVisible(app.buttons.matching(identifier: "No Payment Required"))
+        let copies = app.buttons["Increase included copies"]
+        visible(copies, in: app)
+        XCTAssertGreaterThanOrEqual(copies.frame.height, 44)
+        capture("portrait-inline-print-settings")
+        visible(payment, in: app); payment.tap()
+        let receipt = app.buttons["event-customize-receipt"]
+        visible(receipt, in: app); receipt.tap()
+        let caption = app.textFields["event-footer-caption"]
+        visible(caption, in: app); caption.tap(); caption.typeText("MADE FOR THIS EVENT")
+        capture("portrait-inline-receipt-controls")
+        app.buttons["event-finish-editing"].tap()
+        let logoReset = app.buttons["Reset to Studio"]
+        visible(logoReset, in: app)
+        capture("portrait-receipt-header-logo-controls")
+        let editorial = app.segmentedControls["event-typography-style"].buttons["Editorial"]
+        visible(editorial, in: app); editorial.tap()
+        XCTAssertTrue(editorial.isSelected)
+        capture("portrait-receipt-typography-controls")
+        let expand = app.buttons["expand-receipt-preview"]
+        XCTAssertTrue(expand.waitForExistence(timeout: 5))
+        XCTAssertTrue(expand.isHittable, "The pinned preview is directly reachable while editing")
+        XCTAssertGreaterThanOrEqual(expand.frame.height, 44)
+        expand.tap()
+        XCTAssertTrue(app.navigationBars["Receipt Preview"].waitForExistence(timeout: 5))
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertLessThan(app.frame.width, app.frame.height)
+        let format = app.buttons["receipt-preview-format-expanded"]
+        XCTAssertTrue(format.waitForExistence(timeout: 5)); format.tap()
+        try tapVisible(app.buttons.matching(identifier: "Photo Pass"))
+        try tapVisible(app.buttons.matching(identifier: "Black & White"))
+        capture("portrait-full-preview-photo-pass")
+        try tapVisible(app.buttons.matching(identifier: "Thermal Raster"))
+        app.buttons["Done"].tap()
+        visible(receipt, in: app); receipt.tap()
+        let guest = app.buttons["event-guest-experience"]
+        visible(guest, in: app); guest.tap()
+        let stickers = app.buttons["event-sticker-studio"]
+        visible(stickers, in: app)
+        XCTAssertEqual(stickers.value as? String, "Disabled")
+        capture("portrait-sticker-disabled")
+        stickers.tap()
+        XCTAssertEqual(stickers.value as? String, "Enabled")
+        capture("portrait-sticker-enabled-guest-experience")
+        visible(guest, in: app); guest.tap()
+        let gallery = app.buttons["event-gallery-qr"]
+        visible(gallery, in: app); gallery.tap()
+        capture("portrait-inline-gallery-footer")
+        XCTAssertTrue(app.buttons["Reset Gallery & Footer to Studio"].isHittable)
+        app.buttons["review-setup"].tap()
+        XCTAssertTrue(app.navigationBars["Review Setup"].waitForExistence(timeout: 5))
+        let row = app.collectionViews["event-review-form"].descendants(matching: .any).matching(identifier: "review-sticker-status").firstMatch
+        visible(row, in: app, requireHitTarget: false)
+        XCTAssertEqual(row.value as? String, "Enabled")
+        capture("portrait-review-sticker-enabled")
+        XCUIDevice.shared.orientation = .portrait
+    }
+
+    func testPortraitAccessibilitySaveAndReopenKeepsStickerChoice() throws {
+        let app = launch(extra: ["--fixture-accessibility"])
+        app.buttons["Create Test Event"].tap()
+        let name = app.textFields["event-name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 10)); name.tap(); name.typeText("Accessible Portrait Event")
+        let guest = app.buttons["event-guest-experience"]
+        visible(guest, in: app); guest.tap()
+        let stickers = app.buttons["event-sticker-studio"]
+        visible(stickers, in: app); stickers.tap()
+        XCTAssertEqual(stickers.value as? String, "Enabled")
+        XCTAssertGreaterThanOrEqual(stickers.frame.height, 44)
+        XCTAssertGreaterThanOrEqual(stickers.frame.minX, 0)
+        XCTAssertLessThanOrEqual(stickers.frame.maxX, app.frame.maxX)
+        capture("portrait-accessibility-guest-settings")
+        XCTAssertTrue(app.buttons["save-setup-draft"].isHittable)
+        app.buttons["save-setup-draft"].tap()
+        XCTAssertTrue(app.navigationBars["Event Validation"].waitForExistence(timeout: 10))
+        app.terminate(); app.launch()
+        let reopen = app.buttons["Reopen Saved Test Event"]
+        XCTAssertTrue(reopen.waitForExistence(timeout: 20)); reopen.tap()
+        XCTAssertEqual(app.textFields["event-name"].value as? String, "Accessible Portrait Event")
+        let reopenedGuest = app.buttons["event-guest-experience"]
+        visible(reopenedGuest, in: app); reopenedGuest.tap()
+        let reopenedStickers = app.buttons["event-sticker-studio"]
+        visible(reopenedStickers, in: app)
+        XCTAssertEqual(reopenedStickers.value as? String, "Enabled")
+        XCUIDevice.shared.orientation = .landscapeRight
+        XCTAssertLessThan(app.frame.width, app.frame.height)
+        capture("portrait-accessibility-saved-event-after-rotation")
+        XCUIDevice.shared.orientation = .portrait
+    }
+
+    func testPortraitCameraPreviewRemainsReachableAfterRotation() throws {
+        let app = launch()
+        app.buttons["Check Portrait Camera"].tap()
+        let status = app.staticTexts["validation-camera-status"]
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@ OR label == %@", "Camera preview ready", "Camera unavailable on this device"), object: status)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 20), .completed)
+#if !targetEnvironment(simulator)
+        XCTAssertEqual(status.label, "Camera preview ready", "Physical acceptance requires the real camera")
+#endif
+        let preview = app.otherElements["validation-camera-preview"]
+        XCTAssertTrue(preview.exists)
+        let initial = preview.frame
+        XCTAssertGreaterThan(initial.height, initial.width)
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertLessThan(app.frame.width, app.frame.height)
+        XCTAssertEqual(preview.frame.width, initial.width, accuracy: 2)
+        XCTAssertEqual(preview.frame.height, initial.height, accuracy: 2)
+        capture("portrait-live-camera-after-device-rotation")
+        XCTAssertTrue(app.navigationBars.buttons["Event Validation"].isHittable)
+        XCUIDevice.shared.orientation = .portrait
+    }
+
 }

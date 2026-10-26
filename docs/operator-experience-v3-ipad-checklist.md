@@ -6,7 +6,7 @@ Record tester, date, device/iPadOS, build/commit, printer model, connection type
 
 ## Everyday operation
 
-- [ ] Open Operator Home in portrait and landscape. Regular Booth Settings, Quick Start Event and Recent Sessions are visible at the top. Return to Booth remains reachable.
+- [ ] Open Operator Home in portrait, rotate the physical device, and verify the interface stays in portrait. Regular Booth Settings, Quick Start Event and Recent Sessions are visible at the top. Return to Booth remains reachable.
 - [ ] Open Regular Booth Settings directly, without an event. Change maximum copies and default copies; Save is reachable in the navigation bar without scrolling to the bottom.
 - [ ] Set default 2 / maximum 3. Verify a new Regular Booth guest receives these settings. Disable guest copy choice and verify the guest cannot increase or decrease the included quantity.
 - [ ] Turn formats off/on and verify the next guest sees exactly the enabled formats, including readable Grid 6 and Photo Pass labels.
@@ -50,7 +50,7 @@ Record tester, date, device/iPadOS, build/commit, printer model, connection type
 
 ## Layout, access and closeout
 
-- [ ] Repeat key flows in portrait, landscape, split/narrow presentation if used, and accessibility text sizes. Check toolbar Save, Back, Start, End, copy controls, footer pickers and long event names.
+- [ ] Repeat key flows in portrait, including physical-device rotation attempts and accessibility text sizes. The app must remain in portrait. Check toolbar Save, Back, Start, End, copy controls, footer pickers and long event names.
 - [ ] With VoiceOver, verify action labels, copy steppers, formats, status and preview navigation are understandable. Operator-only photos, recovery, payments and settings stay behind operator access.
 - [ ] Confirm no customer archive/photo/gallery/payment/history/journal was deleted or reassigned. Record any failure with synthetic session ID, observed state and approved diagnostic evidence; exclude customer images, tokens and credentials.
 

@@ -1159,6 +1159,39 @@ final class StickerStudioFlowTests: XCTestCase {
         XCTAssertFalse(model.stickerStepEnabledForSession)
     }
 
+    func testEventOverrideWinsBothWaysAndNeverLoadsDisabledSources() async throws {
+        final class EventChoice { var enabled = true }
+        let event = EventChoice()
+        let counter = SourceCounter()
+        let model = makeModel(enabled: false, counter: counter, configuration: {
+            var regular = StickerStudioSettings.default
+            regular.isEnabled = false
+            return .current(settings: regular, eventEnabled: event.enabled)
+        })
+        try await reachReview(model, format: .solo)
+        XCTAssertTrue(model.stickerStepEnabledForSession, "Event ON wins over Regular Booth OFF")
+        event.enabled = false
+        model.continueFromReview()
+        try await waitForState(model) { $0 == .stickerStudio }
+        XCTAssertEqual(model.state, .stickerStudio, "Current guest keeps event ON")
+        model.skipStickerStudio()
+        try await waitForState(model) { $0 == .receiptPreview }
+        XCTAssertEqual(model.state, .receiptPreview)
+        model.cancelSession()
+        let catalogsBefore = counter.catalogRequests
+        try await reachReview(model, format: .solo)
+        XCTAssertFalse(model.stickerStepEnabledForSession)
+        model.continueFromReview()
+        XCTAssertEqual(model.state, .composingReceipt)
+        XCTAssertEqual(counter.catalogRequests, catalogsBefore)
+        XCTAssertEqual(counter.providerRequests, 0)
+        model.cancelSession()
+        var regular = StickerStudioSettings.default
+        regular.isEnabled = true
+        XCTAssertFalse(StickerStudioSessionConfiguration.current(settings: regular, eventEnabled: false).isGuestStepEnabled)
+        XCTAssertTrue(regular.isEnabled, "Resolving an event does not mutate Regular Booth")
+    }
+
     func testStickerStatesIntegrateWithIdleAndErrorPolicies() {
         XCTAssertTrue(CustomerIdleResetPolicy.isEligible(state: .stickerStudio, printerWorking: false, printBatchActive: false, recoveryLocked: false, unresolvedPrint: false))
         XCTAssertFalse(CustomerIdleResetPolicy.isEligible(state: .preparingStickers, printerWorking: false, printBatchActive: false, recoveryLocked: false, unresolvedPrint: false))

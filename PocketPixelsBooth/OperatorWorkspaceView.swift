@@ -172,6 +172,7 @@ struct OperatorEventsView: View {
     @ObservedObject private var library: EventDesignLibraryStore
     @State private var managingDesignID: String?
     @State private var pendingDesignAction: (() -> Void)?
+    @State private var removingDesign = false
     @State private var showsArchived = false
     @State private var showsRemoved = false
     @State private var deletionDesignID: String?
@@ -194,16 +195,19 @@ struct OperatorEventsView: View {
         self.creationPending = creationPending
         self.sessionArchives = sessionArchives
     }
-    private func manage(_ success: String, _ action: () throws -> Void) {
-        do { try action(); feedback = .init(message: success) }
-        catch { managementError = error.localizedDescription }
+    @discardableResult private func manage(_ success: String, _ action: () throws -> Void) -> Bool {
+        do { try action(); feedback = .init(message: success); return true }
+        catch { managementError = error.localizedDescription; return false }
     }
     private func needsEnd(_ id: String?) -> Bool {
         guard let id else { return false }
         return library.library.appliedEventID == id || runs.runs.contains { $0.context.designID == id && [.active, .paused].contains($0.status) }
     }
     private func deleteDesign(_ id: String) {
+        guard !removingDesign else { return }
+        removingDesign = true
         Task {
+            defer { removingDesign = false }
             if needsEnd(id) {
                 guard runs.current == nil || runs.current?.context.designID == id else {
                     managementError = "The current run belongs to another event. Review Current Event before removing this design."; return
@@ -211,10 +215,10 @@ struct OperatorEventsView: View {
                 let ended = runs.current != nil ? await lifecycle.end(scope: .thisBooth) : await lifecycle.returnToRegular()
                 guard ended else { managementError = lifecycle.message; return }
             }
-            manage("Event removed. History, customer media and financial records are kept. Restore it under Show Removed Events.") {
+            if manage("Event removed. History, customer media and financial records are kept. Restore it under Show Removed Events.", {
                 try library.removeEvent(id: id, runs: runs.runs, historyAvailable: !runs.historyUnreadable,
                     pendingCreation: creationPending(id))
-            }
+            }) { managingDesignID = nil; deletionDesignID = nil }
         }
     }
     private func deleteRun(_ id: String) {
@@ -349,24 +353,42 @@ struct OperatorEventsView: View {
             if let feedback { OperatorFeedbackBanner(feedback: feedback) { self.feedback = nil }.padding(.horizontal).padding(.top, 8) }
         }
         .sheet(isPresented: Binding(get: { managingDesignID != nil }, set: { if !$0 { managingDesignID = nil } }), onDismiss: {
+            deletionDesignID = nil
             let action = pendingDesignAction; pendingDesignAction = nil; action?()
         }) {
             NavigationStack {
                 List {
                     if let event = library.design(id: managingDesignID) {
-                        Button("Edit") { queueDesignAction { workspace.navigate(to: .savedEvent(event.id)) } }
-                        Button("Rename Event") { queueDesignAction { beginRename(design: event) } }
-                        Button("View History") { queueDesignAction { workspace.navigate(to: .eventHistory) } }
-                        if event.archivedAt == nil {
-                            Button("Archive") { queueDesignAction { manage("Design archived. History is kept.") { try library.archiveDesign(id: event.id) } } }
+                        if deletionDesignID == event.id {
+                            Section("Remove \(event.displayName)?") {
+                                Text("Hides this event and its linked historical runs. Running events end on this iPad first. Customer media, prints and financial records are kept. Restore it under Show Removed Events.")
+                                Button(designRemovalTitle(event), role: .destructive) { deleteDesign(event.id) }
+                                    .disabled(removingDesign)
+                                Button("Cancel", role: .cancel) { deletionDesignID = nil }
+                                if removingDesign { ProgressView("Removing event…") }
+                            }
                         } else {
-                            Button("Restore") { queueDesignAction { manage("Design restored to the reusable library.") { try library.restoreDesign(id: event.id) } } }
+                            Button("Edit") { queueDesignAction { workspace.navigate(to: .savedEvent(event.id)) } }
+                            Button("Rename Event") { queueDesignAction { beginRename(design: event) } }
+                            Button("View History") { queueDesignAction { workspace.navigate(to: .eventHistory) } }
+                            if event.archivedAt == nil {
+                                Button("Archive") {
+                                    if manage("Design archived. History is kept.", { try library.archiveDesign(id: event.id) }) { managingDesignID = nil }
+                                }
+                            } else {
+                                Button("Restore") {
+                                    if manage("Design restored to the reusable library.", { try library.restoreDesign(id: event.id) }) { managingDesignID = nil }
+                                }
+                            }
+                            Button(designRemovalTitle(event), role: .destructive) { deletionDesignID = event.id }
                         }
-                        Button(designRemovalTitle(event), role: .destructive) { queueDesignAction { deletionDesignID = event.id } }
                     }
-                }.navigationTitle("Manage Event").navigationBarTitleDisplayMode(.inline)
-                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { managingDesignID = nil } } }
-            }.presentationDetents([.medium])
+                }.navigationTitle(deletionDesignID == nil ? "Manage Event" : "Review Event Removal").navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { managingDesignID = nil }.disabled(removingDesign) } }
+                    .alert("Event action could not finish", isPresented: Binding(get: { managementError != nil }, set: { if !$0 { managementError = nil } })) {
+                        Button("OK", role: .cancel) { managementError = nil; managingDesignID = nil; deletionDesignID = nil }
+                    } message: { Text(managementError ?? "") }
+            }.presentationDetents([.medium, .large]).interactiveDismissDisabled(removingDesign)
         }
         .alert("Rename Event", isPresented: Binding(get: { renameDesignID != nil || renameRunID != nil }, set: { if !$0 { renameDesignID = nil; renameRunID = nil } })) {
             TextField("Event name", text: $renameName)
@@ -382,16 +404,12 @@ struct OperatorEventsView: View {
                 renameDesignID = nil; renameRunID = nil
             }.disabled(renameName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
-        .alert("Event action could not finish", isPresented: Binding(get: { managementError != nil }, set: { if !$0 { managementError = nil } })) {
+        .alert("Event action could not finish", isPresented: Binding(get: { managingDesignID == nil && managementError != nil }, set: { if !$0 { managementError = nil } })) {
             if library.library.appliedEventID != nil || runs.operational != nil {
                 Button(runs.operational == nil ? "Switch to Regular Booth" : "End Event on This iPad", role: .destructive) { performRegularTransition() }
             }
             Button("OK", role: .cancel) { managementError = nil }
         } message: { Text(managementError ?? "") }
-        .confirmationDialog("Remove \(library.design(id: deletionDesignID)?.displayName ?? "saved design")?", isPresented: Binding(get: { deletionDesignID != nil }, set: { if !$0 { deletionDesignID = nil } }), titleVisibility: .visible) {
-            Button(needsEnd(deletionDesignID) ? "End Event then Remove" : "Remove Event", role: .destructive) { if let id = deletionDesignID { deleteDesign(id) }; deletionDesignID = nil }
-            Button("Cancel", role: .cancel) { deletionDesignID = nil }
-        } message: { Text("Hides this event and its linked historical runs. Running events end on this iPad first. Customer media, prints and financial records are kept. Restore it under Show Removed Events.") }
         .confirmationDialog(runs.operational == nil ? "Switch to Regular Booth?" : "End Event on This iPad?", isPresented: $confirmsRegular, titleVisibility: .visible) {
             Button("Switch to Regular Booth", role: .destructive) {
                 performRegularTransition()

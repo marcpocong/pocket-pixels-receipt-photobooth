@@ -40,7 +40,9 @@ struct BoothSessionEnvironment {
     var galleryReceiptStyleSource: @MainActor () -> GalleryReceiptStyle = { GalleryReceiptSettingsStore.load() }
     var receiptPrintOptionsSource: @MainActor () -> ReceiptPrintOptions = { ReceiptPrintSettingsStore.load() }
     /// Sticker Studio settings a new session freezes. Qualification never shows the editor.
-    var stickerConfigurationSource: @MainActor () -> StickerStudioSessionConfiguration = { StickerStudioSessionConfiguration.current() }
+    var stickerConfigurationSource: @MainActor () -> StickerStudioSessionConfiguration = {
+        StickerStudioSessionConfiguration.current(eventEnabled: RegularBoothMode.isEnabled ? nil : EventProfileStore.load().stickerStudioEnabled)
+    }
     /// Operator sticker library for the guest catalog; nil means built-in stickers only.
     var stickerCatalogStoreSource: @MainActor () -> StickerCatalogStore? = { try? StickerCatalogStore() }
     /// Online provider factory, consulted only when the frozen configuration is online-ready.

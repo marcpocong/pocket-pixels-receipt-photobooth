@@ -13,6 +13,7 @@ struct EventReceiptDesignPanel: View {
     var editsLiveEvent = false
     var managesSaving = true
     var showsGalleryOptions = true
+    var studioProfile: EventProfile? = nil
 
     @State private var photoItem: PhotosPickerItem?
     @State private var isPhotoPickerPresented = false
@@ -27,43 +28,44 @@ struct EventReceiptDesignPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             if showsGalleryOptions {
-            Picker(isRegularBooth ? "Printed Gallery Code" : "Event Gallery Code Style", selection: $design.profile.receiptDesign.footerStyleOverride) {
-                Text("Use Studio Default Footer").tag(Optional<ReceiptFooterStyle>.none)
-                ForEach(ReceiptFooterStyle.allCases) { style in Text(style.displayName).tag(Optional(style)) }
+            Picker(isRegularBooth ? "Printed Gallery Code" : "Event Gallery Code Style", selection: Binding(get: { design.profile.receiptDesign.footerStyleOverride ?? ReceiptPrintSettingsStore.load().footerStyle }, set: { design.profile.receiptDesign.footerStyleOverride = $0 })) {
+                ForEach(ReceiptFooterStyle.allCases) { style in Text(style.displayName).tag(style) }
             }
-            Button("Use Studio Default Footer") { design.profile.receiptDesign.footerStyleOverride = nil }
+            Button("Reset Footer to Studio") { design.profile.receiptDesign.footerStyleOverride = ReceiptPrintSettingsStore.load().footerStyle }
             if design.profile.receiptDesign.footerStyleOverride == .decorativeBarcodeOnly {
                 Label("Decorative barcode only: no printed gallery access. The iPad gallery QR remains available.", systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(.orange)
             }
 
-            Picker("Default QR Gallery Receipt Style", selection: $design.profile.galleryReceiptStyleOverride) {
-                Text("Use Studio Default Gallery Settings").tag(Optional<GalleryReceiptStyle>.none)
-                ForEach(GalleryReceiptStyle.allCases) { style in Text(style.title).tag(Optional(style)) }
+            Picker("Gallery Receipt Appearance", selection: Binding(get: { design.profile.galleryReceiptStyleOverride ?? GalleryReceiptSettingsStore.load() }, set: { design.profile.galleryReceiptStyleOverride = $0 })) {
+                ForEach(GalleryReceiptStyle.allCases) { style in Text(style.title).tag(style) }
             }
             Text(isRegularBooth ? "Save Regular Booth Defaults to apply to the next guest." : (editsLiveEvent ? "Staged for the next sessions. Use Apply to Next Sessions when ready." : "Customer Gallery only. Review & Start applies this event’s staged settings.")).font(.footnote).foregroundStyle(.secondary)
 
             }
-            Toggle(isOn: personalizeBinding) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(isRegularBooth ? "Add a Logo to Regular Booth Receipts" : "Personalize Receipt with Event Logo").font(.headline)
-                    Text(design.personalizeReceipt
-                         ? "Your event logo prints with Made to Keep at the top of every receipt."
-                         : "Guests receive the standard Made to Keep receipt.")
-                        .font(.callout).foregroundStyle(.secondary)
+            if let studioProfile {
+                if design.personalizeReceipt {
+                    logoArea
+                    if artwork != nil { layoutChoices; adjustments }
+                } else {
+                    HStack(spacing: 16) {
+                        MadeToKeepWordmark(size: 22, color: OperatorPalette.ink).frame(width: 120, height: 56)
+                        VStack(alignment: .leading) {
+                            Text("Made to Keep Studios").font(.headline)
+                            Text("Header logo").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    sourceMenu(title: "Replace Logo", systemImage: "arrow.triangle.2.circlepath", prominent: false)
                 }
-            }
-            .toggleStyle(.switch)
-            .frame(minHeight: 52)
-
-            if design.personalizeReceipt {
-                logoArea
-                if artwork != nil {
-                    layoutChoices
-                    adjustments
-                }
-            } else if design.logoIdentifier != nil {
-                Label("The saved logo is kept for this event and returns when you turn personalization back on.", systemImage: "archivebox")
-                    .font(.footnote).foregroundStyle(.secondary)
+                Button("Reset to Studio") {
+                    design.profile.receiptHeader = studioProfile.receiptHeader
+                    design.personalizeReceipt = studioProfile.isEnabled
+                    reloadArtwork()
+                }.frame(minHeight: 44)
+            } else {
+                Toggle(isRegularBooth ? "Add a Logo to Regular Booth Receipts" : "Event Logo", isOn: personalizeBinding)
+                    .frame(minHeight: 44)
+                if design.personalizeReceipt { logoArea; if artwork != nil { layoutChoices; adjustments } }
             }
 
             if isDirty && !editsLiveEvent && managesSaving {
@@ -267,6 +269,7 @@ struct EventReceiptDesignPanel: View {
                 design.profile.receiptHeader = .coBrandedRecommended
                 design.profile.receiptHeader.brandingMode = mode
                 if mode != .coBranded { design.profile.receiptHeader.horizontalPosition = nil }
+                design.personalizeReceipt = true
                 design.profile.receiptHeader.assetIdentifier = result.identifier
                 artwork = result.artwork
                 artworkMissing = false
@@ -278,6 +281,7 @@ struct EventReceiptDesignPanel: View {
 
     private func removeLogo() {
         // Only the reference is cleared; the immutable file is kept for frozen sessions.
+        design.personalizeReceipt = false
         design.profile.receiptHeader.assetIdentifier = nil
         artwork = nil
         artworkMissing = false

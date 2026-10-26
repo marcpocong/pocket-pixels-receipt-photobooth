@@ -18,6 +18,7 @@ struct EventTypographySection: View {
                 }
             }
             .pickerStyle(.segmented)
+            .accessibilityIdentifier("event-typography-style")
             .accessibilityHint("Sets the fonts used for event details on printed receipts.")
 
             TypographySample(resolved: typography.resolved)

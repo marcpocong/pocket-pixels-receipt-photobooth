@@ -674,7 +674,7 @@ private struct StickerThumbnail: View {
 }
 
 #if DEBUG
-#Preview("Sticker Studio", traits: .landscapeLeft) {
+#Preview("Sticker Studio · Portrait") {
     let photos = StickerStudioPreviewView.samplePhotos(count: BoothFormat.grid.photoCount)
     var settings = StickerStudioSettings()
     settings.isEnabled = true

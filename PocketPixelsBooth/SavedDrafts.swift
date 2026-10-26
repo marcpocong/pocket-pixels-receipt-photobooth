@@ -234,7 +234,7 @@ nonisolated enum SavedDraftDiff {
                          "profile.receiptHeader.bottomSpacing": "Space below logo", "profile.receiptHeader.assetIdentifier": "Logo artwork",
                          "designID": "Selected event", "eventModeEnabled": "Event Mode", "mode": "Session mode",
                          "requestedMethods": "Payment methods", "paidEvent": "Paid event", "personalizeReceipt": "Personalize receipt",
-                         "guestScreensEnabled": "Custom welcome screens",
+                         "guestScreensEnabled": "Guest experience", "profile.stickerStudioEnabled": "Sticker Studio",
                          "prepaidPolicy.defaultCopies": "Included copies", "prepaidPolicy.maxCopies": "Maximum copies",
                          "prepaidPolicy.supportedFormatRawValues": "Available formats",
                          "prepaidPolicy.prepaidGuestCopyChoice": "Guest copy selection"]

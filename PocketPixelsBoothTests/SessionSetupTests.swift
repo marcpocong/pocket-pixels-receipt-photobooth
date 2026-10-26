@@ -93,6 +93,7 @@ import SwiftUI
     var applied: [EventProfile] = []
     var profile = EventProfile.pocketPixelsDefault
     var usableArtwork: Set<String> = []
+    var stickerSettings = StickerStudioSettings.default
     let library: EventDesignLibraryStore
     lazy var runs = EventRunStore(directory: directory.appendingPathComponent("runs"), authorized: { [unowned self] in self.permitted }, blockingReason: { [unowned self] in self.blockedReason })
     lazy var model = makeModel()
@@ -106,13 +107,86 @@ import SwiftUI
         .init(editingLiveEvent: live, requestTimeout: timeout, workspace: workspace, acceptance: acceptance, library: library, eventRuns: runs, creations: CommercialEventCreationStore(directory: directory), api: { self.api }, authorized: { self.permitted },
               blockingReason: { self.blockedReason }, loadLocal: { self.local }, saveLocal: { self.local = $0 },
               source: { self.source }, saveSource: { self.source = $0 }, currentProfile: { self.profile },
-              applyProfile: { self.profile = $0; self.applied.append($0) }, artworkAvailable: { $0.map(self.usableArtwork.contains) ?? false }, studioDefaults: { .init() })
+              applyProfile: { self.profile = $0; self.applied.append($0) }, artworkAvailable: { $0.map(self.usableArtwork.contains) ?? false }, studioDefaults: { .init() }, stickerSettings: { self.stickerSettings })
     }
     func paid() async { model.mode = .serverManaged; await model.select("event") }
     func cleanup() { try? FileManager.default.removeItem(at: directory) }
 }
 
 @MainActor final class SessionSetupTests: XCTestCase {
+    func testEventStickerChoicesPersistIndependentlyAndTemplateDoesNotShareState() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        f.stickerSettings.isEnabled = true
+        await f.model.prepareNewWorkspace()
+        XCTAssertEqual(f.model.design?.profile.stickerStudioEnabled, true)
+        f.model.design?.name = "Event A"
+        let a = try XCTUnwrap(f.model.designID)
+        let savedA = await f.model.saveForLater(); XCTAssertTrue(savedA)
+        f.stickerSettings.isEnabled = false
+        let second = f.makeModel()
+        await second.prepareNewWorkspace()
+        XCTAssertEqual(second.design?.profile.stickerStudioEnabled, false)
+        second.design?.name = "Event B"
+        let b = try XCTUnwrap(second.designID)
+        let savedB = await second.saveForLater(); XCTAssertTrue(savedB)
+        let relaunched = EventDesignLibraryStore(directory: f.directory)
+        XCTAssertEqual(relaunched.design(id: a)?.profile.stickerStudioEnabled, true)
+        XCTAssertEqual(relaunched.design(id: b)?.profile.stickerStudioEnabled, false)
+        await f.model.chooseDesign(a)
+        XCTAssertEqual(f.model.design?.profile.stickerStudioEnabled, true)
+        f.model.design?.profile.stickerStudioEnabled = false
+        XCTAssertEqual(f.library.design(id: b)?.profile.stickerStudioEnabled, false)
+        XCTAssertFalse(f.stickerSettings.isEnabled, "Editing an event never mutates Regular Booth preferences")
+        await second.prepareNewWorkspace(templateID: a)
+        XCTAssertNotEqual(second.designID, a)
+        // The shared workspace contains A's staged edit; reuse copies the intended staged value.
+        XCTAssertEqual(second.design?.profile.stickerStudioEnabled, false)
+        second.design?.profile.stickerStudioEnabled = true
+        XCTAssertEqual(f.workspace.designDraft(id: a)?.profile.stickerStudioEnabled, false)
+        XCTAssertEqual(f.library.design(id: b)?.profile.stickerStudioEnabled, false)
+        await f.workspace.flush()
+        let restored = OperatorWorkspace(directory: f.directory)
+        XCTAssertEqual(restored.designDraft(id: second.designID!)?.profile.stickerStudioEnabled, true)
+    }
+
+    func testLegacyStickerInheritanceSurvivesDecodeAndNewTemplateFreezesPreference() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        var profile = EventProfile.pocketPixelsDefault
+        profile.stickerStudioEnabled = nil
+        let bytes = try JSONEncoder().encode(profile)
+        let restored = try JSONDecoder().decode(EventProfile.self, from: bytes)
+        XCTAssertNil(restored.stickerStudioEnabled)
+        XCTAssertNil(restored.normalized().stickerStudioEnabled)
+        let original = try f.library.create(name: "Legacy", venue: "")
+        f.stickerSettings.isEnabled = true
+        await f.model.prepareNewWorkspace(templateID: original.id)
+        XCTAssertEqual(f.model.design?.profile.stickerStudioEnabled, true)
+        XCTAssertNil(f.library.design(id: original.id)?.profile.stickerStudioEnabled)
+    }
+
+    func testLiveStickerEditPreservesFrozenConfigurationAndRunAcrossRelaunch() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        await f.model.prepareNewWorkspace()
+        f.model.design?.name = "Sticker Live"
+        f.model.design?.profile.stickerStudioEnabled = false
+        await assertStart(f.model, expected: true)
+        let run = f.runs.currentRunID
+        let frozen = StickerStudioSessionConfiguration.current(settings: f.stickerSettings, eventEnabled: f.profile.stickerStudioEnabled)
+        let live = f.makeModel(live: true)
+        live.design?.profile.stickerStudioEnabled = true
+        XCTAssertFalse(frozen.isGuestStepEnabled)
+        XCTAssertEqual(f.profile.stickerStudioEnabled, false)
+        let applied = await live.applyLiveChanges(); XCTAssertTrue(applied, live.message)
+        XCTAssertEqual(f.runs.currentRunID, run)
+        XCTAssertEqual(f.runs.runs.count, 1)
+        XCTAssertFalse(frozen.isGuestStepEnabled)
+        let next = StickerStudioSessionConfiguration.current(settings: f.stickerSettings, eventEnabled: f.profile.stickerStudioEnabled)
+        XCTAssertTrue(next.isGuestStepEnabled)
+        XCTAssertEqual(f.makeModel(live: true).design?.profile.stickerStudioEnabled, true)
+        XCTAssertEqual(EventDesignLibraryStore(directory: f.directory).design(id: live.designID)?.profile.stickerStudioEnabled, true)
+        XCTAssertFalse(f.stickerSettings.isEnabled)
+    }
+
     func testSavedLocalPreparationCannotOverwriteLaterServerDraftOnRefresh() async throws {
         let f = SetupFixture(); defer { f.cleanup() }
         await f.model.prepareNewWorkspace()

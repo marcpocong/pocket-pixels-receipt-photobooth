@@ -87,7 +87,7 @@ Actual SwiftUI screenshot coverage includes portrait Home (Regular/active event)
 - [ ] On Carlo, open Operator in portrait; check five labels, utilities, Return to Booth and comfortable touch targets.
 - [ ] Booth → change footer → Save → return to guest UI; verify next guest's receipt, then change maximum copies without starting an event. Confirm event settings/current guest stay frozen.
 - [ ] Browse 250+ real retained sessions; finger-scroll list/grid, search, filter, open original receipt/QR, return to the same list position. Record Instruments hitches, allocations and device memory under realistic archive contents.
-- [ ] Rotate portrait → landscape → portrait during Booth edits, event setup and selected-session viewing. Repeat across tab changes and with the onscreen keyboard.
+- [ ] Attempt physical-device rotation during Booth edits, event setup and selected-session viewing. The interface must stay in portrait. Repeat across tab changes and with the onscreen keyboard.
 - [ ] Confirm VoiceOver traversal, selected tabs, actions, original QR description and accessibility text on the physical iPad.
 - [ ] Real camera authorization/capture and printer connection/paper output, only under separately authorized physical print testing. Inspect paper before an explicit operator reprint.
 - [ ] Owner-supervised interrupted guest → Close Session & Continue → force quit/relaunch → unrelated Regular guest/event → end event. Verify original evidence remains and a different uncertain receipt needs a new inspection.

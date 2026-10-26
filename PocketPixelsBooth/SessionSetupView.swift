@@ -15,14 +15,21 @@ struct SessionSetupView: View {
     @ObservedObject private var workspace: OperatorWorkspace
     @ObservedObject private var acceptance: SessionAcceptanceStore
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var devicePrintOptions = ReceiptPrintSettingsStore.load()
+    @State private var previewSelection = ReceiptPreviewSelection()
     @State private var review = false
     @Environment(\.dismiss) private var dismiss
     private let opensNewEventDraft: Bool
     @State private var previousEventPicker = false
     @State private var confirmDiscard = false
+    @State private var paymentExpanded = false
+    @State private var receiptExpanded = false
+    @State private var guestExpanded = false
+    @State private var galleryExpanded = false
+    @State private var reviewExpanded = false
+    @State private var validationAttempt = false
+    @FocusState private var eventNameFocused: Bool
     init(eventID: String? = nil, coordinator: SessionSetupCoordinator? = nil, opensNewEventDraft: Bool = false, editingLiveEvent: Bool = false, usePreviousEvent: Bool = false) {
         // StateObject owns construction: parent view updates must not recreate a coordinator
         // and reload configuration while its existing operation is still running.
@@ -35,11 +42,10 @@ struct SessionSetupView: View {
 
     }
 
-    private var regular: Bool { horizontalSizeClass == .regular }
-
     var body: some View {
+        ScrollViewReader { reader in
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
+            VStack(alignment: .leading, spacing: 18) {
                 header
                 if setup.busy {
                     VStack(alignment: .leading, spacing: 6) {
@@ -63,28 +69,47 @@ struct SessionSetupView: View {
                         Button("Check Current Status") { Task { await setup.refresh() } }.buttonStyle(.borderedProminent)
                     }
                 }
-                eventSection.disabled(setup.busy)
+                eventSection.disabled(setup.busy).id("event-details")
                 if setup.design != nil {
                     workspacePanels
-                    if let validation = setup.validation {
-                        Label(validation, systemImage: "info.circle").font(.callout).foregroundStyle(OperatorPalette.warning)
-                    }
                 }
             }
             .frame(maxWidth: 980, alignment: .leading)
-            .padding(.horizontal, regular ? 32 : 16)
+            .padding(.horizontal, 24)
             .padding(.vertical, 24)
             .frame(maxWidth: .infinity)
         }
-        .navigationTitle(setup.editingLiveEvent ? "Edit Live Event" : "Event Workspace")
+        .accessibilityIdentifier("event-workspace-scroll")
+        .scrollDismissesKeyboard(.interactively)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done Editing") { endEditing() }.accessibilityIdentifier("event-finish-editing")
+            }
+        }
+        .onChange(of: validationAttempt) { _, _ in reader.scrollTo("event-details", anchor: .top) }
+        .navigationTitle(setup.editingLiveEvent ? "Edit Live Event" : (opensNewEventDraft ? "New Event" : "Edit Event"))
         .navigationBarTitleDisplayMode(.inline)
         .tint(OperatorPalette.ink)
         .background(OperatorPalette.canvas)
         .safeAreaInset(edge: .top) {
-            if setup.editingLiveEvent, !setup.busy, !setup.message.isEmpty {
-                OperatorFeedbackBanner(feedback: .init(message: setup.message, isError: setup.needsRefresh)) { setup.clearMessage() }
-                    .padding(.horizontal).padding(.top, 8)
-            }
+            VStack(spacing: 8) {
+                if setup.editingLiveEvent, !setup.busy, !setup.message.isEmpty {
+                    OperatorFeedbackBanner(feedback: .init(message: setup.message, isError: setup.needsRefresh)) { setup.clearMessage() }
+                        .padding(.horizontal).padding(.top, 8)
+                }
+                if receiptExpanded {
+                    SetupCard {
+                        HStack {
+                            Text("Live Receipt Preview").font(.headline)
+                            Spacer()
+                            Button("Close Receipt Controls") { endEditing(); receiptExpanded = false }.font(.callout).frame(minHeight: 44)
+                        }
+                        EventReceiptComposerPreview(profile: setup.effectiveProfile, printOptions: devicePrintOptions, compact: true, selection: $previewSelection)
+                    }.accessibilityElement(children: .contain).accessibilityIdentifier("event-pinned-preview")
+                        .padding(.horizontal, 24).padding(.vertical, 8)
+                }
+            }.background(OperatorPalette.canvas)
         }
         .safeAreaInset(edge: .bottom) { bottomBar }
         .task {
@@ -119,24 +144,22 @@ struct SessionSetupView: View {
             Button("Discard & Reload", role: .destructive) { Task { await setup.discardPaidEdits() } }
         } message: { Text("Reloads saved settings for this event. Nothing is applied to guests.") }
 
+        }
     }
 
     // MARK: Header
 
     private var header: some View {
         let applied = setup.editingLiveEvent ? !setup.hasUnsavedChanges : setup.isCurrentlyApplied
-        return VStack(alignment: .leading, spacing: 8) {
-            Text(setup.editingLiveEvent ? "Edit the running event" : "Prepare your event").font(.system(.title2, design: .serif).weight(.semibold))
-            Text(setup.editingLiveEvent
-                 ? "Changes are local until you apply them between guest sessions. Existing guests keep their original design, price and purchased copies."
-                 : "Name your event, choose payment and print settings, and customize the receipt. Edits save on this iPad; Review & Start applies them to guests.")
-                .font(.callout).foregroundStyle(OperatorPalette.secondaryText)
-            HStack(spacing: 10) {
-                StatusPill(text: applied ? "Currently applied" : (setup.hasUnsavedChanges ? "Local edits — not applied" : "Saved — not yet applied"),
-                           systemImage: applied ? "checkmark.circle.fill" : "pencil.circle",
-                           color: applied ? OperatorPalette.ready : OperatorPalette.warning)
+        return HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(setup.design?.displayName ?? "New Event").font(.system(.title2, design: .serif).weight(.semibold))
+                Text(setup.editingLiveEvent ? "Applies to future guests. Current sessions keep their settings." : "Configure, preview, then review and start.")
+                    .font(.callout).foregroundStyle(OperatorPalette.secondaryText)
                 if acceptance.state.blocked { StatusPill(text: "New sessions paused", systemImage: "pause.circle.fill", color: OperatorPalette.warning) }
             }
+            Spacer(minLength: 12)
+            if applied && setup.design != nil { StatusPill(text: "Applied", systemImage: "checkmark.circle.fill", color: OperatorPalette.ready) }
         }
     }
 
@@ -147,7 +170,10 @@ struct SessionSetupView: View {
             if let design = Binding($setup.design) {
                 LabeledField(title: "Event name") {
                     TextField("Event name", text: limited(design.name, EventProfile.eventNameLimit))
-                        .accessibilityIdentifier("event-name")
+                        .accessibilityIdentifier("event-name").focused($eventNameFocused)
+                }
+                if design.wrappedValue.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("Enter an event name.").font(.footnote).foregroundStyle(OperatorPalette.warning)
                 }
                 LabeledField(title: "Venue (optional)") {
                     TextField("Venue (optional)", text: limited(design.venue, EventProfile.locationLimit))
@@ -163,59 +189,83 @@ struct SessionSetupView: View {
     }
 
     @ViewBuilder private var workspacePanels: some View {
-        SetupCard {
-            Text("Event Settings").font(.headline)
-            NavigationLink {
-                ScrollView { paymentSection.padding() }.navigationTitle("Payment & Prints")
-            } label: {
-                LabeledContent("Payment & Prints", value: setup.paymentChoice.methodSummary)
-                    .frame(minHeight: 48)
-            }.accessibilityIdentifier("event-payment-prints")
-            NavigationLink { EventDesignEditorView(setup: setup) } label: {
-                Label("Customize Receipt", systemImage: "paintpalette").frame(minHeight: 48)
-            }.accessibilityIdentifier("event-customize-receipt")
-            NavigationLink {
-                ScrollView {
-                    if let design = Binding($setup.design) {
-                        SetupCard {
-                            Text(design.wrappedValue.guestScreensEnabled ? "Custom for this event" : "Studio defaults").font(.caption)
-                            guestScreens(design)
-                            CustomerExperiencePreviewView(profile: setup.effectiveProfile)
-                        }.padding()
-                    }
-                }.navigationTitle("Guest Screens")
-            } label: { Label("Guest Screens", systemImage: "ipad").frame(minHeight: 48) }
-            NavigationLink {
-                Form {
-                    if let design = Binding($setup.design) {
-                        Section("Printed gallery access · this event") {
-                            Picker("Gallery code", selection: design.profile.receiptDesign.footerStyleOverride) {
-                                Text("Use Studio Default Footer").tag(Optional<ReceiptFooterStyle>.none)
-                                ForEach(ReceiptFooterStyle.allCases) { Text($0.displayName).tag(Optional($0)) }
-                            }
-                            Picker("Gallery receipt", selection: design.profile.galleryReceiptStyleOverride) {
-                                Text("Use Studio Default Gallery Settings").tag(Optional<GalleryReceiptStyle>.none)
-                                ForEach(GalleryReceiptStyle.allCases) { Text($0.title).tag(Optional($0)) }
-                            }
-                        }
-                    }
-                    Section("Device-wide upload connection") {
-                        Text("The gallery upload connection is shared by all events. Event overrides above change printed gallery access and receipt appearance.")
-                        NavigationLink("Gallery Connection Settings", value: OperatorWorkspaceRoute.gallery)
-                    }
-                }.navigationTitle("Gallery & QR Settings")
-            } label: { Label("Gallery & QR Settings", systemImage: "qrcode").frame(minHeight: 48) }
-        }.disabled(setup.busy)
-        SetupCard {
-            Text("Current Preview · \(setup.design?.displayName ?? "Event")").font(.headline)
-            EventReceiptComposerPreview(profile: setup.effectiveProfile, printOptions: devicePrintOptions, maximumPreviewWidth: 300)
+        inlineSection("Payment & Prints", summary: "\(setup.paymentChoice.title) · \(copiesSummary)", id: "event-payment-prints", expanded: $paymentExpanded) {
+            paymentSection
         }
+        SetupCard {
+            sectionHeading("Receipt Design", summary: setup.effectiveProfile.receiptDesign.typography.preset.displayName,
+                           id: "event-customize-receipt", expanded: $receiptExpanded)
+            if !receiptExpanded { EventReceiptComposerPreview(profile: setup.effectiveProfile, printOptions: devicePrintOptions, compact: true, selection: $previewSelection) }
+            if receiptExpanded { EventDesignEditorView(setup: setup, inline: true, showsPreview: false) }
+        }.disabled(setup.busy)
+        inlineSection("Guest Experience", summary: "\(setup.design?.guestScreensEnabled == true ? "Event welcome" : "Studio welcome") · Stickers \(stickerEnabled ? "enabled" : "disabled")", id: "event-guest-experience", expanded: $guestExpanded) {
+            if let design = Binding($setup.design) {
+                guestScreens(design)
+                Divider()
+                Button { design.wrappedValue.profile.stickerStudioEnabled = !stickerEnabled } label: {
+                    HStack {
+                        Label("Sticker Studio", systemImage: stickerEnabled ? "checkmark.circle.fill" : "circle")
+                        Spacer()
+                        Text(stickerEnabled ? "Enabled" : "Disabled")
+                    }.frame(maxWidth: .infinity, minHeight: 44)
+                }.buttonStyle(.bordered)
+                    .accessibilityAddTraits(stickerEnabled ? .isSelected : [])
+                    .accessibilityIdentifier("event-sticker-studio")
+                    .accessibilityValue(stickerEnabled ? "Enabled" : "Disabled")
+                Text("Allow guests to add stickers and emoji before printing, or skip this step.").font(.footnote).foregroundStyle(.secondary)
+                if stickerEnabled {
+                    LabeledContent("Guest sticker limit", value: "\(StickerStudioSettingsStore.load().guestStickerLimit)")
+                    LabeledContent("Collections", value: stickerCollections)
+                }
+                CustomerExperiencePreviewView(profile: setup.effectiveProfile)
+            }
+        }
+        inlineSection("Gallery & QR", summary: (setup.effectiveProfile.receiptDesign.footerStyleOverride ?? devicePrintOptions.footerStyle).displayName,
+                      id: "event-gallery-qr", expanded: $galleryExpanded) {
+            EventGalleryPresentationControls(setup: setup)
+        }
+        inlineSection("Review", summary: setup.validation ?? "Ready to review and start", id: "event-review-summary", expanded: $reviewExpanded) {
+            SetupSummaryRows(setup: setup)
+        }
+    }
+
+    private var copiesSummary: String {
+        let count = setup.mode == .localPrepaid ? setup.prepaid.activePolicy.defaultCopies : setup.policy.defaultCopies
+        return "\(count) \(count == 1 ? "copy" : "copies")"
+    }
+
+    private var stickerEnabled: Bool { setup.design?.profile.stickerStudioEnabled ?? StickerStudioSettingsStore.load().isEnabled }
+
+    private var stickerCollections: String {
+        let settings = StickerStudioSettingsStore.load()
+        return [settings.emojiCollectionEnabled ? "Emoji" : nil, settings.builtInStickersEnabled ? "Built-in" : nil,
+                settings.operatorCollectionEnabled ? "Operator library" : nil].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private func inlineSection<Content: View>(_ title: String, summary: String, id: String, expanded: Binding<Bool>, @ViewBuilder content: @escaping () -> Content) -> some View {
+        SetupCard {
+            sectionHeading(title, summary: summary, id: id, expanded: expanded)
+            if expanded.wrappedValue { Divider(); content() }
+        }.disabled(setup.busy)
+    }
+
+    private func sectionHeading(_ title: String, summary: String, id: String, expanded: Binding<Bool>) -> some View {
+        Button { endEditing(); expanded.wrappedValue.toggle() } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(.headline)
+                    Text(summary).font(.caption).foregroundStyle(OperatorPalette.secondaryText).multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: expanded.wrappedValue ? "chevron.up" : "chevron.down")
+            }.frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
+        }.buttonStyle(.plain).accessibilityIdentifier(id).accessibilityValue(expanded.wrappedValue ? "Expanded" : "Collapsed")
     }
 
     @ViewBuilder private func guestScreens(_ design: Binding<SavedEventDesign>) -> some View {
         Toggle(isOn: design.guestScreensEnabled) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Custom Welcome Screens").font(.headline)
+                Text("Event Welcome & Thank-you").font(.headline)
                 Text("Show the event name and your messages on the guest welcome and thank-you screens.").font(.callout).foregroundStyle(OperatorPalette.secondaryText)
             }
         }
@@ -241,11 +291,11 @@ struct SessionSetupView: View {
     // MARK: 2. Payment
 
     @ViewBuilder private var paymentSection: some View {
-        SetupCard {
+        VStack(alignment: .leading, spacing: 12) {
             Text("How will guests pay?").font(.title3.weight(.semibold))
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: regular ? 2 : 1), spacing: 14) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: typeSize.isAccessibilitySize ? 1 : 2), spacing: 10) {
                 ForEach(GuestPaymentChoice.allCases.filter { !setup.editingLiveEvent || $0.isPaid == (setup.mode == .serverManaged) }) { choice in
-                    PaymentOptionCard(choice: choice, selected: setup.paymentChoice == choice) { Task { await setup.choosePayment(choice) } }
+                    PaymentOptionCard(choice: choice, selected: setup.paymentChoice == choice) { endEditing(); Task { await setup.choosePayment(choice) } }
                 }
             }
             Divider()
@@ -259,10 +309,10 @@ struct SessionSetupView: View {
 
     @ViewBuilder private var freeSettings: some View {
         Label("No guest payment required.", systemImage: "gift").font(.headline)
-        Stepper("Included copies: \(setup.prepaid.activePolicy.defaultCopies)", value: $setup.prepaid.activePolicy.defaultCopies, in: 1...setup.prepaid.activePolicy.maxCopies)
-        Stepper("Maximum copies: \(setup.prepaid.activePolicy.maxCopies)", value: Binding(get: { setup.prepaid.activePolicy.maxCopies }, set: {
+        SetupCopyControl(title: "Included copies", value: $setup.prepaid.activePolicy.defaultCopies, range: 1...setup.prepaid.activePolicy.maxCopies)
+        SetupCopyControl(title: "Maximum copies", value: Binding(get: { setup.prepaid.activePolicy.maxCopies }, set: {
             setup.prepaid.activePolicy.maxCopies = $0; setup.prepaid.activePolicy.defaultCopies = min(setup.prepaid.activePolicy.defaultCopies, $0)
-        }), in: PaymentPolicySnapshot.copyRange)
+        }), range: PaymentPolicySnapshot.copyRange)
         Toggle("Allow guests to choose copies", isOn: $setup.prepaid.activePolicy.prepaidGuestCopyChoice)
         formatChips(isOn: { setup.prepaid.activePolicy.supports($0) }, set: { format, enabled in
             var formats = setup.prepaid.activePolicy.supportedFormatRawValues
@@ -273,7 +323,6 @@ struct SessionSetupView: View {
     }
 
     @ViewBuilder private var paidSettings: some View {
-        LabeledContent("Payments environment", value: PaymentsConfiguration.current()?.environment.uppercased() ?? "Not connected").font(.callout)
         if setup.targetServerEventID == nil {
             Text("Payments are prepared automatically after Review & Start. Saving a draft stays on this iPad.").font(.footnote)
         }
@@ -285,10 +334,10 @@ struct SessionSetupView: View {
                 TextField("0.00", text: $setup.policy.priceText).keyboardType(.decimalPad).multilineTextAlignment(.trailing)
                     .font(.title3.monospacedDigit()).frame(maxWidth: 160).textFieldStyle(.roundedBorder)
             }
-            Stepper("Default copies: \(setup.policy.defaultCopies)", value: $setup.policy.defaultCopies, in: 1...setup.policy.maxCopies)
-            Stepper("Maximum copies: \(setup.policy.maxCopies)", value: Binding(get: { setup.policy.maxCopies }, set: {
+            SetupCopyControl(title: "Default copies", value: $setup.policy.defaultCopies, range: 1...setup.policy.maxCopies)
+            SetupCopyControl(title: "Maximum copies", value: Binding(get: { setup.policy.maxCopies }, set: {
                 setup.policy.maxCopies = $0; setup.policy.defaultCopies = min(setup.policy.defaultCopies, $0)
-            }), in: PaymentPolicySnapshot.copyRange)
+            }), range: PaymentPolicySnapshot.copyRange)
             formatChips(isOn: { setup.policy.supports($0) }, set: { setup.policy.setFormat($0, enabled: $1) })
             totalPreview
             Label(setup.paymentChoice.methodSummary, systemImage: "checkmark.shield").font(.callout)
@@ -396,17 +445,22 @@ struct SessionSetupView: View {
                     .disabled(setup.busy || !setup.hasUnsavedChanges || setup.validation != nil)
                     .accessibilityIdentifier("apply-live-event")
             } else {
-            Button("Save for Later") {
+            Button {
                 Task { if await setup.saveForLater() { dismiss() } }
-            }.buttonStyle(.bordered).frame(minHeight: 48).disabled(setup.busy || setup.design == nil)
+            } label: { Text("Save for Later").frame(minHeight: 44) }
+                .buttonStyle(.bordered).disabled(setup.busy || setup.design == nil)
                 .accessibilityIdentifier("save-setup-draft")
-            Button { review = true } label: {
+            Button {
+                endEditing()
+                if setup.design?.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true { validationAttempt.toggle(); eventNameFocused = true }
+                else { review = true }
+            } label: {
                 Label("Review & Start", systemImage: "play.fill").font(.headline).frame(maxWidth: .infinity, minHeight: 48)
-            }.buttonStyle(.borderedProminent).disabled(setup.busy || setup.validation != nil)
+            }.buttonStyle(.borderedProminent).disabled(setup.busy || setup.design == nil)
                 .accessibilityIdentifier("review-setup")
             }
         }
-        .padding(.horizontal, 24).padding(.vertical, 14).background(.regularMaterial).tint(OperatorPalette.accent)
+        .padding(.horizontal, 24).padding(.vertical, 10).background(.regularMaterial).tint(OperatorPalette.ink)
     }
 
     private var reviewSheet: some View {
@@ -414,6 +468,11 @@ struct SessionSetupView: View {
             review = false
             if started && !setup.editingLiveEvent { NotificationCenter.default.post(name: OperatorWorkspace.didStartSessions, object: nil) }
         })
+    }
+
+    private func endEditing() {
+        eventNameFocused = false
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 
     private func limited(_ text: Binding<String>, _ limit: Int) -> Binding<String> {
@@ -450,9 +509,15 @@ struct SetupSummaryRows: View {
             LabeledContent("Receipt layout", value: design?.layout.displayName ?? "")
         }
         LabeledContent("Receipt caption", value: design?.profile.receiptDesign.editorialCaption.isEmpty == false ? design!.profile.receiptDesign.editorialCaption : "None")
-        LabeledContent("Gallery code", value: design?.profile.receiptDesign.footerStyleOverride?.displayName ?? "Studio default")
-        LabeledContent("Guest screens", value: setup.eventModeEnabled && design?.guestScreensEnabled == true ? "Event welcome screens" : "Made to Keep standard")
-        LabeledContent("Status", value: setup.isCurrentlyApplied ? "Currently applied" : (setup.hasUnsavedChanges ? "Unsaved changes" : "Saved — not yet applied"))
+        LabeledContent("Gallery code", value: (design?.profile.receiptDesign.footerStyleOverride ?? ReceiptPrintSettingsStore.load().footerStyle).displayName)
+        LabeledContent("Guest experience", value: setup.eventModeEnabled && design?.guestScreensEnabled == true ? "Event welcome screens" : "Made to Keep standard")
+        let stickers = setup.eventModeEnabled ? (design?.profile.stickerStudioEnabled ?? StickerStudioSettingsStore.load().isEnabled) : StickerStudioSettingsStore.load().isEnabled
+        LabeledContent("Sticker Studio", value: stickers ? "Enabled" : "Disabled")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Sticker Studio")
+            .accessibilityValue(stickers ? "Enabled" : "Disabled")
+            .accessibilityIdentifier("review-sticker-status")
+        LabeledContent("Status", value: setup.isCurrentlyApplied ? "Currently applied" : (setup.hasUnsavedChanges ? "Changes staged" : "Saved — not yet applied"))
         Divider()
         LabeledContent("Camera check", value: operations.cameraCheckPassed ? "Checked this foreground session" : "Not checked — use Booth Check")
         LabeledContent("Printer", value: printer.operatorState.label)
@@ -484,7 +549,7 @@ struct SessionSetupReviewView: View {
                     }
                 }
                 Section("Receipt Preview") {
-                    EventReceiptComposerPreview(profile: setup.effectiveProfile, printOptions: ReceiptPrintSettingsStore.load(), showsSamplePrintLink: false, maximumPreviewWidth: 300)
+                    EventReceiptComposerPreview(profile: setup.effectiveProfile, printOptions: ReceiptPrintSettingsStore.load(), showsSamplePrintLink: false, maximumPreviewWidth: 300, compact: true)
                 }
                 Section {
                     Text("This starts new guest sessions with the setup shown above. Sessions already in progress keep their original design and purchased entitlement.")
@@ -498,6 +563,7 @@ struct SessionSetupReviewView: View {
                     }
                 }
             }
+            .accessibilityIdentifier("event-review-form")
             .safeAreaInset(edge: .bottom) {
                     Button {
                         Task {
@@ -508,7 +574,7 @@ struct SessionSetupReviewView: View {
                     .buttonStyle(.borderedProminent).disabled(setup.busy || setup.validation != nil || needsOccurrenceChoice)
                 .padding().background(.regularMaterial)
             }
-            .navigationTitle(setup.editingLiveEvent ? "Review Live Changes" : "Review Setup").tint(OperatorPalette.ink)
+            .navigationTitle(setup.editingLiveEvent ? "Review Live Changes" : "Review Setup").navigationBarTitleDisplayMode(.inline).tint(OperatorPalette.ink)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Back to Setup") { onBack() } } }
         }
     }
@@ -516,13 +582,39 @@ struct SessionSetupReviewView: View {
 
 // MARK: Building blocks
 
+private struct SetupCopyControl: View {
+    let title: String
+    @Binding var value: Int
+    let range: ClosedRange<Int>
+    @Environment(\.dynamicTypeSize) private var typeSize
+    var body: some View {
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
+        layout {
+            Text(title).frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 4) {
+                Button { value = max(range.lowerBound, value - 1) } label: {
+                    Image(systemName: "minus").frame(width: 44, height: 44)
+                        .background(OperatorPalette.selected, in: RoundedRectangle(cornerRadius: 10))
+                        .foregroundStyle(value <= range.lowerBound ? Color.secondary : OperatorPalette.ink).contentShape(Rectangle())
+                }.disabled(value <= range.lowerBound).accessibilityLabel("Decrease " + title.lowercased())
+                Text("\(value)").monospacedDigit().frame(minWidth: 36).accessibilityLabel("\(title): \(value)")
+                Button { value = min(range.upperBound, value + 1) } label: {
+                    Image(systemName: "plus").frame(width: 44, height: 44)
+                        .background(OperatorPalette.selected, in: RoundedRectangle(cornerRadius: 10))
+                        .foregroundStyle(value >= range.upperBound ? Color.secondary : OperatorPalette.ink).contentShape(Rectangle())
+                }.disabled(value >= range.upperBound).accessibilityLabel("Increase " + title.lowercased())
+            }.buttonStyle(.plain).fixedSize(horizontal: true, vertical: false)
+        }
+    }
+}
+
 private struct SetupCard<Content: View>: View {
     @ViewBuilder let content: () -> Content
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) { content() }
-            .padding(22)
+        VStack(alignment: .leading, spacing: 12) { content() }
+            .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
+            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
     }
 }
 
@@ -560,13 +652,12 @@ private struct PaymentOptionCard: View {
                 Image(systemName: choice.systemImage).font(.title2).frame(width: 32)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(choice.title).font(.headline)
-                    Text(choice.subtitle).font(.footnote).foregroundStyle(OperatorPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle").font(.title3)
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
+            .padding(.horizontal, 12).padding(.vertical, 4)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .background(selected ? OperatorPalette.selected : Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
             .overlay { RoundedRectangle(cornerRadius: 16).stroke(selected ? OperatorPalette.ink : .secondary.opacity(0.2), lineWidth: selected ? 2 : 1) }
             .contentShape(Rectangle())

@@ -33,6 +33,8 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
     var passport: PassportConfiguration
     /// Typography and future receipt design modules. Artwork remains in `receiptHeader`.
     var galleryReceiptStyleOverride: GalleryReceiptStyle?
+    /// Nil keeps legacy device preference inheritance; new events freeze a concrete choice.
+    var stickerStudioEnabled: Bool? = nil
     var receiptDesign: EventReceiptDesignConfiguration
 
     nonisolated init(
@@ -54,8 +56,10 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         passport: PassportConfiguration = .default,
         receiptDesign: EventReceiptDesignConfiguration = .default,
         galleryReceiptStyleOverride: GalleryReceiptStyle? = nil,
-        receiptExtrasEnabled: Bool? = nil
+        receiptExtrasEnabled: Bool? = nil,
+        stickerStudioEnabled: Bool? = nil
     ) {
+        self.stickerStudioEnabled = stickerStudioEnabled
         self.isEnabled = isEnabled
         self.eventName = eventName
         self.subtitle = subtitle
@@ -97,10 +101,12 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         case receiptDesign
         case galleryReceiptStyleOverride
         case receiptExtrasEnabled
+        case stickerStudioEnabled
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        stickerStudioEnabled = try container.decodeIfPresent(Bool.self, forKey: .stickerStudioEnabled)
         receiptExtrasEnabled = try container.decodeIfPresent(Bool.self, forKey: .receiptExtrasEnabled)
         isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
         eventName = try container.decode(String.self, forKey: .eventName)
@@ -181,7 +187,8 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
             passport: passport.normalized(),
             receiptDesign: receiptDesign.normalized(),
             galleryReceiptStyleOverride: galleryReceiptStyleOverride,
-            receiptExtrasEnabled: receiptExtrasEnabled
+            receiptExtrasEnabled: receiptExtrasEnabled,
+            stickerStudioEnabled: stickerStudioEnabled
         )
     }
 
@@ -315,6 +322,8 @@ struct CustomerExperiencePreviewView: View {
     var body: some View {
         VStack(spacing: 12) {
             previewCard(title: "WELCOME", message: welcomeText, icon: "camera.fill")
+            Label((profile.stickerStudioEnabled ?? StickerStudioSettingsStore.load().isEnabled) ? "Photo review → optional Sticker Studio → receipt" : "Photo review → receipt", systemImage: "arrow.right")
+                .font(.caption).accessibilityIdentifier("guest-preview-sticker-step")
             previewCard(title: "THANK YOU", message: thankYouText, icon: "qrcode")
 
             Text("Static preview only. It does not start a session, create a gallery, save an archive, change counters or print.")
@@ -370,14 +379,24 @@ private extension String {
 
 /// Read-only guest-receipt preview for branding screens, including unsaved drafts. Physical
 /// display samples open in Sample Print Studio with a snapshot of this preview's design.
+struct ReceiptPreviewSelection: Equatable {
+    var format: BoothFormat = .solo
+    var showsThermal = true
+}
+
 struct EventReceiptComposerPreview: View {
     let profile: EventProfile
     var printOptions: ReceiptPrintOptions = .default
     var showsSamplePrintLink = true
     var maximumPreviewWidth: CGFloat = 360
+    var compact = false
+    @State private var expanded = false
 
-    @State private var selectedFormat: BoothFormat = .solo
-    @State private var showsThermal = true
+    var selection: Binding<ReceiptPreviewSelection>? = nil
+    @State private var localSelection = ReceiptPreviewSelection()
+    private var selectionBinding: Binding<ReceiptPreviewSelection> { selection ?? $localSelection }
+    private var selectedFormat: BoothFormat { selectionBinding.wrappedValue.format }
+    private var showsThermal: Bool { selectionBinding.wrappedValue.showsThermal }
     @State private var normalImage: UIImage?
     @State private var previewImage: UIImage?
     @State private var previewReceipt: ComposedReceipt?
@@ -390,72 +409,13 @@ struct EventReceiptComposerPreview: View {
     @State private var savingPreview = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Picker("Preview Format", selection: $selectedFormat) {
-                ForEach(BoothFormat.allCases) { format in
-                    Text(format.displayName).tag(format)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            Picker("Preview Type", selection: $showsThermal) {
-                Text("Black & White").tag(false)
-                Text("Thermal Raster").tag(true)
-            }
-            .pickerStyle(.segmented)
-            .accessibilityHint("Thermal shows the exact black-and-white dots the printer receives.")
-
-            ForEach(ReceiptComposer.brandingResolution(for: profile).warnings, id: \.self) { warning in
-                Label(warning.message, systemImage: "exclamationmark.triangle.fill")
-                    .font(.footnote)
-                    .foregroundStyle(.orange)
-            }
-
-            Group {
-                if let previewImage = showsThermal ? previewImage : normalImage {
-                    OperatorZoomableReceiptView(
-                        image: previewImage,
-                        rendering: showsThermal ? .exactRaster : .smooth,
-                        accessibilityLabel: showsThermal ? "Exact printer raster preview" : "Receipt preview"
-                    )
-                    .frame(maxWidth: max(maximumPreviewWidth, 360))
-                    .frame(maxWidth: .infinity)
-                } else if let previewError {
-                    Text(previewError)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, minHeight: 260)
-                } else {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, minHeight: 260)
-                }
-            }
-            .frame(height: 580)
-
-            if let previewReceipt {
-                Text("\(previewReceipt.format.displayName) • \(previewReceipt.width)x\(previewReceipt.height) px • \(String(format: "%.1f", previewReceipt.estimatedLengthMillimeters)) mm")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text(profile.activeReceiptSnapshot == nil ? "Event branding is off or missing an event name." : "Rendering receipt preview.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Text(showsThermal ? "Thermal Raster shows the printer’s actual dots." : "Smooth grayscale preview. Thermal output uses the printer raster.").font(.caption).foregroundStyle(.secondary)
-            Button(savingPreview ? "Saving…" : "Save \(showsThermal ? "Thermal Raster" : "Black & White") to Photos") {
-                savePreview()
-            }.disabled(savingPreview || (showsThermal ? thermalPNG : normalPNG) == nil)
-            if !saveMessage.isEmpty { Text(saveMessage).font(.footnote) }
-            if showsSamplePrintLink {
-                NavigationLink {
-                    SamplePrintStudioView(previewProfile: profile)
-                } label: {
-                    Label("Print Display Samples with Your Photos", systemImage: "printer.dotmatrix")
-                }
-                Text("Print this preview's design without applying it to guests or starting an event.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        previewContent(compact: compact)
+        .accessibilityHidden(expanded)
+        .sheet(isPresented: $expanded) {
+            NavigationStack {
+                ScrollView { previewContent(compact: false).padding(20) }
+                    .navigationTitle("Receipt Preview").navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { expanded = false } } }
             }
         }
         .onAppear {
@@ -493,6 +453,59 @@ struct EventReceiptComposerPreview: View {
     /// Debounced, cancellable and generation-checked: a slow render for older settings can never
     /// replace the preview of newer settings.
     @MainActor
+    @ViewBuilder private func previewContent(compact: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Picker("Preview Format", selection: selectionBinding.format) {
+                    ForEach(BoothFormat.allCases) { format in Text(format.displayName).tag(format) }
+                }.pickerStyle(.menu).accessibilityIdentifier(compact ? "receipt-preview-format" : "receipt-preview-format-expanded")
+                Spacer()
+                if compact {
+                    Button { expanded = true } label: { Label("Expand Preview", systemImage: "arrow.up.left.and.arrow.down.right").frame(minHeight: 44) }
+                        .accessibilityIdentifier("expand-receipt-preview")
+                }
+                Menu {
+                    Button(savingPreview ? "Saving…" : "Save to Photos") { savePreview() }
+                        .disabled(savingPreview || (showsThermal ? thermalPNG : normalPNG) == nil)
+                    if showsSamplePrintLink {
+                        NavigationLink("Print Display Samples with Your Photos") { SamplePrintStudioView(previewProfile: profile) }
+                    }
+                } label: { Label("Preview Actions", systemImage: "ellipsis.circle").labelStyle(.iconOnly).frame(minWidth: 44, minHeight: 44) }
+            }
+            Picker("Preview Type", selection: selectionBinding.showsThermal) {
+                Text("Black & White").tag(false)
+                Text("Thermal Raster").tag(true)
+            }.pickerStyle(.segmented)
+            ForEach(ReceiptComposer.brandingResolution(for: profile).warnings, id: \.self) { warning in
+                Label(warning.message, systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(.orange)
+            }
+            Group {
+                if let image = showsThermal ? previewImage : normalImage {
+                    if compact {
+                        Button { expanded = true } label: {
+                            Image(uiImage: image).resizable().interpolation(showsThermal ? .none : .high).scaledToFit()
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }.buttonStyle(.plain).accessibilityLabel("Expand receipt thumbnail")
+                    } else {
+                        OperatorZoomableReceiptView(image: image, rendering: showsThermal ? .exactRaster : .smooth,
+                            accessibilityLabel: showsThermal ? "Exact printer raster preview" : "Receipt preview")
+                            .frame(maxWidth: max(maximumPreviewWidth, 360)).frame(maxWidth: .infinity)
+                    }
+                } else if let previewError { Text(previewError).font(.footnote) }
+                else { ProgressView("Rendering receipt…").frame(maxWidth: .infinity) }
+            }
+            .frame(height: compact ? 180 : 580)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+            if let receipt = previewReceipt {
+                Text("\(receipt.format.displayName) · \(String(format: "%.1f", receipt.estimatedLengthMillimeters)) mm · \(showsThermal ? "Printer dots" : "Smooth grayscale")")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if !saveMessage.isEmpty { Text(saveMessage).font(.footnote) }
+        }
+    }
+
     private func scheduleRender() {
         renderTask?.cancel()
         normalPNG = nil; thermalPNG = nil; saveMessage = ""

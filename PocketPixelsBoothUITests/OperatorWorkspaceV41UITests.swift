@@ -2,7 +2,7 @@ import XCTest
 
 /// Native system menus, dialogs and gestures against isolated simulator-only SwiftUI fixtures.
 final class OperatorWorkspaceV41UITests: XCTestCase {
-    override func setUpWithError() throws { continueAfterFailure = false }
+    override func setUpWithError() throws { continueAfterFailure = false; XCUIDevice.shared.orientation = .portrait }
     private func launch(_ screen: String = "Sessions", galleryReady: Bool = false, extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication(); app.launchArguments = ["--operator-v41-ui-fixture", "--fixture-id", UUID().uuidString] + extra
         if galleryReady { app.launchArguments.append("--gallery-ready-response") }
@@ -12,8 +12,6 @@ final class OperatorWorkspaceV41UITests: XCTestCase {
         return app
     }
     private func capture(_ name: String) throws {
-        // Allow native glass/symbol transitions to settle before reviewing layout evidence.
-        Thread.sleep(forTimeInterval: 0.6)
         let shot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: shot); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
         try shot.pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/v41-ui-\(name).png"))
@@ -37,14 +35,9 @@ final class OperatorWorkspaceV41UITests: XCTestCase {
     }
     private func tapVisibleMenu(_ button: XCUIElement, in app: XCUIApplication) {
         XCTAssertTrue(button.waitForExistence(timeout: 10))
-        // Some SwiftUI runtimes return no AX hit point for either Menu wrapper or child.
-        // Send a real touch inside its fully visible 44-point control. The subsequent menu
-        // and cleanup assertions must still succeed; this never invokes an app action directly.
         XCTAssertTrue(button.isEnabled)
-        XCTAssertGreaterThanOrEqual(button.frame.width, 44)
-        XCTAssertGreaterThanOrEqual(button.frame.height, 44)
-        XCTAssertTrue(app.frame.contains(button.frame))
-        button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(button.isHittable)
+        button.tap()
     }
     func testSessionMenusSelectionReceiptFitAndZoom() throws {
         let app = launch()
@@ -109,7 +102,7 @@ final class OperatorWorkspaceV41UITests: XCTestCase {
         XCTAssertFalse(app.buttons["Manage Garden Celebration"].exists)
         let archived = app.switches["Show Archived Events"]
         XCTAssertTrue(archived.exists)
-        archived.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5)).withOffset(CGVector(dx: -25, dy: 0)).tap()
+        archived.switches.firstMatch.tap()
         XCTAssertEqual(archived.value as? String, "1")
         XCTAssertTrue(app.buttons["Manage Garden Celebration"].waitForExistence(timeout: 5))
         try capture("event-archived-design")
@@ -226,12 +219,12 @@ final class OperatorWorkspaceV41UITests: XCTestCase {
         XCTAssertTrue(app.buttons["Manage session"].firstMatch.waitForExistence(timeout: 15))
         try capture("sessions-accessibility-portrait")
         XCUIDevice.shared.orientation = .landscapeLeft
-        let rotated = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in app.frame.width > app.frame.height }, object: nil)
+        let rotated = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in app.frame.width < app.frame.height }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [rotated], timeout: 10), .completed)
-        try capture("sessions-landscape")
+        try capture("sessions-portrait-after-rotation")
         app.buttons["Select"].tap(); app.buttons["Select All Visible"].tap()
         XCTAssertTrue(app.buttons["Delete Selected"].isHittable)
-        try capture("sessions-accessibility-landscape-selection")
+        try capture("sessions-accessibility-portrait-after-rotation-selection")
         XCUIDevice.shared.orientation = .portrait
         app.terminate()
         let empty = launch(extra: ["--fixture-empty"])

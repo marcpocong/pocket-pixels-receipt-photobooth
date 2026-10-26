@@ -78,7 +78,7 @@ nonisolated struct StickerStudioSettings: Codable, Equatable, Sendable {
     static let defaultMinimumPrintedDots = 72
 
     var schemaVersion = currentSchemaVersion
-    /// Master switch. OFF means the guest never sees, loads or fetches anything sticker related.
+    /// Regular Booth preference and starting value for new events. An explicit event choice takes precedence.
     var isEnabled = false
     /// Native Unicode emoji drawn by the system font: the primary guest collection.
     var emojiCollectionEnabled = true
@@ -202,9 +202,11 @@ nonisolated struct StickerStudioSessionConfiguration: Equatable, Sendable {
     @MainActor
     static func current(
         settings: StickerStudioSettings = StickerStudioSettingsStore.load(),
+        eventEnabled: Bool? = nil,
         credentials: OnlineStickerCredentialStoring = KeychainOnlineStickerCredentialStore()
     ) -> StickerStudioSessionConfiguration {
-        let normalized = settings.normalized()
+        var normalized = settings.normalized()
+        if let eventEnabled { normalized.isEnabled = eventEnabled }
         guard normalized.isEnabled else { return .disabled }
         // Legacy online preferences and credentials remain stored, but the static studio
         // never reads a credential, constructs a provider, or enables an online guest source.

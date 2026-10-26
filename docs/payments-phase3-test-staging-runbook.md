@@ -112,7 +112,7 @@ Record each run (date, commit SHA, result) in the test report before any further
 
 ## 8. iPad + VOZY G80 validation (physical)
 
-Run on the real iPad and VOZY G80 576-dot printer: 1/3/10-copy paid sessions; Passport/Photo Pass; stickers; gallery upload + QR; ambiguous print (power-cycle mid-copy) → `UNCERTAIN` recorded, no automatic reprint; kill/relaunch during QR wait; VoiceOver, Dynamic Type XXL, portrait/landscape on checkout and operator screens.
+Run on the real iPad and VOZY G80 576-dot printer: 1/3/10-copy paid sessions; Passport/Photo Pass; stickers; gallery upload + QR; ambiguous print (power-cycle mid-copy) → `UNCERTAIN` recorded, no automatic reprint; kill/relaunch during QR wait; VoiceOver, Dynamic Type XXL, physical-device rotation while checkout and operator screens remain portrait-only.
 
 ## Rollback
 

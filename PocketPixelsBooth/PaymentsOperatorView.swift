@@ -352,6 +352,9 @@ struct CheckoutRecoverySection: View {
     @State private var selectedIDs = Set<String>()
     @State private var cleanupRequest: CheckoutCleanupRequest?
     @State private var showsArchived = false
+    @State private var managedCheckoutID: String?
+    @State private var managedCleanupForce: Bool?
+    @State private var afterManagementDismissal: (() -> Void)?
     @State private var detailItem: CheckoutRecoveryItem?
     init(recovery: PaymentRecoveryCoordinator = .shared, showsArchived: Bool = false) { _recovery = ObservedObject(wrappedValue: recovery); _showsArchived = State(initialValue: showsArchived) }
     private func bulkHide() {
@@ -431,21 +434,8 @@ struct CheckoutRecoverySection: View {
                                 if !selectedIDs.insert(item.id).inserted { selectedIDs.remove(item.id) }
                             }.frame(minHeight: 44)
                         }
-                        Menu {
-                            Button("View Details") { detailItem = item }
-                            if item.classification.isResumable { Button("Resume Original Checkout") { resumeCandidate = item } }
-                            Button("Archive Checkout") {
-                                do { try recovery.setCheckoutHidden(id: item.id, hidden: true); status = "Archived. Financial follow-up remains in Health and History." }
-                                catch { status = error.localizedDescription }
-                            }
-                            Button("Force Remove from Workspace") {
-                                do { try recovery.forceRemoveCheckout(id: item.id); status = "Removed from workspace. Financial status is unchanged." }
-                                catch { status = error.localizedDescription }
-                            }
-                            Button("Force Delete Local Checkout", role: .destructive) { cleanupRequest = CheckoutCleanupRequest(ids: [item.id], forceLocal: true) }
-                            Button("Delete Eligible Checkout", role: .destructive) { cleanupRequest = CheckoutCleanupRequest(ids: [item.id]) }
-                        } label: { Label("Manage", systemImage: "ellipsis.circle").frame(minHeight: 44) }
-                        .buttonStyle(.borderless)
+                        checkoutManageButton(item.id)
+
                     }
                     HStack {
                         if item.classification.isResumable {
@@ -471,19 +461,13 @@ struct CheckoutRecoverySection: View {
                             Text(checkpoint.isResolved ? "Resolved local checkpoint" : "Archived · financial follow-up remains outstanding").font(.caption)
                         }
                         Spacer()
-                        Menu {
-                            if checkpoint.hiddenAt != nil {
-                                Button("Restore Visibility") { do { try recovery.setCheckoutHidden(id: checkpoint.id, hidden: false) } catch { status = error.localizedDescription } }
-                            }
-                            Button("Force Delete Local Checkout", role: .destructive) { cleanupRequest = CheckoutCleanupRequest(ids: [checkpoint.id], forceLocal: true) }
-                            Button("Delete Eligible Checkout", role: .destructive) { cleanupRequest = CheckoutCleanupRequest(ids: [checkpoint.id]) }
-                            if selecting {
-                                Button(selectedIDs.contains(checkpoint.id) ? "Deselect" : "Select") {
-                                    if !selectedIDs.insert(checkpoint.id).inserted { selectedIDs.remove(checkpoint.id) }
-                                }
-                            }
-                        } label: { Label("Manage", systemImage: "ellipsis.circle").frame(minHeight: 44) }
-                        .buttonStyle(.borderless)
+                        if selecting {
+                            Button(selectedIDs.contains(checkpoint.id) ? "Deselect" : "Select") {
+                                if !selectedIDs.insert(checkpoint.id).inserted { selectedIDs.remove(checkpoint.id) }
+                            }.frame(minHeight: 44)
+                        }
+                        checkoutManageButton(checkpoint.id)
+
                     }
                 }
             }
@@ -532,6 +516,16 @@ struct CheckoutRecoverySection: View {
         } message: { item in
             Text("This returns to the booth and keeps your setup drafts. Ask the guest to tap Make a Memory within 5 minutes. \(item.classification.operatorDescription)")
         }
+        .sheet(isPresented: Binding(get: { managedCheckoutID != nil }, set: { if !$0 { managedCheckoutID = nil } }), onDismiss: {
+            managedCleanupForce = nil
+            let action = afterManagementDismissal; afterManagementDismissal = nil; action?()
+        }) {
+            if let id = managedCheckoutID {
+                if let force = managedCleanupForce {
+                    CheckoutCleanupReview(ids: [id], forceLocal: force, recovery: recovery)
+                } else { checkoutManagement(id) }
+            }
+        }
         .sheet(item: $cleanupRequest) { request in CheckoutCleanupReview(ids: request.ids, forceLocal: request.forceLocal, recovery: recovery) }
         .sheet(item: $detailItem) { item in
             NavigationStack {
@@ -545,4 +539,48 @@ struct CheckoutRecoverySection: View {
             }
         }
     }
+    private func checkoutManageButton(_ id: String) -> some View {
+        Button { managedCleanupForce = nil; managedCheckoutID = id } label: {
+            Label("Manage", systemImage: "ellipsis.circle").frame(minWidth: 44, minHeight: 44)
+        }.buttonStyle(.borderless).accessibilityIdentifier("manage-checkout-" + id)
+    }
+
+    private func checkoutManagement(_ id: String) -> some View {
+        NavigationStack {
+            List {
+                if let checkpoint = recovery.managementStore?.checkpoint(id: id) {
+                    Section {
+                        Text(checkpoint.recoveryReference ?? checkpoint.id).font(.caption.monospaced())
+                        Text("\(checkpoint.createdAt.formatted()) · \(PHPPriceFormatter.string(centavos: checkpoint.unitPriceCentavos * checkpoint.copies))")
+                        Text(recovery.items.first(where: { $0.id == id })?.classification.operatorDescription ?? checkpoint.lastServerState ?? checkpoint.phase.rawValue)
+                    }
+                    if let item = recovery.items.first(where: { $0.id == id }) {
+                        Button("View Details") { afterManagementDismissal = { detailItem = item }; managedCheckoutID = nil }
+                        if item.classification.isResumable {
+                            Button("Resume Original Checkout") { afterManagementDismissal = { resumeCandidate = item }; managedCheckoutID = nil }
+                        }
+                    }
+                    if checkpoint.hiddenAt != nil {
+                        Button("Restore Visibility") { changeCheckoutVisibility(id, hidden: false) }
+                    } else {
+                        Button("Archive Checkout") { changeCheckoutVisibility(id, hidden: true) }
+                        Button("Force Remove from Workspace") { changeCheckoutVisibility(id, hidden: true) }
+                    }
+                    Button("Delete Eligible Checkout", role: .destructive) { managedCleanupForce = false }
+                    Button("Force Delete Local Checkout", role: .destructive) { managedCleanupForce = true }
+                    if !status.isEmpty { Text(status).font(.footnote) }
+                }
+            }.navigationTitle("Manage Checkout").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { managedCheckoutID = nil } } }
+        }.presentationDetents([.medium, .large])
+    }
+
+    private func changeCheckoutVisibility(_ id: String, hidden: Bool) {
+        do {
+            try recovery.setCheckoutHidden(id: id, hidden: hidden)
+            status = hidden ? "Removed from workspace. Financial status is unchanged." : "Checkout restored."
+            managedCheckoutID = nil
+        } catch { status = error.localizedDescription }
+    }
+
 }

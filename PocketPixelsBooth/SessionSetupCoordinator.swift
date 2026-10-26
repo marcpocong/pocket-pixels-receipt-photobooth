@@ -339,6 +339,7 @@ nonisolated struct EventSetupRequests: SessionSetupAPI {
     private let currentProfile: @MainActor () -> EventProfile
     private let applyProfile: @MainActor (EventProfile) throws -> Void
     private let artworkAvailable: @MainActor (String?) -> Bool
+    private let stickerSettings: @MainActor () -> StickerStudioSettings
     private let studioDefaults: @MainActor () -> RegularBoothSettings
     var studioDefaultsForPresentation: RegularBoothSettings { studioDefaults() }
     private var creationObserver: AnyCancellable?
@@ -358,7 +359,8 @@ nonisolated struct EventSetupRequests: SessionSetupAPI {
          applyProfile: @escaping @MainActor (EventProfile) throws -> Void = { EventProfileStore.save($0) },
          artworkAvailable: @escaping @MainActor (String?) -> Bool = { identifier in
              (try? EventHeaderAssetStore())?.loadArtwork(identifier: identifier) != nil
-         }, studioDefaults: @escaping @MainActor () -> RegularBoothSettings = { RegularBoothSettings.load() }) {
+         }, studioDefaults: @escaping @MainActor () -> RegularBoothSettings = { RegularBoothSettings.load() },
+         stickerSettings: @escaping @MainActor () -> StickerStudioSettings = { StickerStudioSettingsStore.load() }) {
         let workspace = workspace ?? .shared
         let library = library ?? .shared
         self.editingLiveEvent = editingLiveEvent
@@ -368,6 +370,7 @@ nonisolated struct EventSetupRequests: SessionSetupAPI {
         self.makeAPI = api; self.requestTimeout = requestTimeout; self.authorized = authorized; self.blockingReason = blockingReason
         self.loadLocal = loadLocal; self.saveLocal = saveLocal; self.source = source; self.saveSource = saveSource
         self.currentProfile = currentProfile; self.applyProfile = applyProfile; self.artworkAvailable = artworkAvailable
+        self.stickerSettings = stickerSettings
         self.studioDefaults = studioDefaults
         let staged = workspace.snapshot.sessionSetup
         let saved = library.library
@@ -562,13 +565,20 @@ nonisolated struct EventSetupRequests: SessionSetupAPI {
         var next = SavedEventDesign.new(name: workspace.snapshot.newEventName, venue: workspace.snapshot.newEventVenue)
         if let templateID, let template = workspace.designDraft(id: templateID) ?? library.design(id: templateID) {
             next.name = template.displayName + " Copy"; next.venue = template.venue
-            next.profile = template.profile; next.personalizeReceipt = template.personalizeReceipt
+            next.profile = template.profile
+            next.profile.stickerStudioEnabled = template.profile.stickerStudioEnabled ?? stickerSettings().isEnabled
+            next.profile.receiptDesign.footerStyleOverride = template.profile.receiptDesign.footerStyleOverride ?? ReceiptPrintSettingsStore.load().footerStyle
+            next.profile.galleryReceiptStyleOverride = template.profile.galleryReceiptStyleOverride ?? GalleryReceiptSettingsStore.load()
+            next.personalizeReceipt = template.personalizeReceipt
             next.guestScreensEnabled = template.guestScreensEnabled; next.prepaidPolicy = template.prepaidPolicy
             next.paidPolicy = template.paidPolicy
         } else {
             let defaults = studioDefaults()
             next.prepaidPolicy = defaults.policy
             next.profile = defaults.profile
+            next.profile.stickerStudioEnabled = stickerSettings().isEnabled
+            next.profile.receiptDesign.footerStyleOverride = defaults.profile.receiptDesign.footerStyleOverride ?? ReceiptPrintSettingsStore.load().footerStyle
+            next.profile.galleryReceiptStyleOverride = defaults.profile.galleryReceiptStyleOverride ?? GalleryReceiptSettingsStore.load()
             if !defaults.profile.isEnabled { next.profile.showEventTextBlock = false }
             next.personalizeReceipt = defaults.profile.isEnabled
             next.guestScreensEnabled = defaults.profile.customerScreenEnabled
