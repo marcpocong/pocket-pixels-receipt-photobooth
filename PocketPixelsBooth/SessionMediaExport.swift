@@ -56,10 +56,13 @@ nonisolated enum SessionMediaExport {
     static let retentionKey = "pocketPixels.keepOriginalPhotosForExport"
     static var keepsOriginals: Bool { UserDefaults.standard.object(forKey: retentionKey) as? Bool ?? true }
 
-    static func save(data: [Data], writer: any PhotosLibraryWriting = SystemPhotosLibraryWriter()) async throws {
+    static func save(data: [Data], filenamePrefix: String? = nil,
+                     writer: any PhotosLibraryWriting = SystemPhotosLibraryWriter(),
+                     isCurrent: @Sendable () async -> Bool = { true }) async throws {
         guard !data.isEmpty, data.allSatisfy({ CGImageSourceCreateWithData($0 as CFData, nil) != nil }) else { throw MediaExportError.unavailable }
         guard await writer.requestAddAccess() else { throw MediaExportError.permission }
         try Task.checkCancellation()
+        guard await isCurrent() else { throw CancellationError() }
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent("MediaExport-" + UUID().uuidString, isDirectory: true)
         let files = try await Task.detached(priority: .utility) {
             try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true,
@@ -69,13 +72,16 @@ nonisolated enum SessionMediaExport {
                     // Uniform type comes from the encoded source, not a newly rendered screenshot.
                     guard let source = CGImageSourceCreateWithData(bytes as CFData, nil), let type = CGImageSourceGetType(source) else { throw MediaExportError.unavailable }
                     let ext = UTType(type as String)?.preferredFilenameExtension ?? "image"
-                    let file = temp.appendingPathComponent("photo-\(index).\(ext)")
+                    let prefix = filenamePrefix?.map { $0.isLetter || $0.isNumber || $0 == "-" ? String($0) : "-" }.joined() ?? "photo"
+                    let file = temp.appendingPathComponent("\(prefix)-\(index).\(ext)")
                     try bytes.write(to: file, options: .atomic)
                     return file
                 }
             } catch { try? FileManager.default.removeItem(at: temp); throw error }
         }.value
         defer { try? FileManager.default.removeItem(at: temp) }
+        try Task.checkCancellation()
+        guard await isCurrent() else { throw CancellationError() }
         do { try await writer.save(files: files) }
         catch { throw MediaExportError.saveFailed }
     }

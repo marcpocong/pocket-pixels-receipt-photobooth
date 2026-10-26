@@ -3,7 +3,7 @@
 //  PocketPixelsBooth
 //
 //  Operator Home → Print Display Samples. One screen: choose format, import photos, arrange the
-//  slots, preview the exact thermal raster and print it.
+//  slots, inspect smooth black & white or exact thermal previews, save either and print the raster.
 //
 
 import PhotosUI
@@ -176,10 +176,21 @@ struct SamplePrintStudioView: View {
 
     private var previewColumn: some View {
         StudioStep(number: 4, title: "Preview & Print") {
+            Picker("Receipt preview", selection: $model.previewMode) {
+                ForEach(SampleReceiptPreviewMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("sample-preview-mode")
+
             ZStack {
                 if let image = model.previewImage {
-                    OperatorZoomableReceiptView(image: image, rendering: .exactRaster, accessibilityLabel: "Exact printer raster, diagnostic")
-                        .opacity(model.previewState == .rendering ? 0.45 : 1)
+                    OperatorZoomableReceiptView(
+                        image: image,
+                        rendering: model.previewMode == .thermalRaster ? .exactRaster : .smooth,
+                        accessibilityLabel: "\(model.previewMode.title) receipt preview"
+                    )
                 }
                 switch model.previewState {
                 case .rendering, .idle:
@@ -194,10 +205,22 @@ struct SamplePrintStudioView: View {
             .frame(maxWidth: .infinity)
             .frame(height: 640)
 
-            if let receipt = model.printableSample?.receipt {
-                Text("Exact printer raster · diagnostic · \(String(format: "%.0f", receipt.estimatedLengthMillimeters)) mm long · no QR or session ID")
+            if let receipt = model.currentPreview?.receipt {
+                Text("\(model.previewMode == .blackAndWhite ? "Smooth grayscale" : "Exact printer raster") · \(String(format: "%.0f", receipt.estimatedLengthMillimeters)) mm long · no scannable QR or session ID")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            Button { model.savePreview() } label: {
+                Label(model.isSaving ? "Saving…" : "Save \(model.previewMode.title) to Photos", systemImage: "square.and.arrow.down")
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+            .disabled(!model.canSavePreview)
+            .accessibilityIdentifier("sample-save-preview")
+            if let saveStatus = model.saveStatus {
+                Text(saveStatus).font(.footnote.weight(.medium))
+                    .accessibilityIdentifier("sample-save-status")
             }
 
             Stepper(value: $model.copies, in: 1...SamplePrintPolicy.maximumCopies) {

@@ -130,6 +130,23 @@ final class SamplePrintStudioTests: XCTestCase {
             let request = SamplePrintRequest(format: format, slotPhotoIDs: photos.map { _ in UUID() }, branding: .standard, eventProfile: nil, photoPass: format == .passport ? SamplePhotoPassDetails() : nil)
             let sample = try SamplePrintComposer.prepare(request: request, photos: photos, date: fixedDate, photoQualityProfile: .customerPrintDefault)
             XCTAssertFalse(sample.receipt.includesPrintedGalleryQR, format.rawValue)
+            let composedImage = try XCTUnwrap(UIImage(data: sample.receipt.imagePNGData))
+            let originalRaster = try ThermalImageRasterizer.rasterize(composedImage, purpose: .completeReceipt)
+            XCTAssertEqual(sample.raster.rasterCommand, originalRaster.rasterCommand, "\(format): preserve production raster bytes")
+            XCTAssertEqual(sample.raster.previewPNGData, originalRaster.previewPNGData)
+            XCTAssertTrue(MonochromeReceiptRenderer.isSmoothMonochromePNG(sample.monochrome.pngData))
+            XCTAssertEqual(sample.monochrome.width, sample.receipt.width)
+            XCTAssertEqual(sample.monochrome.height, sample.receipt.height)
+            for mode in SampleReceiptPreviewMode.allCases {
+                let source = try XCTUnwrap(CGImageSourceCreateWithData(sample.pngData(for: mode) as CFData, nil))
+                XCTAssertEqual(CGImageSourceGetType(source) as String?, UTType.png.identifier)
+                let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+                XCTAssertEqual(image.width, sample.receipt.width)
+                XCTAssertEqual(image.height, sample.receipt.height)
+            }
+            let grayImage = try XCTUnwrap(sample.monochrome.image.cgImage)
+            let gray = try XCTUnwrap(grayImage.dataProvider?.data) as Data
+            XCTAssertTrue(gray.contains { $0 > 20 && $0 < 235 }, "Smooth photo tones survive")
 
             let guest = try ReceiptComposer.compose(
                 photos: photos, sessionIdentifier: "PP-20260907-161400", date: fixedDate, galleryURL: nil, format: format,
@@ -173,6 +190,14 @@ final class SamplePrintStudioTests: XCTestCase {
         model.addImported([photo(0), photo(1)])
         try await waitForPreview(model)
         let prepared = try XCTUnwrap(model.printableSample)
+        XCTAssertEqual(model.previewMode, .blackAndWhite)
+        XCTAssertTrue(model.previewImage === prepared.monochrome.image)
+        model.previewMode = .thermalRaster
+        XCTAssertTrue(model.previewImage === prepared.previewImage)
+        model.previewMode = .blackAndWhite
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertTrue(model.prepared?.previewImage === prepared.previewImage, "Switching modes must retain the prepared images")
+        XCTAssertTrue(model.prepared?.monochrome.image === prepared.monochrome.image)
         model.copies = 3
 
         var sent: [(Data, Int, Int, UUID)] = []
@@ -222,6 +247,8 @@ final class SamplePrintStudioTests: XCTestCase {
 
         model.assign(photos[2].id, to: 1)
         XCTAssertNil(model.printableSample, "Replacing a photo must discard the approved raster")
+        XCTAssertNil(model.previewImage)
+        XCTAssertFalse(model.canSavePreview)
         try await waitForPreview(model)
         model.moveSlot(0, by: 1)
         XCTAssertNil(model.printableSample)
@@ -231,6 +258,76 @@ final class SamplePrintStudioTests: XCTestCase {
         try await waitForPreview(model)
         model.photoPass.name = "Someone Else"
         XCTAssertNil(model.printableSample)
+        try await waitForPreview(model)
+        model.footerStyle = model.footerStyle == .integratedGalleryQR ? .decorativeBarcodeOnly : .integratedGalleryQR
+        XCTAssertNil(model.currentPreview)
+        try await waitForPreview(model)
+        model.branding = .savedEvent
+        XCTAssertNil(model.currentPreview)
+    }
+
+    func testBothModesSaveNativePNGWithoutPrinterOrEventAndIgnoreDuplicateTap() async throws {
+        let model = makeModel()
+        model.setFormat(.solo)
+        model.addImported([photo(0)])
+        try await waitForPreview(model)
+        let sample = try XCTUnwrap(model.currentPreview)
+        let writer = SamplePhotosWriter()
+        for mode in SampleReceiptPreviewMode.allCases {
+            model.previewMode = mode
+            model.savePreview(writer: writer)
+            model.savePreview(writer: writer)
+            XCTAssertTrue(model.isSaving)
+            XCTAssertFalse(model.canSavePreview)
+            // Changing tabs while saving must not change which bytes were selected.
+            model.previewMode = mode == .blackAndWhite ? .thermalRaster : .blackAndWhite
+            try await waitUntil { !model.isSaving }
+            XCTAssertEqual(model.saveStatus, "\(mode.title) saved to Photos.")
+        }
+        let saved = await writer.saved
+        XCTAssertEqual(saved.map(\.data), [sample.monochrome.pngData, sample.raster.previewPNGData])
+        XCTAssertTrue(saved[0].url.lastPathComponent.hasPrefix("made-to-keep-sample-bw-"))
+        XCTAssertTrue(saved[1].url.lastPathComponent.hasPrefix("made-to-keep-sample-thermal-"))
+        XCTAssertTrue(saved.allSatisfy { $0.url.pathExtension == "png" && !FileManager.default.fileExists(atPath: $0.url.path) })
+        XCTAssertTrue(model.prepared?.previewImage === sample.previewImage)
+    }
+
+    func testSaveDenialAndStorageFailureProvideFeedbackAndAllowRetry() async throws {
+        let model = makeModel()
+        model.setFormat(.solo)
+        model.addImported([photo(0)])
+        try await waitForPreview(model)
+        for allowed in [false, true] {
+            let writer = SamplePhotosWriter(allowed: allowed, fails: true)
+            model.savePreview(writer: writer)
+            try await waitUntil { !model.isSaving }
+            XCTAssertEqual(model.saveStatus, (allowed ? MediaExportError.saveFailed : .permission).localizedDescription)
+            XCTAssertTrue(model.canSavePreview)
+            let saved = await writer.saved
+            XCTAssertTrue(saved.isEmpty)
+        }
+    }
+
+    func testEditsDuringPhotosPermissionNeverExportTheOldPreview() async throws {
+        let model = makeModel()
+        model.setFormat(.solo)
+        model.addImported([photo(0)])
+        try await waitForPreview(model)
+        let writer = SamplePhotosWriter(holdsPermission: true)
+        model.savePreview(writer: writer)
+        while !(await writer.permissionRequested) { try await Task.sleep(for: .milliseconds(10)) }
+        model.setFormat(.duo)
+        await writer.allowPermission()
+        try await waitUntil { !model.isSaving }
+        let saved = await writer.saved
+        XCTAssertTrue(saved.isEmpty)
+        XCTAssertEqual(model.saveStatus, "Receipt changed. Review the current preview and save again.")
+        model.savePreview(writer: writer)
+        XCTAssertFalse(model.isSaving, "Rendering content cannot be exported")
+        try await waitForPreview(model)
+        model.beginImport()
+        model.savePreview(writer: writer)
+        XCTAssertFalse(model.isSaving, "An in-progress import cannot export the previous photos")
     }
 
     func testIncompleteOrBlockedSamplesCannotPrint() async throws {
@@ -358,5 +455,31 @@ final class SamplePrintStudioTests: XCTestCase {
         CGImageDestinationAddImage(destination, try XCTUnwrap(image.cgImage), [kCGImagePropertyOrientation: orientation.rawValue] as CFDictionary)
         XCTAssertTrue(CGImageDestinationFinalize(destination))
         return data as Data
+    }
+}
+
+private actor SamplePhotosWriter: PhotosLibraryWriting {
+    struct Saved: Sendable { let url: URL; let data: Data }
+    let allowed: Bool
+    let fails: Bool
+    let holdsPermission: Bool
+    var permissionRequested = false
+    var saved: [Saved] = []
+    private var permission: CheckedContinuation<Bool, Never>?
+
+    init(allowed: Bool = true, fails: Bool = false, holdsPermission: Bool = false) {
+        self.allowed = allowed
+        self.fails = fails
+        self.holdsPermission = holdsPermission
+    }
+    func requestAddAccess() async -> Bool {
+        permissionRequested = true
+        if holdsPermission { return await withCheckedContinuation { permission = $0 } }
+        return allowed
+    }
+    func allowPermission() { permission?.resume(returning: true); permission = nil }
+    func save(files: [URL]) async throws {
+        if fails { throw CocoaError(.fileWriteOutOfSpace) }
+        saved += try files.map { Saved(url: $0, data: try Data(contentsOf: $0)) }
     }
 }

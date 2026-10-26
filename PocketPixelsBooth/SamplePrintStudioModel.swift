@@ -72,11 +72,28 @@ nonisolated struct SamplePrintRequest: Equatable, Sendable {
     }
 }
 
+nonisolated enum SampleReceiptPreviewMode: String, CaseIterable, Identifiable, Sendable {
+    case blackAndWhite, thermalRaster
+
+    var id: String { rawValue }
+    var title: String { self == .blackAndWhite ? "Black & White" : "Thermal Raster" }
+    var filenameComponent: String { self == .blackAndWhite ? "bw" : "thermal" }
+}
+
 struct PreparedSamplePrint: @unchecked Sendable {
     let request: SamplePrintRequest
     let receipt: ComposedReceipt
     let raster: ThermalRasterizedImage
     let previewImage: UIImage
+    let monochrome: MonochromeReceipt
+
+    func image(for mode: SampleReceiptPreviewMode) -> UIImage {
+        mode == .blackAndWhite ? monochrome.image : previewImage
+    }
+
+    func pngData(for mode: SampleReceiptPreviewMode) -> Data {
+        mode == .blackAndWhite ? monochrome.pngData : raster.previewPNGData
+    }
 }
 
 nonisolated enum SamplePrintPolicy {
@@ -152,7 +169,9 @@ nonisolated enum SamplePrintComposer {
         guard let image = UIImage(data: receipt.imagePNGData) else { throw ReceiptComposerError.renderFailed }
         let raster = try ThermalImageRasterizer.rasterize(image, purpose: .completeReceipt)
         guard let preview = UIImage(data: raster.previewPNGData) else { throw ThermalImageRasterizerError.renderFailed }
-        return PreparedSamplePrint(request: request, receipt: receipt, raster: raster, previewImage: preview)
+        try Task.checkCancellation()
+        let monochrome = try MonochromeReceiptRenderer.render(image)
+        return PreparedSamplePrint(request: request, receipt: receipt, raster: raster, previewImage: preview, monochrome: monochrome)
     }
 
     /// Neutral numbered frame shown for an empty slot. Only ever previewed: an incomplete sample
@@ -219,10 +238,12 @@ final class SamplePrintStudioModel: ObservableObject {
     @Published var copies = 1 { didSet { if copies != SamplePrintPolicy.clampedCopies(copies) { copies = SamplePrintPolicy.clampedCopies(copies) } } }
     @Published private(set) var savedEventProfile: EventProfile?
     @Published private(set) var prepared: PreparedSamplePrint?
-    @Published private(set) var previewImage: UIImage?
+    @Published var previewMode: SampleReceiptPreviewMode = .blackAndWhite
     @Published private(set) var previewState: PreviewState = .idle
     @Published private(set) var isImporting = false
     @Published private(set) var isPrinting = false
+    @Published private(set) var isSaving = false
+    @Published private(set) var saveStatus: String?
     @Published private(set) var status: String?
 
     private var renderTask: Task<Void, Never>?
@@ -263,6 +284,15 @@ final class SamplePrintStudioModel: ObservableObject {
     var filledSlotCount: Int { slots.compactMap { $0 }.count }
     var missingSlotCount: Int { slots.count - filledSlotCount }
     var hasSavedEventBranding: Bool { savedEventProfile != nil }
+
+    /// Includes placeholder previews, but never a previous request's image.
+    var currentPreview: PreparedSamplePrint? {
+        guard previewState == .ready, let prepared, prepared.request == request else { return nil }
+        return prepared
+    }
+
+    var previewImage: UIImage? { currentPreview?.image(for: previewMode) }
+    var canSavePreview: Bool { currentPreview != nil && !isImporting && !isSaving }
 
     /// Only a raster prepared for exactly the current, complete request is printable.
     var printableSample: PreparedSamplePrint? {
@@ -365,7 +395,7 @@ final class SamplePrintStudioModel: ObservableObject {
         invalidate()
     }
 
-    func beginImport() { isImporting = true; status = nil }
+    func beginImport() { isImporting = true; status = nil; saveStatus = nil }
     func finishImport(decoded: [SamplePrintPhoto], requested: Int) {
         isImporting = false
         if decoded.isEmpty, requested > 0 {
@@ -392,6 +422,7 @@ final class SamplePrintStudioModel: ObservableObject {
     /// Discards the prepared raster and schedules a new one (debounced, generation-checked).
     func invalidate() {
         prepared = nil
+        saveStatus = nil
         renderTask?.cancel()
         generation += 1
         let generation = generation
@@ -416,13 +447,44 @@ final class SamplePrintStudioModel: ObservableObject {
             switch result {
             case .success(let sample):
                 self.prepared = sample
-                self.previewImage = sample.previewImage
                 self.previewState = .ready
             case .failure(let error):
-                self.previewImage = nil
                 self.previewState = .failed(error.localizedDescription)
             }
         }
+    }
+
+    // MARK: Photos export
+
+    /// Saves the full, already encoded PNG independently of printer and event state.
+    func savePreview(writer: any PhotosLibraryWriting = SystemPhotosLibraryWriter()) {
+        guard canSavePreview, let sample = currentPreview else { return }
+        let mode = previewMode
+        let generation = generation
+        isSaving = true
+        saveStatus = "Saving \(mode.title)…"
+        Task { [self] in
+            defer { isSaving = false }
+            do {
+                try await SessionMediaExport.save(
+                    data: [sample.pngData(for: mode)],
+                    filenamePrefix: "made-to-keep-sample-\(mode.filenameComponent)-\(Int64(Date().timeIntervalSince1970 * 1_000))",
+                    writer: writer,
+                    isCurrent: { [weak self] in
+                        await self?.canExport(generation: generation) == true
+                    }
+                )
+                saveStatus = "\(mode.title) saved to Photos."
+            } catch is CancellationError {
+                saveStatus = "Receipt changed. Review the current preview and save again."
+            } catch {
+                saveStatus = error.localizedDescription
+            }
+        }
+    }
+
+    private func canExport(generation: Int) -> Bool {
+        generation == self.generation && currentPreview != nil && !isImporting
     }
 
     // MARK: Printing
