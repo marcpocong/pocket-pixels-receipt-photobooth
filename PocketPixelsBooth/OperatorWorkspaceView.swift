@@ -170,6 +170,8 @@ struct OperatorEventsView: View {
     @ObservedObject var workspace: OperatorWorkspace
     @ObservedObject var runs: EventRunStore
     @ObservedObject private var library: EventDesignLibraryStore
+    @State private var managingDesignID: String?
+    @State private var pendingDesignAction: (() -> Void)?
     @State private var showsArchived = false
     @State private var showsRemoved = false
     @State private var deletionDesignID: String?
@@ -238,6 +240,15 @@ struct OperatorEventsView: View {
         needsEnd(design.id) ? "End Event then Remove" : "Remove Event"
     }
 
+    @State private var renameDesignID: String?
+    @State private var renameRunID: String?
+    @State private var renameName = ""
+    private func queueDesignAction(_ action: @escaping () -> Void) {
+        pendingDesignAction = action; managingDesignID = nil
+    }
+    private func beginRename(design: SavedEventDesign) { renameName = design.name; renameDesignID = design.id }
+    private func beginRename(run: EventRunRecord) { renameName = run.displayName; renameRunID = run.id }
+
     var body: some View {
         List {
             Section("Current Event") {
@@ -260,7 +271,9 @@ struct OperatorEventsView: View {
                 }
             }
             Section {
-                NavigationLink(value: OperatorWorkspaceRoute.newEvent) { Label("Start Event", systemImage: "plus.circle") }
+                NavigationLink(value: OperatorWorkspaceRoute.newEvent) { Label("Quick Start", systemImage: "play.circle") }
+                NavigationLink(value: OperatorWorkspaceRoute.customizeEvent) { Label("Customize New Event", systemImage: "paintpalette") }
+                NavigationLink(value: OperatorWorkspaceRoute.previousEvent) { Label("Use Previous Event", systemImage: "doc.on.doc") }
                 NavigationLink(value: OperatorWorkspaceRoute.savedDrafts) {
                     Label("Saved Drafts · \(SavedDraftCatalog.entries(workspace: workspace, library: library.library).count)", systemImage: "doc.text")
                 }
@@ -276,18 +289,12 @@ struct OperatorEventsView: View {
                                     .font(.callout).foregroundStyle(OperatorPalette.secondaryText)
                             }.padding(.vertical, 4)
                         }
-                        Menu {
-                            NavigationLink("Edit", value: OperatorWorkspaceRoute.savedEvent(event.id))
-                            NavigationLink("View History", value: OperatorWorkspaceRoute.eventHistory)
-                            if event.archivedAt == nil {
-                                Button("Archive") { manage("Design archived. History is kept.") { try library.archiveDesign(id: event.id) } }
-                            } else {
-                                Button("Restore") { manage("Design restored to the reusable library.") { try library.restoreDesign(id: event.id) } }
-                            }
-                            Button(designRemovalTitle(event), role: .destructive) { deletionDesignID = event.id }
-                        } label: { Label("Manage", systemImage: "ellipsis.circle").frame(minWidth: 44, minHeight: 44) }
+                        Button { managingDesignID = event.id } label: {
+                            Label("Manage", systemImage: "ellipsis.circle").frame(minWidth: 44, minHeight: 44)
+                        }
                         .buttonStyle(.borderless).accessibilityIdentifier("manage-design-\(event.id)").accessibilityLabel("Manage \(event.displayName)")
-                    }.accessibilityIdentifier("saved-design-\(event.id)")
+                    }
+                    .accessibilityElement(children: .contain)
                 }
                 NavigationLink("Event History & Earlier Sessions", value: OperatorWorkspaceRoute.eventHistory)
                 NavigationLink("Manage Saved Events & Archived Designs", value: OperatorWorkspaceRoute.eventLibrary)
@@ -296,19 +303,20 @@ struct OperatorEventsView: View {
                 ForEach(runs.visibleRuns(library: library.library, includingArchived: showsArchived).sorted { $0.createdAt > $1.createdAt }) { run in
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(run.context.name).font(.headline)
+                            Text(run.displayName).font(.headline)
                             Text("\(run.status.rawValue.capitalized) · \(run.createdAt.formatted(date: .abbreviated, time: .omitted))").font(.caption)
                         }
                         Spacer()
                         Menu {
+                            Button("Rename Event") { beginRename(run: run) }
                             NavigationLink("View History", value: OperatorWorkspaceRoute.eventHistory)
                             if run.status == .archived {
                                 Button("Restore Run") { manage("Run restored to history.") { try runs.restoreArchivedRun(id: run.id) } }
                             } else { Button("Archive Run") { manage("Run archived. Reports are kept.") { try runs.transition(id: run.id, to: .archived) } } }
                             Button([.active, .paused].contains(run.status) ? "End Event then Remove Run" : "Remove Run", role: .destructive) { deletionRunID = run.id }
                         } label: { Label("Manage", systemImage: "ellipsis.circle").frame(minWidth: 44, minHeight: 44) }
-                        .buttonStyle(.borderless)
-                    }
+                        .buttonStyle(.borderless).accessibilityIdentifier("manage-run-" + run.id)
+                    }.accessibilityElement(children: .contain)
                 }
                 Text("Saved designs are reusable configurations. Local runs are historical occurrences. Removing an event hides its linked runs and keeps reports, receipts and financial records.").font(.footnote).foregroundStyle(.secondary)
             }
@@ -323,7 +331,7 @@ struct OperatorEventsView: View {
                         }
                     }
                     ForEach(runs.runs.filter { $0.removedAt != nil && !library.library.removedEventIDs.contains($0.context.designID ?? "") }) { run in
-                        LabeledContent(run.context.name) {
+                        LabeledContent(run.displayName) {
                             Button("Restore Removed Run") { manage("Run restored to history.") { try runs.restoreRemovedRun(id: run.id) } }
                         }
                     }
@@ -339,6 +347,40 @@ struct OperatorEventsView: View {
         }
         .safeAreaInset(edge: .top) {
             if let feedback { OperatorFeedbackBanner(feedback: feedback) { self.feedback = nil }.padding(.horizontal).padding(.top, 8) }
+        }
+        .sheet(isPresented: Binding(get: { managingDesignID != nil }, set: { if !$0 { managingDesignID = nil } }), onDismiss: {
+            let action = pendingDesignAction; pendingDesignAction = nil; action?()
+        }) {
+            NavigationStack {
+                List {
+                    if let event = library.design(id: managingDesignID) {
+                        Button("Edit") { queueDesignAction { workspace.navigate(to: .savedEvent(event.id)) } }
+                        Button("Rename Event") { queueDesignAction { beginRename(design: event) } }
+                        Button("View History") { queueDesignAction { workspace.navigate(to: .eventHistory) } }
+                        if event.archivedAt == nil {
+                            Button("Archive") { queueDesignAction { manage("Design archived. History is kept.") { try library.archiveDesign(id: event.id) } } }
+                        } else {
+                            Button("Restore") { queueDesignAction { manage("Design restored to the reusable library.") { try library.restoreDesign(id: event.id) } } }
+                        }
+                        Button(designRemovalTitle(event), role: .destructive) { queueDesignAction { deletionDesignID = event.id } }
+                    }
+                }.navigationTitle("Manage Event").navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { managingDesignID = nil } } }
+            }.presentationDetents([.medium])
+        }
+        .alert("Rename Event", isPresented: Binding(get: { renameDesignID != nil || renameRunID != nil }, set: { if !$0 { renameDesignID = nil; renameRunID = nil } })) {
+            TextField("Event name", text: $renameName)
+            Button("Cancel", role: .cancel) { renameDesignID = nil; renameRunID = nil }
+            Button("Save") {
+                manage("Event renamed. Historical identities and printed receipts are unchanged.") {
+                    if let id = renameDesignID, var design = library.design(id: id) {
+                        let name = String(renameName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(EventProfile.eventNameLimit))
+                        guard !name.isEmpty else { throw SetupFailure("Enter an event name.") }
+                        design.name = name; try library.save(design)
+                    } else if let id = renameRunID { try runs.renameRun(id: id, name: renameName) }
+                }
+                renameDesignID = nil; renameRunID = nil
+            }.disabled(renameName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .alert("Event action could not finish", isPresented: Binding(get: { managementError != nil }, set: { if !$0 { managementError = nil } })) {
             if library.library.appliedEventID != nil || runs.operational != nil {

@@ -354,6 +354,14 @@ struct CheckoutRecoverySection: View {
     @State private var showsArchived = false
     @State private var detailItem: CheckoutRecoveryItem?
     init(recovery: PaymentRecoveryCoordinator = .shared, showsArchived: Bool = false) { _recovery = ObservedObject(wrappedValue: recovery); _showsArchived = State(initialValue: showsArchived) }
+    private func bulkHide() {
+        var outcomes: [String] = []
+        for id in selectedIDs.sorted() {
+            do { try recovery.forceRemoveCheckout(id: id); outcomes.append("\(id): archived") }
+            catch { outcomes.append("\(id): \(error.localizedDescription)") }
+        }
+        status = outcomes.joined(separator: "\n")
+    }
     var body: some View {
         Section {
             if let fault = recovery.managementStore?.integrityFault {
@@ -373,16 +381,16 @@ struct CheckoutRecoverySection: View {
             HStack {
                 Button(selecting ? "Done Selecting" : "Bulk Select") { selecting.toggle(); selectedIDs.removeAll() }.frame(minHeight: 44)
                 if selecting {
-                    Button("Delete Eligible Selected") { cleanupRequest = CheckoutCleanupRequest(ids: Array(selectedIDs)) }.disabled(selectedIDs.isEmpty)
+                    Menu("Clean Up Selected") {
+                        Button("Delete Eligible Selected") { cleanupRequest = CheckoutCleanupRequest(ids: selectedIDs.sorted()) }
+                        Button("Force Delete Local Selected", role: .destructive) { cleanupRequest = CheckoutCleanupRequest(ids: selectedIDs.sorted(), forceLocal: true) }
+                        Button("Force Remove Selected") { bulkHide() }
+                    }.disabled(selectedIDs.isEmpty)
                 }
             }
             if selecting {
                 Button("Archive Selected") {
-                    var saved = 0, failed = 0
-                    for id in selectedIDs {
-                        do { try recovery.setCheckoutHidden(id: id, hidden: true); saved += 1 } catch { failed += 1 }
-                    }
-                    status = "\(saved) archived · \(failed) retained. Close active interactions before archiving."
+                    bulkHide()
                 }.disabled(selectedIDs.isEmpty).frame(minHeight: 44)
             }
             Text("Active Interruptions · \(recovery.activeInterruptionCount)").font(.headline).accessibilityAddTraits(.isHeader)
@@ -430,6 +438,11 @@ struct CheckoutRecoverySection: View {
                                 do { try recovery.setCheckoutHidden(id: item.id, hidden: true); status = "Archived. Financial follow-up remains in Health and History." }
                                 catch { status = error.localizedDescription }
                             }
+                            Button("Force Remove from Workspace") {
+                                do { try recovery.forceRemoveCheckout(id: item.id); status = "Removed from workspace. Financial status is unchanged." }
+                                catch { status = error.localizedDescription }
+                            }
+                            Button("Force Delete Local Checkout", role: .destructive) { cleanupRequest = CheckoutCleanupRequest(ids: [item.id], forceLocal: true) }
                             Button("Delete Eligible Checkout", role: .destructive) { cleanupRequest = CheckoutCleanupRequest(ids: [item.id]) }
                         } label: { Label("Manage", systemImage: "ellipsis.circle").frame(minHeight: 44) }
                         .buttonStyle(.borderless)
@@ -462,6 +475,7 @@ struct CheckoutRecoverySection: View {
                             if checkpoint.hiddenAt != nil {
                                 Button("Restore Visibility") { do { try recovery.setCheckoutHidden(id: checkpoint.id, hidden: false) } catch { status = error.localizedDescription } }
                             }
+                            Button("Force Delete Local Checkout", role: .destructive) { cleanupRequest = CheckoutCleanupRequest(ids: [checkpoint.id], forceLocal: true) }
                             Button("Delete Eligible Checkout", role: .destructive) { cleanupRequest = CheckoutCleanupRequest(ids: [checkpoint.id]) }
                             if selecting {
                                 Button(selectedIDs.contains(checkpoint.id) ? "Deselect" : "Select") {
@@ -470,6 +484,17 @@ struct CheckoutRecoverySection: View {
                             }
                         } label: { Label("Manage", systemImage: "ellipsis.circle").frame(minHeight: 44) }
                         .buttonStyle(.borderless)
+                    }
+                }
+            }
+            DisclosureGroup("Financial Follow-up · \(recovery.financialFollowUpCount)") {
+                Text("Includes archived and removed workspace records. Visibility and local deletion do not settle a payment.").font(.footnote)
+                ForEach(recovery.retainedFinancialRecovery) { record in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(record.recoveryReference ?? record.id).font(.caption.monospaced()).textSelection(.enabled)
+                        Text("\(record.createdAt.formatted()) · \(PHPPriceFormatter.string(centavos: record.unitPriceCentavos * record.copies))")
+                        Text(record.lastServerState ?? record.phase.rawValue)
+                        Text("Original event: \(record.eventID) · order: \(record.orderID ?? "look up by checkout reference")").font(.caption)
                     }
                 }
             }
@@ -507,7 +532,7 @@ struct CheckoutRecoverySection: View {
         } message: { item in
             Text("This returns to the booth and keeps your setup drafts. Ask the guest to tap Make a Memory within 5 minutes. \(item.classification.operatorDescription)")
         }
-        .sheet(item: $cleanupRequest) { request in CheckoutCleanupReview(ids: request.ids, recovery: recovery) }
+        .sheet(item: $cleanupRequest) { request in CheckoutCleanupReview(ids: request.ids, forceLocal: request.forceLocal, recovery: recovery) }
         .sheet(item: $detailItem) { item in
             NavigationStack {
                 List {

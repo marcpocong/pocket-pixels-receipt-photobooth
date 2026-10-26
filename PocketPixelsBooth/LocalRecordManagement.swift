@@ -52,6 +52,32 @@ enum SessionMediaOperations {
 }
 
 extension PaymentRecoveryCoordinator {
+    func forceRemoveCheckout(id: String) throws {
+        try setCheckoutHidden(id: id, hidden: true)
+    }
+
+    /// No server call is necessary: original payment identity and entitlement evidence are
+    /// committed independently with the tombstone. Existing snapshots/media are retained.
+    func forceDeleteLocalCheckout(id: String) async throws {
+        guard managementAuthorized(), let store = managementStore, store.integrityFault == nil else {
+            throw SetupFailure("Unlock operator controls and repair checkout storage before deleting. Force Remove from Workspace remains available when storage is writable.")
+        }
+        guard let original = store.checkpoint(id: id) else { return }
+        guard original.isParked || original.isResolved else { throw SetupFailure("Close Session & Continue before deleting this active interruption.") }
+        guard !SessionMediaOperations.ownerIsActive(id), armedResume?.item.id != id,
+              !SessionMediaOperations.reprinting.contains(id) else { throw SetupFailure("This checkout is being used by a guest or reprint.") }
+        let dependencies = try await inspectManagementDependencies(id)
+        guard dependencies.inspectionComplete,
+              !dependencies.copies.contains(where: { $0.localState == .inFlight }) else {
+            throw SetupFailure("An unfinished print send or unreadable recovery record prevents deletion. Force Remove from Workspace preserves the checkpoint instead.")
+        }
+        guard managementAuthorized(), store.checkpoint(id: id) == original,
+              !SessionMediaOperations.ownerIsActive(id), armedResume?.item.id != id,
+              !SessionMediaOperations.reprinting.contains(id) else { throw SetupFailure("Checkout changed during cleanup. Review it again.") }
+        try store.retainFinancialRecoveryAndDelete(id: id)
+        refreshLocalDecisions()
+    }
+
     /// Inspection is read-only; repeat it immediately before each mutation, never trust preflight.
     func checkoutDeletionDecision(id: String) async -> RecordCleanupDecision {
         guard managementAuthorized() else { return .init(category: .blocked, reason: "Unlock operator controls first.") }
@@ -90,6 +116,11 @@ extension PaymentRecoveryCoordinator {
         guard managementAuthorized(), let store = managementStore else { throw PaymentsAPIError.unauthorized }
         guard let checkpoint = store.checkpoint(id: id), checkpoint.isParked || checkpoint.isResolved else {
             throw SetupFailure("Close Session & Continue before archiving an active interruption.")
+        }
+        guard !SessionMediaOperations.ownerIsActive(id), armedResume?.item.id != id,
+              !SessionMediaOperations.reprinting.contains(id),
+              PrintOutcomeOutbox.shared?.entries.contains(where: { $0.sessionID == id && $0.localState == .inFlight }) != true else {
+            throw SetupFailure("This checkout is still used by a guest or print send.")
         }
         guard store.update(id: id, { $0.hiddenAt = hidden ? Date() : nil }) else { throw SetupFailure("Could not save visibility. Nothing was hidden.") }
         refreshLocalDecisions()

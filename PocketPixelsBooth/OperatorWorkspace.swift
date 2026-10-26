@@ -26,7 +26,7 @@ nonisolated enum OperatorWorkspaceRoute: Codable, Hashable, Sendable {
     case serverEvent(String)
     case sessionSetup, branding, sales, eventReport(String), eventMaintenance(String)
     case savedDrafts, draftReview(SavedDraftID)
-    case newEvent, savedEvent(String), eventHistory, eventLibrary, regularBooth, regularFooter, monitoring
+    case newEvent, customizeEvent, previousEvent, savedEvent(String), eventHistory, eventLibrary, regularBooth, regularFooter, monitoring
 
     var primaryDestination: OperatorPrimaryDestination {
         switch self {
@@ -43,6 +43,8 @@ nonisolated enum OperatorWorkspaceRoute: Codable, Hashable, Sendable {
         switch self {
         case .liveEvent: "Edit Live Event"
         case .newEvent: "Quick Start Event"
+        case .customizeEvent: "Customize New Event"
+        case .previousEvent: "Use Previous Event"
         case .savedEvent: "Event Setup"
         case .eventHistory: "Event History"
         case .eventLibrary: "Saved Events"
@@ -114,6 +116,7 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
         /// one event's logo into another's.
         var designDrafts: [String: SavedEventDesign]?
         var regularBoothDraft: RegularBoothSettings?
+        var unfinishedEventID: String?
     }
 
     @Published private(set) var primaryDestination: OperatorPrimaryDestination
@@ -128,6 +131,8 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
     }
     @Published private(set) var snapshot: Snapshot
     @Published private(set) var persistenceError: String?
+    @Published private(set) var savingDraft = false
+    private var pendingDraftWrite: Task<Void, Never>?
     private let file: URL
     private let write: (Data, URL) throws -> Void
     private var unreadableOriginal = false
@@ -216,7 +221,8 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
     }
 
     func open() { persist() }
-    func checkpoint() { persist() }
+    func checkpoint() { pendingDraftWrite?.cancel(); pendingDraftWrite = nil; enqueueWrite() }
+    func saveUnfinishedEventID(_ id: String?) { snapshot.unfinishedEventID = id; persist() }
     func saveSetupStage(_ stage: Int) { snapshot.setupStage = stage; persist() }
     func saveReportSelection(tab: String, runID: String?) {
         snapshot.reportTab = tab; snapshot.reportRunID = runID; persist()
@@ -320,6 +326,8 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
     /// ordered writes without making the UI wait for F_FULLFSYNC.
     func flush() async {
         guard backgroundWrites else { return }
+        pendingDraftWrite?.cancel(); pendingDraftWrite = nil
+        enqueueWrite()
         let result = diskResult
         persistenceError = await withCheckedContinuation { continuation in
             diskQueue.async { continuation.resume(returning: result.error) }
@@ -329,6 +337,19 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
     private func persist() {
         guard !unreadableOriginal else { return }
         if snapshot.resumeSetup != hasUnsavedDrafts { snapshot.resumeSetup = hasUnsavedDrafts }
+        guard backgroundWrites else { enqueueWrite(); return }
+        savingDraft = true
+        pendingDraftWrite?.cancel()
+        pendingDraftWrite = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+            guard let self else { return }
+            self.pendingDraftWrite = nil
+            self.enqueueWrite()
+        }
+    }
+
+    private func enqueueWrite() {
+        guard !unreadableOriginal else { return }
         let value = snapshot, file = file, write = write
         writeRevision += 1
         let revision = writeRevision
@@ -341,6 +362,7 @@ nonisolated struct OperatorServerSetupDraft: Codable, Equatable, Sendable {
                 Task { @MainActor [weak self] in
                     guard let self, self.writeRevision == revision else { return }
                     self.persistenceError = error
+                    if self.pendingDraftWrite == nil { self.savingDraft = false }
                 }
             }
         } else { persistenceError = job.perform() }

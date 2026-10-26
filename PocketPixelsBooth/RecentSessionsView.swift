@@ -650,6 +650,7 @@ struct RecentSessionsView: View {
     @StateObject private var viewModel: RecentSessionsViewModel
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var filtersPresented = false
+    @State private var galleryActionsPresented = false
     @State private var selecting = false
     @State private var selectedIDs = Set<String>()
     @State private var cleanupRequest: SessionCleanupRequest?
@@ -668,7 +669,7 @@ struct RecentSessionsView: View {
             let wide = OperatorWorkspaceLayout.usesSidebar(width: geometry.size.width, height: geometry.size.height)
             let hasSelection = viewModel.selectedSummary != nil
             HStack(spacing: 0) {
-                browser(wide: wide)
+                browser(wide: wide, width: wide && hasSelection ? min(400, geometry.size.width * 0.4) : geometry.size.width)
                     .frame(width: wide && hasSelection ? min(400, geometry.size.width * 0.4) : geometry.size.width)
                     .frame(width: !wide && hasSelection ? 0 : (wide && hasSelection ? min(400, geometry.size.width * 0.4) : geometry.size.width), alignment: .leading)
                     .clipped().opacity(!wide && hasSelection ? 0 : 1)
@@ -703,7 +704,7 @@ struct RecentSessionsView: View {
         .sheet(item: $cleanupRequest, onDismiss: { selectedIDs.formIntersection(Set(viewModel.summaries.map(\.archiveID))) }) { request in SessionCleanupReview(candidates: request.candidates, model: viewModel) }
     }
 
-    private func browser(wide: Bool) -> some View {
+    private func browser(wide: Bool, width: CGFloat) -> some View {
         VStack(spacing: 0) {
             VStack(spacing: 8) {
                 HStack(spacing: 10) {
@@ -720,8 +721,11 @@ struct RecentSessionsView: View {
                         .buttonStyle(.bordered).frame(minHeight: 44).accessibilityIdentifier("sessions-select")
                 }.padding(.horizontal, 12).frame(minHeight: 54)
                     .background(OperatorPalette.surface, in: RoundedRectangle(cornerRadius: 14))
-                ViewThatFits(in: .horizontal) {
+                // Keep one action-button instance when export feedback changes layout. Native
+                // buttons avoid the nested Menu accessibility proxy seen in CI's iOS 26.2 tree.
+                if width >= 620 && !typeSize.isAccessibilitySize {
                     HStack(spacing: 8) { filterControls; Spacer(minLength: 0); displayControl; galleryActions }
+                } else {
                     VStack(alignment: .leading, spacing: 8) { filterControls; HStack { displayControl; Spacer(); galleryActions } }
                 }
             }.padding(16).fixedSize(horizontal: false, vertical: true)
@@ -825,16 +829,18 @@ struct RecentSessionsView: View {
         }
     }
     private var galleryActions: some View {
-        Menu {
-            Section("Gallery Actions") {
-                Button("Recheck Unverified Galleries", systemImage: "arrow.clockwise") {
-                    viewModel.verifyGalleries(selectedIDs.isEmpty ? viewModel.filteredSummaries : viewModel.filteredSummaries.filter { selectedIDs.contains($0.archiveID) })
-                }.disabled(viewModel.isVerifying)
-                if viewModel.isVerifying { Button("Cancel Recheck", role: .cancel) { viewModel.cancelVerification() } }
-            }
-            Section("Visibility") { Toggle("Show Hidden", isOn: $viewModel.showsHidden) }
-        } label: { Label("More", systemImage: "ellipsis").frame(minWidth: 44, minHeight: 44) }
-            .buttonStyle(.bordered).accessibilityLabel("Gallery Actions and More")
+        Button { galleryActionsPresented = true } label: {
+            Label("More", systemImage: "ellipsis").frame(minWidth: 44, minHeight: 44)
+        }
+        .buttonStyle(.bordered).accessibilityLabel("Gallery Actions and More").accessibilityIdentifier("sessions-gallery-actions")
+        .confirmationDialog("Gallery Actions", isPresented: $galleryActionsPresented, titleVisibility: .visible) {
+            Button("Recheck Unverified Galleries") {
+                viewModel.verifyGalleries(selectedIDs.isEmpty ? viewModel.filteredSummaries : viewModel.filteredSummaries.filter { selectedIDs.contains($0.archiveID) })
+            }.disabled(viewModel.isVerifying)
+            if viewModel.isVerifying { Button("Cancel Recheck") { viewModel.cancelVerification() } }
+            Button(viewModel.showsHidden ? "Hide Hidden Sessions" : "Show Hidden") { viewModel.showsHidden.toggle() }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 
     private var filterControls: some View {

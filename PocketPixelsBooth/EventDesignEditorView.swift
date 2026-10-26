@@ -1,16 +1,74 @@
 import SwiftUI
 
-/// Deeper design options for the selected event: printed event details, caption, typography and
-/// Photo Pass wording. Edits the same design draft as Session Setup; Save Design keeps it for the
-/// event and Start Accepting Guests applies it.
+/// The same staged receipt editor is used by new, saved and live events.
 struct EventDesignEditorView: View {
     @ObservedObject var setup: SessionSetupCoordinator
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @State private var previewOnly = false
+    private var defaults: RegularBoothSettings { setup.studioDefaultsForPresentation }
 
     var body: some View {
+        GeometryReader { geometry in
+            if geometry.size.width >= 900 && !typeSize.isAccessibilitySize {
+                HStack(alignment: .top, spacing: 0) {
+                    controls
+                    Divider()
+                    ScrollView { preview.padding(20) }.frame(width: 390)
+                }
+            } else {
+                VStack(spacing: 0) {
+                    Picker("Receipt editor", selection: $previewOnly) {
+                        Text("Edit Receipt").tag(false)
+                        Text("Live Preview").tag(true)
+                    }.pickerStyle(.segmented).padding()
+                    if previewOnly { ScrollView { preview.padding() } }
+                    else { controls }
+                }
+            }
+        }
+        .navigationTitle("Customize Receipt")
+        .navigationBarTitleDisplayMode(.inline)
+        .background(OperatorPalette.canvas)
+        .tint(OperatorPalette.ink)
+    }
+
+    @ViewBuilder private var controls: some View {
         Form {
             if let design = Binding($setup.design) {
                 Section {
+                    Text("\(design.wrappedValue.displayName) · Custom for this event").font(.headline)
+                    Text(setup.editingLiveEvent ? "Apply to Next Sessions in the event workspace when ready." : "Edits save locally. Review & Start applies them to future guests.").font(.footnote)
+                }
+                Section("Caption & Footer") {
+                    TextField("Receipt footer caption (optional)", text: limited(design.profile.receiptDesign.editorialCaption, ReceiptEditorialCaption.inputLimit), axis: .vertical)
+                        .lineLimit(2...3).accessibilityIdentifier("event-footer-caption")
+                        .onChange(of: design.wrappedValue.profile.receiptDesign.editorialCaption) { _, _ in design.wrappedValue.profile.receiptExtrasEnabled = true }
+                    Button("Use Studio Default Footer Caption") {
+                        design.wrappedValue.profile.receiptDesign.editorialCaption = defaults.profile.receiptDesign.editorialCaption
+                        design.wrappedValue.profile.receiptExtrasEnabled = true
+                    }
+                    Text(design.wrappedValue.profile.receiptDesign.editorialCaption == defaults.profile.receiptDesign.editorialCaption ? "Studio default caption copied for this event" : "Custom event caption").font(.caption)
+                    Picker("Footer Layout", selection: design.profile.receiptDesign.footerStyleOverride) {
+                        Text("Use Studio Default Footer").tag(Optional<ReceiptFooterStyle>.none)
+                        ForEach(ReceiptFooterStyle.allCases) { Text($0.displayName).tag(Optional($0)) }
+                    }
+                    Picker("Gallery Receipt Appearance", selection: design.profile.galleryReceiptStyleOverride) {
+                        Text("Use Studio Default Gallery Settings").tag(Optional<GalleryReceiptStyle>.none)
+                        ForEach(GalleryReceiptStyle.allCases) { Text($0.title).tag(Optional($0)) }
+                    }
+                    Text("Caption prints below the footer. Default footer and gallery choices inherit the device settings; custom choices affect only this event.").font(.footnote)
+                }
+                Section("Header & Logo") {
+                    Button("Use Studio Default Logo") {
+                        design.wrappedValue.profile.receiptHeader = defaults.profile.receiptHeader
+                        design.wrappedValue.personalizeReceipt = defaults.profile.isEnabled
+                    }
+                    Text(design.wrappedValue.profile.receiptHeader == defaults.profile.receiptHeader ? "Studio default logo copied for this event" : "Custom event logo").font(.caption)
+                    EventReceiptDesignPanel(design: design, isDirty: setup.designDirty, save: {}, discard: {}, editsLiveEvent: setup.editingLiveEvent, managesSaving: false, showsGalleryOptions: false)
+                }
+                Section("Event Information") {
                     Toggle("Print event details below the footer", isOn: design.profile.showEventTextBlock)
+                        .onChange(of: design.wrappedValue.profile.showEventTextBlock) { _, _ in design.wrappedValue.profile.receiptExtrasEnabled = true }
                     if design.wrappedValue.profile.showEventTextBlock {
                         TextField("Subtitle / Host", text: limited(design.profile.subtitle, EventProfile.subtitleLimit))
                         Toggle("Show date", isOn: design.profile.includeEventDate)
@@ -20,105 +78,40 @@ struct EventDesignEditorView: View {
                         TextField("Location", text: limited(design.profile.location, EventProfile.locationLimit))
                         TextField("Optional message", text: limited(design.profile.shortMessage, EventProfile.shortMessageLimit))
                     }
-                } header: { Text("Event Details") } footer: {
-                    Text("Prints the event name (\(design.wrappedValue.displayName)) and these details in small type below the receipt footer. Off by default, like the Co-Branded reference.")
                 }
-
-                Section {
-                    TextField("Event caption", text: Binding(
-                        get: { design.wrappedValue.profile.receiptDesign.editorialCaption },
-                        set: { design.wrappedValue.profile.receiptDesign.editorialCaption = String($0.prefix(ReceiptEditorialCaption.inputLimit)) }
-                    ), axis: .vertical)
-                    .lineLimit(2)
-                } header: { Text("Caption") } footer: {
-                    Text("Optional, up to two short lines printed below the footer.")
-                }
-
                 EventTypographySection(typography: design.profile.receiptDesign.typography)
-
-                Section {
-                    Text("Photo Pass prints the event name and location from this event when its receipt is personalized. Guests add their name, a note and a signature.")
-                        .font(.callout).foregroundStyle(.secondary)
-                } header: { Text("Photo Pass") }
-
-                Section {
-                    EventReceiptComposerPreview(profile: design.wrappedValue.appliedProfile(), printOptions: ReceiptPrintSettingsStore.load(), showsSamplePrintLink: false)
-                } header: { Text("Preview") } footer: {
-                    Text(design.wrappedValue.personalizeReceipt
-                         ? "Preview only. Nothing is printed, saved or applied."
-                         : "Personalize Receipt is off, so receipts use the standard Made to Keep design.")
+                Section("Advanced Design · Photo Pass") {
+                    Text("Photo Pass uses this event's name and location. Guests add their name, note and signature.").font(.callout)
                 }
-
-                if setup.designDirty && !setup.editingLiveEvent {
-                    Section {
-                        Button("Save Design") { setup.saveDesign() }.font(.headline)
-                        Button("Cancel Changes", role: .destructive) { setup.discardDesignChanges() }
-                        if !setup.message.isEmpty { Text(setup.message).font(.footnote).foregroundStyle(.secondary) }
-                    }
+                Section {
+                    if typeSize.isAccessibilitySize { preview }
+                    else { Text("Use Live Preview to inspect the staged receipt, or rotate to landscape for controls beside the preview.").font(.footnote) }
                 }
             } else {
-                Section {
-                    Text("Turn on Event Mode and choose an event in Session Setup to customize its receipt.")
-                    NavigationLink("Open Session Setup", value: OperatorWorkspaceRoute.sessionSetup)
-                }
+                Section { Text("Create or choose an event in the event workspace.") }
             }
         }
-        .navigationTitle(setup.design.map { "\($0.displayName) — Design" } ?? "Event Design")
-        .navigationBarTitleDisplayMode(.inline)
-        .tint(OperatorPalette.ink)
     }
 
+    private var preview: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Live Receipt Preview").font(.headline)
+            EventReceiptComposerPreview(profile: setup.effectiveProfile, printOptions: ReceiptPrintSettingsStore.load())
+        }
+    }
     private func limited(_ text: Binding<String>, _ limit: Int) -> Binding<String> {
         Binding(get: { text.wrappedValue }, set: { text.wrappedValue = String($0.prefix(limit)) })
     }
 }
 
-/// Destination for the older Branding routes (Custom Event Design, Receipt Design & Branding).
-/// It edits the selected event's design draft through the same coordinator model as Session
-/// Setup, so there is only one place that decides what the next guest receives.
+/// Existing design routes use the same editor. Studio defaults are available without an event.
 struct EventDesignRouteView: View {
     @StateObject private var setup = SessionSetupCoordinator()
-
     var body: some View {
         Group {
-            if setup.eventModeEnabled, let design = Binding($setup.design) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        Text("Changes here are saved to \(design.wrappedValue.displayName). Guests receive them after you review and start in Session Setup.")
-                            .font(.callout).foregroundStyle(.secondary)
-                        EventReceiptDesignPanel(design: design, isDirty: setup.designDirty, save: { setup.saveDesign() }, discard: { setup.discardDesignChanges() })
-                            .padding(22)
-                            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
-                        NavigationLink {
-                            EventDesignEditorView(setup: setup)
-                        } label: {
-                            Label("More Design Options", systemImage: "paintbrush").frame(maxWidth: .infinity, minHeight: 48)
-                        }
-                        .buttonStyle(.bordered)
-                        EventReceiptComposerPreview(profile: setup.effectiveProfile, printOptions: ReceiptPrintSettingsStore.load(), showsSamplePrintLink: false)
-                        NavigationLink(value: OperatorWorkspaceRoute.sessionSetup) {
-                            Label("Review & Start in Session Setup", systemImage: "checklist").frame(maxWidth: .infinity, minHeight: 48)
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                    .frame(maxWidth: 820)
-                    .padding(24)
-                    .frame(maxWidth: .infinity)
-                }
-                .background(OperatorPalette.canvas)
-            } else {
-                ContentUnavailableView {
-                    Label("Event Receipt Design", systemImage: "paintpalette")
-                } description: {
-                    Text("Regular sessions use the Made to Keep receipt. Turn on Event Mode in Session Setup and choose an event to add its logo.")
-                } actions: {
-                    NavigationLink("Open Session Setup", value: OperatorWorkspaceRoute.sessionSetup).buttonStyle(.borderedProminent)
-                }
-            }
+            if setup.design != nil { EventDesignEditorView(setup: setup) }
+            else { RegularBoothSettingsView() }
         }
-        .navigationTitle("Event Receipt Design")
-        .navigationBarTitleDisplayMode(.inline)
-        .tint(OperatorPalette.ink)
         .onAppear { setup.reloadDesignFromStorage() }
     }
 }

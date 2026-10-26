@@ -53,7 +53,8 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         customerTheme: CustomerScreenTheme = .classic,
         passport: PassportConfiguration = .default,
         receiptDesign: EventReceiptDesignConfiguration = .default,
-        galleryReceiptStyleOverride: GalleryReceiptStyle? = nil
+        galleryReceiptStyleOverride: GalleryReceiptStyle? = nil,
+        receiptExtrasEnabled: Bool? = nil
     ) {
         self.isEnabled = isEnabled
         self.eventName = eventName
@@ -72,6 +73,7 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         self.customerTheme = customerTheme
         self.passport = passport
         self.receiptDesign = receiptDesign
+        self.receiptExtrasEnabled = receiptExtrasEnabled
         self.galleryReceiptStyleOverride = galleryReceiptStyleOverride
     }
 
@@ -94,10 +96,12 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         case passport
         case receiptDesign
         case galleryReceiptStyleOverride
+        case receiptExtrasEnabled
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        receiptExtrasEnabled = try container.decodeIfPresent(Bool.self, forKey: .receiptExtrasEnabled)
         isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
         eventName = try container.decode(String.self, forKey: .eventName)
         subtitle = try container.decode(String.self, forKey: .subtitle)
@@ -143,9 +147,13 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
         )
     }
 
+    /// Explicit opt-in for caption/details without requiring a custom event logo. Nil preserves
+    /// old saved receipts where turning personalization off disabled all receipt additions.
+    var receiptExtrasEnabled: Bool? = nil
+
     nonisolated var activeReceiptSnapshot: EventProfile? {
         let normalized = normalized()
-        guard normalized.isEnabled,
+        guard normalized.isEnabled || normalized.receiptExtrasEnabled == true,
               !normalized.showEventTextBlock || !normalized.eventName.isEmpty else {
             return nil
         }
@@ -172,7 +180,8 @@ nonisolated struct EventProfile: Codable, Equatable, Sendable {
             customerTheme: customerTheme,
             passport: passport.normalized(),
             receiptDesign: receiptDesign.normalized(),
-            galleryReceiptStyleOverride: galleryReceiptStyleOverride
+            galleryReceiptStyleOverride: galleryReceiptStyleOverride,
+            receiptExtrasEnabled: receiptExtrasEnabled
         )
     }
 
@@ -375,6 +384,10 @@ struct EventReceiptComposerPreview: View {
     @State private var previewError: String?
     @State private var renderTask: Task<Void, Never>?
     @State private var renderGeneration = 0
+    @State private var normalPNG: Data?
+    @State private var thermalPNG: Data?
+    @State private var saveMessage = ""
+    @State private var savingPreview = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -386,8 +399,8 @@ struct EventReceiptComposerPreview: View {
             .pickerStyle(.segmented)
 
             Picker("Preview Type", selection: $showsThermal) {
-                Text("Receipt").tag(false)
-                Text("Exact Printer Raster").tag(true)
+                Text("Black & White").tag(false)
+                Text("Thermal Raster").tag(true)
             }
             .pickerStyle(.segmented)
             .accessibilityHint("Thermal shows the exact black-and-white dots the printer receives.")
@@ -429,6 +442,11 @@ struct EventReceiptComposerPreview: View {
                     .foregroundStyle(.secondary)
             }
 
+            Text(showsThermal ? "Thermal Raster shows the printer’s actual dots." : "Smooth grayscale preview. Thermal output uses the printer raster.").font(.caption).foregroundStyle(.secondary)
+            Button(savingPreview ? "Saving…" : "Save \(showsThermal ? "Thermal Raster" : "Black & White") to Photos") {
+                savePreview()
+            }.disabled(savingPreview || (showsThermal ? thermalPNG : normalPNG) == nil)
+            if !saveMessage.isEmpty { Text(saveMessage).font(.footnote) }
             if showsSamplePrintLink {
                 NavigationLink {
                     SamplePrintStudioView(previewProfile: profile)
@@ -458,11 +476,26 @@ struct EventReceiptComposerPreview: View {
         .frame(maxWidth: .infinity)
     }
 
+    private func savePreview() {
+        guard let png = showsThermal ? thermalPNG : normalPNG else { return }
+        let generation = renderGeneration
+        let title = showsThermal ? "Thermal Raster" : "Black & White"
+        savingPreview = true
+        Task { @MainActor in
+            defer { savingPreview = false }
+            do {
+                try await SessionMediaExport.save(data: [png], filenamePrefix: "pocket-pixels-event-preview", writer: SystemPhotosLibraryWriter(), isCurrent: { await MainActor.run { generation == renderGeneration } })
+                saveMessage = "\(title) saved to Photos."
+            } catch { saveMessage = error.localizedDescription }
+        }
+    }
+
     /// Debounced, cancellable and generation-checked: a slow render for older settings can never
     /// replace the preview of newer settings.
     @MainActor
     private func scheduleRender() {
         renderTask?.cancel()
+        normalPNG = nil; thermalPNG = nil; saveMessage = ""
         previewError = nil
         renderGeneration += 1
         let generation = renderGeneration
@@ -480,13 +513,15 @@ struct EventReceiptComposerPreview: View {
                 guard let image = UIImage(data: receipt.imagePNGData) else {
                     throw ReceiptComposerError.renderFailed
                 }
+                let grayscalePNG = try await Task.detached(priority: .utility) { try MonochromeReceiptRenderer.render(image).pngData }.value
                 let rasterPNG = try await Self.makePrinterPreview(receiptPNG: receipt.imagePNGData)
                 guard let printerPreview = UIImage(data: rasterPNG) else { throw ThermalImageRasterizerError.renderFailed }
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     guard generation == renderGeneration else { return }
                     previewReceipt = receipt
-                    normalImage = image
+                    normalImage = UIImage(data: grayscalePNG)
+                    normalPNG = grayscalePNG; thermalPNG = rasterPNG
                     previewImage = printerPreview
                 }
             } catch is CancellationError {

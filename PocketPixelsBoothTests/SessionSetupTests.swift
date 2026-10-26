@@ -106,13 +106,114 @@ import SwiftUI
         .init(editingLiveEvent: live, requestTimeout: timeout, workspace: workspace, acceptance: acceptance, library: library, eventRuns: runs, creations: CommercialEventCreationStore(directory: directory), api: { self.api }, authorized: { self.permitted },
               blockingReason: { self.blockedReason }, loadLocal: { self.local }, saveLocal: { self.local = $0 },
               source: { self.source }, saveSource: { self.source = $0 }, currentProfile: { self.profile },
-              applyProfile: { self.profile = $0; self.applied.append($0) }, artworkAvailable: { $0.map(self.usableArtwork.contains) ?? false })
+              applyProfile: { self.profile = $0; self.applied.append($0) }, artworkAvailable: { $0.map(self.usableArtwork.contains) ?? false }, studioDefaults: { .init() })
     }
     func paid() async { model.mode = .serverManaged; await model.select("event") }
     func cleanup() { try? FileManager.default.removeItem(at: directory) }
 }
 
 @MainActor final class SessionSetupTests: XCTestCase {
+    func testSavedLocalPreparationCannotOverwriteLaterServerDraftOnRefresh() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        await f.model.prepareNewWorkspace()
+        f.model.design?.name = "Prepared paid event"
+        await f.model.choosePayment(.qrOnly); f.model.policy.priceText = "35.00"
+        await f.model.connectPaidCheckout()
+        await f.model.saveOnly()
+        var external = f.model.policy; external.priceText = "49.00"
+        _ = try await f.api.saveDraft(eventID: "event", expectedVersion: f.api.version, name: "Prepared paid event", venue: "", policy: try XCTUnwrap(external.requestBody()))
+        let reopened = f.makeModel(); await reopened.refresh()
+        XCTAssertEqual(reopened.policy.unitPriceCentavos, 4900)
+        XCTAssertFalse(reopened.dirtyPaid)
+    }
+
+    func testReopenedPaidWorkspaceCannotCreateSecondCommercialIdentity() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        await f.model.prepareNewWorkspace()
+        f.model.design?.name = "One paid identity"
+        await f.model.choosePayment(.qrOnly); f.model.policy.priceText = "30.00"
+        let other = f.makeModel()
+        let started = await f.model.startAccepting(); XCTAssertTrue(started, f.model.message)
+        await other.refresh()
+        let second = await other.startAccepting(); XCTAssertTrue(second, other.message)
+        XCTAssertEqual(f.api.calls.filter { $0 == "create" }.count, 1)
+        XCTAssertEqual(other.targetServerEventID, f.model.targetServerEventID)
+    }
+
+    func testNewWorkspaceDefaultsToNoPaymentAndNeverCreatesServerEventUntilReviewedStart() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        f.source = .serverManaged
+        let model = f.makeModel()
+        await model.prepareNewWorkspace()
+        XCTAssertEqual(model.paymentChoice, .noPayment)
+        XCTAssertTrue(model.eventModeEnabled)
+        model.design?.name = "New Workspace"
+        await model.choosePayment(.qrAndCash)
+        model.policy.priceText = "42.00"
+        model.policy.maxCopies = 4
+        model.policy.defaultCopies = 2
+        XCTAssertTrue(f.api.calls.isEmpty, "Opening and editing are local")
+        let saved = await model.saveForLater(); XCTAssertTrue(saved)
+        XCTAssertTrue(f.api.calls.isEmpty, "Save for Later must never publish or create")
+        XCTAssertNil(model.targetServerEventID)
+        let started = await model.startAccepting(); XCTAssertTrue(started, model.message)
+        XCTAssertEqual(f.api.calls.filter { $0 == "create" }.count, 1)
+        XCTAssertEqual(f.api.active?.unitPriceCentavos, 4200)
+        XCTAssertEqual(f.api.active?.defaultCopies, 2)
+        XCTAssertTrue(f.api.active?.cashEnabled == true)
+        XCTAssertEqual(f.source, .serverManaged)
+    }
+
+    func testUnfinishedWorkspaceRestoresIdentityDesignAndUnlinkedPaidPolicy() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        await f.model.prepareNewWorkspace()
+        let id = f.model.designID
+        f.model.design?.name = "Draft event"
+        f.model.design?.profile.receiptDesign.editorialCaption = "DRAFT FOOTER"
+        await f.model.choosePayment(.qrOnly)
+        f.model.policy.priceText = "38.50"
+        await f.workspace.flush()
+        let restored = f.makeModel()
+        await restored.prepareNewWorkspace()
+        XCTAssertEqual(restored.designID, id)
+        XCTAssertEqual(restored.design?.name, "Draft event")
+        XCTAssertEqual(restored.design?.profile.receiptDesign.editorialCaption, "DRAFT FOOTER")
+        XCTAssertEqual(restored.policy.unitPriceCentavos, 3850)
+        XCTAssertNil(restored.targetServerEventID)
+        XCTAssertTrue(f.api.calls.isEmpty)
+    }
+
+    func testPreviousEventCopiesDesignWithFreshIdentityAndNoCommercialHistory() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        var original = try f.library.create(name: "Original", venue: "Garden")
+        original.profile.receiptDesign.editorialCaption = "ORIGINAL FOOTER"
+        original.serverEvents = [f.workspace.serverBinding: "old-paid"]
+        original.retiredServerEvents = [f.workspace.serverBinding: ["older-paid"]]
+        try f.library.save(original)
+        await f.model.prepareNewWorkspace(templateID: original.id)
+        XCTAssertNotEqual(f.model.designID, original.id)
+        XCTAssertEqual(f.model.design?.profile.receiptDesign.editorialCaption, "ORIGINAL FOOTER")
+        XCTAssertTrue(f.model.design?.serverEvents.isEmpty == true)
+        XCTAssertNil(f.model.design?.retiredServerEvents)
+        XCTAssertEqual(f.model.paymentChoice, .noPayment)
+        f.model.design?.profile.receiptDesign.editorialCaption = "NEW FOOTER"
+        XCTAssertEqual(f.library.design(id: original.id)?.profile.receiptDesign.editorialCaption, "ORIGINAL FOOTER")
+        XCTAssertTrue(f.runs.runs.isEmpty)
+    }
+
+    func testFooterWithoutCustomLogoIsOptInAndBackwardCompatible() throws {
+        var design = SavedEventDesign.new(name: "Caption only", venue: "")
+        design.profile.receiptDesign.editorialCaption = "CUSTOM FOOTER"
+        XCTAssertNil(design.appliedProfile().activeReceiptSnapshot, "Legacy off switch remains compatible")
+        design.profile.receiptExtrasEnabled = true
+        let snapshot = try XCTUnwrap(design.appliedProfile().activeReceiptSnapshot)
+        XCTAssertFalse(snapshot.isEnabled)
+        XCTAssertEqual(snapshot.receiptDesign.editorialCaption, "CUSTOM FOOTER")
+        XCTAssertEqual(snapshot.receiptHeader.mode, .pocketPixelsDefault)
+        let restored = try JSONDecoder().decode(SavedEventDesign.self, from: JSONEncoder().encode(design))
+        XCTAssertTrue(restored.appliedProfile().activeReceiptSnapshot?.receiptExtrasEnabled == true)
+    }
+
     private func assertStart(_ model: SessionSetupCoordinator, expected: Bool, file: StaticString = #filePath, line: UInt = #line) async {
         let result = await model.startAccepting()
         XCTAssertEqual(result, expected, model.message, file: file, line: line)

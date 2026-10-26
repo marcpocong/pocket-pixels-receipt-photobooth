@@ -58,6 +58,8 @@ struct EventRunReportingView: View {
     @State private var loading = true
     @State private var feedback: OperatorActionFeedback?
     @State private var pendingAction: String?
+    @State private var renameRunID: String?
+    @State private var renameName = ""
     @State private var designCandidate: SavedEventDesign?
     @State private var financials: EventRunFinancialTotals?
     @State private var financialError: String?
@@ -121,7 +123,7 @@ struct EventRunReportingView: View {
                 }
                 if tab != .manage { runPicker }
                 if Tab.reportSections.contains(tab) {
-                    Text("Scope: \(selected.map { "\($0.context.name.isEmpty ? "Regular Booth" : $0.context.name) · this iPad · one event run" } ?? (store.historyUnreadable ? "Event history unavailable" : "No current event run"))")
+                    Text("Scope: \(selected.map { "\($0.displayName.isEmpty ? "Regular Booth" : $0.displayName) · this iPad · one event run" } ?? (store.historyUnreadable ? "Event history unavailable" : "No current event run"))")
                         .font(.callout).foregroundStyle(OperatorPalette.secondaryText).accessibilityIdentifier("report-scope")
                     Toggle("Include archived runs", isOn: $showsArchived)
                     if let run = selected, let eventID = run.context.commercialEventID {
@@ -172,6 +174,17 @@ struct EventRunReportingView: View {
             exportURL = nil; financialLoadedAt = nil
             Task { await loadFinancials() }
         }
+        .alert("Rename Event", isPresented: Binding(get: { renameRunID != nil }, set: { if !$0 { renameRunID = nil } })) {
+            TextField("Event name", text: $renameName)
+            Button("Cancel", role: .cancel) { renameRunID = nil }
+            Button("Save") {
+                do {
+                    if let id = renameRunID { try store.renameRun(id: id, name: renameName) }
+                    feedback = .init(message: "Event renamed. IDs, payments and printed receipts are unchanged.")
+                } catch { feedback = .init(message: error.localizedDescription, isError: true) }
+                renameRunID = nil
+            }.disabled(renameName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
         .confirmationDialog(dialogTitle, isPresented: Binding(get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } }), titleVisibility: .visible) {
             Button(pendingAction == "delete" ? "Remove Run" : "Archive Run", role: pendingAction == "delete" ? .destructive : nil) { perform() }
             Button("Cancel", role: .cancel) { }
@@ -200,7 +213,7 @@ struct EventRunReportingView: View {
     }
 
     private func label(_ run: EventRunRecord) -> String {
-        "\(run.context.name.isEmpty ? "Regular Sessions" : run.context.name) · \(run.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(statusText(run))"
+        "\(run.displayName.isEmpty ? "Regular Sessions" : run.displayName) · \(run.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(statusText(run))"
     }
     private func statusText(_ run: EventRunRecord) -> String {
         if run.isHistorical { return "earlier event" }
@@ -229,7 +242,7 @@ struct EventRunReportingView: View {
             }
             Section("Event details") {
                 DisclosureGroup("Timing, design & payment") {
-                LabeledContent("Event", value: run.context.name.isEmpty ? "Regular Sessions" : run.context.name)
+                LabeledContent("Event", value: run.displayName.isEmpty ? "Regular Sessions" : run.displayName)
                 LabeledContent("Status", value: statusText(run).capitalized)
                 LabeledContent("Design", value: library.library.historicalName(id: run.context.designID) ?? "Studio branding")
                 LabeledContent("Payment", value: run.context.commercialEventID == nil ? "No payment (prepaid / free)" : "Paid — \(run.context.serverBinding?.hasPrefix("live:") == true ? "LIVE" : "TEST")")
@@ -420,17 +433,21 @@ struct EventRunReportingView: View {
         Section {
             Toggle("Include archived runs", isOn: $showsArchived)
             ForEach(pickerRuns) { run in
-                Button {
-                    selectedRunID = run.id == store.currentRunID ? nil : run.id
-                    tab = .activity
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(run.context.name.isEmpty ? "Regular Sessions" : run.context.name).font(.headline).foregroundStyle(MadeToKeepTheme.ColorPalette.ink)
-                        Text("\(run.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(statusText(run)) · \(sessions.filter { $0.runID == run.id && $0.completedAt != nil }.count) sessions")
-                            .font(.caption).foregroundStyle(OperatorPalette.secondaryText)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                }
+                HStack {
+                    Button {
+                        selectedRunID = run.id == store.currentRunID ? nil : run.id
+                        tab = .activity
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(run.displayName.isEmpty ? "Regular Sessions" : run.displayName).font(.headline)
+                            Text("\(run.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(statusText(run))").font(.caption)
+                        }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    }.buttonStyle(.borderless)
+                    Menu {
+                        Button("Rename Event") { renameName = run.displayName; renameRunID = run.id }
+                    } label: { Label("Manage", systemImage: "ellipsis.circle").frame(minWidth: 44, minHeight: 44) }
+                    .buttonStyle(.borderless).accessibilityIdentifier("history-manage-" + run.id)
+                }.accessibilityElement(children: .contain)
             }
             if pickerRuns.isEmpty { Text("No event runs yet.").foregroundStyle(OperatorPalette.secondaryText) }
         } header: { Text("Event runs") } footer: { Text("Tap a run to see its activity. Each new occurrence has its own run and statistics.") }
@@ -669,7 +686,7 @@ nonisolated enum EventRunCSV {
             return "\"" + safe.replacingOccurrences(of: "\"", with: "\"\"") + "\""
         }
         let rows = sessions.filter { $0.runID == run.id }.sorted { $0.createdAt < $1.createdAt }.map { record in
-            [run.id, run.context.name, record.sessionID, record.createdAt.ISO8601Format(), record.format, record.completedAt?.ISO8601Format() ?? "",
+            [run.id, run.displayName, record.sessionID, record.createdAt.ISO8601Format(), record.format, record.completedAt?.ISO8601Format() ?? "",
              String(record.printOutcomes.values.filter { $0 == "delivered" }.count),
              String(record.printOutcomes.values.filter { $0 == "uncertain" || $0 == "inFlight" }.count),
              String(record.printOutcomes.values.filter { $0 == "notStarted" }.count),
@@ -708,7 +725,7 @@ private struct LegacyAttributionSheet: View {
             Form {
                 if let saved {
                     Section("Saved") {
-                        Label("\(saved.entries.count) session(s) attributed to \(saved.run.context.name)", systemImage: "checkmark.seal")
+                        Label("\(saved.entries.count) session(s) attributed to \(saved.run.displayName)", systemImage: "checkmark.seal")
                         ForEach(sorted) { archive in
                             Text("\(archive.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(archive.format.displayName)").font(.callout)
                         }
@@ -733,7 +750,7 @@ private struct LegacyAttributionSheet: View {
                         } else {
                             Picker("Existing run", selection: $targetRunID) {
                                 Text("Choose…").tag(String?.none)
-                                ForEach(store.runs.reversed()) { Text("\($0.context.name) · \($0.createdAt.formatted(date: .abbreviated, time: .shortened))\($0.isHistorical ? " · earlier event" : "")").tag(Optional($0.id)) }
+                                ForEach(store.runs.reversed()) { Text("\($0.displayName) · \($0.createdAt.formatted(date: .abbreviated, time: .shortened))\($0.isHistorical ? " · earlier event" : "")").tag(Optional($0.id)) }
                             }
                         }
                         TextField("Reason (required)", text: $note)
@@ -752,7 +769,7 @@ private struct LegacyAttributionSheet: View {
             .toolbar {
                 ToolbarItem(placement: saved == nil ? .cancellationAction : .confirmationAction) {
                     Button(saved == nil ? "Cancel" : "Done") {
-                        onDone(saved.map { "\($0.entries.count) earlier session(s) attributed to \($0.run.context.name). They are reported separately from exact statistics." })
+                        onDone(saved.map { "\($0.entries.count) earlier session(s) attributed to \($0.run.displayName). They are reported separately from exact statistics." })
                     }
                 }
             }

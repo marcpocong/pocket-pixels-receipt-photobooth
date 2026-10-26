@@ -11,6 +11,8 @@ struct EventReceiptDesignPanel: View {
     let discard: () -> Void
     var isRegularBooth = false
     var editsLiveEvent = false
+    var managesSaving = true
+    var showsGalleryOptions = true
 
     @State private var photoItem: PhotosPickerItem?
     @State private var isPhotoPickerPresented = false
@@ -24,21 +26,23 @@ struct EventReceiptDesignPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
+            if showsGalleryOptions {
             Picker(isRegularBooth ? "Printed Gallery Code" : "Event Gallery Code Style", selection: $design.profile.receiptDesign.footerStyleOverride) {
-                Text("Inherit Device Default").tag(Optional<ReceiptFooterStyle>.none)
+                Text("Use Studio Default Footer").tag(Optional<ReceiptFooterStyle>.none)
                 ForEach(ReceiptFooterStyle.allCases) { style in Text(style.displayName).tag(Optional(style)) }
             }
-            Button("Restore Default — Inherit Device") { design.profile.receiptDesign.footerStyleOverride = nil }
+            Button("Use Studio Default Footer") { design.profile.receiptDesign.footerStyleOverride = nil }
             if design.profile.receiptDesign.footerStyleOverride == .decorativeBarcodeOnly {
                 Label("Decorative barcode only: no printed gallery access. The iPad gallery QR remains available.", systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(.orange)
             }
 
             Picker("Default QR Gallery Receipt Style", selection: $design.profile.galleryReceiptStyleOverride) {
-                Text("Use Device Default").tag(Optional<GalleryReceiptStyle>.none)
+                Text("Use Studio Default Gallery Settings").tag(Optional<GalleryReceiptStyle>.none)
                 ForEach(GalleryReceiptStyle.allCases) { style in Text(style.title).tag(Optional(style)) }
             }
-            Text(isRegularBooth ? "Save Regular Booth Defaults to apply to the next guest." : (editsLiveEvent ? "Staged for the next sessions. Use Apply to Next Sessions when ready." : "Customer Gallery only. Save Design, then Review & Start to apply.")).font(.footnote).foregroundStyle(.secondary)
+            Text(isRegularBooth ? "Save Regular Booth Defaults to apply to the next guest." : (editsLiveEvent ? "Staged for the next sessions. Use Apply to Next Sessions when ready." : "Customer Gallery only. Review & Start applies this event’s staged settings.")).font(.footnote).foregroundStyle(.secondary)
 
+            }
             Toggle(isOn: personalizeBinding) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(isRegularBooth ? "Add a Logo to Regular Booth Receipts" : "Personalize Receipt with Event Logo").font(.headline)
@@ -62,7 +66,7 @@ struct EventReceiptDesignPanel: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
 
-            if isDirty && !editsLiveEvent {
+            if isDirty && !editsLiveEvent && managesSaving {
                 HStack(spacing: 12) {
                     Label("Unsaved design changes", systemImage: "pencil.circle.fill").foregroundStyle(.orange).font(.callout)
                     Spacer()

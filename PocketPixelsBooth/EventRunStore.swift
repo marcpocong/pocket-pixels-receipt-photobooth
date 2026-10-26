@@ -32,6 +32,9 @@ nonisolated struct EventRunRecord: Codable, Identifiable, Equatable, Sendable {
     var endedAt: Date? = nil
     var archivedAt: Date? = nil
     var removedAt: Date? = nil
+    /// Management/reporting label only. Frozen session and commercial identities never change.
+    var displayNameOverride: String? = nil
+    var displayName: String { displayNameOverride ?? context.name }
     /// A completed record the operator created to hold pre-run (legacy) activity. Never current.
     var historical: Bool? = nil
     /// The occurrence this one followed when it was explicitly started from the same design.
@@ -373,6 +376,16 @@ nonisolated struct EventRunSession: Codable, Identifiable, Equatable, Sendable {
         guard ![.active, .paused].contains(runs[index].status) else { throw SetupFailure("End Event then Remove before removing a running event.") }
         var next = runs; next[index].removedAt = now
         try commitManifest(next, currentID: currentRunID == id ? nil : currentRunID)
+    }
+
+    func renameRun(id: String, name: String) throws {
+        guard authorized() else { throw PaymentsAPIError.unauthorized }
+        let trimmed = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(EventProfile.eventNameLimit))
+        guard !trimmed.isEmpty else { throw SetupFailure("Enter an event name.") }
+        guard let index = runs.firstIndex(where: { $0.id == id }) else { throw SetupFailure("This event run is unavailable.") }
+        var next = runs
+        next[index].displayNameOverride = trimmed
+        try commitManifest(next, currentID: currentRunID)
     }
 
     func restoreRemovedRun(id: String) throws {

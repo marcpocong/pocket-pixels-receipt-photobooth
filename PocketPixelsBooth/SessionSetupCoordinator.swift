@@ -339,6 +339,8 @@ nonisolated struct EventSetupRequests: SessionSetupAPI {
     private let currentProfile: @MainActor () -> EventProfile
     private let applyProfile: @MainActor (EventProfile) throws -> Void
     private let artworkAvailable: @MainActor (String?) -> Bool
+    private let studioDefaults: @MainActor () -> RegularBoothSettings
+    var studioDefaultsForPresentation: RegularBoothSettings { studioDefaults() }
     private var creationObserver: AnyCancellable?
 
     init(eventID: String? = nil, editingLiveEvent: Bool = false, requestTimeout: TimeInterval = 15, draftTarget: SavedDraftID? = nil, workspace: OperatorWorkspace? = nil, acceptance: SessionAcceptanceStore? = nil, library: EventDesignLibraryStore? = nil,
@@ -356,7 +358,7 @@ nonisolated struct EventSetupRequests: SessionSetupAPI {
          applyProfile: @escaping @MainActor (EventProfile) throws -> Void = { EventProfileStore.save($0) },
          artworkAvailable: @escaping @MainActor (String?) -> Bool = { identifier in
              (try? EventHeaderAssetStore())?.loadArtwork(identifier: identifier) != nil
-         }) {
+         }, studioDefaults: @escaping @MainActor () -> RegularBoothSettings = { RegularBoothSettings.load() }) {
         let workspace = workspace ?? .shared
         let library = library ?? .shared
         self.editingLiveEvent = editingLiveEvent
@@ -366,6 +368,7 @@ nonisolated struct EventSetupRequests: SessionSetupAPI {
         self.makeAPI = api; self.requestTimeout = requestTimeout; self.authorized = authorized; self.blockingReason = blockingReason
         self.loadLocal = loadLocal; self.saveLocal = saveLocal; self.source = source; self.saveSource = saveSource
         self.currentProfile = currentProfile; self.applyProfile = applyProfile; self.artworkAvailable = artworkAvailable
+        self.studioDefaults = studioDefaults
         let staged = workspace.snapshot.sessionSetup
         let saved = library.library
         mode = eventID != nil ? .serverManaged : (staged?.mode ?? source())
@@ -453,11 +456,11 @@ nonisolated struct EventSetupRequests: SessionSetupAPI {
         let switching = mode != .serverManaged
         mode = .serverManaged
         applyRequestedMethods()
-        if switching { await refresh() }
+        if switching, targetServerEventID != nil { await refresh() }
     }
 
     private func applyRequestedMethods() {
-        guard detail != nil, let requested = requestedMethods else { return }
+        guard let requested = requestedMethods else { return }
         if policy.qrPhEnabled != requested.acceptsQRPh { policy.qrPhEnabled = requested.acceptsQRPh }
         // Clearing cash also clears signed offline cash (ServerPolicyDraft enforces it).
         if policy.cashEnabled != requested.acceptsCash { policy.cashEnabled = requested.acceptsCash }
@@ -469,7 +472,9 @@ nonisolated struct EventSetupRequests: SessionSetupAPI {
     /// link in Event Mode, or the booth's regular-sessions event otherwise. Bound per environment.
     var targetServerEventID: String? {
         let binding = workspace.serverBinding
-        return eventModeEnabled ? design?.serverEventID(binding: binding) : library.library.regularServerEvents[binding]
+        return eventModeEnabled
+            ? (library.design(id: designID)?.serverEventID(binding: binding) ?? design?.serverEventID(binding: binding))
+            : library.library.regularServerEvents[binding]
     }
 
     var savedEvents: [SavedEventDesign] { library.library.events.filter { $0.archivedAt == nil && $0.removedAt == nil }.sorted { $0.updatedAt > $1.updatedAt } }
@@ -502,6 +507,11 @@ nonisolated struct EventSetupRequests: SessionSetupAPI {
         guard let saved = library.design(id: id) else { return }
         designID = id
         design = workspace.designDraft(id: id) ?? saved
+        if targetServerEventID == nil {
+            let wasLoading = loading; loading = true
+            policy = design?.paidPolicy ?? ServerPolicyDraft()
+            loading = wasLoading
+        }
         if mode == .localPrepaid, let policy = design?.prepaidPolicy {
             let wasLoading = loading
             loading = true; prepaid.activePolicy = policy; loading = wasLoading
@@ -528,6 +538,69 @@ nonisolated struct EventSetupRequests: SessionSetupAPI {
             if mode == .serverManaged { await connectPaidCheckout() }
             else { phase = .completed }
         } catch { busy = false; message = error.localizedDescription }
+    }
+
+    /// Shared entry for Quick Start, Customize and an independent copy of a previous event.
+    /// Opening a workspace never sends a payment mutation or adopts an active paid identity.
+    func prepareNewWorkspace(templateID: String? = nil) async {
+        guard !editingLiveEvent, !busy, authorized() else { return }
+        if templateID == nil, let id = workspace.snapshot.unfinishedEventID,
+           let draft = workspace.designDraft(id: id) ?? library.design(id: id), draft.removedAt == nil {
+            loading = true
+            eventModeEnabled = true; designID = id; design = draft
+            selectedID = targetServerEventID; detail = nil; baseVersion = nil
+            policy = draft.paidPolicy ?? ServerPolicyDraft()
+            if let included = draft.prepaidPolicy { prepaid.activePolicy = included }
+            loading = false
+            if targetServerEventID != nil, mode == .serverManaged { await refresh() }
+            return
+        }
+        loading = true
+        mode = .localPrepaid; requestedMethods = nil; unattendedQR = false
+        selectedID = nil; detail = nil; baseVersion = nil; pendingServerEventID = nil
+        eventModeEnabled = true
+        var next = SavedEventDesign.new(name: workspace.snapshot.newEventName, venue: workspace.snapshot.newEventVenue)
+        if let templateID, let template = workspace.designDraft(id: templateID) ?? library.design(id: templateID) {
+            next.name = template.displayName + " Copy"; next.venue = template.venue
+            next.profile = template.profile; next.personalizeReceipt = template.personalizeReceipt
+            next.guestScreensEnabled = template.guestScreensEnabled; next.prepaidPolicy = template.prepaidPolicy
+            next.paidPolicy = template.paidPolicy
+        } else {
+            let defaults = studioDefaults()
+            next.prepaidPolicy = defaults.policy
+            next.profile = defaults.profile
+            if !defaults.profile.isEnabled { next.profile.showEventTextBlock = false }
+            next.personalizeReceipt = defaults.profile.isEnabled
+            next.guestScreensEnabled = defaults.profile.customerScreenEnabled
+        }
+        designID = next.id; design = next
+        policy = next.paidPolicy ?? ServerPolicyDraft()
+        if let included = next.prepaidPolicy { prepaid.activePolicy = included }
+        loading = false
+        workspace.saveNewEvent(name: "", venue: "")
+        workspace.saveUnfinishedEventID(next.id)
+        workspace.saveDesignDraft(next, id: next.id)
+        persistSelection()
+        message = "Local draft — nothing is applied to guests."
+    }
+
+    @discardableResult func saveForLater() async -> Bool {
+        guard !busy, authorized() else { return false }
+        guard let design, !design.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { message = "Enter an event name."; return false }
+        busy = true; phase = .savingEvent; defer { busy = false }
+        do {
+            stageReusablePrepaidPolicy()
+            if let value = self.design {
+                try await library.saveAsync(value)
+                workspace.saveDesignDraft(nil, id: value.id)
+            }
+            if workspace.snapshot.unfinishedEventID == designID { workspace.saveUnfinishedEventID(nil) }
+            await workspace.flush()
+            if let error = workspace.persistenceError { throw SetupFailure(error) }
+            message = "Saved for later. Nothing is applied to guests."
+            phase = .completed
+            return true
+        } catch { message = error.localizedDescription; return false }
     }
 
     /// Adopts a server event created elsewhere as a saved event for this environment.
@@ -653,7 +726,8 @@ nonisolated struct EventSetupRequests: SessionSetupAPI {
         if conflict { return "Server Settings Changed — Review Required." }
         if pendingCreation != nil { return "A paid event may already have been created. Confirm it under Event Creation Needs Confirmation first." }
         if targetServerEventID == nil {
-            return eventModeEnabled ? "Connect this event to paid checkout to set a price." : "Set up regular paid sessions to set a price."
+            if eventModeEnabled { return policy.validationMessage() }
+            return "Set up regular paid sessions to set a price."
         }
         if loadedBinding != workspace.serverBinding { return "Check Current Status for this payments connection." }
         guard let detail, detail.event.id == selectedID else { return "Loading paid settings… Check Current Status if this persists." }
@@ -726,7 +800,12 @@ nonisolated struct EventSetupRequests: SessionSetupAPI {
         }
     }
     private func persistPaid() {
-        guard !loading, let selectedID, let baseVersion else { return }
+        guard !loading, mode == .serverManaged else { return }
+        if eventModeEnabled, targetServerEventID == nil, var staged = design {
+            if staged.paidPolicy != policy { staged.paidPolicy = policy; design = staged }
+            return
+        }
+        guard let selectedID, let baseVersion else { return }
         if !dirtyPaid && !conflict {
             workspace.removeServerDraft(eventID: selectedID)
             return
@@ -1048,6 +1127,7 @@ nonisolated struct EventSetupRequests: SessionSetupAPI {
 
     private func loadPaid(_ id: String) async throws {
         let binding = workspace.serverBinding
+        let completingCreation = verifiedCreation?.event.id == id
         let fetched: OperatorEventDetail
         if let verified = verifiedCreation, verified.event.id == id { fetched = verified; verifiedCreation = nil }
         else { fetched = try await api().eventDetail(id: id) }
@@ -1066,7 +1146,9 @@ nonisolated struct EventSetupRequests: SessionSetupAPI {
             conflict = draft.conflicts(with: fetched.event.version)
         } else {
             name = fetched.event.name; venue = fetched.event.venue
-            policy = fetched.latestRevision.map(ServerPolicyDraft.init(revision:)) ?? ServerPolicyDraft()
+            if completingCreation, fetched.event.lifecycle == .draft, let local = design?.paidPolicy, local.validationMessage() == nil {
+                policy = local
+            } else { policy = fetched.latestRevision.map(ServerPolicyDraft.init(revision:)) ?? ServerPolicyDraft() }
             baseVersion = fetched.event.version; conflict = false
         }
         loading = false
@@ -1186,6 +1268,17 @@ nonisolated struct EventSetupRequests: SessionSetupAPI {
         if let refreshTask { await refreshTask.value }
         guard !busy else { message = "The current event operation is still running."; return false }
         if let reason = validation { message = reason; return false }
+        if mode == .serverManaged, eventModeEnabled, targetServerEventID == nil {
+            do { try checkPermit() } catch { message = error.localizedDescription; return false }
+            // Preserve exactly the reviewed local policy while the creation journal links and
+            // verifies the server's initial draft. Never adopt its initial/default price.
+            let reviewed = policy
+            let reviewedName = design?.name ?? name, reviewedVenue = design?.venue ?? venue
+            await connectPaidCheckout()
+            guard targetServerEventID != nil, detail != nil, !needsRefresh, pendingCreation == nil else { return false }
+            policy = reviewed; name = reviewedName; venue = reviewedVenue
+            if let reason = validation { message = reason; return false }
+        }
         let operation: UUID
         do { operation = try acceptance.beginSetupOperation() }
         catch { message = error.localizedDescription; return false }
@@ -1277,6 +1370,7 @@ nonisolated struct EventSetupRequests: SessionSetupAPI {
             try await acceptance.saveAsync(nextAcceptance)
             requestedMethods = nil; startsNewOccurrence = false
             workspace.saveSessionSetup(nil)
+            if workspace.snapshot.unfinishedEventID == designID { workspace.saveUnfinishedEventID(nil) }
             await workspace.flush()
             phase = .completed
             message = "Accepting guests. The next session will use the reviewed setup."

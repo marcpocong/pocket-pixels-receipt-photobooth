@@ -18,6 +18,108 @@ import XCTest
     private var root: URL!
     override func setUp() async throws { root = FileManager.default.temporaryDirectory.appendingPathComponent("v41-management-\(UUID())") }
     override func tearDown() async throws { try? FileManager.default.removeItem(at: root) }
+    func testOfflineForceDeleteRetainsIndependentPaymentIdentityAndDurableTombstone() async throws {
+        let store = try CheckoutCheckpointStore(directory: root)
+        var original = checkpoint(method: "QRPH", phase: .entitled)
+        original.orderID = "original-order"; original.entitlementID = "original-entitlement"
+        original.locallyClosedAt = Date(); original.lastServerState = "PAID_VERIFIED"
+        try store.begin(original)
+        let coordinator = PaymentRecoveryCoordinator(checkpointStore: { store }, reader: { nil }, outboxClient: { nil }, managementAuthorized: { true }, inspectManagementDependencies: { _ in .init() })
+        try await coordinator.forceDeleteLocalCheckout(id: original.id)
+        XCTAssertNil(store.checkpoint(id: original.id))
+        let relaunched = try CheckoutCheckpointStore(directory: root)
+        XCTAssertNil(relaunched.checkpoint(id: original.id))
+        let retained = try XCTUnwrap(relaunched.financialRecovery.first)
+        XCTAssertEqual(retained.orderID, original.orderID)
+        XCTAssertEqual(retained.entitlementID, original.entitlementID)
+        XCTAssertEqual(retained.lastServerState, "PAID_VERIFIED")
+        XCTAssertNil(retained.resolution, "Removal does not claim settlement")
+        XCTAssertTrue(relaunched.unresolved.isEmpty, "Financial follow-up is separate from admission")
+        XCTAssertFalse(relaunched.update(id: original.id) { $0.phase = .claimed })
+        XCTAssertThrowsError(try relaunched.begin(original))
+    }
+
+    func testForceDeletionRejectsActiveArmedAndInFlightRecordsAndSupportsMixedBulkResults() async throws {
+        let store = try CheckoutCheckpointStore(directory: root)
+        let active = checkpoint("active")
+        var parked = checkpoint("parked", method: "OFFLINE_CASH", phase: .entitled); parked.locallyClosedAt = Date()
+        try store.begin(active); try store.begin(parked)
+        let coordinator = PaymentRecoveryCoordinator(checkpointStore: { store }, reader: { nil }, outboxClient: { nil }, managementAuthorized: { true }, inspectManagementDependencies: { _ in .init() })
+        do { try await coordinator.forceDeleteLocalCheckout(id: active.id); XCTFail("Active checkout must remain") } catch {}
+        try await coordinator.forceDeleteLocalCheckout(id: parked.id)
+        XCTAssertNotNil(store.checkpoint(id: active.id))
+        XCTAssertNil(store.checkpoint(id: parked.id))
+        XCTAssertEqual(store.financialRecovery.map(\.id), [parked.id])
+        XCTAssertEqual(store.financialRecovery.first?.method, "OFFLINE_CASH")
+    }
+
+    func testForceRemoveAndRestoreWorkOfflineWithoutChangingFinancialState() async throws {
+        let store = try CheckoutCheckpointStore(directory: root)
+        var original = checkpoint(method: "QRPH", phase: .awaitingProvider); original.locallyClosedAt = Date()
+        try store.begin(original)
+        let coordinator = PaymentRecoveryCoordinator(checkpointStore: { store }, reader: { nil }, outboxClient: { nil }, managementAuthorized: { true }, inspectManagementDependencies: { _ in .init() })
+        await coordinator.refresh()
+        XCTAssertEqual(coordinator.parkedFollowUpCount, 1)
+        try coordinator.forceRemoveCheckout(id: original.id)
+        XCTAssertEqual(coordinator.parkedFollowUpCount, 0)
+        XCTAssertEqual(coordinator.financialFollowUpCount, 1)
+        XCTAssertNil(store.checkpoint(id: original.id)?.resolution)
+        let relaunched = try CheckoutCheckpointStore(directory: root)
+        XCTAssertNotNil(relaunched.checkpoint(id: original.id)?.hiddenAt)
+        try coordinator.setCheckoutHidden(id: original.id, hidden: false)
+        XCTAssertEqual(coordinator.parkedFollowUpCount, 1)
+    }
+
+    func testFailedRecoveryPreservationKeepsCheckpointAndDoesNotWriteTombstone() async throws {
+        var fail = false
+        let store = try CheckoutCheckpointStore(directory: root, writer: { data, url in
+            if fail { throw CocoaError(.fileWriteOutOfSpace) }
+            try DurableFileWriter.write(data, to: url)
+        })
+        var original = checkpoint(method: "QRPH", phase: .awaitingProvider); original.locallyClosedAt = Date()
+        try store.begin(original); fail = true
+        let coordinator = PaymentRecoveryCoordinator(checkpointStore: { store }, reader: { nil }, outboxClient: { nil }, managementAuthorized: { true }, inspectManagementDependencies: { _ in .init() })
+        do { try await coordinator.forceDeleteLocalCheckout(id: original.id); XCTFail("Storage failure must remain visible") } catch {}
+        XCTAssertNotNil(store.checkpoint(id: original.id))
+        XCTAssertTrue(store.financialRecovery.isEmpty)
+        fail = false; try store.begin(original)
+    }
+
+    func testForceDeleteRejectsInFlightPrintButKeepsUncertainPrintEvidence() async throws {
+        let store = try CheckoutCheckpointStore(directory: root)
+        var original = checkpoint(method: "QRPH", phase: .printing); original.locallyClosedAt = Date()
+        try store.begin(original)
+        var copy = PrintOutboxEntry(id: "copy", kind: .copy, batchID: "batch", sessionID: original.id, entitlementID: "entitlement",
+            receiptFingerprint: "original", copyIndex: 1, copyCount: 3, transport: "wifi", idempotencyKey: "key", createdAt: Date(),
+            localState: .inFlight, reportState: .awaitingOutcome, attempts: 1, updatedAt: Date())
+        let coordinator = PaymentRecoveryCoordinator(checkpointStore: { store }, reader: { nil }, outboxClient: { nil }, managementAuthorized: { true }, inspectManagementDependencies: { _ in .init(copies: [copy]) })
+        do { try await coordinator.forceDeleteLocalCheckout(id: original.id); XCTFail("Sending must block deletion") } catch {}
+        XCTAssertNotNil(store.checkpoint(id: original.id))
+        copy.localState = .uncertain; copy.inspectionRequired = true
+        try await coordinator.forceDeleteLocalCheckout(id: original.id)
+        XCTAssertEqual(store.financialRecovery.first?.phase, .printing)
+        XCTAssertTrue(copy.inspectionRequired == true, "Cleanup must not acknowledge paper or resend it")
+    }
+
+    func testRetainedFinancialFollowUpReadsLatePaymentsWithoutRecreatingCheckpoint() async throws {
+        let store = try CheckoutCheckpointStore(directory: root)
+        var original = checkpoint(method: "QRPH", phase: .awaitingProvider); original.locallyClosedAt = Date()
+        try store.begin(original)
+        let reader = V41RecoveryReader(); reader.response = try server(state: "PAID_VERIFIED", entitlement: "AUTHORIZED")
+        let coordinator = PaymentRecoveryCoordinator(checkpointStore: { store }, reader: { reader }, outboxClient: { nil }, managementAuthorized: { true }, inspectManagementDependencies: { _ in .init() })
+        try await coordinator.forceDeleteLocalCheckout(id: original.id)
+        await coordinator.refresh()
+        XCTAssertNil(store.checkpoint(id: original.id))
+        XCTAssertNil(coordinator.armedResume)
+        XCTAssertEqual(store.financialRecovery.first?.lastServerState, "AUTHORIZED")
+        XCTAssertEqual(coordinator.financialFollowUpCount, 1)
+        reader.response = try server(state: "PAID_VERIFIED", entitlement: "CONSUMED")
+        await coordinator.refresh()
+        XCTAssertEqual(coordinator.financialFollowUpCount, 0)
+        XCTAssertEqual(store.financialRecovery.first?.lastServerState, "CONSUMED")
+        XCTAssertNil(store.checkpoint(id: original.id))
+    }
+
     func checkpoint(_ id: String = "PP-20261025-120000", method: String? = nil, phase: CheckoutPhase = .orderRequested) -> CheckoutCheckpoint {
         .init(id: id, environment: "test", eventID: "ev", policyRevisionID: "r1", unitPriceCentavos: 5000,
             copies: 3, format: "solo", method: method, phase: phase, createdAt: Date(), updatedAt: Date())
@@ -91,7 +193,9 @@ import XCTest
         XCTAssertThrowsError(try coordinator.setCheckoutHidden(id: cp.id, hidden: true))
         XCTAssertTrue(store.park(id: cp.id, reason: "guest left")); await coordinator.refresh()
         try coordinator.setCheckoutHidden(id: cp.id, hidden: true)
-        XCTAssertEqual(coordinator.activeInterruptionCount, 0); XCTAssertEqual(coordinator.parkedFollowUpCount, 1)
+        XCTAssertEqual(coordinator.activeInterruptionCount, 0)
+        XCTAssertEqual(coordinator.parkedFollowUpCount, 0, "Archived records leave the workspace count")
+        XCTAssertEqual(coordinator.financialFollowUpCount, 1, "Financial follow-up retains archived records")
         XCTAssertNotNil(try CheckoutCheckpointStore(directory: root).checkpoint(id: cp.id)?.hiddenAt)
         XCTAssertFalse(store.checkpoint(id: cp.id)!.isResolved)
         try coordinator.setCheckoutHidden(id: cp.id, hidden: false)

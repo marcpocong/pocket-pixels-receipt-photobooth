@@ -378,7 +378,8 @@ extension OperatorWorkspaceRoute {
     @MainActor @ViewBuilder var destination: some View {
         switch self {
         case .liveEvent: SessionSetupView(editingLiveEvent: true)
-        case .newEvent: SessionSetupView(opensNewEventDraft: true)
+        case .newEvent, .customizeEvent: SessionSetupView(opensNewEventDraft: true)
+        case .previousEvent: SessionSetupView(opensNewEventDraft: true, usePreviousEvent: true)
         case .savedEvent(let id): OperatorSavedEventSetupView(designID: id)
         case .eventHistory: EventRunReportingView(initialTab: .history)
         case .eventLibrary: EventRunReportingView(initialTab: .manage)

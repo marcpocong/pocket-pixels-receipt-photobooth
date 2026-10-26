@@ -86,6 +86,8 @@ nonisolated struct SavedEventDesign: Codable, Equatable, Identifiable, Sendable 
     /// Reusable no-payment copy/format settings. Older saved events inherit device settings.
     /// This is staged configuration; saving it never changes the active booth policy.
     var prepaidPolicy: PaymentPolicySnapshot? = nil
+    /// Local paid configuration before the first explicit reviewed start. No server identity.
+    var paidPolicy: ServerPolicyDraft? = nil
 
     static func new(name: String, venue: String, now: Date = Date()) -> SavedEventDesign {
         var profile = EventProfile.pocketPixelsDefault

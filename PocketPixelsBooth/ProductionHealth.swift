@@ -180,7 +180,7 @@ struct ProductionHealthSheet: View {
             checkoutsNeedingAttention: recovery.activeInterruptionCount,
             checkoutIntegrityFault: CheckoutCheckpointStore.shared?.integrityFault != nil, lastRecoveryCheck: recovery.lastRefreshCompletedAt,
             pendingGalleries: operations.pendingUploadCount, galleryStorageProblem: operations.queueError != nil, storageErrors: errors,
-            pendingCreation: creations.open(binding: OperatorWorkspace.shared.serverBinding) != nil, parkedFinancialFollowUps: recovery.parkedFollowUpCount))
+            pendingCreation: creations.open(binding: OperatorWorkspace.shared.serverBinding) != nil, parkedFinancialFollowUps: recovery.financialFollowUpCount))
     }
     private var appVersion: String {
         let info = Bundle.main.infoDictionary

@@ -35,6 +35,11 @@ private struct EventOperationsValidationHome: View {
                     OperatorEventsView(workspace: fixture.workspace, runs: fixture.runs, library: fixture.library,
                         lifecycle: fixture.lifecycle, creationPending: { _ in false })
                 }
+                NavigationLink("Manage Test Checkouts") {
+                    List { CheckoutRecoverySection(recovery: fixture.recovery, showsArchived: true) }
+                        .navigationTitle("Test Checkouts")
+                        .task { await fixture.recovery.refresh() }
+                }
                 Text("Applied caption: " + fixture.profile.receiptDesign.editorialCaption)
                     .accessibilityIdentifier("validation-applied-caption")
                 Text("Run ID: " + (runs.currentRunID ?? "None")).accessibilityIdentifier("validation-run-id")
@@ -50,6 +55,7 @@ private struct EventOperationsValidationHome: View {
     let runs: EventRunStore
     let acceptance: SessionAcceptanceStore
     let creations: CommercialEventCreationStore
+    let recovery: PaymentRecoveryCoordinator
     @Published var profile: EventProfile
     var local: CommercialEventRun
     lazy var lifecycle = EventLifecycleCoordinator(runs: runs, acceptance: acceptance,
@@ -72,12 +78,20 @@ private struct EventOperationsValidationHome: View {
         library = EventDesignLibraryStore(directory: root, legacyProfile: { .pocketPixelsDefault }, legacyName: { "" }, operationAuthorized: { true }, operationBlockingReason: { nil })
         runs = EventRunStore(directory: root.appendingPathComponent("runs"), authorized: { true }, blockingReason: { nil })
         creations = CommercialEventCreationStore(directory: root)
+        let checkpoints = try CheckoutCheckpointStore(directory: root.appendingPathComponent("checkouts"))
+        recovery = PaymentRecoveryCoordinator(checkpointStore: { checkpoints }, reader: { nil }, outboxClient: { nil },
+            managementAuthorized: { true }, recoverPrintJournal: {}, inspectManagementDependencies: { _ in .init() })
         if !FileManager.default.fileExists(atPath: root.appendingPathComponent("seeded" ).path) {
             let historical = try library.create(name: "Synthetic Paid History", venue: "Validation only")
             try library.link(designID: historical.id, binding: "test:synthetic", serverEventID: "synthetic-financial-evidence")
             let run = try runs.startNewRun(context: .init(designID: historical.id, commercialEventID: "synthetic-financial-evidence", serverBinding: "test:synthetic", name: historical.name))
             try runs.beginSession(id: "synthetic-historical-session", runID: run.id, format: "solo")
             try runs.transition(id: run.id, to: .completed)
+            var checkpoint = CheckoutCheckpoint(id: "SYNTHETIC-CHECKOUT-ONLY", environment: "test", eventID: "synthetic-financial-evidence",
+                policyRevisionID: "synthetic-policy", unitPriceCentavos: 2500, copies: 2, format: "solo", method: "QRPH",
+                phase: .awaitingProvider, createdAt: Date(), updatedAt: Date())
+            checkpoint.locallyClosedAt = Date(); checkpoint.lastServerState = "AWAITING_PAYMENT"
+            try checkpoints.begin(checkpoint)
             try Data().write(to: root.appendingPathComponent("seeded"))
         }
     }
@@ -91,7 +105,7 @@ private struct EventOperationsValidationHome: View {
         SessionSetupCoordinator(editingLiveEvent: live, workspace: workspace, acceptance: acceptance, library: library, eventRuns: runs, creations: creations,
             api: { throw SetupFailure("Payment requests are disabled in isolated device validation.") },
             authorized: { true }, blockingReason: { nil }, loadLocal: { self.local }, saveLocal: { try self.saveLocal($0) },
-            source: { .localPrepaid }, saveSource: { _ in }, currentProfile: { self.profile }, applyProfile: { try self.saveProfile($0) })
+            source: { .localPrepaid }, saveSource: { _ in }, currentProfile: { self.profile }, applyProfile: { try self.saveProfile($0) }, studioDefaults: { .init() })
     }
 }
 #endif

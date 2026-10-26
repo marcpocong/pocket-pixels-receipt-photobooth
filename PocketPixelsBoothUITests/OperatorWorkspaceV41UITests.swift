@@ -213,7 +213,10 @@ final class OperatorWorkspaceV41UITests: XCTestCase {
         try capture("sessions-export-success")
         let disappears = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.staticTexts["Receipt saved to Photos"])
         XCTAssertEqual(XCTWaiter.wait(for: [disappears], timeout: 10), .completed)
-        app.buttons["Gallery Actions and More"].tap()
+        let galleryActions = app.buttons["sessions-gallery-actions"]
+        XCTAssertEqual(app.buttons.matching(identifier: "sessions-gallery-actions").count, 1)
+        XCTAssertTrue(galleryActions.isHittable)
+        galleryActions.tap()
         XCTAssertTrue(app.buttons["Recheck Unverified Galleries"].waitForExistence(timeout: 5))
         try capture("sessions-gallery-actions-menu")
     }

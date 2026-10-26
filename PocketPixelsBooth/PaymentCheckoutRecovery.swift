@@ -87,7 +87,14 @@ final class CheckoutCheckpointStore {
     static let shared: CheckoutCheckpointStore? = try? CheckoutCheckpointStore()
     static let retainedResolvedCount = 100
 
-    private struct FilePayload: Codable { var checkpoints: [CheckoutCheckpoint]; var deletedIDs: Set<String>? = nil }
+    private struct FilePayload: Codable {
+        var checkpoints: [CheckoutCheckpoint]
+        var deletedIDs: Set<String>? = nil
+        /// Independent identity/evidence after an operator deletes the workspace checkpoint.
+        /// Kept outside admission recovery; these records never authorize capture or printing.
+        var financialRecovery: [CheckoutCheckpoint]? = nil
+        var financialRecoveryCompletedIDs: Set<String>? = nil
+    }
 
     private let url: URL
     private let writer: Writer
@@ -146,6 +153,35 @@ final class CheckoutCheckpointStore {
 
     var all: [CheckoutCheckpoint] { payload.checkpoints }
     var unresolved: [CheckoutCheckpoint] { payload.checkpoints.filter { !$0.isResolved } }
+    var financialRecovery: [CheckoutCheckpoint] { payload.financialRecovery ?? [] }
+    var outstandingFinancialRecovery: [CheckoutCheckpoint] {
+        financialRecovery.filter { !$0.isResolved && payload.financialRecoveryCompletedIDs?.contains($0.id) != true }
+    }
+
+    func retainFinancialRecoveryAndDelete(id: String) throws {
+        guard integrityFault == nil else { throw StoreError.integrityFault(integrityFault!) }
+        guard var original = checkpoint(id: id) else { return }
+        original.hiddenAt = Date()
+        var next = payload
+        var retained = next.financialRecovery ?? []
+        retained.removeAll { $0.id == id }
+        retained.append(original)
+        next.financialRecovery = retained
+        next.checkpoints.removeAll { $0.id == id }
+        next.deletedIDs = (next.deletedIDs ?? []).union([id])
+        // One durable atomic write: a crash cannot leave a tombstone without recovery identity.
+        try commit(next)
+    }
+
+    func updateFinancialRecovery(id: String, lastServerState: String, terminal: Bool) throws {
+        var next = payload
+        guard let index = next.financialRecovery?.firstIndex(where: { $0.id == id }) else { return }
+        next.financialRecovery?[index].lastServerState = lastServerState
+        var completed = next.financialRecoveryCompletedIDs ?? []
+        if terminal { completed.insert(id) } else { completed.remove(id) }
+        next.financialRecoveryCompletedIDs = completed
+        try commit(next)
+    }
 
     func verifyWritable() throws {
         if let integrityFault { throw StoreError.integrityFault(integrityFault) }
@@ -447,20 +483,27 @@ final class PaymentRecoveryCoordinator: ObservableObject {
     let managementAuthorized: @MainActor () -> Bool
     let inspectManagementDependencies: @MainActor (String) async throws -> CheckoutManagementSnapshot
     private let outboxClient: @MainActor () -> PaymentsAPIClient?
+    private let recoverPrintJournal: @MainActor () -> Void
 
     init(checkpointStore: @escaping @MainActor () -> CheckoutCheckpointStore? = { CheckoutCheckpointStore.shared },
          reader: @escaping @MainActor () -> (any CheckoutRecoveryReading)? = { PaymentsConfiguration.current().map { PaymentsAPIClient(configuration: $0) } },
          outboxClient: @escaping @MainActor () -> PaymentsAPIClient? = { PaymentsConfiguration.current().map { PaymentsAPIClient(configuration: $0) } },
          managementAuthorized: @escaping @MainActor () -> Bool = { OperatorAccessPermit.shared.isAuthorized },
+         recoverPrintJournal: @escaping @MainActor () -> Void = { PrintOutcomeOutbox.shared?.retryLaunchRecovery() },
          inspectManagementDependencies: @escaping @MainActor (String) async throws -> CheckoutManagementSnapshot = { try await CheckoutManagementSnapshot.inspect($0) }) {
         self.checkpointStore = checkpointStore; self.reader = reader; self.outboxClient = outboxClient
         self.managementAuthorized = managementAuthorized; self.inspectManagementDependencies = inspectManagementDependencies
+        self.recoverPrintJournal = recoverPrintJournal
     }
 
     var managementStore: CheckoutCheckpointStore? { checkpointStore() }
     var managementReader: (any CheckoutRecoveryReading)? { reader() }
     var activeInterruptionCount: Int { activeItems.filter { !$0.classification.isTerminal }.count }
-    var parkedFollowUpCount: Int { outstandingItems.filter { !$0.classification.isTerminal }.count }
+    var parkedFollowUpCount: Int { outstandingItems.filter { $0.checkpoint.hiddenAt == nil && !$0.classification.isTerminal }.count }
+    var retainedFinancialRecovery: [CheckoutCheckpoint] { checkpointStore()?.financialRecovery ?? [] }
+    var financialFollowUpCount: Int {
+        outstandingItems.filter { !$0.classification.isTerminal }.count + (checkpointStore()?.outstandingFinancialRecovery.count ?? 0)
+    }
     var archivedCheckpoints: [CheckoutCheckpoint] { checkpointStore()?.all.filter { $0.isResolved || $0.hiddenAt != nil } ?? [] }
 
     /// Items an attendant should look at (never shown with any detail on guest screens).
@@ -506,7 +549,7 @@ final class PaymentRecoveryCoordinator: ObservableObject {
     }
 
     private func performRefreshPass() async {
-        PrintOutcomeOutbox.shared?.retryLaunchRecovery()
+        recoverPrintJournal()
         refreshOutboxSummary()
         guard let store = checkpointStore() else {
             lastRefreshMessage = "Checkout records are unavailable on this iPad."
@@ -555,6 +598,20 @@ final class PaymentRecoveryCoordinator: ObservableObject {
             if let current = store.checkpoint(id: checkpoint.id), !current.isResolved {
                 refreshed.append(CheckoutRecoveryItem(checkpoint: current, classification: classification))
             }
+        }
+        // Deleted workspace checkpoints still receive read-only financial follow-up. Never
+        // reinsert them, arm a resume, resolve a payment or send a copy from this evidence.
+        for retained in store.outstandingFinancialRecovery {
+            guard let client, client.environment == retained.environment,
+                  retained.serverBinding == nil || retained.serverBinding == client.serverBinding else { continue }
+            do {
+                let result = try await client.checkoutRecovery(checkoutSessionID: retained.id)
+                if let view = result.orders.last {
+                    let eligibility = CheckoutDeletionPolicy.decide(checkpoint: retained, server: result, dependencies: .init())
+                    try store.updateFinancialRecovery(id: retained.id, lastServerState: view.entitlement?.serverState ?? view.attempt?.state ?? view.order.state,
+                                                      terminal: eligibility.category == .eligible)
+                }
+            } catch { unreachable = true }
         }
         items = refreshed.compactMap { item in
             guard let current = store.checkpoint(id: item.id), !current.isResolved else { return nil }

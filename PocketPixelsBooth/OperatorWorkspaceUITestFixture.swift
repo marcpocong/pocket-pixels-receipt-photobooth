@@ -133,7 +133,7 @@ struct OperatorWorkspaceUITestFixture: View {
                 commercialEventID: nil, commercial: .notNeeded, lastEventCheck: nil, paymentsConfigured: false, environment: nil,
                 printerRequiresRecovery: false, unresolvedPrint: false, printerLastReported: "Not checked", printAccountingConflicts: 0, printAccountingPending: 0,
                 checkoutsNeedingAttention: recovery.activeInterruptionCount, checkoutIntegrityFault: false, lastRecoveryCheck: Date(),
-                pendingGalleries: 0, galleryStorageProblem: false, storageErrors: [], pendingCreation: false, parkedFinancialFollowUps: recovery.parkedFollowUpCount))
+                pendingGalleries: 0, galleryStorageProblem: false, storageErrors: [], pendingCreation: false, parkedFinancialFollowUps: recovery.financialFollowUpCount))
         }
     }
 }

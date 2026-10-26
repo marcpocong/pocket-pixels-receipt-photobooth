@@ -202,6 +202,24 @@ import SwiftUI
 }
 
 @MainActor final class EventLifecycleIntegrationTests: XCTestCase {
+    func testHistoricalRenameKeepsCommercialAndSessionAssociationsAcrossRestart() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let runs = EventRunStore(directory: directory, authorized: { true }, blockingReason: { nil })
+        let context = EventRunContext(designID: "design", commercialEventID: "commercial", serverBinding: "test:original", name: "Old name")
+        let original = try runs.startNewRun(context: context)
+        try runs.beginSession(id: "original-session", runID: original.id, format: "solo")
+        try runs.transition(id: original.id, to: .completed)
+        try runs.renameRun(id: original.id, name: "Corrected name")
+        try runs.transition(id: original.id, to: .archived)
+        let relaunched = EventRunStore(directory: directory, authorized: { true }, blockingReason: { nil })
+        let restored = try XCTUnwrap(relaunched.runs.first)
+        XCTAssertEqual(restored.displayName, "Corrected name")
+        XCTAssertEqual(restored.context, context)
+        XCTAssertEqual(try relaunched.session(id: "original-session")?.runID, original.id)
+        XCTAssertEqual(restored.status, .archived)
+    }
+
     func testInFlightSetupCannotBeContradictedByEndOrPauseAfterNavigation() async throws {
         let booth = Booth(); defer { booth.cleanup() }
         _ = await startPrepaid(booth)
