@@ -118,11 +118,14 @@ private struct EventOperationsValidationHome: View {
 private struct PortraitCameraValidationView: View {
     @State private var camera = CameraService()
     @State private var status = "Starting camera preview…"
+    @State private var previewGeometry = ""
     var body: some View {
         VStack(spacing: 12) {
             CameraPreview(session: camera.session, cameraService: camera)
                 .aspectRatio(3.0 / 4.0, contentMode: .fit)
+                .background(ValidationSceneGeometryProbe { previewGeometry = $0 })
                 .accessibilityElement(children: .ignore)
+                .accessibilityValue(previewGeometry)
                 .accessibilityLabel("Portrait camera preview")
                 .accessibilityIdentifier("validation-camera-preview")
             Text(status).accessibilityIdentifier("validation-camera-status")
@@ -136,6 +139,28 @@ private struct PortraitCameraValidationView: View {
                 }
             }
             .onDisappear { camera.stopSession() }
+    }
+}
+/// XCTest screen rectangles can rotate with the display while the app scene stays portrait.
+/// Expose the real local layout and scene orientation for the isolated camera acceptance check.
+private struct ValidationSceneGeometryProbe: UIViewRepresentable {
+    var report: (String) -> Void
+    func makeUIView(context: Context) -> ProbeView { ProbeView() }
+    func updateUIView(_ view: ProbeView, context: Context) { view.report = report }
+    final class ProbeView: UIView {
+        var report: ((String) -> Void)?
+        private var lastReport = ""
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            guard let scene = window?.windowScene else { return }
+            // Keep this acceptance probe compatible with the production CI's older SDK.
+            let orientation = scene.interfaceOrientation
+            let value = "\(orientation.rawValue)|\(bounds.width)|\(bounds.height)"
+            guard value != lastReport else { return }
+            lastReport = value
+            let report = report
+            DispatchQueue.main.async { report?(value) }
+        }
     }
 }
 #endif

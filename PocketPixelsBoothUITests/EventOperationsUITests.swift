@@ -4,6 +4,7 @@ import XCTest
 /// app's Debug acceptance mode; these tests cannot issue a payment or physical print.
 final class EventOperationsUITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
+    override func tearDownWithError() throws { XCUIDevice.shared.orientation = .portrait }
     private func launch(extra: [String] = []) -> XCUIApplication {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
@@ -15,6 +16,12 @@ final class EventOperationsUITests: XCTestCase {
     private func capture(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+    }
+    private func replaceAlertText(_ field: XCUIElement, with text: String) {
+        field.tap()
+        field.typeKey("a", modifierFlags: .command)
+        field.typeText(text)
+        XCTAssertEqual(field.value as? String, text, "Save only after replacing the complete original name")
     }
     private func visible(_ element: XCUIElement, in app: XCUIApplication, requireHitTarget: Bool = true) {
         for _ in 0..<12 {
@@ -145,8 +152,7 @@ final class EventOperationsUITests: XCTestCase {
         XCTAssertTrue(manage.waitForExistence(timeout: 10)); manage.tap()
         app.buttons["Rename Event"].tap()
         let field = app.alerts.textFields.firstMatch
-        field.tap()
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: "Synthetic Paid History".count) + "Corrected Saved Event")
+        replaceAlertText(field, with: "Corrected Saved Event")
         app.alerts.buttons["Save"].tap()
         XCTAssertTrue(app.buttons["Manage Corrected Saved Event"].waitForExistence(timeout: 5))
         capture("saved-event-renamed-independently")
@@ -154,7 +160,7 @@ final class EventOperationsUITests: XCTestCase {
         visible(runMenu, in: app); runMenu.tap()
         app.buttons["Rename Event"].tap()
         let runName = app.alerts.textFields.firstMatch
-        runName.tap(); runName.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: "Synthetic Paid History".count) + "Corrected Historical Run")
+        replaceAlertText(runName, with: "Corrected Historical Run")
         app.alerts.buttons["Save"].tap()
         XCTAssertTrue(app.staticTexts["Corrected Historical Run"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Manage Corrected Saved Event"].exists)
@@ -200,8 +206,13 @@ final class EventOperationsUITests: XCTestCase {
         let price = app.textFields["0.00"]
         visible(price, in: app); price.tap(); price.typeText("25.00")
         capture("portrait-inline-paid-settings-keyboard")
-        XCTAssertTrue(app.buttons["review-setup"].isHittable, "Keyboard leaves the action bar reachable")
-        app.buttons["event-finish-editing"].tap()
+        let reviewAction = app.buttons["review-setup"]
+        XCTAssertTrue(app.frame.contains(reviewAction.frame), "Keyboard leaves the action bar visible")
+        let doneEditing = app.buttons["event-finish-editing"]
+        XCTAssertTrue(doneEditing.isHittable, "The numeric keypad has a reachable dismissal action")
+        doneEditing.tap()
+        let keyboardActionBar = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: reviewAction)
+        XCTAssertEqual(XCTWaiter.wait(for: [keyboardActionBar], timeout: 5), .completed, "The action bar is tappable after dismissing input")
         visible(payment, in: app)
         let free = app.buttons["No Payment Required"]
         visible(free, in: app); try tapVisible(app.buttons.matching(identifier: "No Payment Required"))
@@ -237,8 +248,15 @@ final class EventOperationsUITests: XCTestCase {
         try tapVisible(app.buttons.matching(identifier: "Black & White"))
         capture("portrait-full-preview-photo-pass")
         try tapVisible(app.buttons.matching(identifier: "Thermal Raster"))
+        XCTAssertTrue(app.buttons["Done"].isHittable)
         app.buttons["Done"].tap()
-        visible(receipt, in: app); receipt.tap()
+        // Newer iPadOS rotates display coordinates even while this scene stays portrait.
+        // Restore display coordinates before the shared vertical scrolling helper is used.
+        XCUIDevice.shared.orientation = .portrait
+        let closeReceipt = app.buttons["close-receipt-controls"]
+        XCTAssertTrue(closeReceipt.waitForExistence(timeout: 5)); XCTAssertTrue(closeReceipt.isHittable)
+        closeReceipt.tap()
+        XCTAssertFalse(app.otherElements["event-pinned-preview"].exists)
         let guest = app.buttons["event-guest-experience"]
         visible(guest, in: app); guest.tap()
         let stickers = app.buttons["event-sticker-studio"]
@@ -305,14 +323,32 @@ final class EventOperationsUITests: XCTestCase {
 #endif
         let preview = app.otherElements["validation-camera-preview"]
         XCTAssertTrue(preview.exists)
-        let initial = preview.frame
+        let geometryReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (preview.value as? String)?.split(separator: "|").count == 3
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [geometryReady], timeout: 5), .completed)
+        func localGeometry() throws -> (orientation: Int, width: Double, height: Double) {
+            let parts = try XCTUnwrap(preview.value as? String).split(separator: "|")
+            XCTAssertEqual(parts.count, 3)
+            return (try XCTUnwrap(Int(parts[0])), try XCTUnwrap(Double(parts[1])), try XCTUnwrap(Double(parts[2])))
+        }
+        let initial = try localGeometry()
+        XCTAssertEqual(initial.orientation, 1, "UIWindowScene must report portrait")
         XCTAssertGreaterThan(initial.height, initial.width)
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertLessThan(app.frame.width, app.frame.height)
-        XCTAssertEqual(preview.frame.width, initial.width, accuracy: 2)
-        XCTAssertEqual(preview.frame.height, initial.height, accuracy: 2)
+        let rotated = try localGeometry()
+        XCTAssertEqual(rotated.orientation, 1, "The scene must remain portrait after rotating the display")
+        // Compare the actual preview layout in scene coordinates. XCTest's screen-space
+        // rectangles swap axes on newer iPadOS even when the scene remains portrait.
+        XCTAssertEqual(rotated.width, initial.width, accuracy: 2)
+        XCTAssertEqual(rotated.height, initial.height, accuracy: 2)
         capture("portrait-live-camera-after-device-rotation")
-        XCTAssertTrue(app.navigationBars.buttons["Event Validation"].isHittable)
+        let back = app.navigationBars.buttons.firstMatch
+        let backReady = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: back)
+        XCTAssertEqual(XCTWaiter.wait(for: [backReady], timeout: 8), .completed, "Camera navigation remains reachable after rotation")
+        back.tap()
+        XCTAssertTrue(app.navigationBars["Event Validation"].waitForExistence(timeout: 5))
         XCUIDevice.shared.orientation = .portrait
     }
 

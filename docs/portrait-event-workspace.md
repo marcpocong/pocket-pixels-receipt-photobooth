@@ -80,3 +80,23 @@ Installation used the existing signed bundle over the installed app. The normal 
 - `docs/operator-workspace-v4.md`
 - `docs/payments-phase3-test-staging-runbook.md`
 - `docs/portrait-event-workspace.md`
+
+## Production Gate #145 follow-up
+
+Gate #145 passed backend checks and the iOS build, then exposed three native UI failures:
+
+- XCTest screen-space camera rectangles swapped axes after rotating the display, while direct telemetry confirmed that UIWindowScene stayed portrait and the local preview remained 717 × 955.5 points. The Debug-only fixture now exposes actual scene orientation and local preview bounds; the test retains both two-point geometry tolerances and explicitly asserts portrait before/after rotation. The application delegate also returns `.portrait` through UIKit's supported orientation callback, supplementing the Debug/Release plist declarations. The camera test waits for the Back control to become hittable after the display transition, taps it, and verifies return to Event Validation.
+- The expanded receipt section heading was outside the scroll viewport while the pinned preview remained visible. Its existing Close Receipt Controls action now has an accessibility identifier; the test uses that visible action and verifies that the pinned preview disappears before opening Guest Experience. After exercising the full preview and Done action with the display rotated, the test restores portrait display coordinates before using its vertical scrolling helper. Test teardown also restores orientation after failures.
+- Rename input depended on the alert's initial caret/selection state. The UI test now focuses the field, sends the standard Command-A selection shortcut, and asserts the exact replacement value before saving. Saved-design and historical-run rename assertions remain independent.
+
+On iPadOS 27, decimal input uses a floating numeric keypad that temporarily consumes interaction outside its presentation. The keyboard check verifies that the action bar remains on screen, the existing Done Editing action is tappable, and the review action becomes tappable after dismissal. This retains the keyboard escape and action reachability requirements while accommodating the native keypad presentation.
+
+No test was disabled, retried automatically, or replaced with coordinate taps or sleeps.
+
+## VOZY G80 paper-only top gap investigation
+
+The reported approximately 20 mm blank area occurs on printed paper only. The existing compact masthead correction remains present. `CoBrandedReceiptTests.testDefaultStandardAndCoBrandedMastheadsStartWithinSixMillimetres` checks all six formats, both composed and final thermal rasters; the focused header suite passed. The default standard masthead starts at approximately 4.25 mm digitally. `receiptPrintHeading()` sends only ESC @, without a leading paper-feed command.
+
+The finishing sequence includes trailing line feeds and GS V 66 0 (feed and partial cut). Epson's ESC/POS reference describes a physical gap between the cutting and printing positions and model-specific support for returning paper to the print start position: https://download4.epson.biz/sec_pubs/pos/reference_en/escpos/gs_cv.html . That is a plausible explanation, not confirmation of the VOZY G80 mechanism. No authoritative G80 command manual or physical measurement was available. Do not assume support for reverse feed, or reduce receipt padding to claim this paper-only issue fixed. Physical G80 verification remains outstanding.
+
+Continuation verification: simulator build-for-testing and signed Release device build passed. The three Gate #145 cases passed on the iOS 27 matching-class simulator across the corrected focused runs (`RebootAcceptance.xcresult`: workspace and rename; `CameraBackSync.xcresult`: camera). The earlier iOS 26.5 focused camera/receipt checks and corrected rename run also passed. Carlo's iPad was disconnected by the owner during continuation; the final follow-up has not been over-installed or rechecked on physical hardware. Earlier physical acceptance applies to commit 876f24d only.

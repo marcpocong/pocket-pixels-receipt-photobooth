@@ -6,9 +6,17 @@
 //
 
 import SwiftUI
+import UIKit
+
+final class PortraitApplicationDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        .portrait
+    }
+}
 
 @main
 struct PocketPixelsBoothApp: App {
+    @UIApplicationDelegateAdaptor(PortraitApplicationDelegate.self) private var applicationDelegate
     var body: some Scene {
         WindowGroup {
 #if DEBUG

@@ -103,7 +103,9 @@ struct SessionSetupView: View {
                         HStack {
                             Text("Live Receipt Preview").font(.headline)
                             Spacer()
-                            Button("Close Receipt Controls") { endEditing(); receiptExpanded = false }.font(.callout).frame(minHeight: 44)
+                            Button("Close Receipt Controls") { endEditing(); receiptExpanded = false }
+                                .font(.callout).frame(minHeight: 44)
+                                .accessibilityIdentifier("close-receipt-controls")
                         }
                         EventReceiptComposerPreview(profile: setup.effectiveProfile, printOptions: devicePrintOptions, compact: true, selection: $previewSelection)
                     }.accessibilityElement(children: .contain).accessibilityIdentifier("event-pinned-preview")
