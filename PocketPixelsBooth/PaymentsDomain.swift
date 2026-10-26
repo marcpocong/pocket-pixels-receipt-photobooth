@@ -169,6 +169,28 @@ nonisolated struct CheckoutEntitlement: Codable, Equatable, Sendable, Identifiab
         (1...purchasedCopies).contains(copyIndex)
             && (self.receiptFingerprint == nil || self.receiptFingerprint == receiptFingerprint)
     }
+
+    /// Only a free, session-bound prepaid choice can change locally. Purchased/server-issued
+    /// quantities remain immutable, including cash declarations and signed offline cash.
+    func authorizingLocalPrepaidCopies(
+        _ copies: Int, policy: PaymentPolicySnapshot, eventID: String,
+        sessionID: String, format: BoothFormat
+    ) -> CheckoutEntitlement? {
+        guard authorizationSource == .privatePrepaid, orderID == nil, serverState == nil,
+              unitPriceCentavos == 0, totalCentavos == 0,
+              policy.commercialMode == .privatePrepaid, policy.prepaidGuestCopyChoice,
+              policy.validationMessage == nil, policy.supports(format),
+              copies >= 1, copies <= policy.maxCopies,
+              self.eventID == eventID, policyRevisionID == policy.revisionID,
+              self.sessionID == sessionID, selectedFormatRawValue == format.rawValue else { return nil }
+        return CheckoutEntitlement(
+            id: id, orderID: nil, eventID: eventID, policyRevisionID: policyRevisionID,
+            sessionID: sessionID, selectedFormatRawValue: selectedFormatRawValue,
+            purchasedCopies: copies, unitPriceCentavos: 0, totalCentavos: 0,
+            authorizationSource: .privatePrepaid, authorizedAt: authorizedAt,
+            receiptFingerprint: receiptFingerprint, serverState: nil
+        )
+    }
 }
 
 nonisolated enum PaymentOrderState: String, Codable, Sendable {

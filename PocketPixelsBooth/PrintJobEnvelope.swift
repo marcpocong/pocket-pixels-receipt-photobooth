@@ -87,11 +87,12 @@ struct PrintJobEnvelope: Identifiable, Sendable {
         transportPolicy: ProductionPrintTransportPolicy
     ) throws -> PrintJobEnvelope {
         let heading = ThermalImageRasterizer.receiptPrintHeading()
-        let finishing = ThermalImageRasterizer.photoTestFinishing()
+        let finishing = ThermalImageRasterizer.receiptPrintFinishing()
         return try make(
             heading: heading,
             rasterizedImage: rasterizedImage,
             finishing: finishing,
+            printsFooterFirst: true,
             sessionIdentifier: sessionIdentifier,
             source: source,
             copyIndex: copyIndex,
@@ -136,6 +137,7 @@ struct PrintJobEnvelope: Identifiable, Sendable {
         heading: Data,
         rasterizedImage: ThermalRasterizedImage,
         finishing: Data,
+        printsFooterFirst: Bool = false,
         sessionIdentifier: String,
         source: PrintJobSource,
         copyIndex: Int,
@@ -150,16 +152,36 @@ struct PrintJobEnvelope: Identifiable, Sendable {
             bytesPerRow: rasterizedImage.widthBytes,
             rasterDataCount: rasterizedImage.rasterData.count
         )
+        let rasterCommand: Data
+        let sanitizationReport: RasterSanitizationReport
+        let printHeight: Int
+        if printsFooterFirst {
+            let printed = try ThermalImageRasterizer.receiptPrintRaster(for: rasterizedImage)
+            rasterCommand = printed.command
+            sanitizationReport = printed.report
+            printHeight = printed.height
+        } else {
+            rasterCommand = rasterizedImage.rasterCommand
+            sanitizationReport = rasterizedImage.sanitizationReport
+            printHeight = rasterizedImage.height
+        }
+        try ThermalImageRasterizer.validateRasterCommand(
+            rasterCommand,
+            imageWidth: rasterizedImage.width,
+            imageHeight: printHeight,
+            bytesPerRow: rasterizedImage.widthBytes,
+            rasterDataCount: rasterCommand.count - 8
+        )
         try RasterCommandSanitizer.validateOutboundJob(
             heading: heading,
-            rasterCommand: rasterizedImage.rasterCommand,
+            rasterCommand: rasterCommand,
             finishing: finishing,
-            rasterDataRange: 8..<rasterizedImage.rasterCommand.count
+            rasterDataRange: 8..<rasterCommand.count
         )
 
-        var payload = Data(capacity: heading.count + rasterizedImage.rasterCommand.count + finishing.count)
+        var payload = Data(capacity: heading.count + rasterCommand.count + finishing.count)
         payload.append(heading)
-        payload.append(rasterizedImage.rasterCommand)
+        payload.append(rasterCommand)
         payload.append(finishing)
 
         return PrintJobEnvelope(
@@ -175,11 +197,11 @@ struct PrintJobEnvelope: Identifiable, Sendable {
             payloadFingerprint: payload.sha256HexString,
             payloadByteCount: payload.count,
             imageWidth: rasterizedImage.width,
-            imageHeight: rasterizedImage.height,
-            rasterByteCount: rasterizedImage.rasterData.count,
-            rasterCommandByteCount: rasterizedImage.rasterCommand.count,
-            rasterDataRange: heading.count + 8..<heading.count + rasterizedImage.rasterCommand.count,
-            sanitizationReport: rasterizedImage.sanitizationReport
+            imageHeight: printHeight,
+            rasterByteCount: rasterCommand.count - 8,
+            rasterCommandByteCount: rasterCommand.count,
+            rasterDataRange: heading.count + 8..<heading.count + rasterCommand.count,
+            sanitizationReport: sanitizationReport
         )
     }
 }

@@ -11,6 +11,37 @@ final class SamplePrintStudioTests: XCTestCase {
 
     // MARK: Policy
 
+    func testEmptyStudioPreparesPlaceholderWithoutAPermanentLoadingIndicator() async throws {
+        let model = makeModel()
+        XCTAssertEqual(model.filledSlotCount, 0)
+        XCTAssertFalse(model.showsPreviewLoadingIndicator)
+        XCTAssertNotEqual(model.previewState, .idle, "Default settings must still start the placeholder render")
+        try await waitForPreview(model)
+        for mode in SampleReceiptPreviewMode.allCases {
+            model.previewMode = mode
+            XCTAssertNotNil(model.previewImage, "The numbered receipt placeholder is available in both modes")
+            XCTAssertFalse(model.showsPreviewLoadingIndicator)
+        }
+        XCTAssertNil(model.printableSample)
+        XCTAssertFalse(model.canPrint(openGate), "A placeholder must never become a printable guest photo")
+    }
+
+    func testRemovingAllPhotosReturnsToPlaceholderWithoutShowingPreviousPhotosOrASpinner() async throws {
+        let model = makeModel()
+        model.addImported([photo(0)])
+        XCTAssertTrue(model.showsPreviewLoadingIndicator)
+        try await waitForPreview(model)
+        let importedPreview = try XCTUnwrap(model.currentPreview)
+        model.removeAllPhotos()
+        XCTAssertFalse(model.showsPreviewLoadingIndicator)
+        XCTAssertNil(model.currentPreview, "Never reuse an imported photo while the empty placeholder prepares")
+        XCTAssertFalse(model.canPrint(openGate))
+        try await waitForPreview(model)
+        XCTAssertNotNil(model.previewImage)
+        XCTAssertNotEqual(model.currentPreview?.request, importedPreview.request)
+        XCTAssertEqual(model.filledSlotCount, 0)
+    }
+
     func testMountedDepartingSlotAndChooserSurviveShrinkingFormats() async throws {
         for populated in [false, true] {
             for original in [BoothFormat.duo, .gridSix, .passport] {
@@ -153,19 +184,64 @@ final class SamplePrintStudioTests: XCTestCase {
                 passport: format == .passport ? SamplePhotoPassDetails().sessionData(configuration: .default) : nil,
                 sampleGalleryPlaceholder: true
             )
-            XCTAssertEqual(sample.receipt.height, guest.height, "\(format.rawValue): sample must be exactly as long as a guest receipt")
+            XCTAssertEqual(sample.receipt.height, guest.height, "\(format.rawValue): digital copies retain the normal receipt canvas")
+            let samplePlan = try ReceiptComposer.makeLayoutPlan(format: format, includesGalleryQRCode: true, passport: format == .passport ? SamplePhotoPassDetails().sessionData(configuration: .default) : nil, date: fixedDate, printsSessionIdentifier: false)
+            XCTAssertEqual(sample.receipt.height, samplePlan.height)
+            XCTAssertGreaterThan(samplePlan.sessionIdentifierFrame.height, 0)
 
-            // Where a guest receipt prints its session identifier, the sample prints nothing.
+            // Digital samples retain breathing room but never print an invented session ID.
             let plan = try ReceiptComposer.makeLayoutPlan(format: format, includesGalleryQRCode: true, passport: format == .passport ? SamplePhotoPassDetails().sessionData(configuration: .default) : nil, date: fixedDate)
             let identifierBand = CGRect(x: 0, y: plan.sessionIdentifierFrame.minY, width: CGFloat(plan.width), height: plan.sessionIdentifierFrame.height)
             let sampleImage = try XCTUnwrap(UIImage(data: sample.receipt.imagePNGData)?.cgImage)
             let guestImage = try XCTUnwrap(UIImage(data: guest.imagePNGData)?.cgImage)
-            XCTAssertEqual(darkPixels(in: sampleImage, rect: identifierBand), 0, "\(format.rawValue): sample prints a session identifier")
+            XCTAssertEqual(darkPixels(in: sampleImage, rect: identifierBand), 0, "\(format.rawValue): sample must not expose a session ID")
             XCTAssertGreaterThan(darkPixels(in: guestImage, rect: identifierBand), 0, "\(format.rawValue): guest identifier band was not measured")
             let attachment = XCTAttachment(data: sample.raster.previewPNGData, uniformTypeIdentifier: UTType.png.identifier)
             attachment.name = "display-sample-\(format.rawValue)-thermal"
             attachment.lifetime = .keepAlways
             add(attachment)
+        }
+    }
+
+    func testSamplePrintPipelineKeepsCompactTopMarginAndPrintsFooterFirstWithoutExtraFeed() throws {
+        for format in BoothFormat.allCases {
+            for footer in ReceiptFooterStyle.allCases {
+                let photos = (0..<format.photoCount).map { photo($0).image }
+                let request = SamplePrintRequest(
+                    format: format, slotPhotoIDs: photos.map { _ in UUID() },
+                    branding: .standard, eventProfile: nil,
+                    photoPass: format == .passport ? SamplePhotoPassDetails() : nil,
+                    printOptions: ReceiptPrintOptions(footerStyle: footer)
+                )
+                let sample = try SamplePrintComposer.prepare(
+                    request: request, photos: photos, date: fixedDate,
+                    photoQualityProfile: .customerPrintDefault
+                )
+                let raster = sample.raster
+                let firstInk = try XCTUnwrap((0..<raster.height).first { row in
+                    raster.rasterData[(row * raster.widthBytes)..<((row + 1) * raster.widthBytes)].contains { $0 != 0 }
+                })
+                let lastInk = try XCTUnwrap((0..<raster.height).reversed().first { row in
+                    raster.rasterData[(row * raster.widthBytes)..<((row + 1) * raster.widthBytes)].contains { $0 != 0 }
+                })
+                let bottomBlank = raster.height - lastInk - 1
+                XCTAssertLessThan(firstInk, 48, "\(format) / \(footer): the actual sample raster must start within 6 mm")
+                XCTAssertGreaterThanOrEqual(bottomBlank, 28, "\(format) / \(footer): the digital receipt must keep its normal bottom border")
+                let envelope = try PrintJobEnvelope.receipt(
+                    rasterizedImage: raster, sessionIdentifier: SamplePrintPolicy.auditSessionIdentifier,
+                    source: .operatorSample, copyIndex: 1, copyCount: 1,
+                    batchID: UUID(), transportPolicy: .safeIntegrity
+                )
+                XCTAssertEqual(envelope.rasterDataRange.lowerBound, 10, "Only ESC @ and the eight-byte raster header may precede raster rows")
+                XCTAssertEqual(envelope.payload.prefix(2), Data([0x1B, 0x40]), "No leading line feed, text, or paper movement")
+                let printed = try ThermalImageRasterizer.receiptPrintRaster(for: raster)
+                XCTAssertEqual(envelope.payload.subdata(in: 2..<(2 + printed.command.count)), printed.command)
+                XCTAssertEqual(envelope.imageHeight, lastInk + 1, "Trim blank rows only in the paper copy")
+                XCTAssertEqual(envelope.rasterByteCount, (lastInk + 1) * raster.widthBytes)
+                XCTAssertTrue(envelope.payload[envelope.rasterDataRange.lowerBound..<(envelope.rasterDataRange.lowerBound + raster.widthBytes)].contains { $0 != 0 }, "Footer-first paper must begin on an ink row with no programmed bottom gap")
+                XCTAssertEqual(envelope.payload.subdata(in: envelope.rasterDataRange.upperBound..<envelope.payload.count), Data([0x1D, 0x56, 0x42, 0x00]), "The cut must follow the header without extra line feeds")
+                print("Sample margins: \(format.rawValue), \(footer.rawValue), digital bottom \(bottomBlank) dots, paper bottom 0 dots")
+            }
         }
     }
 

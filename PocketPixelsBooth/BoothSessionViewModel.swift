@@ -204,11 +204,34 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     var canDecreasePrintCopies: Bool {
-        checkoutEntitlement?.authorizationSource == .privatePrepaid && commercialEvent.activePolicy.prepaidGuestCopyChoice && !isPrintBatchActive && selectedPrintCopies > 1
+        canChoosePrepaidPrintCopies && selectedPrintCopies > 1
     }
 
     var canIncreasePrintCopies: Bool {
-        checkoutEntitlement?.authorizationSource == .privatePrepaid && commercialEvent.activePolicy.prepaidGuestCopyChoice && !isPrintBatchActive && selectedPrintCopies < commercialEvent.activePolicy.maxCopies
+        canChoosePrepaidPrintCopies && selectedPrintCopies < commercialEvent.activePolicy.maxCopies
+    }
+
+    private var canChoosePrepaidPrintCopies: Bool {
+        guard state == .receiptPreview, printBatchTask == nil, !isPrintBatchActive,
+              currentPrintCopy == 0, completedPrintCopies == 0,
+              let sessionIdentifier, let format = selectedBoothFormat,
+              let checkoutEntitlement else { return false }
+        return checkoutEntitlement.authorizingLocalPrepaidCopies(
+            selectedPrintCopies, policy: commercialEvent.activePolicy,
+            eventID: commercialEvent.id, sessionID: sessionIdentifier, format: format
+        ) != nil
+    }
+
+    @discardableResult
+    private func selectPrepaidPrintCopies(_ copies: Int) -> Bool {
+        guard canChoosePrepaidPrintCopies, let sessionIdentifier, let format = selectedBoothFormat,
+              let authorization = checkoutEntitlement?.authorizingLocalPrepaidCopies(
+                copies, policy: commercialEvent.activePolicy,
+                eventID: commercialEvent.id, sessionID: sessionIdentifier, format: format
+              ) else { return false }
+        checkoutEntitlement = authorization
+        selectedPrintCopies = copies
+        return true
     }
 
     var printProgressText: String {
@@ -1347,6 +1370,21 @@ final class BoothSessionViewModel: ObservableObject {
         state = .cameraReady
     }
 
+    func configureReceiptAuthorizationForTesting(
+        run: CommercialEventRun, entitlement: CheckoutEntitlement,
+        currentCopy: Int = 0, completedCopies: Int = 0
+    ) {
+        commercialEvent = run
+        checkoutEntitlement = entitlement
+        sessionIdentifier = entitlement.sessionID
+        selectedBoothFormat = BoothFormat(rawValue: entitlement.selectedFormatRawValue)
+        selectedPrintCopies = entitlement.purchasedCopies
+        currentPrintCopy = currentCopy
+        completedPrintCopies = completedCopies
+        isTransitionActive = false
+        state = .receiptPreview
+    }
+
     /// A paid session at copy selection with the given methods, without touching the server.
     func configurePaidCheckoutForTesting(qrPhEnabled: Bool, cashEnabled: Bool, authority: PolicyAuthority = .serverConfirmed(fetchedAt: Date())) {
         var run = CommercialEventRun.legacy
@@ -2088,17 +2126,21 @@ final class BoothSessionViewModel: ObservableObject {
 
     func printReceipt(host: String, port: UInt16?) {
         debugLog("[PrintTap] state=\(state) printerState=\(printerState) batchTaskActive=\(printBatchTask != nil) port=\(port.map(String.init) ?? "nil") rasterReady=\(receiptRasterizedImage != nil)")
+        guard printBatchTask == nil else {
+            debugLog("[PrintTap] ignored: a print batch is already running")
+            return
+        }
+        // Keep a direct quantity binding consistent too, using the same frozen local policy
+        // as the stepper. This cannot expand a paid or already-started authorization.
+        if checkoutEntitlement?.purchasedCopies != selectedPrintCopies {
+            selectPrepaidPrintCopies(selectedPrintCopies)
+        }
         guard let checkoutEntitlement,
               checkoutEntitlement.purchasedCopies == selectedPrintCopies else {
             statusMessage = "This print quantity is not authorized for the session."
             printerState = .failure(statusMessage)
             return
         }
-        guard printBatchTask == nil else {
-            debugLog("[PrintTap] ignored: a print batch is already running")
-            return
-        }
-
         guard let port else {
             debugLog("[PrintTap] blocked: invalid printer port")
             printerState = .failure("Enter a valid TCP port from 1 to 65535.")
@@ -2172,7 +2214,7 @@ final class BoothSessionViewModel: ObservableObject {
             return
         }
 
-        selectedPrintCopies -= 1
+        selectPrepaidPrintCopies(selectedPrintCopies - 1)
     }
 
     func increasePrintCopies() {
@@ -2180,7 +2222,7 @@ final class BoothSessionViewModel: ObservableObject {
             return
         }
 
-        selectedPrintCopies += 1
+        selectPrepaidPrintCopies(selectedPrintCopies + 1)
     }
 
     func resumeAfterOperatorRecovery() {

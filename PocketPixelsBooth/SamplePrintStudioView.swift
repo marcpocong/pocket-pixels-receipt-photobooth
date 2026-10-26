@@ -191,10 +191,25 @@ struct SamplePrintStudioView: View {
                         rendering: model.previewMode == .thermalRaster ? .exactRaster : .smooth,
                         accessibilityLabel: "\(model.previewMode.title) receipt preview"
                     )
+                    .accessibilityIdentifier("sample-rendered-receipt")
                 }
                 switch model.previewState {
                 case .rendering, .idle:
-                    ProgressView("Preparing receipt…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    if model.showsPreviewLoadingIndicator {
+                        ProgressView("Preparing receipt…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                            .accessibilityIdentifier("sample-preview-loading")
+                    } else {
+                        VStack(spacing: 16) {
+                            Image(systemName: "photo.on.rectangle.angled")
+                                .font(.system(size: 42)).foregroundStyle(.secondary)
+                            Text("Your receipt preview").font(.headline)
+                            Text("Import photos to fill the numbered photo slots.")
+                                .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(.white, in: RoundedRectangle(cornerRadius: 12))
+                        .accessibilityIdentifier("sample-empty-preview-placeholder")
+                    }
                 case .failed(let message):
                     Text(message).font(.footnote).foregroundStyle(.secondary).padding()
                 case .ready:
@@ -205,8 +220,8 @@ struct SamplePrintStudioView: View {
             .frame(maxWidth: .infinity)
             .frame(height: 640)
 
-            if let receipt = model.currentPreview?.receipt {
-                Text("\(model.previewMode == .blackAndWhite ? "Smooth grayscale" : "Exact printer raster") · \(String(format: "%.0f", receipt.estimatedLengthMillimeters)) mm long · no scannable QR or session ID")
+            if model.currentPreview != nil {
+                Text("\(model.previewMode == .blackAndWhite ? "Smooth grayscale" : "Thermal preview") · no scannable QR or session ID")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -238,6 +253,7 @@ struct SamplePrintStudioView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(!model.canPrint(gate))
+            .accessibilityIdentifier("sample-print")
 
             if let reason = model.blockedReason(gate) {
                 Label(reason, systemImage: "info.circle").font(.footnote).foregroundStyle(.secondary)
@@ -248,6 +264,7 @@ struct SamplePrintStudioView: View {
             Text("Samples do not start a guest session, take payment, create a gallery or upload photos.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
         }
     }
 

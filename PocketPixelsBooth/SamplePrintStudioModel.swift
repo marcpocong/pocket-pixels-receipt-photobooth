@@ -3,9 +3,10 @@
 //  PocketPixelsBooth
 //
 //  Sample Print Studio: display receipts made from the operator's own photos with the production
-//  compositor and rasterizer. The thermal raster shown in the preview is retained and is the exact
-//  data sent to the printer; any change to photos, order, format, branding or Photo Pass details
-//  discards it. Samples never start a guest session, take payment, consume an entitlement, create
+//  compositor and rasterizer. The thermal raster shown in the preview retains the digital border;
+//  print preparation removes only blank bottom rows and rotates the outgoing copy. Changes to
+//  photos, order, format, branding or Photo Pass details discard it. Samples never start a guest
+//  session, take payment, consume an entitlement, create
 //  a gallery, upload anything or change event settings. They are traceable in the print audit as
 //  `PrintJobSource.operatorSample` only.
 //
@@ -264,6 +265,9 @@ final class SamplePrintStudioModel: ObservableObject {
         reloadSavedBranding()
         branding = savedEventProfile == nil ? .standard : .savedEvent
         footerStyle = ReceiptPrintSettingsStore.load().resolved(for: savedEventProfile).footerStyle
+        // Default values may not trigger an observer. Always prepare the numbered-photo
+        // receipt placeholder, even when the operator has not imported any photos.
+        invalidate()
     }
 
     deinit { renderTask?.cancel() }
@@ -292,6 +296,9 @@ final class SamplePrintStudioModel: ObservableObject {
     }
 
     var previewImage: UIImage? { currentPreview?.image(for: previewMode) }
+    var showsPreviewLoadingIndicator: Bool {
+        filledSlotCount > 0 && (previewState == .idle || previewState == .rendering)
+    }
     var canSavePreview: Bool { currentPreview != nil && !isImporting && !isSaving }
 
     /// Only a raster prepared for exactly the current, complete request is printable.

@@ -19,7 +19,19 @@ final class EventOperationsUITests: XCTestCase {
     }
     private func replaceAlertText(_ field: XCUIElement, with text: String) {
         field.tap()
+        // Command-A and touch selection differ across runtimes. Delete the selection
+        // and inspect the actual field before falling back to touch paragraph selection.
         field.typeKey("a", modifierFlags: .command)
+        field.typeText(XCUIKeyboardKey.delete.rawValue)
+        let afterShortcut = field.value as? String ?? ""
+        if !afterShortcut.isEmpty && afterShortcut != field.placeholderValue {
+            field.tap(withNumberOfTaps: 3, numberOfTouches: 1)
+            field.typeText(XCUIKeyboardKey.delete.rawValue)
+        }
+        let cleared = field.value as? String ?? ""
+        XCTAssertTrue(cleared.isEmpty || cleared == field.placeholderValue, "Delete the complete original name before replacing it")
+        // Emptying an alert field can rebuild its accessibility/focus state.
+        field.tap()
         field.typeText(text)
         XCTAssertEqual(field.value as? String, text, "Save only after replacing the complete original name")
     }
@@ -42,7 +54,7 @@ final class EventOperationsUITests: XCTestCase {
             if element.exists && (!requireHitTarget || element.isHittable) && frame.height > 0 && frame.width > 0
                 && frame.minY >= top && frame.maxY <= bottom { return }
             let done = app.buttons["event-finish-editing"]
-            if !reviewing && done.exists && done.isHittable { done.tap(); continue }
+            if !reviewing && app.keyboards.firstMatch.exists && done.exists && done.isHittable { done.tap(); continue }
             if element.exists && frame.midY < (top + bottom) / 2 { scroll.swipeDown(velocity: .slow) }
             else { scroll.swipeUp(velocity: .slow) }
         }
@@ -58,6 +70,26 @@ final class EventOperationsUITests: XCTestCase {
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 5), .completed)
         try XCTUnwrap(target).tap()
+    }
+
+    func testEmptySampleStudioShowsNumberedPlaceholdersInBothModesWithoutLoadingForever() throws {
+        let app = launch()
+        app.buttons["Preview Empty Sample Studio"].tap()
+        XCTAssertTrue(app.navigationBars["Print Display Samples"].waitForExistence(timeout: 10))
+        let preview = app.descendants(matching: .any)["sample-rendered-receipt"].firstMatch
+        XCTAssertTrue(preview.waitForExistence(timeout: 30), "An empty studio must finish preparing its numbered receipt placeholder")
+        XCTAssertFalse(app.descendants(matching: .any)["sample-preview-loading"].exists)
+        let thermal = app.segmentedControls.buttons["Thermal Raster"]
+        visible(thermal, in: app)
+        let printButton = app.buttons["sample-print"]
+        visible(printButton, in: app, requireHitTarget: false)
+        capture("empty-sample-black-and-white-placeholder")
+        thermal.tap()
+        XCTAssertTrue(preview.exists)
+        XCTAssertFalse(app.descendants(matching: .any)["sample-preview-loading"].exists)
+        capture("empty-sample-thermal-placeholder")
+        XCTAssertTrue(printButton.exists)
+        XCTAssertFalse(printButton.isEnabled, "Placeholders cannot be physically printed")
     }
 
     func testCreateActivateLiveEditAndRestartPreserveRun() throws {
@@ -84,6 +116,9 @@ final class EventOperationsUITests: XCTestCase {
         let rotated = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in app.frame.width < app.frame.height }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [rotated], timeout: 10), .completed)
         capture("receipt-editor-stays-portrait-after-rotation")
+        // The scene stays portrait while newer runtimes rotate display coordinates.
+        // Restore them before the vertical scrolling helper measures visible bounds.
+        XCUIDevice.shared.orientation = .portrait
         let caption = app.textFields["event-footer-caption"]
         XCTAssertTrue(caption.waitForExistence(timeout: 5)); visible(caption, in: app); caption.tap(); caption.typeText("DEVICE NEXT SESSION")
         XCUIDevice.shared.orientation = .portrait
@@ -209,6 +244,9 @@ final class EventOperationsUITests: XCTestCase {
         let reviewAction = app.buttons["review-setup"]
         XCTAssertTrue(app.frame.contains(reviewAction.frame), "Keyboard leaves the action bar visible")
         let doneEditing = app.buttons["event-finish-editing"]
+        // Newer iPadOS can present the decimal keypad as a modal system popover.
+        // Escape dismisses that popover before the app's navigation action can receive taps.
+        if !doneEditing.isHittable { price.typeKey(.escape, modifierFlags: []) }
         XCTAssertTrue(doneEditing.isHittable, "The numeric keypad has a reachable dismissal action")
         doneEditing.tap()
         let keyboardActionBar = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: reviewAction)

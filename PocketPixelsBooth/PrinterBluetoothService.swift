@@ -1025,22 +1025,30 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         balancedProfile: BalancedBluetoothPrinterProfile,
         completion: CompletionHandler?
     ) {
+        let printed: (command: Data, report: RasterSanitizationReport, height: Int)
+        do {
+            printed = try ThermalImageRasterizer.receiptPrintRaster(for: rasterizedImage)
+        } catch {
+            jobState = .failure(error.localizedDescription)
+            completion?(.failure(.invalidRaster(error.localizedDescription)), false)
+            return
+        }
         let heading = ThermalImageRasterizer.receiptPrintHeading()
-        let finishing = ThermalImageRasterizer.photoTestFinishing()
+        let finishing = ThermalImageRasterizer.receiptPrintFinishing()
         startRasterJob(
             label: receiptLabel,
             mode: mode,
             balancedProfile: balancedProfile,
             photoCalibrationProfileName: nil,
             heading: heading,
-            rasterCommand: rasterizedImage.rasterCommand,
+            rasterCommand: printed.command,
             finishing: finishing,
             imageWidth: rasterizedImage.width,
-            imageHeight: rasterizedImage.height,
-            rasterDataByteCount: rasterizedImage.rasterData.count,
-            sanitizationReport: rasterizedImage.sanitizationReport,
-            yL: rasterizedImage.yL,
-            yH: rasterizedImage.yH,
+            imageHeight: printed.height,
+            rasterDataByteCount: printed.command.count - 8,
+            sanitizationReport: printed.report,
+            yL: UInt8(printed.height & 0xFF),
+            yH: UInt8((printed.height >> 8) & 0xFF),
             completion: completion
         )
     }

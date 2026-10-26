@@ -30,6 +30,9 @@ private struct EventOperationsValidationHome: View {
             List {
                 Text("Isolated event validation · no customer data or payment requests")
                 NavigationLink("Check Portrait Camera") { PortraitCameraValidationView() }
+                NavigationLink("Preview Empty Sample Studio") {
+                    SamplePrintStudioView(previewProfile: .pocketPixelsDefault)
+                }
                 NavigationLink("Create Test Event") { SessionSetupView(coordinator: fixture.setup(), opensNewEventDraft: true) }
                 if let saved = library.library.events.filter({ $0.name != "Synthetic Paid History" && $0.removedAt == nil }).sorted(by: { $0.updatedAt > $1.updatedAt }).first {
                     NavigationLink("Reopen Saved Test Event") { SessionSetupView(coordinator: fixture.setup(designID: saved.id)) }

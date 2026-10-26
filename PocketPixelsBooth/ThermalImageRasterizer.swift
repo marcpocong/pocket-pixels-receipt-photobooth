@@ -82,7 +82,7 @@ enum ThermalImageRasterizer {
         let pixels = try rgbaPixels(from: canvas.image)
         let dithered = dither(pixels: pixels, width: canvas.width, height: canvas.height, purpose: purpose)
         let unsafeRasterData = packRows(dithered, width: canvas.width, height: canvas.height)
-        let sanitized = try RasterCommandSanitizer.sanitizeRasterData(unsafeRasterData)
+        let sanitized = try sanitizeRasterData(unsafeRasterData, purpose: purpose)
         let rasterData = sanitized.data
         let previewPNGData = try previewPNG(fromRasterData: rasterData, width: canvas.width, height: canvas.height, widthBytes: widthBytes)
         let rasterCommand = completeRasterCommand(rasterData: rasterData, height: canvas.height)
@@ -131,11 +131,88 @@ enum ThermalImageRasterizer {
         Data([0x1B, 0x40])
     }
 
+    /// Receipts leave the printer footer-first. When held upright, the header is beside the
+    /// final cut instead of the blank paper already between the print head and cutter.
+    /// Trim wholly white bottom rows only in the outgoing copy. The stored raster and digital
+    /// previews retain their normal upright canvas, including for gallery/Photos and reprints.
+    nonisolated static func receiptPrintRaster(for image: ThermalRasterizedImage) throws -> (command: Data, report: RasterSanitizationReport, height: Int) {
+        try validateRasterCommand(
+            image.rasterCommand,
+            imageWidth: image.width,
+            imageHeight: image.height,
+            bytesPerRow: image.widthBytes,
+            rasterDataCount: image.rasterData.count
+        )
+        // Read the validated command's pixels, which are the authoritative frozen payload.
+        let upright = image.rasterCommand.subdata(in: 8..<image.rasterCommand.count)
+        // Leave no programmed blank tail on paper. All ink rows, including a low descender,
+        // signature or guest identifier, are retained. A wholly blank input keeps its height.
+        let printHeight = upright.lastIndex(where: { $0 != 0 }).map { $0 / image.widthBytes + 1 } ?? image.height
+        let printByteCount = printHeight * image.widthBytes
+        let rotated = rotatePackedRaster180(Data(upright.prefix(printByteCount)))
+        // Older archives were sanitized only in their upright orientation. A rotation can
+        // expose new real-time command patterns, so sanitize again before freezing the job.
+        let sanitized = try RasterCommandSanitizer.sanitizeRasterData(rotated)
+        let report = combining(
+            image.sanitizationReport,
+            offsets: image.sanitizationReport.modifiedByteOffsets.filter { $0 < printByteCount }.map { printByteCount - 1 - $0 },
+            with: sanitized.report,
+            byteCount: printByteCount
+        )
+        return (completeRasterCommand(rasterData: sanitized.data, height: printHeight), report, printHeight)
+    }
+
+    nonisolated static func receiptPrintFinishing() -> Data {
+        // GS V 66 0 advances the last raster row to the cutter itself. Extra line feeds
+        // here would become unwanted blank space above a footer-first receipt's header.
+        Data([0x1D, 0x56, 0x42, 0x00])
+    }
+
     nonisolated static func photoTestFinishing() -> Data {
         var finishing = Data()
         finishing.appendASCII("\n\n\n")
         finishing.append(contentsOf: [0x1D, 0x56, 0x42, 0x00])
         return finishing
+    }
+
+    nonisolated private static func rotatePackedRaster180(_ data: Data) -> Data {
+        // The print width is byte-aligned (576 dots). Reverse both byte order and the
+        // bits inside each byte to rotate every pixel without resampling or redithering.
+        Data(data.reversed().map { byte in
+            var value = ((byte & 0x55) << 1) | ((byte & 0xAA) >> 1)
+            value = ((value & 0x33) << 2) | ((value & 0xCC) >> 2)
+            return (value << 4) | (value >> 4)
+        })
+    }
+
+    nonisolated private static func sanitizeRasterData(_ data: Data, purpose: ThermalRasterizationPurpose) throws -> (data: Data, report: RasterSanitizationReport) {
+        let upright = try RasterCommandSanitizer.sanitizeRasterData(data)
+        guard case .completeReceipt = purpose else { return upright }
+        // Protect both orientations before generating the preview so a newly prepared
+        // receipt's upright preview is pixel-for-pixel what prints when turned around.
+        let printed = try RasterCommandSanitizer.sanitizeRasterData(rotatePackedRaster180(upright.data))
+        guard printed.report.modifiedByteCount > 0 else { return upright }
+        let pixels = rotatePackedRaster180(printed.data)
+        try RasterCommandSanitizer.validateNoReservedPatterns(in: pixels)
+        let report = combining(
+            printed.report,
+            offsets: printed.report.modifiedByteOffsets.map { data.count - 1 - $0 },
+            with: upright.report
+        )
+        return (pixels, report)
+    }
+
+    nonisolated private static func combining(_ first: RasterSanitizationReport, offsets: [Int], with second: RasterSanitizationReport, byteCount: Int? = nil) -> RasterSanitizationReport {
+        let modifiedOffsets = Array(Set(offsets + second.modifiedByteOffsets)).sorted()
+        return RasterSanitizationReport(
+            originalByteCount: byteCount ?? first.originalByteCount,
+            sanitizedByteCount: second.sanitizedByteCount,
+            dleEOTPatternCount: first.dleEOTPatternCount + second.dleEOTPatternCount,
+            dleDC4PatternCount: first.dleDC4PatternCount + second.dleDC4PatternCount,
+            modifiedByteCount: modifiedOffsets.count,
+            modifiedByteOffsets: modifiedOffsets,
+            finalSafetyScanPassed: first.finalSafetyScanPassed && second.finalSafetyScanPassed
+        )
     }
 
     nonisolated static func validateRasterCommand(

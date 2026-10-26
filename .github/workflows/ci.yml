@@ -11,9 +11,22 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  ios:
+  ios-suites:
+    name: iOS ${{ matrix.suite }}
     runs-on: macos-15
     timeout-minutes: 60
+    # A single build + UI + unit job exceeded 60 minutes on the hosted runner.
+    # Each complete suite gets its own runner/budget; neither is skipped or shortened.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: native-ui
+            target: PocketPixelsBoothUITests
+            result: NativeUI
+          - suite: production
+            target: PocketPixelsBoothTests
+            result: Tests
     env:
       RESULTS_DIR: ${{ github.workspace }}/TestResults
       # Ad-hoc "Sign to Run Locally" simulator signing. It needs no certificate or team, but unlike
@@ -58,42 +71,23 @@ jobs:
             -resultBundlePath "$RESULTS_DIR/Build.xcresult" \
             $SIGNING_FLAGS
 
-      - name: Run native operator UI suite
+      - name: Run complete ${{ matrix.suite }} suite
         run: |
           set -o pipefail
-          # UI checks run first on the same simulator/build so runtime-specific interaction
-          # failures surface before the CPU-heavy receipt suite. No test is removed or retried.
           xcodebuild test-without-building \
             -project PocketPixelsBooth.xcodeproj -scheme PocketPixelsBooth \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             -derivedDataPath DerivedData \
-            -resultBundlePath "$RESULTS_DIR/NativeUI.xcresult" \
-            -only-testing:PocketPixelsBoothUITests \
+            -resultBundlePath "$RESULTS_DIR/${{ matrix.result }}.xcresult" \
+            -only-testing:${{ matrix.target }} \
             -parallel-testing-enabled NO \
             -test-timeouts-enabled YES \
             -default-test-execution-time-allowance 600 \
             -maximum-test-execution-time-allowance 900 \
             $SIGNING_FLAGS
 
-      - name: Run XCTest production suite
-        run: |
-          set -o pipefail
-          # The other test target includes all XCTest and Swift Testing unit/integration cases.
-          # One booted simulator, no clones; the required iOS job passes only after both suites.
-          xcodebuild test-without-building \
-            -project PocketPixelsBooth.xcodeproj -scheme PocketPixelsBooth \
-            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
-            -derivedDataPath DerivedData \
-            -resultBundlePath "$RESULTS_DIR/Tests.xcresult" \
-            -only-testing:PocketPixelsBoothTests \
-            -parallel-testing-enabled NO \
-            -test-timeouts-enabled YES \
-            -default-test-execution-time-allowance 600 \
-            -maximum-test-execution-time-allowance 900 \
-            $SIGNING_FLAGS
-
-      - name: Summarize test failures
-        if: failure()
+      - name: Summarize test results
+        if: always()
         run: |
           for bundle in "$RESULTS_DIR/Build.xcresult" "$RESULTS_DIR/NativeUI.xcresult" "$RESULTS_DIR/Tests.xcresult"; do
             [ -d "$bundle" ] || continue
@@ -107,7 +101,7 @@ jobs:
               end' "$bundle.summary.json" | tee -a "$GITHUB_STEP_SUMMARY"
           done
           if [ ! -d "$RESULTS_DIR/NativeUI.xcresult" ] && [ ! -d "$RESULTS_DIR/Tests.xcresult" ]; then
-            echo "### Build failed before tests ran; see Build.xcresult" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "### No test bundle was produced; inspect the build/test logs and Build.xcresult" | tee -a "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Collect simulator diagnostics
@@ -120,10 +114,21 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-test-results-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ios-${{ matrix.suite }}-test-results-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.RESULTS_DIR }}
           if-no-files-found: ignore
           retention-days: 14
+
+  # Keep the original check name as the aggregate gate for branch protection/reviewers.
+  ios:
+    if: always()
+    needs: ios-suites
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require both complete iOS suites
+        env:
+          SUITES_RESULT: ${{ needs['ios-suites'].result }}
+        run: test "$SUITES_RESULT" = success
 
   backend:
     runs-on: ubuntu-latest

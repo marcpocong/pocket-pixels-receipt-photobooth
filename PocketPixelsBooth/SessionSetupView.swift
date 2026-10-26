@@ -82,8 +82,9 @@ struct SessionSetupView: View {
         .accessibilityIdentifier("event-workspace-scroll")
         .scrollDismissesKeyboard(.interactively)
         .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
+            // Keep dismissal in the navigation bar so it stays reachable with iPad's
+            // docked/floating numeric keyboards and across keyboard-toolbar changes.
+            ToolbarItem(placement: .topBarTrailing) {
                 Button("Done Editing") { endEditing() }.accessibilityIdentifier("event-finish-editing")
             }
         }

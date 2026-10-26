@@ -271,6 +271,8 @@ enum ReceiptComposer {
         nonisolated static let sessionGap = 26
         nonisolated static let sessionSize: CGFloat = 11.5
         nonisolated static let sessionTracking: CGFloat = 1
+        // Digital receipts retain their balanced border. Paper-only blank rows are
+        // removed by receiptPrintRaster when an outgoing job is prepared.
         nonisolated static let bottomPadding = 28
         /// Legacy header spacing, unchanged so saved custom headers print as before.
         nonisolated static let legacyTextInset = 28
@@ -286,9 +288,8 @@ enum ReceiptComposer {
     ///   - galleryURL: the session's gallery. Always pass it when it exists: whether the QR is
     ///     printed is decided only by `printOptions`.
     ///   - printOptions: the session's frozen physical-print options.
-    ///   - printsSessionIdentifier: false only for operator display samples. The identifier line
-    ///     keeps its space, so the sample is exactly as long as a guest receipt, but prints nothing:
-    ///     no transactional or invented session ID ever appears on a display sample.
+    ///   - printsSessionIdentifier: false only for operator display samples. Keep the normal
+    ///     digital canvas while omitting the text; print preparation trims blank paper rows.
     nonisolated static func compose(
         photos: [UIImage],
         sessionIdentifier: String,
@@ -508,14 +509,15 @@ enum ReceiptComposer {
         passport: PassportSessionData? = nil,
         date: Date = Date(timeIntervalSince1970: 1_788_692_040),
         footerStyle: ReceiptFooterStyle = .integratedGalleryQR,
-        qrDots: Int = receiptQRCodeSize
+        qrDots: Int = receiptQRCodeSize,
+        printsSessionIdentifier: Bool = true
     ) throws -> ReceiptLayoutPlan {
         let eventSnapshot = eventProfile?.activeReceiptSnapshot
         let artwork = loadEffectiveHeaderArtwork(for: eventSnapshot)
         let textSnapshot = makeTextSnapshot(
             format: format,
             date: date,
-            sessionIdentifier: "PP-20260907-161400",
+            sessionIdentifier: printsSessionIdentifier ? "PP-20260907-161400" : "",
             eventProfile: eventSnapshot,
             headerSourceSize: artwork?.size,
             headerContentBounds: artwork?.contentBounds
@@ -1062,7 +1064,8 @@ enum ReceiptComposer {
             y = Int(ceil(label.rect.maxY))
         }
 
-        // D. Unobtrusive session identifier for reprints and support, then feed clearance.
+        // D. Keep normal digital spacing for previews, gallery and Photos exports.
+        // Samples leave the identifier blank; only the outgoing paper raster is shortened.
         y += Metrics.sessionGap
         let sessionText = makeTextFrame(textSnapshot.sessionIdentifier, style: .sessionIdentifier, size: Metrics.sessionSize, tracking: Metrics.sessionTracking, anchor: .center(center), y: y)
         y = Int(ceil(sessionText.rect.maxY)) + Metrics.bottomPadding

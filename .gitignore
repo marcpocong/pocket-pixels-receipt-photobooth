@@ -60,3 +60,18 @@ id_ed25519
 
 # Dependency folders for auxiliary tooling
 node_modules/
+
+# Machine-local agent permissions and uncurated device/build validation output.
+/.claude/
+*DerivedData/
+/BuildArtifacts/EventOperations/*
+!/BuildArtifacts/EventOperations/README.md
+/BuildArtifacts/PortraitWorkspace/*
+!/BuildArtifacts/PortraitWorkspace/README.md
+!/BuildArtifacts/PortraitWorkspace/delivery-report.md
+!/BuildArtifacts/PortraitWorkspace/g80-spacing-investigation.md
+!/BuildArtifacts/PortraitWorkspace/carlo-portrait-receipt-header-logo-controls.png
+!/BuildArtifacts/PortraitWorkspace/carlo-portrait-receipt-typography-controls.png
+!/BuildArtifacts/PortraitWorkspace/carlo-portrait-review-sticker-enabled.png
+!/BuildArtifacts/PortraitWorkspace/empty-sample-black-and-white-placeholder.png
+!/BuildArtifacts/PortraitWorkspace/empty-sample-thermal-placeholder.png

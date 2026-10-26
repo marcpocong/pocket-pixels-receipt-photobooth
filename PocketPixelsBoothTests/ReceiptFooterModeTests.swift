@@ -247,7 +247,7 @@ final class ReceiptFooterModeTests: XCTestCase {
             let raster = try ThermalImageRasterizer.rasterize(XCTUnwrap(UIImage(data: sample.imagePNGData)), purpose: .completeReceipt)
             let detector = try XCTUnwrap(CIDetector(ofType: CIDetectorTypeQRCode, context: nil, options: nil))
             XCTAssertTrue(detector.features(in: CIImage(cgImage: try XCTUnwrap(UIImage(data: raster.previewPNGData)?.cgImage))).isEmpty)
-            let plan = try ReceiptComposer.makeLayoutPlan(format: .solo, footerStyle: style)
+            let plan = try ReceiptComposer.makeLayoutPlan(format: .solo, footerStyle: style, printsSessionIdentifier: false)
             XCTAssertEqual(sample.height, plan.height)
         }
     }

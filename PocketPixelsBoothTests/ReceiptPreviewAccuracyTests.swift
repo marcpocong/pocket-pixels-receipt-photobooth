@@ -2,9 +2,9 @@ import UIKit
 import XCTest
 @testable import PocketPixelsBooth
 
-/// The exact printer raster preview (operator diagnostics, archives and reprints) must be the raster
-/// the printer receives, for every format, with and without Event Mode branding and the printed
-/// gallery QR. Guests see the smooth Black & White preview instead (MonochromeReceiptPreviewTests).
+/// Thermal previews match the stored upright raster, retaining the normal digital border.
+/// Outgoing receipt jobs trim wholly blank bottom rows and rotate the copy for paper only.
+/// Guests see smooth Black & White instead (MonochromeReceiptPreviewTests).
 final class ReceiptPreviewAccuracyTests: XCTestCase {
     private let date = Date(timeIntervalSince1970: 1_788_692_040)
     private let galleryURL = URL(string: "https://gallery.example.com/g/\(String(repeating: "d", count: 64))")!

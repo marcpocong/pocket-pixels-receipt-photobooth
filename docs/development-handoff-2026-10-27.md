@@ -1,0 +1,83 @@
+# Development handoff — 27 October 2026
+
+## Scope and owner decisions
+
+This release records the receipt-spacing investigation, restores normal digital margins, fixes empty sample previews and private/prepaid copy selection, and repairs the production gate's shared execution-budget failure. The owner authorized delivery directly to `main`.
+
+The owner accepts the **16–17 mm physical bottom gap** on the VOZY G80, self-test identity **`80-VI 80.C-z04-AA`**. Printer investigation is closed for this release. No claim is made that the gap was eliminated or that the exact firmware supports a return-feed feature. No persistent printer setting, firmware, bundle identifier or signing configuration was changed. No new dependency was added.
+
+## Receipt work and physical evidence
+
+The existing 6 mm masthead-padding correction was still present; it had not regressed. Standard sample rasters originally started ink at 34 dots / 4.25 mm and contained no leading feed. The subsequent footer-first implementation moved the large paper gap to the reading bottom. Receipt finishing dropped three extra line feeds while preserving the ordinary `GS V 66 0` feed-and-partial-cut operation.
+
+A first bottom-padding reduction affected the shared digital canvas. The owner rejected the cramped digital appearance. That change was superseded: composed receipts, Black & White/Thermal previews, gallery variants and Photos exports retain normal upright margins. **Only outgoing print packets remove wholly white rows after the last ink**, then rotate the retained pixels 180 degrees without scaling or redithering. Dimensions, payload counts, sanitization offsets and fingerprints reflect the actual transmitted raster. Stored archives and previously uploaded images are not rewritten.
+
+New rasters are sanitized in both orientations before their thermal previews are generated. Older archived rasters receive any necessary rotated-command safety correction in the outgoing copy. Entirely blank diagnostic inputs retain a valid nonzero canvas. Printer, receipt-rendering and gallery responsibilities remain separate.
+
+The manual paper-return experiment used two fixed-size strips. A ended with the Epson-style `GS V 104 0` cut-and-return candidate; B ended with the ordinary cut. The owner observed **no cut after A; cutting occurred only after B**. The approximately 23 mm bar-to-bar measurement is fixed artwork and cannot establish a margin reduction. No supported alternative was verified for this exact firmware. Transport success was correctly separated from physical confirmation in the diagnostic workflow, with regression coverage for no-cut/catching and stale callbacks.
+
+The failed probe's controls are now retired from the everyday sample screen. Its implementation and tests are retained under `DEBUG` as development evidence, excluded from Release. Do not rerun it or adopt its command for customer receipts without new verified firmware documentation and owner authorization. [The complete chronological log](receipt-footer-first-printing.md) preserves all stages and prior validation records.
+
+## Empty Sample Print Studio
+
+With default branding/footer values, construction did not call `invalidate()`. Because no property observer fired, the model could remain `.idle` indefinitely and the UI showed a spinner even though no photos had been imported.
+
+Construction now always schedules the normal numbered-photo receipt placeholder. An empty studio immediately displays a static placeholder while that render prepares; the loading indicator is reserved for work involving imported photos. Removing all photos immediately stops showing the previous photo preview and returns to the empty placeholder. Black & White and Thermal modes keep their normal digital margins. Missing slots remain unprintable.
+
+Coverage includes initial/default settings, both preview modes, removal of imported photos, no stale images, and the disabled print action. A native UI acceptance case exercises the empty studio through an isolated fixture and captures both preview modes without printing or exporting media.
+
+## Private/prepaid multi-copy authorization
+
+The reported failure was reproducible from code: selecting a format granted the default one-copy local entitlement; the receipt stepper changed `selectedPrintCopies` alone. The print gate then rejected two or more copies because `purchasedCopies` was still one. Regular Booth and private/prepaid events share this path.
+
+The stepper now updates the session-bound local prepaid authorization and selection together. The final print gate also applies the same validation to a direct quantity binding. Authorization requires all of:
+
+- Private/prepaid source and commercial mode, zero price/total, no server order or lifecycle state.
+- Guest copy choice enabled by the frozen session policy; valid format and quantity within that policy's configured maximum.
+- Matching session, event, format and policy revision.
+- Receipt-preview state, no active batch, and no copy already started or completed.
+
+QR Ph, declared cash and signed offline-cash quantities remain fixed at the purchased count. Fixed-copy prepaid sessions stay fixed. A previous guest's allowance is cleared on reset. The qualification-only authorization entry point retains its separate run-bound budget.
+
+Regression cases cover Regular Booth and event selection from 1 through 10, decrementing, smaller configured limits, fixed policies, direct bindings, all paid sources, identity mismatches, post-send freezing and next-guest reset. Tests reach the real print-authorization guard with an invalid port so they prove authorization without issuing a physical job. No recovery/report-sync gate was loosened and no uncertain copy is automatically resent.
+
+## CI failures and repair
+
+Historical failed runs remain historical; rerunning an old commit would rerun its old code. The current branch already includes the `6db3133` corrections to the earlier portrait UI failures.
+
+| Run | Evidence | Resolution |
+| --- | --- | --- |
+| [#145 / 40356772534](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/40356772534) | Build/backend passed; three UI failures involved rotated camera coordinates, receipt-control reachability and rename replacement. | Existing follow-up corrected portrait enforcement, visibility/transition waits and full text replacement; the next run's complete UI suite passed. See [portrait implementation notes](portrait-event-workspace.md). |
+| [#146 / 40367600418](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/40367600418) | Build/backend and all native UI tests passed. GitHub annotation: “The job has exceeded the maximum execution time of 1h0m0s.” Unit tests were still running. | The complete native UI and production suites now run independently on separate macOS runners, each with its own 60-minute budget. |
+
+The matrix does not fail-fast, so one suite cannot cancel the other. The original `ios` check remains an aggregate that succeeds only when both full suites succeed. Per-test timeouts, ad-hoc simulator signing, test targets and backend checks are retained. Result artifacts have suite-specific names to prevent upload collisions. Counts and any failures are written to the GitHub Actions summary on successful and unsuccessful runs, with exact-run `.xcresult` artifacts retained for 14 days. No test is disabled, filtered out of the full gate, or replaced by a sleep.
+
+The local acceptance runs also exposed runtime-sensitive interactions. The live-edit rotation test now restores portrait display coordinates after checking the portrait scene, before measuring vertical scroll bounds. Command-A and triple-tap selection each failed on one tested runtime; a bounded arrow/backspace attempt passed on iOS 26 but caused prolonged system-animation waits on iOS 27. The final rename helper selects and deletes with Command-A, inspects the field, falls back to touch paragraph selection only if text remains, then verifies complete removal and the exact replacement before saving. In the product, **Done Editing** now stays in the event editor's navigation bar, including with hardware/floating keyboards; it no longer depends on the keyboard accessory toolbar being presented. iOS 27 can present the decimal keypad as a modal system popover: the acceptance case dismisses that popover with Escape before verifying and tapping the app action. The scrolling helper dismisses an actual onscreen keyboard before scrolling and does not repeatedly tap the persistent navigation action. All affected assertions remain enabled.
+
+## Verification and delivery
+
+Focused regressions for the two reported bugs passed (41 tests). The complete local production target passed **903 tests** (807 XCTest + 96 Swift Testing; expanded parameter runs are reported separately by Xcode), with **0 failures and 0 skips**, on iOS 26.5. Backend verification passed **223 Payments Worker**, **9 monitoring** and **39 Gallery Worker** tests, plus all Apps Script pure checks and fixture generation. All **20 distinct native UI acceptance cases** passed on iOS 27 across the full and corrective focused runs: the final full run passed 19, and the corrected keyboard/inline-editing case passed separately. The final rename helper then passed on both iOS 26.5 and 27.0. Focused iOS 26.5 compatibility also passed rotation/live editing, empty samples and keyboard/receipt/sticker editing. No case was skipped or disabled. The final `main` push is validated again by [Production Gate](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/workflows/ci.yml?query=branch%3Amain). The project README's badge reflects that live workflow status.
+
+The final Release app built successfully with the original signing identity; strict codesign verification passed with bundle `com.pocketpixels.PocketPixelsBooth` and team `PQ26682725`. It was installed **in place on Carlo**, launched normally, and its running process was verified. There was no uninstall, data reset, agent-issued physical print, real payment, gallery upload or firmware/configuration write as part of this validation. Existing data was retained by the in-place update; it was not separately audited during this final installation. Physical paper quality and real payment-provider connectivity are not claimed by simulator or backend fixture tests.
+
+Local test evidence: `/tmp/PocketPixelsFinalAllUnits.xcresult`, `/tmp/PocketPixelsFinalAllUIFixed.xcresult`, `/tmp/PocketPixelsFinalFloatingKeypadTests.xcresult`, `/tmp/PocketPixelsFinalPlaceholderEvidence.xcresult`, and `/tmp/PocketPixelsFinalAlertFocus26.xcresult` / `PocketPixelsFinalAlertFocus27.xcresult`. The full UI bundle retains the original keyboard failure; the focused bundle records its complete corrected case. Backend summaries are `/tmp/PocketPixelsFinalBackend{Payments,Monitoring,Gallery}.log` and `/tmp/PocketPixelsFinalAppsScript.log`.
+
+Local delivery evidence: `/tmp/PocketPixelsFinalReleaseBuild.log`, `/tmp/PocketPixelsFinalInstall.{json,log}` and `/tmp/PocketPixelsFinalLaunch.{json,log}`. Existing Swift 6 migration/concurrency warnings in unrelated files remain follow-up work; the configured Swift 5 build succeeds.
+
+## Evidence and future development
+
+- [Curated evidence index](../BuildArtifacts/PortraitWorkspace/README.md) and [historical delivery report](../BuildArtifacts/PortraitWorkspace/delivery-report.md).
+- Final empty studio screenshots: [Black & White](../BuildArtifacts/PortraitWorkspace/empty-sample-black-and-white-placeholder.png) and [Thermal](../BuildArtifacts/PortraitWorkspace/empty-sample-thermal-placeholder.png). Both show numbered placeholders, normal digital borders, no spinner and disabled printing.
+- Versioned source/tests/docs contain the reproducible implementation and decision record. GitHub Actions stores exact-run test bundles and failure diagnostics.
+- Raw Xcode caches, complete device inventories and machine-local agent permissions remain local and ignored; they are not needed to reproduce the app and may contain private machine/customer context.
+- Preserve the distinction between digital receipt margins and physical printer clearance. Additional trimming after the last ink would remove content.
+- Preserve paid copy limits and current session/unfinished-send recovery gates. Print history and report follow-up are evidence, not operational locks.
+
+| Change | Source | Regression entry points |
+| --- | --- | --- |
+| Empty sample initialization and presentation | `SamplePrintStudioModel.swift`, `SamplePrintStudioView.swift` | `SamplePrintStudioTests`, `EventOperationsUITests.testEmptySampleStudioShowsNumberedPlaceholdersInBothModesWithoutLoadingForever` |
+| Local prepaid copy authorization | `PaymentsDomain.swift`, `BoothSessionViewModel.swift` | `PrepaidCopyAuthorizationTests`, existing payment/recovery suites |
+| Paper-only crop/rotation and transport metadata | `ThermalImageRasterizer.swift`, `PrintJobEnvelope.swift`, `PrinterBluetoothService.swift` | `ReceiptPrintDirectionTests`, `ReceiptPreviewAccuracyTests`, `ReceiptFooterModeTests`, sample and print reliability suites |
+| Retired probe and physical observation gates | `PrinterPaperReturnDiagnostic.swift` (`DEBUG` only) | `PrinterPaperReturnDiagnosticTests` |
+| Event input and runtime compatibility | `SessionSetupView.swift` | `EventOperationsUITests` rotation, inline editing and rename cases |
+| CI execution budgets and aggregate | `.github/workflows/ci.yml` | Complete native UI and production targets plus backend gate |
