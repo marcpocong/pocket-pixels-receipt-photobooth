@@ -75,3 +75,6 @@ node_modules/
 !/BuildArtifacts/PortraitWorkspace/carlo-portrait-review-sticker-enabled.png
 !/BuildArtifacts/PortraitWorkspace/empty-sample-black-and-white-placeholder.png
 !/BuildArtifacts/PortraitWorkspace/empty-sample-thermal-placeholder.png
+!/BuildArtifacts/PortraitWorkspace/event-rename-editor.png
+!/BuildArtifacts/PortraitWorkspace/historical-run-management-actions.png
+!/BuildArtifacts/PortraitWorkspace/historical-run-removal-review.png

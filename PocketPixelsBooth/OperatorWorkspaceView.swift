@@ -171,7 +171,8 @@ struct OperatorEventsView: View {
     @ObservedObject var runs: EventRunStore
     @ObservedObject private var library: EventDesignLibraryStore
     @State private var managingDesignID: String?
-    @State private var pendingDesignAction: (() -> Void)?
+    @State private var managingRunID: String?
+    @State private var pendingManagementAction: (() -> Void)?
     @State private var removingDesign = false
     @State private var showsArchived = false
     @State private var showsRemoved = false
@@ -248,10 +249,87 @@ struct OperatorEventsView: View {
     @State private var renameRunID: String?
     @State private var renameName = ""
     private func queueDesignAction(_ action: @escaping () -> Void) {
-        pendingDesignAction = action; managingDesignID = nil
+        pendingManagementAction = action; managingDesignID = nil
+    }
+    private func queueRunAction(_ action: @escaping () -> Void) {
+        pendingManagementAction = action; managingRunID = nil
     }
     private func beginRename(design: SavedEventDesign) { renameName = design.name; renameDesignID = design.id }
     private func beginRename(run: EventRunRecord) { renameName = run.displayName; renameRunID = run.id }
+
+    private func saveRename() {
+        let succeeded = manage("Event renamed. Historical identities and printed receipts are unchanged.") {
+            if let id = renameDesignID, var design = library.design(id: id) {
+                let name = String(renameName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(EventProfile.eventNameLimit))
+                guard !name.isEmpty else { throw SetupFailure("Enter an event name.") }
+                design.name = name; try library.save(design)
+            } else if let id = renameRunID { try runs.renameRun(id: id, name: renameName) }
+        }
+        if succeeded { renameDesignID = nil; renameRunID = nil }
+    }
+
+    private var renameSheet: some View {
+        NavigationStack {
+            Form {
+                HStack {
+                    TextField("Event name", text: $renameName).accessibilityIdentifier("event-rename-name")
+                    if !renameName.isEmpty {
+                        Button { renameName = "" } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                                .frame(minWidth: 44, minHeight: 44)
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Clear event name")
+                        .accessibilityIdentifier("event-rename-clear")
+                    }
+                }
+                if let managementError {
+                    Label(managementError, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.danger)
+                }
+            }
+            .navigationTitle("Rename Event").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { renameDesignID = nil; renameRunID = nil; managementError = nil }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { saveRename() }
+                        .disabled(renameName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityIdentifier("event-rename-save")
+                }
+            }
+        }.presentationDetents([.medium, .large])
+    }
+
+    @ViewBuilder private func runManagementActions(_ run: EventRunRecord) -> some View {
+        Button("Rename Event") { queueRunAction { beginRename(run: run) } }
+        Button("View History") { queueRunAction { workspace.navigate(to: .eventHistory) } }
+        if run.status == .archived {
+            Button("Restore Run") {
+                if manage("Run restored to history.", { try runs.restoreArchivedRun(id: run.id) }) { managingRunID = nil }
+            }
+        } else {
+            Button("Archive Run") {
+                if manage("Run archived. Reports are kept.", { try runs.transition(id: run.id, to: .archived) }) { managingRunID = nil }
+            }
+        }
+        Button([.active, .paused].contains(run.status) ? "End Event then Remove Run" : "Remove Run", role: .destructive) {
+            deletionRunID = run.id
+        }
+    }
+
+    @ViewBuilder private func runRemovalReview(_ run: EventRunRecord) -> some View {
+        Section("Remove \(run.displayName)?") {
+            Text("Hides this run from normal lists. A running event ends on this iPad first. Sessions, receipts, payment records and reports remain associated with its original ID. You can restore the run later.")
+            Button("Remove Run", role: .destructive) { queueRunAction { deleteRun(run.id) } }
+            Button("Cancel", role: .cancel) { deletionRunID = nil }
+        }
+    }
+
+    private var managementTitle: String {
+        if let managingRunID { return deletionRunID == managingRunID ? "Review Run Removal" : "Manage Run" }
+        return deletionDesignID == nil ? "Manage Event" : "Review Event Removal"
+    }
 
     var body: some View {
         List {
@@ -311,13 +389,8 @@ struct OperatorEventsView: View {
                             Text("\(run.status.rawValue.capitalized) · \(run.createdAt.formatted(date: .abbreviated, time: .omitted))").font(.caption)
                         }
                         Spacer()
-                        Menu {
-                            Button("Rename Event") { beginRename(run: run) }
-                            NavigationLink("View History", value: OperatorWorkspaceRoute.eventHistory)
-                            if run.status == .archived {
-                                Button("Restore Run") { manage("Run restored to history.") { try runs.restoreArchivedRun(id: run.id) } }
-                            } else { Button("Archive Run") { manage("Run archived. Reports are kept.") { try runs.transition(id: run.id, to: .archived) } } }
-                            Button([.active, .paused].contains(run.status) ? "End Event then Remove Run" : "Remove Run", role: .destructive) { deletionRunID = run.id }
+                        Button {
+                            managingRunID = run.id
                         } label: { Label("Manage", systemImage: "ellipsis.circle").frame(minWidth: 44, minHeight: 44) }
                         .buttonStyle(.borderless).accessibilityIdentifier("manage-run-" + run.id)
                     }.accessibilityElement(children: .contain)
@@ -352,9 +425,11 @@ struct OperatorEventsView: View {
         .safeAreaInset(edge: .top) {
             if let feedback { OperatorFeedbackBanner(feedback: feedback) { self.feedback = nil }.padding(.horizontal).padding(.top, 8) }
         }
-        .sheet(isPresented: Binding(get: { managingDesignID != nil }, set: { if !$0 { managingDesignID = nil } }), onDismiss: {
-            deletionDesignID = nil
-            let action = pendingDesignAction; pendingDesignAction = nil; action?()
+        .sheet(isPresented: Binding(get: { managingDesignID != nil || managingRunID != nil }, set: {
+            if !$0 { managingDesignID = nil; managingRunID = nil }
+        }), onDismiss: {
+            deletionDesignID = nil; deletionRunID = nil
+            let action = pendingManagementAction; pendingManagementAction = nil; action?()
         }) {
             NavigationStack {
                 List {
@@ -382,29 +457,21 @@ struct OperatorEventsView: View {
                             }
                             Button(designRemovalTitle(event), role: .destructive) { deletionDesignID = event.id }
                         }
+                    } else if let run = runs.runs.first(where: { $0.id == managingRunID }) {
+                        if deletionRunID == run.id { runRemovalReview(run) }
+                        else { runManagementActions(run) }
                     }
-                }.navigationTitle(deletionDesignID == nil ? "Manage Event" : "Review Event Removal").navigationBarTitleDisplayMode(.inline)
-                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { managingDesignID = nil }.disabled(removingDesign) } }
+                }.navigationTitle(managementTitle).navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { managingDesignID = nil; managingRunID = nil }.disabled(removingDesign) } }
                     .alert("Event action could not finish", isPresented: Binding(get: { managementError != nil }, set: { if !$0 { managementError = nil } })) {
-                        Button("OK", role: .cancel) { managementError = nil; managingDesignID = nil; deletionDesignID = nil }
+                        Button("OK", role: .cancel) { managementError = nil; managingDesignID = nil; managingRunID = nil; deletionDesignID = nil }
                     } message: { Text(managementError ?? "") }
             }.presentationDetents([.medium, .large]).interactiveDismissDisabled(removingDesign)
         }
-        .alert("Rename Event", isPresented: Binding(get: { renameDesignID != nil || renameRunID != nil }, set: { if !$0 { renameDesignID = nil; renameRunID = nil } })) {
-            TextField("Event name", text: $renameName)
-            Button("Cancel", role: .cancel) { renameDesignID = nil; renameRunID = nil }
-            Button("Save") {
-                manage("Event renamed. Historical identities and printed receipts are unchanged.") {
-                    if let id = renameDesignID, var design = library.design(id: id) {
-                        let name = String(renameName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(EventProfile.eventNameLimit))
-                        guard !name.isEmpty else { throw SetupFailure("Enter an event name.") }
-                        design.name = name; try library.save(design)
-                    } else if let id = renameRunID { try runs.renameRun(id: id, name: renameName) }
-                }
-                renameDesignID = nil; renameRunID = nil
-            }.disabled(renameName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }
-        .alert("Event action could not finish", isPresented: Binding(get: { managingDesignID == nil && managementError != nil }, set: { if !$0 { managementError = nil } })) {
+        .sheet(isPresented: Binding(get: { renameDesignID != nil || renameRunID != nil }, set: {
+            if !$0 { renameDesignID = nil; renameRunID = nil; managementError = nil }
+        })) { renameSheet }
+        .alert("Event action could not finish", isPresented: Binding(get: { managingDesignID == nil && managingRunID == nil && renameDesignID == nil && renameRunID == nil && managementError != nil }, set: { if !$0 { managementError = nil } })) {
             if library.library.appliedEventID != nil || runs.operational != nil {
                 Button(runs.operational == nil ? "Switch to Regular Booth" : "End Event on This iPad", role: .destructive) { performRegularTransition() }
             }
@@ -416,10 +483,6 @@ struct OperatorEventsView: View {
             }
             Button("Cancel", role: .cancel) { }
         } message: { Text("Guest admission and unfinished receipts are checked again. This iPad returns to Regular Booth; other booths, event history and payments are kept. Remove the saved design afterward.") }
-        .confirmationDialog("Remove this event run?", isPresented: Binding(get: { deletionRunID != nil }, set: { if !$0 { deletionRunID = nil } }), titleVisibility: .visible) {
-            Button("Remove Run", role: .destructive) { if let id = deletionRunID { deleteRun(id) }; deletionRunID = nil }
-            Button("Cancel", role: .cancel) { deletionRunID = nil }
-        } message: { Text("Hides this run from normal lists. A running event ends on this iPad first. Sessions, receipts, payment records and reports remain associated with its original ID. You can restore the run later.") }
         .navigationTitle("Events").navigationBarTitleDisplayMode(.inline)
         .scrollContentBackground(.hidden).background(OperatorPalette.canvas)
         .environment(\.defaultMinListRowHeight, 52)

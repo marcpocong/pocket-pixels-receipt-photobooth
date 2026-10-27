@@ -17,20 +17,11 @@ final class EventOperationsUITests: XCTestCase {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
     }
-    private func replaceAlertText(_ field: XCUIElement, with text: String) {
-        field.tap()
-        // Command-A and touch selection differ across runtimes. Delete the selection
-        // and inspect the actual field before falling back to touch paragraph selection.
-        field.typeKey("a", modifierFlags: .command)
-        field.typeText(XCUIKeyboardKey.delete.rawValue)
-        let afterShortcut = field.value as? String ?? ""
-        if !afterShortcut.isEmpty && afterShortcut != field.placeholderValue {
-            field.tap(withNumberOfTaps: 3, numberOfTouches: 1)
-            field.typeText(XCUIKeyboardKey.delete.rawValue)
-        }
+    private func replaceRenameText(_ field: XCUIElement, with text: String, in app: XCUIApplication) {
+        app.buttons["event-rename-clear"].tap()
         let cleared = field.value as? String ?? ""
         XCTAssertTrue(cleared.isEmpty || cleared == field.placeholderValue, "Delete the complete original name before replacing it")
-        // Emptying an alert field can rebuild its accessibility/focus state.
+        XCTAssertFalse(app.buttons["event-rename-save"].isEnabled, "An empty rename cannot be saved")
         field.tap()
         field.typeText(text)
         XCTAssertEqual(field.value as? String, text, "Save only after replacing the complete original name")
@@ -186,20 +177,57 @@ final class EventOperationsUITests: XCTestCase {
         let manage = app.buttons["Manage Synthetic Paid History"]
         XCTAssertTrue(manage.waitForExistence(timeout: 10)); manage.tap()
         app.buttons["Rename Event"].tap()
-        let field = app.alerts.textFields.firstMatch
-        replaceAlertText(field, with: "Corrected Saved Event")
-        app.alerts.buttons["Save"].tap()
+        XCTAssertTrue(app.navigationBars["Rename Event"].waitForExistence(timeout: 5))
+        let field = app.textFields["event-rename-name"]
+        replaceRenameText(field, with: "Corrected Saved Event", in: app)
+        capture("event-rename-editor")
+        app.buttons["event-rename-save"].tap()
         XCTAssertTrue(app.buttons["Manage Corrected Saved Event"].waitForExistence(timeout: 5))
         capture("saved-event-renamed-independently")
         let runMenu = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'manage-run-'")).firstMatch
-        visible(runMenu, in: app); runMenu.tap()
+        visible(runMenu, in: app)
+        let originalRunControlID = runMenu.identifier
+        runMenu.tap()
+        XCTAssertTrue(app.navigationBars["Manage Run"].waitForExistence(timeout: 5))
         app.buttons["Rename Event"].tap()
-        let runName = app.alerts.textFields.firstMatch
-        replaceAlertText(runName, with: "Corrected Historical Run")
-        app.alerts.buttons["Save"].tap()
+        XCTAssertTrue(app.navigationBars["Rename Event"].waitForExistence(timeout: 5))
+        let runName = app.textFields["event-rename-name"]
+        replaceRenameText(runName, with: "Corrected Historical Run", in: app)
+        app.buttons["event-rename-save"].tap()
         XCTAssertTrue(app.staticTexts["Corrected Historical Run"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Manage Corrected Saved Event"].exists)
         capture("historical-run-renamed-independently")
+
+        let sameRun = app.buttons[originalRunControlID]
+        visible(sameRun, in: app); sameRun.tap()
+        XCTAssertTrue(app.navigationBars["Manage Run"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["View History"].isHittable)
+        capture("historical-run-management-actions")
+        app.buttons["Archive Run"].tap()
+        let archived = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: sameRun)
+        XCTAssertEqual(XCTWaiter.wait(for: [archived], timeout: 5), .completed)
+        let showArchived = app.switches["Show Archived Events"]
+        visible(showArchived, in: app); showArchived.switches.firstMatch.tap()
+        capture("historical-run-archive-visibility")
+        XCTAssertEqual(showArchived.value as? String, "1")
+        // List can virtualize the restored row while the archive toggle is in view.
+        visible(sameRun, in: app)
+        XCTAssertTrue(sameRun.waitForExistence(timeout: 5))
+        sameRun.tap()
+        XCTAssertTrue(app.navigationBars["Manage Run"].waitForExistence(timeout: 5))
+        app.buttons["Restore Run"].tap()
+        XCTAssertTrue(app.staticTexts["Run restored to history."].waitForExistence(timeout: 5))
+        visible(sameRun, in: app); sameRun.tap()
+        XCTAssertTrue(app.navigationBars["Manage Run"].waitForExistence(timeout: 5))
+        app.buttons["Remove Run"].tap()
+        XCTAssertTrue(app.navigationBars["Review Run Removal"].waitForExistence(timeout: 5))
+        capture("historical-run-removal-review")
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.navigationBars["Manage Run"].waitForExistence(timeout: 5))
+        app.buttons["Done"].tap()
+        XCTAssertTrue(sameRun.exists, "Archive/restore and cancelling removal preserve the original run ID")
+        XCTAssertTrue(app.staticTexts["Corrected Historical Run"].exists)
+        XCTAssertTrue(app.buttons["Manage Corrected Saved Event"].exists)
     }
 
     func testCommercialHistoryRemovalAndRestore() throws {
