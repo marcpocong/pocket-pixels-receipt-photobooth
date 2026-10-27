@@ -146,6 +146,8 @@ final class PrepaidCopyAuthorizationTests: XCTestCase {
         XCTAssertFalse(fixture.model.canIncreasePrintCopies)
     }
 
+    // Older CI compilers do not inherit the enclosing test class's actor for nested types.
+    @MainActor
     private final class Fixture {
         let root: URL
         let model: BoothSessionViewModel
