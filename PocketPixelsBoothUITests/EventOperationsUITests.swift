@@ -14,8 +14,10 @@ final class EventOperationsUITests: XCTestCase {
         return app
     }
     private func capture(_ name: String) {
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        let shot = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: shot)
         attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+        try? shot.pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/pp-studio-" + name + ".png"))
     }
     private func replaceRenameText(_ field: XCUIElement, with text: String, in app: XCUIApplication) {
         app.buttons["event-rename-clear"].tap()
@@ -65,9 +67,10 @@ final class EventOperationsUITests: XCTestCase {
     }
 
     private func studioSection(_ name: String, in app: XCUIApplication) {
-        let picker = app.buttons["receipt-studio-section"]
-        XCTAssertTrue(picker.waitForExistence(timeout: 10)); picker.tap()
-        app.buttons[name].firstMatch.tap()
+        let title = name == "Header & Logo" ? "Header" : (name == "Footer & QR" ? "Footer" : "Text")
+        let picker = app.segmentedControls["receipt-studio-section"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 10))
+        picker.buttons[title].tap()
     }
 
     func testReceiptStudioFromNewEventEditsReopensAndSavesWithoutActivation() throws {
@@ -113,6 +116,8 @@ final class EventOperationsUITests: XCTestCase {
         visible(details, in: app); details.tap()
         let host = app.textFields["Subtitle / Host"]
         visible(host, in: app); host.tap(); host.typeText("INTRAMS 2026")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.staticTexts["Updating preview…"])], timeout: 20), .completed)
+        XCTAssertFalse(app.staticTexts["receipt-text-not-printed"].exists)
         capture("studio-text-portrait")
         app.buttons["receipt-preview-focus"].tap(); app.buttons["Full Receipt"].tap()
         app.buttons["receipt-studio-print-sample"].tap()
@@ -139,6 +144,93 @@ final class EventOperationsUITests: XCTestCase {
         XCTAssertTrue(app.buttons["event-typography-style"].label.contains("Editorial"))
         XCTAssertEqual(host.value as? String, "INTRAMS 2026")
         capture("studio-restored-design")
+    }
+
+    func testVisualEditingFromStagedEventPersistsWithoutChangingRunningEvent() throws {
+        let app = launch()
+        let run = app.staticTexts["validation-run-id"].label
+        app.buttons["Create Test Event"].tap()
+        let name = app.textFields["event-name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 10)); name.tap(); name.typeText("Visual Editing Acceptance")
+        app.buttons["event-finish-editing"].tap()
+        let customize = app.buttons["event-customize-receipt"]
+        visible(customize, in: app); customize.tap()
+        XCTAssertTrue(app.navigationBars["Receipt Studio"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["operator-receipt-preview"].firstMatch.waitForExistence(timeout: 30))
+        app.buttons["Add Event Logo"].tap()
+        XCTAssertTrue(app.buttons["Use Synthetic Test Logo"].waitForExistence(timeout: 10))
+        app.buttons["Use Synthetic Test Logo"].tap()
+        XCTAssertTrue(app.buttons["Made to Keep"].waitForExistence(timeout: 15))
+        app.buttons["receipt-studio-done"].tap()
+        app.buttons["save-setup-draft"].tap()
+        XCTAssertTrue(app.buttons["Reopen Saved Test Event"].waitForExistence(timeout: 15))
+        app.buttons["Reopen Saved Test Event"].tap(); customize.tap()
+        let preview = app.descendants(matching: .any)["operator-receipt-preview"].firstMatch
+        XCTAssertTrue(preview.waitForExistence(timeout: 30))
+        func ready() {
+            let updating = app.staticTexts["Updating preview…"]
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: updating)], timeout: 20), .completed)
+        }
+        ready()
+        let event = app.buttons["receipt-preview-element-event"]
+        XCTAssertTrue(event.waitForExistence(timeout: 10))
+        capture("visual-before-direct-selection")
+        event.tap()
+        func selected(_ name: String) {
+            // Single selection waits for the native double-tap recognizer to fail.
+            let label = app.staticTexts["receipt-editing-target"]
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Editing: " + name), object: label)], timeout: 5), .completed)
+        }
+        selected("Event Logo")
+        let logoSize = app.sliders["Logo Size"]
+        visible(logoSize, in: app); logoSize.adjust(toNormalizedSliderPosition: 0.35)
+        app.buttons["Move Event Logo down"].tap(); ready()
+        let savedSize = logoSize.value as? String
+        let savedLogoPosition = app.staticTexts["receipt-position-vertical"].label
+        capture("visual-event-selected-portrait")
+        app.buttons["receipt-preview-element-studio"].tap()
+        selected("Made to Keep")
+        app.buttons["Move Made to Keep down"].tap(); ready()
+        let savedStudioPosition = app.staticTexts["receipt-position-vertical"].label
+        app.buttons["receipt-preview-element-separator"].tap()
+        selected("× Separator")
+        app.sliders["Separator Size"].adjust(toNormalizedSliderPosition: 0.7); ready()
+        let savedSeparatorSize = app.sliders["Separator Size"].value as? String
+        capture("visual-separator-selected-portrait")
+        app.buttons["receipt-preview-focus"].tap(); app.buttons["Full Receipt"].tap()
+        preview.scrollViews.firstMatch.pinch(withScale: 1.5, velocity: 1)
+        preview.scrollViews.firstMatch.swipeUp()
+        let manualZoom = preview.value as? String
+        app.buttons["Move × Separator down"].tap(); ready()
+        XCTAssertTrue(app.buttons["receipt-preview-focus"].label.contains("Full Receipt"))
+        XCTAssertEqual(preview.value as? String, manualZoom, "A small edit preserves manual full-receipt zoom")
+        studioSection("Footer & QR", in: app)
+        app.buttons["receipt-footer-layout"].tap(); app.buttons["Decorative Barcode Only"].tap(); ready()
+        capture("visual-footer-portrait")
+        app.buttons["receipt-preview-focus"].tap(); app.buttons["Full Receipt"].tap()
+        let wordmark = app.buttons["receipt-preview-element-studio"]
+        XCTAssertTrue(wordmark.waitForExistence(timeout: 10)); wordmark.tap(); selected("Made to Keep")
+        XCTAssertTrue(app.segmentedControls["receipt-studio-section"].buttons["Header"].isSelected, "Tapping artwork routes directly back to its controls")
+        XCTAssertTrue(app.buttons["Replace Logo"].exists)
+        app.buttons["receipt-studio-done"].tap(); customize.tap(); ready()
+        app.buttons["Event Logo"].tap()
+        XCTAssertEqual(logoSize.value as? String, savedSize)
+        XCTAssertEqual(app.staticTexts["receipt-position-vertical"].label, savedLogoPosition)
+        app.buttons["Made to Keep"].tap()
+        XCTAssertEqual(app.staticTexts["receipt-position-vertical"].label, savedStudioPosition)
+        app.buttons["× Separator"].tap()
+        XCTAssertEqual(app.sliders["Separator Size"].value as? String, savedSeparatorSize)
+        studioSection("Footer & QR", in: app)
+        XCTAssertTrue(app.buttons["receipt-footer-layout"].label.contains("Decorative Barcode Only"))
+        app.buttons["receipt-studio-done"].tap(); app.buttons["save-setup-draft"].tap()
+        XCTAssertEqual(app.staticTexts["validation-run-id"].label, run)
+        app.terminate(); app.launch()
+        XCTAssertTrue(app.buttons["Reopen Saved Test Event"].waitForExistence(timeout: 20))
+        app.buttons["Reopen Saved Test Event"].tap(); customize.tap(); ready()
+        app.buttons["Event Logo"].tap()
+        XCTAssertEqual(logoSize.value as? String, savedSize)
+        XCTAssertEqual(app.staticTexts["receipt-position-vertical"].label, savedLogoPosition)
+        capture("visual-reopened-portrait")
     }
 
     func testReceiptInspectorPinchPanAndDoubleTapFromNewEvent() throws {
@@ -181,7 +273,7 @@ final class EventOperationsUITests: XCTestCase {
         visible(footer, in: app)
         XCTAssertTrue(preview.isHittable)
         XCTAssertGreaterThanOrEqual(footer.frame.height, 44)
-        XCTAssertGreaterThan(preview.frame.width, app.frame.width * 0.8, "Accessibility sizes use the stacked layout with a persistent preview")
+        XCTAssertGreaterThan(preview.frame.width, app.frame.width * 0.3, "Accessibility sizes retain a readable preview beside independently scrolling controls")
         XCTAssertLessThanOrEqual(footer.frame.maxX, app.frame.maxX)
         capture("studio-accessibility-portrait")
         app.buttons["receipt-studio-done"].tap()

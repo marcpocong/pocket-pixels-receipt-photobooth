@@ -28,6 +28,9 @@ struct ComposedReceipt: Sendable {
     /// Stickers drawn into this composition, in z-order. Empty when none were placed.
     var drawnStickerPlacementIDs: [UUID] = []
 
+    /// In-memory editor guides; never encoded or drawn into any output image.
+    var editorGeometry: ReceiptEditorGeometry? = nil
+
     nonisolated var estimatedLengthMillimeters: Double {
         Double(height) / 8.0
     }
@@ -470,7 +473,8 @@ enum ReceiptComposer {
             photoQualityProfile: photoQualityProfile,
             includesPrintedGalleryQR: qrImage != nil,
             stickerLayout: stickerLayout,
-            drawnStickerPlacementIDs: drawnStickerIDs
+            drawnStickerPlacementIDs: drawnStickerIDs,
+            editorGeometry: ReceiptEditorGeometry(plan: plan)
         )
     }
 

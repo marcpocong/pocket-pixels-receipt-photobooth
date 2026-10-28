@@ -395,7 +395,10 @@ struct EventReceiptComposerPreview: View {
     var editorFocus: Binding<ReceiptPreviewFocus>? = nil
     var editorViewportHeight: CGFloat = 600
     var headerTarget: Binding<CoBrandedHeaderTarget>? = nil
-    @State private var renderedElementFrames: [CoBrandedHeaderTarget: CGRect] = [:]
+    var showsHeaderSelection = true
+    @State private var editorGeometry: ReceiptEditorGeometry?
+    var textTarget: ReceiptTextFocus = .all
+    @State private var viewportWidth: CGFloat = 340
     @State private var updating = false
 
     var selection: Binding<ReceiptPreviewSelection>? = nil
@@ -466,10 +469,10 @@ struct EventReceiptComposerPreview: View {
             HStack {
                 Picker("Preview Format", selection: selectionBinding.format) {
                     ForEach(BoothFormat.allCases) { format in Text(format.displayName).tag(format) }
-                }.pickerStyle(.menu).accessibilityIdentifier(compact || (editorFocus != nil && !inspection) ? "receipt-preview-format" : "receipt-preview-format-expanded")
+                }.pickerStyle(.menu).fixedSize(horizontal: true, vertical: false).accessibilityIdentifier(compact || (editorFocus != nil && !inspection) ? "receipt-preview-format" : "receipt-preview-format-expanded")
                 Spacer()
                 if compact || (editorFocus != nil && !inspection) {
-                    Button { expanded = true } label: { Label(editorFocus == nil ? "Expand Preview" : "Full Screen Preview", systemImage: "arrow.up.left.and.arrow.down.right").frame(minHeight: 44) }
+                    Button { expanded = true } label: { Label(editorFocus == nil ? "Expand Preview" : "Full Screen Preview", systemImage: "arrow.up.left.and.arrow.down.right").labelStyle(.iconOnly).frame(minWidth: 44, minHeight: 44) }
                         .accessibilityIdentifier("expand-receipt-preview")
                 }
                 Menu {
@@ -489,6 +492,10 @@ struct EventReceiptComposerPreview: View {
                     ForEach(ReceiptPreviewFocus.allCases) { Text($0.rawValue).tag($0) }
                 }.pickerStyle(.menu).accessibilityIdentifier("receipt-preview-focus")
             }
+            if editorFocus?.wrappedValue == .text, editorGeometry?.region(focus: .text, target: .whole, textTarget: textTarget) == nil {
+                Text("\(textTarget.rawValue) is not printed in this design / format. Add text or enable event details to preview it.")
+                    .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("receipt-text-not-printed")
+            }
             ForEach(ReceiptComposer.brandingResolution(for: profile).warnings, id: \.self) { warning in
                 Label(warning.message, systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(.orange)
             }
@@ -503,9 +510,12 @@ struct EventReceiptComposerPreview: View {
                         OperatorZoomableReceiptView(image: image,
                             sizing: editorFocus == nil ? .wholeReceipt : .fitWidth,
                             focus: inspection ? .full : (editorFocus?.wrappedValue ?? .full),
-                            elementFrames: renderedElementFrames,
+                            focusRect: inspection ? nil : editorGeometry?.region(focus: editorFocus?.wrappedValue ?? .full, target: headerTarget?.wrappedValue ?? .whole, textTarget: textTarget),
+                            focusIdentity: inspection ? "" : editingFocusIdentity,
+                            showsSelection: showsHeaderSelection,
+                            elementFrames: editorGeometry?.elements ?? [:],
                             selectedElement: headerTarget?.wrappedValue ?? .whole,
-                            onSelectElement: inspection || updating ? nil : headerTarget.map { binding in { binding.wrappedValue = $0 } },
+                            onSelectElement: inspection ? nil : headerTarget.map { binding in { binding.wrappedValue = $0 } },
                             rendering: showsThermal ? .exactRaster : .smooth,
                             accessibilityLabel: showsThermal ? "Exact printer raster preview" : "Receipt preview")
                             .frame(maxWidth: editorFocus == nil ? max(maximumPreviewWidth, 360) : .infinity).frame(maxWidth: .infinity)
@@ -513,17 +523,40 @@ struct EventReceiptComposerPreview: View {
                 } else if let previewError { Text(previewError).font(.footnote) }
                 else { ProgressView("Rendering receipt…").frame(maxWidth: .infinity) }
             }
-            .frame(height: height ?? (editorFocus != nil ? editorViewportHeight : (compact ? 180 : 580)))
+            .frame(height: previewHeight(inspectionHeight: height, compact: compact))
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { if !inspection { viewportWidth = $0 } }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
             .background(Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
-            Label("Updating preview…", systemImage: "arrow.triangle.2.circlepath").font(.caption).foregroundStyle(.secondary).opacity(updating ? 1 : 0).accessibilityHidden(!updating)
+            ZStack(alignment: .leading) {
+                Text(" ").font(.caption).accessibilityHidden(true)
+                if updating { Label("Updating preview…", systemImage: "arrow.triangle.2.circlepath").font(.caption).foregroundStyle(.secondary) }
+            }
             if let receipt = previewReceipt {
-                Text("\(receipt.format.displayName) · \(String(format: "%.1f", receipt.estimatedLengthMillimeters)) mm · \(showsThermal ? "Printer dots" : "Smooth grayscale")")
+                Text("\(receipt.format.displayName) · \(String(format: "%.1f", receipt.estimatedLengthMillimeters)) mm · \(showsThermal ? "Printer dots" : "Smooth grayscale") · Sample date & QR (no live gallery)")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            if let previewError, previewReceipt != nil { Text(previewError).font(.caption).foregroundStyle(.secondary) }
             if !saveMessage.isEmpty { Text(saveMessage).font(.footnote) }
         }
+    }
+
+    private var editingFocusIdentity: String {
+        switch editorFocus?.wrappedValue {
+        case .header: return headerTarget?.wrappedValue.rawValue ?? ""
+        case .text: return textTarget.rawValue
+        case .footer: return editorGeometry?.footerIdentity ?? ""
+        default: return ""
+        }
+    }
+
+    private func previewHeight(inspectionHeight: CGFloat?, compact: Bool) -> CGFloat {
+        if let inspectionHeight { return inspectionHeight }
+        guard let focus = editorFocus?.wrappedValue else { return compact ? 180 : 580 }
+        guard focus != .full, let region = editorGeometry?.region(focus: focus, target: headerTarget?.wrappedValue ?? .whole, textTarget: textTarget) else { return editorViewportHeight }
+        // A wide, shallow header needs a wide, shallow viewport. Leave room for context,
+        // instead of filling a tall inspector with unrelated photographs or empty gray space.
+        return min(editorViewportHeight, max(220, viewportWidth * region.height / region.width))
     }
 
     private func scheduleRender() {
@@ -558,19 +591,11 @@ struct EventReceiptComposerPreview: View {
                 try Task.checkCancellation()
                 let rasterPNG = try await Self.makePrinterPreview(receiptPNG: receipt.imagePNGData)
                 guard let printerPreview = UIImage(data: rasterPNG) else { throw ThermalImageRasterizerError.renderFailed }
-                let frames = await Task.detached(priority: .utility) {
-                    guard let plan = try? ReceiptComposer.makeLayoutPlan(format: format, eventProfile: profile.activeReceiptSnapshot,
-                        footerStyle: printOptions.resolved(for: profile).footerStyle), plan.coBrandSeparatorFrame != nil else { return [CoBrandedHeaderTarget: CGRect]() }
-                    var frames: [CoBrandedHeaderTarget: CGRect] = [.studio: plan.mastheadFrames.reduce(CGRect.null) { $0.union($1) }]
-                    frames[.separator] = plan.coBrandSeparatorFrame
-                    frames[.event] = plan.customHeaderFrame
-                    return frames
-                }.value
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     guard generation == renderGeneration else { return }
                     updating = false
-                    renderedElementFrames = frames
+                    editorGeometry = receipt.editorGeometry
                     previewReceipt = receipt
                     normalImage = UIImage(data: grayscalePNG)
                     normalPNG = grayscalePNG; thermalPNG = rasterPNG
@@ -582,9 +607,6 @@ struct EventReceiptComposerPreview: View {
                 await MainActor.run {
                     guard generation == renderGeneration else { return }
                     updating = false
-                    previewReceipt = nil
-                    previewImage = nil
-                    normalImage = nil
                     previewError = error.localizedDescription
                 }
             }
@@ -619,7 +641,7 @@ struct EventReceiptComposerPreview: View {
                 photos: makeSamplePhotos(count: format.photoCount),
                 sessionIdentifier: "PP-20260907-192104",
                 date: date,
-                galleryURL: nil,
+                galleryURL: URL(string: "https://example.invalid/g/" + String(repeating: "e", count: 64)),
                 format: format,
                 eventProfile: profile.activeReceiptSnapshot,
                 passport: format == .passport
@@ -648,13 +670,14 @@ struct EventReceiptComposerPreview: View {
         let size = CGSize(width: 900, height: 1200)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
+        format.opaque = true
         return UIGraphicsImageRenderer(size: size, format: format).image { context in
             let cg = context.cgContext
             let space = CGColorSpaceCreateDeviceGray()
             let tones: [CGFloat] = [0.78, 0.62, 0.7, 0.55, 0.74, 0.66]
             let top = tones[index % tones.count]
             let background = CGGradient(colorsSpace: space, colors: [UIColor(white: top, alpha: 1).cgColor, UIColor(white: top - 0.32, alpha: 1).cgColor] as CFArray, locations: [0, 1])!
-            cg.drawLinearGradient(background, start: .zero, end: CGPoint(x: size.width * 0.4, y: size.height), options: [])
+            cg.drawLinearGradient(background, start: .zero, end: CGPoint(x: size.width * 0.4, y: size.height), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
             // Window light.
             let light = CGPoint(x: size.width * (0.25 + 0.12 * CGFloat(index % 3)), y: size.height * 0.22)
             let glow = CGGradient(colorsSpace: space, colors: [UIColor(white: 1, alpha: 0.85).cgColor, UIColor(white: 1, alpha: 0).cgColor] as CFArray, locations: [0, 1])!

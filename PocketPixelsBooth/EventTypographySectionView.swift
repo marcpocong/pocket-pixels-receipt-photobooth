@@ -10,6 +10,7 @@ import UIKit
 struct EventTypographySection: View {
     @Binding var typography: EventTypographyConfiguration
     var showsSample = true
+    var onInspectText: ((ReceiptTextFocus) -> Void)? = nil
 
     var body: some View {
         Section {
@@ -22,6 +23,15 @@ struct EventTypographySection: View {
             .accessibilityIdentifier("event-typography-style")
             .accessibilityHint("Sets the fonts used for event details on printed receipts.")
 
+            .onChange(of: typography.preset) { _, _ in onInspectText?(.all) }
+            .onChange(of: typography.custom.titleSize) { _, _ in onInspectText?(.title) }
+            .onChange(of: typography.custom.titleFont) { _, _ in onInspectText?(.title) }
+            .onChange(of: typography.custom.titleWeight) { _, _ in onInspectText?(.title) }
+            .onChange(of: typography.custom.titleTracking) { _, _ in onInspectText?(.title) }
+            .onChange(of: typography.custom.detailsSize) { _, _ in onInspectText?(.all) }
+            .onChange(of: typography.custom.detailsFont) { _, _ in onInspectText?(.all) }
+            .onChange(of: typography.custom.detailsWeight) { _, _ in onInspectText?(.all) }
+            .onChange(of: typography.custom.detailsTracking) { _, _ in onInspectText?(.all) }
             if showsSample { TypographySample(resolved: typography.resolved) }
 
             if typography.preset == .custom {

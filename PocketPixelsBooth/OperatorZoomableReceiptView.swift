@@ -16,8 +16,62 @@ import SwiftUI
 import UIKit
 
 nonisolated enum ReceiptPreviewFocus: String, CaseIterable, Identifiable {
-    case header = "Header", full = "Full Receipt", footer = "Footer"
+    case header = "Header", full = "Full Receipt", footer = "Footer", text = "Text"
     var id: Self { self }
+}
+
+/// Presentation metadata from the exact production plan. Never drawn into the receipt.
+nonisolated enum ReceiptTextFocus: String, CaseIterable, Identifiable {
+    case all = "Event Details", title = "Event Title", subtitle = "Subtitle", metadata = "Date & Location", message = "Message", caption = "Caption"
+    var id: Self { self }
+}
+
+nonisolated struct ReceiptEditorGeometry: Sendable {
+    var elements: [CoBrandedHeaderTarget: CGRect] = [:]
+    var header: CGRect = .null
+    var footer: CGRect = .null
+    var footerIdentity = ""
+    var text: [ReceiptTextFocus: CGRect] = [:]
+
+    init(plan: ReceiptLayoutPlan) {
+        func union(_ frames: [CGRect]) -> CGRect { frames.reduce(.null) { $0.union($1) } }
+        let studio = union(plan.mastheadFrames)
+        header = union(plan.mastheadFrames + [plan.customHeaderFrame, plan.coBrandSeparatorFrame].compactMap { $0 })
+        if plan.coBrandSeparatorFrame != nil {
+            elements = [.studio: studio, .whole: header]
+            elements[.event] = plan.customHeaderFrame
+            elements[.separator] = plan.coBrandSeparatorFrame
+        }
+        footer = union(plan.footerFrames + plan.captionFrames + plan.studioCreditFrames
+            + [plan.qrRect, plan.eventSignatureFrame].compactMap { $0 } + [plan.sessionIdentifierFrame])
+        footerIdentity = plan.footer.integratedQRFrame != nil ? "integrated-qr" : (plan.includesPrintedGalleryQR ? "barcode-qr" : "barcode")
+        text[.all] = union(plan.eventTextFrames.map(\.rect))
+        text[.caption] = union(plan.captionFrames)
+        for (target, role) in [(ReceiptTextFocus.title, EventTextRole.title), (.subtitle, .subtitle), (.metadata, .metadata), (.message, .message)] {
+            text[target] = union(plan.eventTextFrames.filter { $0.role == role }.map(\.rect))
+        }
+    }
+
+    func region(focus: ReceiptPreviewFocus, target: CoBrandedHeaderTarget, textTarget: ReceiptTextFocus) -> CGRect? {
+        var rect: CGRect
+        switch focus {
+        case .full: return nil
+        case .footer: rect = footer.insetBy(dx: -20, dy: -24)
+        case .text:
+            guard let text = text[textTarget], !text.isNull else { return nil }
+            rect = text.insetBy(dx: -20, dy: -32)
+        case .header:
+            rect = header
+            // Keep the separator and enough of the neighboring identity to judge spacing.
+            if let selected = elements[target], let cross = elements[.separator], target == .studio || target == .event {
+                let neighbor = elements[target == .studio ? .event : .studio] ?? header
+                let neighborCenter = CGRect(x: neighbor.midX - 12, y: neighbor.midY - 12, width: 24, height: 24)
+                rect = selected.union(cross).union(neighborCenter).insetBy(dx: -24, dy: -16)
+            } else { rect = rect.insetBy(dx: -20, dy: -16) }
+            rect.size.height += 80 // beginning of the photograph
+        }
+        return rect.isNull || rect.isEmpty ? nil : rect
+    }
 }
 
 struct OperatorZoomableReceiptView: View {
@@ -34,6 +88,9 @@ struct OperatorZoomableReceiptView: View {
     let image: UIImage
     var sizing: Sizing = .wholeReceipt
     var focus: ReceiptPreviewFocus = .full
+    var focusRect: CGRect? = nil
+    var focusIdentity: String = ""
+    var showsSelection = true
     var elementFrames: [CoBrandedHeaderTarget: CGRect] = [:]
     var selectedElement: CoBrandedHeaderTarget = .whole
     var onSelectElement: ((CoBrandedHeaderTarget) -> Void)? = nil
@@ -46,11 +103,11 @@ struct OperatorZoomableReceiptView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            ZoomableImageScrollView(image: image, rendering: rendering, controller: controller, sizing: sizing, focus: focus, elementFrames: elementFrames, selectedElement: selectedElement, onSelectElement: onSelectElement)
+            ZoomableImageScrollView(image: image, rendering: rendering, controller: controller, sizing: sizing, focus: focus, focusRect: focusRect, focusIdentity: focusIdentity, showsSelection: showsSelection, elementFrames: elementFrames, selectedElement: selectedElement, onSelectElement: onSelectElement)
                 .background(Color(white: 0.93))
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .overlay { RoundedRectangle(cornerRadius: 10).stroke(MadeToKeepTheme.ColorPalette.hairline) }
-                .accessibilityElement()
+                .accessibilityElement(children: .contain)
                 .accessibilityLabel(accessibilityLabel)
                 .accessibilityIdentifier("operator-receipt-preview")
                 .accessibilityValue("Zoom \(controller.percentText)")
@@ -100,6 +157,9 @@ private struct ZoomableImageScrollView: UIViewRepresentable {
     let controller: ZoomController
     let sizing: OperatorZoomableReceiptView.Sizing
     let focus: ReceiptPreviewFocus
+    let focusRect: CGRect?
+    let focusIdentity: String
+    let showsSelection: Bool
     let elementFrames: [CoBrandedHeaderTarget: CGRect]
     let selectedElement: CoBrandedHeaderTarget
     let onSelectElement: ((CoBrandedHeaderTarget) -> Void)?
@@ -115,13 +175,14 @@ private struct ZoomableImageScrollView: UIViewRepresentable {
     func updateUIView(_ view: ReceiptZoomScrollView, context: Context) {
         controller.scrollView = view
         view.sizing = sizing
+        view.showsSelection = showsSelection
         view.elementFrames = elementFrames
         view.selectedElement = selectedElement
         view.onSelectElement = onSelectElement
         if view.imageView.image !== image || view.rendering != rendering {
             view.display(image, rendering: rendering)
         }
-        view.setFocus(focus)
+        view.setFocus(focus, rect: focusRect, identity: focusIdentity)
     }
 }
 
@@ -133,9 +194,14 @@ final class ReceiptZoomScrollView: UIScrollView, UIScrollViewDelegate {
     var elementFrames: [CoBrandedHeaderTarget: CGRect] = [:] { didSet { setNeedsLayout() } }
     var selectedElement: CoBrandedHeaderTarget = .whole { didSet { setNeedsLayout() } }
     var onSelectElement: ((CoBrandedHeaderTarget) -> Void)? { didSet { setNeedsLayout() } }
+    var showsSelection = true
     private let selectionOutline = CAShapeLayer()
+    private var accessibleTargets: [CoBrandedHeaderTarget: ReceiptElementAccessibility] = [:]
     private var focus: ReceiptPreviewFocus = .full
+    private var focusRect: CGRect?
+    private var focusIdentity = ""
     private var needsFocus = true
+    private var geometryChanged = false
     private var restoreOffset: CGPoint?
 
     private(set) var rendering: OperatorZoomableReceiptView.Rendering = .smooth
@@ -222,29 +288,67 @@ final class ReceiptZoomScrollView: UIScrollView, UIScrollViewDelegate {
         updatePanAvailability()
         if needsFocus && sizing == .fitWidth {
             needsFocus = false
-            let bottom = max(0, contentSize.height - bounds.height)
-            contentOffset = CGPoint(x: 0, y: focus == .footer ? bottom : 0)
-        }
-        if let offset = restoreOffset {
             restoreOffset = nil
-            if !needsFocus && focus != .footer {
-                contentOffset = CGPoint(x: min(max(0, offset.x), max(0, contentSize.width - bounds.width)),
-                    y: min(max(0, offset.y), max(0, contentSize.height - bounds.height)))
-            } else if focus == .footer { contentOffset.y = max(0, contentSize.height - bounds.height) }
+            if let rect = focusRect {
+                let scale = min(bounds.width / rect.width, bounds.height / rect.height)
+                setZoomScale(min(max(fitScale, scale), maximumZoomScale), animated: false)
+                position(on: rect)
+            } else {
+                setZoomScale(fitScale, animated: false)
+                contentOffset = CGPoint(x: 0, y: focus == .footer ? max(0, contentSize.height - bounds.height) : 0)
+            }
+        } else if let offset = restoreOffset {
+            restoreOffset = nil
+            contentOffset = clamped(offset)
+        }
+        if geometryChanged, sizing == .fitWidth, focus != .full, let rect = focusRect {
+            geometryChanged = false
+            // Ordinary edits keep the operator's zoom and pan unless the target leaves view.
+            let visible = CGRect(origin: contentOffset, size: bounds.size)
+            let anchor = focus == .header ? (elementFrames[selectedElement] ?? rect) : rect
+            let center = CGPoint(x: anchor.midX * zoomScale, y: anchor.midY * zoomScale)
+            if !visible.insetBy(dx: 16, dy: 16).contains(center) { position(on: anchor) }
         }
         updateSelection()
     }
 
-    func setFocus(_ value: ReceiptPreviewFocus) {
-        guard focus != value else { return }
+    func setFocus(_ value: ReceiptPreviewFocus, rect: CGRect? = nil, identity: String = "") {
+        if focus != value || focusIdentity != identity { needsFocus = true }
+        geometryChanged = geometryChanged || focusRect != rect
         focus = value
-        needsFocus = true
-        if sizing == .fitWidth { zoom(toRelative: 1, animated: false) }
+        focusRect = rect
+        focusIdentity = identity
         setNeedsLayout()
     }
 
+    private func clamped(_ point: CGPoint) -> CGPoint {
+        CGPoint(x: min(max(0, point.x), max(0, contentSize.width - bounds.width)),
+                y: min(max(0, point.y), max(0, contentSize.height - bounds.height)))
+    }
+
+    private func position(on rect: CGRect) {
+        contentOffset = clamped(CGPoint(x: rect.midX * zoomScale - bounds.width / 2,
+                                       y: rect.midY * zoomScale - bounds.height / 2))
+    }
+
     private func updateSelection() {
-        guard onSelectElement != nil, selectedElement != .whole, let rect = elementFrames[selectedElement] else {
+        var visibleTargets: [ReceiptElementAccessibility] = []
+        if onSelectElement != nil {
+            for target in [CoBrandedHeaderTarget.studio, .separator, .event] {
+                guard let rect = elementFrames[target], !rect.isNull else { continue }
+                let element = accessibleTargets[target] ?? ReceiptElementAccessibility(accessibilityContainer: self)
+                accessibleTargets[target] = element
+                element.accessibilityLabel = target.rawValue + " in receipt preview"
+                element.accessibilityIdentifier = "receipt-preview-element-" + String(describing: target)
+                element.accessibilityTraits = showsSelection && target == selectedElement ? [.button, .selected] : [.button]
+                element.accessibilityFrame = UIAccessibility.convertToScreenCoordinates(rect, in: imageView)
+                    .intersection(UIAccessibility.convertToScreenCoordinates(bounds, in: self))
+                element.activate = { [weak self] in self?.onSelectElement?(target) }
+                if imageView.convert(rect, to: self).intersects(bounds) { visibleTargets.append(element) }
+            }
+        }
+        accessibilityElements = visibleTargets.isEmpty ? nil : visibleTargets
+        guard showsSelection, onSelectElement != nil, let rect = elementFrames[selectedElement] else {
             selectionOutline.path = nil; return
         }
         selectionOutline.path = UIBezierPath(roundedRect: rect.insetBy(dx: -3, dy: -3), cornerRadius: 3).cgPath
@@ -253,8 +357,22 @@ final class ReceiptZoomScrollView: UIScrollView, UIScrollViewDelegate {
 
     @objc private func handleSelect(_ recognizer: UITapGestureRecognizer) {
         let point = recognizer.location(in: imageView)
-        if let target = CoBrandedHeaderTarget.allCases.first(where: { $0 != .whole && elementFrames[$0]?.contains(point) == true }) {
-            onSelectElement?(target)
+        if let target = hitTarget(at: point) { onSelectElement?(target) }
+    }
+
+    /// UIKit converts through zoom, image transforms and scroll offset before this hit test.
+    /// Exact artwork wins; expanded small targets use nearest center to resolve overlaps.
+    func hitTarget(at point: CGPoint) -> CoBrandedHeaderTarget? {
+        let targets = CoBrandedHeaderTarget.allCases.filter { $0 != .whole && elementFrames[$0] != nil }
+        if let exact = targets.filter({ elementFrames[$0]!.contains(point) })
+            .min(by: { elementFrames[$0]!.width * elementFrames[$0]!.height < elementFrames[$1]!.width * elementFrames[$1]!.height }) { return exact }
+        let side = 44 / max(zoomScale, 0.001)
+        return targets.filter { target in
+            let rect = elementFrames[target]!
+            return rect.insetBy(dx: -max(0, (side - rect.width) / 2), dy: -max(0, (side - rect.height) / 2)).contains(point)
+        }.min { a, b in
+            let x = elementFrames[a]!, y = elementFrames[b]!
+            return hypot(point.x - x.midX, point.y - x.midY) < hypot(point.x - y.midX, point.y - y.midY)
         }
     }
 
@@ -290,8 +408,11 @@ final class ReceiptZoomScrollView: UIScrollView, UIScrollViewDelegate {
     func scrollViewDidZoom(_ scrollView: UIScrollView) {
         centerContent()
         updatePanAvailability()
-        onZoomChange?(zoomScale / max(fitScale, 0.0001))
+        let relative = zoomScale / max(fitScale, 0.0001)
+        DispatchQueue.main.async { [weak self] in self?.onZoomChange?(relative) }
     }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) { updateSelection() }
 
     /// Centres a receipt smaller than the viewport instead of pinning it to the top-left.
     private func centerContent() {
@@ -303,4 +424,9 @@ final class ReceiptZoomScrollView: UIScrollView, UIScrollViewDelegate {
     private func updatePanAvailability() {
         panGestureRecognizer.isEnabled = sizing == .fitWidth || zoomScale > fitScale * 1.01
     }
+}
+
+private final class ReceiptElementAccessibility: UIAccessibilityElement {
+    var activate: (() -> Void)?
+    override func accessibilityActivate() -> Bool { activate?(); return activate != nil }
 }

@@ -9,22 +9,25 @@ struct ReceiptStudioView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var section: EditingSection = .header
     @State private var focus: ReceiptPreviewFocus = .header
-    @State private var target: CoBrandedHeaderTarget = .whole
+    @State private var target: CoBrandedHeaderTarget = .studio
+    @State private var textTarget: ReceiptTextFocus = .all
+    @FocusState private var textField: ReceiptTextFocus?
     @State private var previewSelection = ReceiptPreviewSelection()
 
     private enum EditingSection: String, CaseIterable, Identifiable {
-        case header = "Header & Logo", footer = "Footer & QR", text = "Text & Style"
+        case header = "Header", footer = "Footer", text = "Text"
+        var title: String { switch self { case .header: "Header & Logo"; case .footer: "Footer & QR"; case .text: "Text & Style" } }
         var id: Self { self }
     }
 
     var body: some View {
         GeometryReader { geometry in
-            let sideBySide = geometry.size.width >= 720 && !typeSize.isAccessibilitySize
+            let sideBySide = geometry.size.width >= 720
             let previewWidth = floor((geometry.size.width - 48) * 0.43)
             Group {
                 if sideBySide {
                     HStack(alignment: .top, spacing: 20) {
-                        preview(height: max(240, geometry.size.height - 220)).frame(width: previewWidth)
+                        preview(height: max(240, geometry.size.height - (typeSize.isAccessibilitySize ? 310 : 240))).frame(width: previewWidth)
                         Divider()
                         controls.frame(maxWidth: .infinity)
                     }
@@ -42,7 +45,13 @@ struct ReceiptStudioView: View {
         .tint(OperatorPalette.ink)
         .onChange(of: section) { _, value in
             // A manual focus choice stays in effect until the operator selects another section.
-            focus = value == .header ? .header : .footer
+            focus = value == .header ? .header : (value == .footer ? .footer : .text)
+        }
+        .onChange(of: textField) { _, value in
+            if let value {
+                textTarget = value
+                if focus != .full { focus = .text }
+            }
         }
         .textFieldStyle(.roundedBorder)
     }
@@ -50,28 +59,20 @@ struct ReceiptStudioView: View {
     private func preview(height: CGFloat) -> some View {
         EventReceiptComposerPreview(profile: profile, printOptions: ReceiptPrintSettingsStore.load(),
             showsSamplePrintLink: false, editorFocus: $focus, editorViewportHeight: height,
-            headerTarget: section == .header ? $target : nil, selection: $previewSelection)
+            headerTarget: Binding(get: { target }, set: { target = $0; section = .header }),
+            showsHeaderSelection: section == .header, textTarget: textTarget, selection: $previewSelection)
             .accessibilityElement(children: .contain).accessibilityIdentifier("receipt-studio-preview-pane")
     }
 
     private var controls: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Menu {
-                Picker("Editing Section", selection: $section) {
-                    ForEach(EditingSection.allCases) { Text($0.rawValue).tag($0) }
-                }
-            } label: {
-                HStack {
-                    Text(section.rawValue).font(.headline)
-                    Spacer()
-                    Image(systemName: "chevron.up.chevron.down")
-                }.frame(maxWidth: .infinity, minHeight: 44)
-            }.accessibilityLabel("Editing Section, " + section.rawValue)
-                .accessibilityIdentifier("receipt-studio-section")
+            Picker("Editing Section", selection: $section) {
+                ForEach(EditingSection.allCases) { Text($0.rawValue).tag($0) }
+            }.pickerStyle(.segmented).accessibilityIdentifier("receipt-studio-section")
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text(section.rawValue).font(.title3.weight(.semibold))
+                    Text(section.title).font(.title3.weight(.semibold))
                     switch section {
                     case .header:
                         EventReceiptDesignPanel(design: $design, studioProfile: studioProfile, headerTarget: $target, isRegularBooth: isRegularBooth)
@@ -89,6 +90,7 @@ struct ReceiptStudioView: View {
             Text("Footer Caption").font(.headline)
             TextField("Receipt footer caption (optional)", text: limited($design.profile.receiptDesign.editorialCaption, ReceiptEditorialCaption.inputLimit), axis: .vertical)
                 .lineLimit(2...3).accessibilityIdentifier("event-footer-caption")
+                .focused($textField, equals: .caption)
                 .onChange(of: design.profile.receiptDesign.editorialCaption) { _, _ in design.profile.receiptExtrasEnabled = true }
             if let studioProfile {
                 Button("Reset Caption to Studio") {
@@ -101,18 +103,21 @@ struct ReceiptStudioView: View {
 
     private var textControls: some View {
         VStack(alignment: .leading, spacing: 16) {
-            EventTypographySection(typography: $design.profile.receiptDesign.typography, showsSample: false)
+            Picker("Text to Inspect", selection: $textTarget) {
+                ForEach(ReceiptTextFocus.allCases) { Text($0.rawValue).tag($0) }
+            }.accessibilityIdentifier("receipt-text-target")
+            EventTypographySection(typography: $design.profile.receiptDesign.typography, showsSample: false, onInspectText: { textTarget = $0 })
             if !isRegularBooth {
             Divider()
             Toggle("Print event details below the footer", isOn: $design.profile.showEventTextBlock)
                 .onChange(of: design.profile.showEventTextBlock) { _, _ in design.profile.receiptExtrasEnabled = true }
             if design.profile.showEventTextBlock {
                 Text("The event name comes from Event Setup.").font(.caption).foregroundStyle(.secondary)
-                TextField("Subtitle / Host", text: limited($design.profile.subtitle, EventProfile.subtitleLimit))
+                TextField("Subtitle / Host", text: limited($design.profile.subtitle, EventProfile.subtitleLimit)).focused($textField, equals: .subtitle)
                 Toggle("Show date", isOn: $design.profile.includeEventDate)
                 if design.profile.includeEventDate { DatePicker("Date", selection: $design.profile.eventDate, displayedComponents: .date) }
-                TextField("Location", text: limited($design.profile.location, EventProfile.locationLimit))
-                TextField("Optional message", text: limited($design.profile.shortMessage, EventProfile.shortMessageLimit), axis: .vertical)
+                TextField("Location", text: limited($design.profile.location, EventProfile.locationLimit)).focused($textField, equals: .metadata)
+                TextField("Optional message", text: limited($design.profile.shortMessage, EventProfile.shortMessageLimit), axis: .vertical).focused($textField, equals: .message)
             }
             }
         }

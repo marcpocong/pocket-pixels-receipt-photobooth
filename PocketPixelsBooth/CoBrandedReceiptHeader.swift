@@ -342,3 +342,36 @@ extension ReceiptComposer {
         return config
     }
 }
+
+/// Editor availability only. Resolve the production frames to remove slider ranges that the
+/// renderer would entirely consume through clamping; opening a design never writes these values.
+extension ReceiptComposer {
+    nonisolated static func headerSizeAvailability(_ configuration: ReceiptHeaderConfiguration,
+        target: CoBrandedHeaderTarget, current: Double, maximum: Double) -> (limit: Double, canResize: Bool) {
+        let prepared = prepareCoBrandedEditing(configuration)
+        let upper = headerMaximumScale(prepared, target: target, current: current, maximum: maximum)
+        func size(at value: Double) -> CGSize? {
+            var candidate = prepared
+            switch target {
+            case .whole: candidate.coBrandedAdjustments?.compositionScale = value
+            case .studio: candidate.coBrandedAdjustments?.studioScale = value
+            case .separator: candidate.coBrandedAdjustments?.placement?.separatorScale = value
+            case .event: candidate.scale = value
+            }
+            guard let plan = headerEditingPlan(candidate), let rect = ReceiptEditorGeometry(plan: plan).elements[target] else { return nil }
+            return rect.size
+        }
+        guard upper > 0.501, let smallest = size(at: 0.5), let largest = size(at: upper),
+              abs(largest.width - smallest.width) > 0.5 || abs(largest.height - smallest.height) > 0.5 else { return (0.5, false) }
+        var low = 0.5, high = upper
+        // Find the beginning of the maximum-size plateau. Below it the selected artwork
+        // responds to the slider, with the engine still owning margins, aspect and collisions.
+        for _ in 0..<12 {
+            let middle = (low + high) / 2
+            guard let measured = size(at: middle) else { return (0.5, false) }
+            if abs(measured.width - largest.width) < 0.01 && abs(measured.height - largest.height) < 0.01 { high = middle }
+            else { low = middle }
+        }
+        return (high, true)
+    }
+}

@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 /// Edits a design draft only; the saved event changes on Save Design, guests on Start.
 struct EventReceiptDesignPanel: View {
     @Binding var design: SavedEventDesign
+    @Environment(\.dynamicTypeSize) private var typeSize
     var studioProfile: EventProfile? = nil
     var headerTarget: Binding<CoBrandedHeaderTarget>? = nil
     var isRegularBooth = false
@@ -44,9 +45,9 @@ struct EventReceiptDesignPanel: View {
     @ViewBuilder private var studioHeaderControls: some View {
         Toggle(isRegularBooth ? "Use Custom Logo" : "Use Event Logo", isOn: personalizeBinding).frame(minHeight: 44)
         if design.personalizeReceipt {
-            if artwork == nil || design.layout != .coBranded || headerTarget?.wrappedValue == .event { logoArea }
+            logoArea
             if artwork != nil {
-                if headerTarget?.wrappedValue == .whole && design.layout == .coBranded {
+                if design.layout == .coBranded {
                     Picker("Branding Mode", selection: Binding(get: { design.layout }, set: { setLayout($0) })) {
                         ForEach(ReceiptBrandingMode.allCases) { Text($0.displayName).tag($0) }
                     }.frame(minHeight: 44)
@@ -62,10 +63,7 @@ struct EventReceiptDesignPanel: View {
                         ForEach(ReceiptBrandingMode.allCases) { Text($0.displayName).tag($0) }
                     }
                 }
-                if headerTarget?.wrappedValue == .whole {
-                    Stepper("Space above: \(Int(design.profile.receiptHeader.topSpacing)) dots", value: $design.profile.receiptHeader.topSpacing, in: 0...ReceiptHeaderConfiguration.maximumSpacing, step: 4)
-                    Stepper("Space below: \(Int(design.profile.receiptHeader.bottomSpacing)) dots", value: $design.profile.receiptHeader.bottomSpacing, in: 0...ReceiptHeaderConfiguration.maximumSpacing, step: 4)
-                }
+
             }
         } else {
             MadeToKeepWordmark(size: 28, color: OperatorPalette.ink).frame(height: 70)
@@ -87,12 +85,11 @@ struct EventReceiptDesignPanel: View {
 
     @ViewBuilder private var logoArea: some View {
         if let artwork {
-            VStack(alignment: .leading, spacing: 12) {
+            let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
+            layout {
                 LogoThumbnail(artwork: artwork)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Event Logo").font(.headline)
-                    Text(artwork.kind == .vector ? "Vector PDF — prints sharp at any size" : "Image — transparent areas print as white paper")
-                        .font(.footnote).foregroundStyle(.secondary)
+                    Text("Current Event Logo").font(.headline)
                     HStack(spacing: 10) {
                         sourceMenu(title: "Replace Logo", systemImage: "arrow.triangle.2.circlepath", prominent: false)
                         Button("Remove", role: .destructive) { removeLogo() }.buttonStyle(.bordered)
@@ -237,7 +234,7 @@ private struct LogoThumbnail: View {
             Color.white
             if let image { Image(uiImage: image).resizable().scaledToFit().padding(10) } else { ProgressView() }
         }
-        .frame(width: 150, height: 96)
+        .frame(width: 72, height: 60)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay { RoundedRectangle(cornerRadius: 10).stroke(.secondary.opacity(0.3)) }
         .task(id: ObjectIdentifier(artwork)) {
