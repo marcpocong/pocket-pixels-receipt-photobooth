@@ -61,3 +61,12 @@ Curated simulator screenshots: [Home](../BuildArtifacts/OperatorFreedom/home-pri
 Automated printing used simulated transports. No physical paper test, real payment, real CIM receipt reprint, historical-record clearing, real event End, uninstall, container reset or Keychain reset was performed. Software test success does not verify VOZY G80 paper movement, cutting, power-cycle recovery or physical customer delivery.
 
 With the operator present and explicitly authorizing paper use, validate a printer restart/reconnect, one readiness acknowledgment, optional Quick Test Print and a deliberate synthetic archived replacement/sample. Inspect the actual paper and cutter. Validate 30/60-second guest displays on Carlo. The real interrupted CIM session remains an operator review item; its physical outcome is not claimed recovered by this release.
+
+
+## CI compiler compatibility follow-up
+
+The initial push's Production Gate failed before running either iOS suite: the hosted Xcode 16.4 compiler timed out checking `ReceiptComposer.positionedCoBrandedHeader` at the original line 1001. Git blame places that unchanged expression in `4a3573a`, before the release baseline. Backend CI passed.
+
+The compatibility follow-up only names and types the four existing CGRect scalar calculations. Their arithmetic and evaluation order are unchanged; no artwork, spacing, typography or print commands change. The signed Carlo build passed, and **38 existing header, preview, raster and print-direction tests passed** with zero failures/skips (`/tmp/PocketPixelsFreedomCompilerCompatibility.xcresult`). The matching app was installed in place again.
+
+This required one additional compatibility commit/push after the coordinated feature release; published `main` was not rewritten or force-pushed. Normal Production Gate checks run for the follow-up. Their actual conclusion is reported separately rather than inferred from local tests.

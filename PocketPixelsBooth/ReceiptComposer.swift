@@ -998,10 +998,14 @@ enum ReceiptComposer {
                 y: pivot.y + (rect.minY - pivot.y) * scale,
                 width: rect.width * scale, height: rect.height * scale)
         }
-        let textRects = [wordmark, studios].map { frame in
-            scaled(CGRect(x: studioX + (frame.rect.minX - anchorX) * textScale,
-                y: studioY + (frame.rect.minY - block.midY) * textScale,
-                width: frame.rect.width * textScale, height: frame.rect.height * textScale))
+        // Explicit scalar steps keep Xcode 16.4's constraint solver bounded. Arithmetic and
+        // evaluation order match the original layout, preserving the saved header artwork.
+        let textRects: [CGRect] = [wordmark, studios].map { (frame: ReceiptTextFrame) -> CGRect in
+            let x: CGFloat = studioX + (frame.rect.minX - anchorX) * textScale
+            let y: CGFloat = studioY + (frame.rect.minY - block.midY) * textScale
+            let width: CGFloat = frame.rect.width * textScale
+            let height: CGFloat = frame.rect.height * textScale
+            return scaled(CGRect(x: x, y: y, width: width, height: height))
         }
         let eventRect = scaled(CGRect(x: logoX - logoSize.width / 2, y: logoY - logoSize.height / 2, width: logoSize.width, height: logoSize.height))
         let crossRect = scaled(CGRect(x: crossX - crossSize / 2, y: crossY - crossSize / 2, width: crossSize, height: crossSize))
