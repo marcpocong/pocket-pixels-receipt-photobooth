@@ -90,6 +90,7 @@ final class BoothSessionViewModel: ObservableObject {
     private var paymentsClient: PaymentsAPIClient? { injectedPaymentsClient ?? PaymentsConfiguration.current().map { PaymentsAPIClient(configuration: $0) } }
     private let injectedPaymentsClient: PaymentsAPIClient?
     private let eventRunStore: EventRunStore?
+    private var sessionIsRegularBooth: Bool?
     private var sessionRunID: String?
     private let offlineCashLedger = OfflineCashLedger.shared
     private var serverEventPolicy: ServerEventPolicy?
@@ -403,6 +404,7 @@ final class BoothSessionViewModel: ObservableObject {
                 sessionRunID = try eventRunStore.runForAdmission(context: context).id
             } catch { isTransitionActive = false; state = .error(error.localizedDescription); return }
         }
+        sessionIsRegularBooth = regularBooth
         commercialEvent = run
         policyAuthority = authority
         serverEventPolicy = serverPolicy
@@ -2657,6 +2659,7 @@ final class BoothSessionViewModel: ObservableObject {
         sessionIdentifier = nil
         sessionCreatedAt = nil
         sessionEventProfile = nil
+        sessionIsRegularBooth = nil
         sessionRunID = nil
         galleryToken = nil
         galleryURL = nil
@@ -3026,7 +3029,8 @@ final class BoothSessionViewModel: ObservableObject {
             rasterizedImage: rasterizedImage,
             photoThumbnailData: [],
             eventRunID: sessionRunID,
-            eventDesignID: environment.recordsCustomerSessionMetrics ? EventDesignLibraryStore.shared.library.appliedEventID : nil
+            eventDesignID: environment.recordsCustomerSessionMetrics ? EventDesignLibraryStore.shared.library.appliedEventID : nil,
+            isRegularBooth: sessionIsRegularBooth
         )
         archiveCommitPayload = payload
         let archiveDirectory = environment.archiveDirectory

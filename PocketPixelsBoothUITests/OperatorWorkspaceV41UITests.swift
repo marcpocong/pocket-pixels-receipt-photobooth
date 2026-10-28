@@ -64,14 +64,11 @@ final class OperatorWorkspaceV41UITests: XCTestCase {
         app.buttons["Select All Visible"].tap()
         try capture("bulk-selection")
         app.buttons["Delete Selected"].tap()
-        XCTAssertTrue(app.navigationBars["Review Local Deletion"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["Delete Sessions?"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH '2 sessions'")).firstMatch.waitForExistence(timeout: 5))
         try capture("session-deletion-confirmation")
-        let delete = app.buttons["Delete Eligible Sessions"]
+        let delete = try hittableElement(in: app.buttons.matching(identifier: "Delete Selected"))
         XCTAssertTrue(delete.isEnabled); delete.tap()
-        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH '2 deleted'")).firstMatch.waitForExistence(timeout: 10))
-        try capture("synthetic-session-deletion-results")
-        try hittableElement(in: app.buttons.matching(identifier: "Done")).tap()
         XCTAssertTrue(app.staticTexts["No sessions yet"].waitForExistence(timeout: 5))
     }
     func testSuccessfulUnusedEventDeletionPersistsAcrossRelaunchWithLaterRegularSessions() throws {

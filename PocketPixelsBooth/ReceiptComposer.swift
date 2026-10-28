@@ -797,7 +797,13 @@ enum ReceiptComposer {
     /// both wide and square marks, and the × stays centred on the paper.
     nonisolated private static func makeCoBrandedHeaderLayout(textSnapshot: ReceiptTextSnapshot, sourceSize: CGSize, startY: Int, width: Int) -> ReceiptHeaderLayout {
         typealias Geometry = CoBrandedHeaderGeometry
-        let config = textSnapshot.headerConfiguration
+        let actualConfig = textSnapshot.headerConfiguration
+        var config = actualConfig
+        if let adjustments = config.coBrandedAdjustments {
+            config.scale = adjustments.referenceLogoScale
+            config.layoutMode = adjustments.referenceLayoutMode
+            config.fillHeightRatio = adjustments.referenceFillHeightRatio
+        }
         let receiptWidth = CGFloat(width)
         let slot = Geometry.slotWidth(receiptWidth: receiptWidth)
         let position = config.effectiveHorizontalPosition
@@ -846,6 +852,12 @@ enum ReceiptComposer {
             width: Geometry.separatorSize,
             height: Geometry.separatorSize
         )
+        if let adjustments = actualConfig.coBrandedAdjustments {
+            return adjustedCoBrandedHeader(wordmark: wordmark, studios: studios, logo: logoFrame,
+                separator: separator, configuration: actualConfig, adjustments: adjustments,
+                sourceSize: textSnapshot.headerContentBounds?.size ?? sourceSize,
+                startY: startY, bottomSpacing: spacing.bottom, receiptWidth: receiptWidth)
+        }
         let contentBottom = max(studios.rect.maxY, logoFrame.maxY)
         return ReceiptHeaderLayout(
             mode: .customEventHeader,
@@ -857,6 +869,95 @@ enum ReceiptComposer {
             bottom: Int(ceil(contentBottom)) + spacing.bottom,
             coBrandSeparator: separator
         )
+    }
+
+    nonisolated private static func adjustedCoBrandedHeader(
+        wordmark: ReceiptTextFrame, studios: ReceiptTextFrame, logo: CGRect, separator: CGRect,
+        configuration: ReceiptHeaderConfiguration, adjustments: CoBrandedHeaderAdjustments,
+        sourceSize: CGSize, startY: Int, bottomSpacing: Int, receiptWidth: CGFloat
+    ) -> ReceiptHeaderLayout {
+        let a = adjustments.normalized()
+        let baseBlock = wordmark.rect.union(studios.rect)
+        let studioScale = CGFloat(a.studioScale)
+        let sharedScale = CGFloat(a.compositionScale)
+        let visibleWidth = (wordmark.rect.width - 1) * studioScale
+        let studioX = CoBrandedHeaderGeometry.slotX(width: visibleWidth, leftSide: true,
+            position: a.studioPosition, receiptWidth: receiptWidth)
+        let studioCenter = studioX + visibleWidth / 2
+        let studioCenterY = baseBlock.midY + CGFloat(a.studioY)
+        let eventSize = CoBrandedHeaderGeometry.logoFrameSize(sourceSize: sourceSize,
+            configuration: configuration, receiptWidth: receiptWidth)
+        let eventX = CoBrandedHeaderGeometry.slotX(width: eventSize.width, leftSide: false,
+            position: a.eventPosition, receiptWidth: receiptWidth)
+        let studioWidth = visibleWidth * sharedScale
+        let eventWidth = eventSize.width * sharedScale
+        let edges = CoBrandedHeaderGeometry.innerEdges(receiptWidth: receiptWidth)
+        // Each identity owns its final clamp. Editing one never changes the other, even
+        // after the operator has translated the pair to a printable boundary.
+        let studioDX = min(edges.left - (studioCenter + studioWidth / 2),
+            max(CoBrandedHeaderGeometry.sideInset - (studioCenter - studioWidth / 2), CGFloat(a.studioOffsetX)))
+        let eventDX = min(receiptWidth - CoBrandedHeaderGeometry.sideInset - (eventX + eventSize.width / 2 + eventWidth / 2),
+            max(edges.right - (eventX + eventSize.width / 2 - eventWidth / 2), CGFloat(a.eventOffsetX)))
+        let textScale = studioScale * sharedScale
+        let studioHeight = baseBlock.height * textScale
+        let eventHeight = eventSize.height * sharedScale
+        let eventCenterY = logo.midY + CGFloat(a.eventY)
+        let safeStudioY = max(CGFloat(startY + 8) + studioHeight / 2, studioCenterY)
+        let safeEventY = max(CGFloat(startY + 8) + eventHeight / 2, eventCenterY)
+        func text(_ frame: ReceiptTextFrame) -> ReceiptTextFrame {
+            let rect = CGRect(x: studioCenter + studioDX + (frame.rect.minX - (wordmark.rect.minX + (wordmark.rect.width - 1) / 2)) * textScale,
+                y: safeStudioY + (frame.rect.minY - baseBlock.midY) * textScale,
+                width: frame.rect.width * textScale, height: frame.rect.height * textScale)
+            return ReceiptTextFrame(style: frame.style, text: frame.text, rect: rect,
+                fontSize: frame.fontSize * textScale, tracking: frame.tracking * textScale)
+        }
+        let texts = [text(wordmark), text(studios)]
+        let eventFrame = CGRect(x: eventX + eventSize.width / 2 - eventWidth / 2 + eventDX,
+            y: safeEventY - eventHeight / 2, width: eventWidth, height: eventHeight)
+        let cross = separator.offsetBy(dx: 0, dy: max(CGFloat(startY + 8) - separator.minY, CGFloat(a.separatorY)))
+        let bottom = max(texts.map(\.rect.maxY).max() ?? 0, eventFrame.maxY, cross.maxY)
+        return ReceiptHeaderLayout(mode: .customEventHeader, startY: startY, mastheadTexts: texts,
+            customImageFrame: eventFrame, eventTextFrames: [], dividerY: nil,
+            bottom: Int(ceil(bottom)) + bottomSpacing, coBrandSeparator: cross)
+    }
+
+    nonisolated static func translateCoBrandedHeader(_ configuration: ReceiptHeaderConfiguration,
+        horizontal: Double = 0, vertical: Double = 0) -> ReceiptHeaderConfiguration {
+        var config = configuration.normalized()
+        config.editCoBranded { _ in }
+        var profile = EventProfile.pocketPixelsDefault
+        profile.isEnabled = true; profile.showEventTextBlock = false
+        profile.receiptHeader = config
+        guard let current = try? makeLayoutPlan(format: .solo, eventProfile: profile),
+              let logo = current.customHeaderFrame, let wordmark = current.mastheadFrames.first,
+              let separator = current.coBrandSeparatorFrame,
+              var a = config.coBrandedAdjustments else { return configuration }
+        var baseline = config
+        baseline.editCoBranded { $0.studioOffsetX = 0; $0.eventOffsetX = 0; $0.studioY = 0; $0.eventY = 0; $0.separatorY = 0 }
+        profile.receiptHeader = baseline
+        guard let base = try? makeLayoutPlan(format: .solo, eventProfile: profile),
+              let baseLogo = base.customHeaderFrame, let baseWordmark = base.mastheadFrames.first,
+              let baseSeparator = base.coBrandSeparatorFrame else { return configuration }
+        let studioOffset = wordmark.minX - baseWordmark.minX
+        let eventOffset = logo.minX - baseLogo.minX
+        let studioY = wordmark.minY - baseWordmark.minY
+        let eventY = logo.minY - baseLogo.minY
+        let separatorY = separator.minY - baseSeparator.minY
+        let edges = CoBrandedHeaderGeometry.innerEdges()
+        let studioRight = wordmark.maxX - CGFloat(a.studioScale * a.compositionScale)
+        let lowerX = max(CoBrandedHeaderGeometry.sideInset - wordmark.minX, edges.right - logo.minX,
+            -48 - studioOffset, -48 - eventOffset)
+        let upperX = min(edges.left - studioRight, CGFloat(BoothConfiguration.receiptWidth) - CoBrandedHeaderGeometry.sideInset - logo.maxX, 48 - studioOffset, 48 - eventOffset)
+        let dx = min(upperX, max(lowerX, CGFloat(horizontal.isFinite ? horizontal : 0)))
+        let top = CGFloat(Metrics.receiptTopPadding + 8)
+        let lowerY = max(top - min(wordmark.minY, logo.minY, separator.minY),
+            -48 - studioY, -48 - eventY, -48 - separatorY)
+        let upperY = min(48 - studioY, 48 - eventY, 48 - separatorY)
+        let dy = min(upperY, max(lowerY, CGFloat(vertical.isFinite ? vertical : 0)))
+        a.studioOffsetX = Double(studioOffset + dx); a.eventOffsetX = Double(eventOffset + dx)
+        a.studioY = Double(studioY + dy); a.eventY = Double(eventY + dy); a.separatorY = Double(separatorY + dy)
+        config.coBrandedAdjustments = a.normalized()
+        return config
     }
 
     /// Profiles saved before branding modes keep their header exactly where it was: the saved

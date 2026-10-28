@@ -30,6 +30,7 @@ struct RecentSessionArchiveSummary: Identifiable, Equatable, Sendable {
     var frozenGalleryURL: URL? = nil
     var isHidden = false
     var mediaRemoved = false
+    var isKnownRegularBooth = false
 }
 
 struct RecentSessionArchive: Sendable {
@@ -55,6 +56,7 @@ struct RecentSessionArchivePayload: Sendable {
     let photoThumbnailData: [Data]
     var eventRunID: String? = nil
     var eventDesignID: String? = nil
+    var isRegularBooth: Bool? = nil
 }
 
 enum RecentSessionArchiveError: Error, LocalizedError, Equatable {
@@ -183,7 +185,8 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
                     reprintCount: metadata.reprintCount,
                     payloadSizeBytes: includePayloadSize ? payloadSize(at: directory) : 0,
                     eventRunID: metadata.eventRunID,
-                    eventDesignID: metadata.eventDesignID, frozenGalleryURL: metadata.galleryURL, isHidden: isHidden(archiveID: metadata.archiveID)
+                    eventDesignID: metadata.eventDesignID, frozenGalleryURL: metadata.galleryURL, isHidden: isHidden(archiveID: metadata.archiveID),
+                    isKnownRegularBooth: metadata.isRegularBooth ?? (metadata.eventProfile == nil && metadata.eventRunID == nil && metadata.eventDesignID == nil)
                 )
             } catch is CancellationError {
                 throw CancellationError()
@@ -221,7 +224,7 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
             format: m.format, eventName: m.eventName, eventLocation: m.eventLocation, photoCount: m.photoCount,
             receiptWidth: m.receiptWidth, receiptHeight: m.receiptHeight, estimatedLengthMillimeters: m.estimatedLengthMillimeters,
             rasterFingerprint: m.rasterFingerprint, thumbnailFilenames: m.thumbnailFilenames, lastReprintedAt: m.lastReprintedAt,
-            reprintCount: m.reprintCount, payloadSizeBytes: 0, eventRunID: m.eventRunID, eventDesignID: m.eventDesignID, frozenGalleryURL: m.galleryURL, isHidden: isHidden(archiveID: m.archiveID))
+            reprintCount: m.reprintCount, payloadSizeBytes: 0, eventRunID: m.eventRunID, eventDesignID: m.eventDesignID, frozenGalleryURL: m.galleryURL, isHidden: isHidden(archiveID: m.archiveID), isKnownRegularBooth: m.isRegularBooth ?? (m.eventProfile == nil && m.eventRunID == nil && m.eventDesignID == nil))
     }
 
     nonisolated func load(archiveID: String) throws -> RecentSessionArchive {
@@ -285,7 +288,8 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
             reprintCount: metadata.reprintCount,
             payloadSizeBytes: payloadSize(at: directory),
             eventRunID: metadata.eventRunID,
-            eventDesignID: metadata.eventDesignID, frozenGalleryURL: metadata.galleryURL, isHidden: isHidden(archiveID: metadata.archiveID)
+            eventDesignID: metadata.eventDesignID, frozenGalleryURL: metadata.galleryURL, isHidden: isHidden(archiveID: metadata.archiveID),
+            isKnownRegularBooth: metadata.isRegularBooth ?? (metadata.eventProfile == nil && metadata.eventRunID == nil && metadata.eventDesignID == nil)
         )
 
         return RecentSessionArchive(
@@ -562,7 +566,7 @@ nonisolated struct RecentSessionArchiveStore: Sendable {
             reprintCount: 0,
             passport: payload.committedSession.passport,
             eventRunID: payload.eventRunID,
-            eventDesignID: payload.eventDesignID,
+            eventDesignID: payload.eventDesignID, isRegularBooth: payload.isRegularBooth,
             receiptPrintOptions: payload.committedSession.printOptions
         )
     }
@@ -730,6 +734,7 @@ nonisolated private struct RecentSessionArchiveMetadata: Codable, Equatable {
     var passport: PassportSessionData? = nil
     var eventRunID: String? = nil
     var eventDesignID: String? = nil
+    var isRegularBooth: Bool? = nil
     var receiptPrintOptions: ReceiptPrintOptions? = nil
 }
 

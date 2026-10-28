@@ -88,3 +88,70 @@ extension ReceiptHeaderConfiguration {
         return value
     }()
 }
+
+/// Additive event design settings. The reference scale freezes the old header midline when
+/// independent editing begins, so resizing one identity cannot move the other vertically.
+nonisolated struct CoBrandedHeaderAdjustments: Codable, Equatable, Sendable {
+    var referenceLogoScale: Double
+    var referenceLayoutMode: ReceiptHeaderLayoutMode
+    var referenceFillHeightRatio: Double
+    var studioScale: Double = 1
+    var studioPosition: Double
+    var studioY: Double = 0
+    var eventPosition: Double
+    var eventY: Double = 0
+    var compositionScale: Double = 1
+    var studioOffsetX: Double = 0
+    var eventOffsetX: Double = 0
+    var separatorY: Double = 0
+
+    init(configuration: ReceiptHeaderConfiguration) {
+        referenceLogoScale = configuration.scale
+        referenceLayoutMode = configuration.layoutMode
+        referenceFillHeightRatio = configuration.effectiveFillHeightRatio
+        studioPosition = configuration.effectiveHorizontalPosition
+        eventPosition = configuration.effectiveHorizontalPosition
+    }
+
+    func normalized() -> Self {
+        var v = self
+        func bound(_ value: Double, _ range: ClosedRange<Double>, fallback: Double = 0) -> Double {
+            min(range.upperBound, max(range.lowerBound, value.isFinite ? value : fallback))
+        }
+        v.referenceFillHeightRatio = bound(referenceFillHeightRatio, ReceiptHeaderConfiguration.fillHeightRatioRange, fallback: ReceiptHeaderConfiguration.defaultFillHeightRatio)
+        v.referenceLogoScale = bound(referenceLogoScale, 0.5...1.35, fallback: 1)
+        v.studioScale = bound(studioScale, 0.5...1, fallback: 1)
+        v.studioPosition = bound(studioPosition, -1...1)
+        v.eventPosition = bound(eventPosition, -1...1)
+        v.studioY = bound(studioY, -48...48)
+        v.eventY = bound(eventY, -48...48)
+        v.compositionScale = bound(compositionScale, 0.5...1, fallback: 1)
+        v.studioOffsetX = bound(studioOffsetX, -48...48)
+        v.eventOffsetX = bound(eventOffsetX, -48...48)
+        v.separatorY = bound(separatorY, -48...48)
+        return v
+    }
+}
+
+extension ReceiptHeaderConfiguration {
+    nonisolated mutating func editCoBranded(_ edit: (inout CoBrandedHeaderAdjustments) -> Void) {
+        var value = coBrandedAdjustments ?? CoBrandedHeaderAdjustments(configuration: normalized())
+        edit(&value)
+        coBrandedAdjustments = value.normalized()
+    }
+
+    nonisolated mutating func resetStudioIdentity() {
+        editCoBranded { $0.studioScale = 1; $0.studioPosition = -1; $0.studioY = 0; $0.studioOffsetX = 0 }
+    }
+
+    nonisolated mutating func resetEventIdentity() {
+        editCoBranded { $0.eventPosition = -1; $0.eventY = 0; $0.eventOffsetX = 0 }
+        scale = 1; layoutMode = .fit; cropZoom = 1; cropPositionX = 0; cropPositionY = 0
+    }
+
+    nonisolated mutating func resetEntireCoBrandedHeader() {
+        let identifier = assetIdentifier
+        self = .coBrandedRecommended
+        assetIdentifier = identifier
+    }
+}

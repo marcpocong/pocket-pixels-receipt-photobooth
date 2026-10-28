@@ -77,6 +77,8 @@ nonisolated struct ReceiptHeaderConfiguration: Codable, Equatable, Sendable {
     var brandingMode: ReceiptBrandingMode?
     /// Event-First only: prints an understated Made to Keep credit near the footer.
     var showsStudioCredit: Bool?
+    /// Nil preserves the original shared layout byte-for-byte until an adjustment is made.
+    var coBrandedAdjustments: CoBrandedHeaderAdjustments?
 
     init(
         mode: ReceiptHeaderMode,
@@ -155,6 +157,7 @@ nonisolated struct ReceiptHeaderConfiguration: Codable, Equatable, Sendable {
         value.fillHeightRatio = fillHeightRatio.map {
             $0.isFinite ? $0.clamped(to: Self.fillHeightRatioRange) : Self.defaultFillHeightRatio
         }
+        value.coBrandedAdjustments = coBrandedAdjustments?.normalized()
         if value.assetIdentifier?.isEmpty == true { value.assetIdentifier = nil }
         return value
     }

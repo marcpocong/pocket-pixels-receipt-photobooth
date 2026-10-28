@@ -459,6 +459,39 @@ final class SamplePrintStudioTests: XCTestCase {
         XCTAssertNil(model.request.eventProfile)
     }
 
+    func testEventSampleKeepsAdjustedHeaderFooterAndProductionRaster() async throws {
+        let logo = UIGraphicsImageRenderer(size: CGSize(width: 240, height: 240)).image { _ in
+            UIColor.black.setFill(); UIBezierPath(ovalIn: CGRect(x: 10, y: 10, width: 220, height: 220)).fill()
+        }
+        let identifier = try EventHeaderAssetStore().importImageData(XCTUnwrap(logo.pngData()))
+        var design = SavedEventDesign.new(name: "CIM INTRAMS", venue: "CIM")
+        design.personalizeReceipt = true
+        design.profile.receiptHeader = .coBrandedRecommended
+        design.profile.receiptHeader.assetIdentifier = identifier
+        design.profile.receiptHeader.editCoBranded { $0.studioScale = 0.7; $0.studioY = -8; $0.eventY = 20 }
+        design.profile.receiptDesign.editorialCaption = "CIM INTRAMS 2026"
+        design.profile.receiptDesign.footerStyleOverride = .decorativeBarcodeOnly
+        let snapshot = design.appliedProfile()
+        let model = SamplePrintStudioModel(previewProfile: snapshot, loadProfile: { self.profile(enabled: true, name: "Other Event") }, photoQualityProfile: { .customerPrintDefault })
+        XCTAssertEqual(model.request.eventProfile, snapshot)
+        XCTAssertEqual(model.request.printOptions.footerStyle, .decorativeBarcodeOnly)
+        model.setFormat(.solo); model.addImported([photo(0)])
+        try await waitForPreview(model)
+        let prepared = try XCTUnwrap(model.printableSample)
+        XCTAssertEqual(prepared.request.eventProfile?.receiptHeader, snapshot.receiptHeader)
+        XCTAssertEqual(prepared.raster.width, 576)
+        let direct = try SamplePrintComposer.compose(photos: [try XCTUnwrap(model.photo(for: model.slots[0])).image],
+            format: .solo, eventProfile: snapshot, photoPass: nil, date: Date(),
+            photoQualityProfile: .customerPrintDefault, printOptions: model.request.printOptions)
+        XCTAssertEqual(prepared.receipt.width, direct.width)
+        XCTAssertEqual(prepared.receipt.height, direct.height)
+        let plan = try ReceiptComposer.makeLayoutPlan(format: .solo, includesGalleryQRCode: false, eventProfile: snapshot)
+        XCTAssertNotNil(plan.coBrandSeparatorFrame)
+        XCTAssertEqual(ReceiptComposer.renderHeaderStrip(eventProfile: snapshot).artworkFrame, plan.customHeaderFrame)
+        XCTAssertTrue(model.canPrint(openGate))
+        XCTAssertFalse(model.canPrint(.init(printerBusy: false, recoveryLocked: false, unresolvedPrint: true, guestSessionActive: false)))
+    }
+
     func testDecoderAppliesOrientationAndBoundsLargePhotos() throws {
         let data = try jpeg(width: 4_000, height: 3_000, orientation: .right)
         let decoded = try XCTUnwrap(SamplePhotoDecoder.decode(data))

@@ -34,7 +34,7 @@ nonisolated enum SamplePrintBranding: String, CaseIterable, Identifiable, Sendab
     var displayName: String {
         switch self {
         case .standard: "Made to Keep Studios"
-        case .savedEvent: "Saved Event Branding"
+        case .savedEvent: "Applied Event Design"
         }
     }
 }

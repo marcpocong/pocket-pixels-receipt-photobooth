@@ -468,7 +468,7 @@ struct EventReceiptComposerPreview: View {
                     Button(savingPreview ? "Saving…" : "Save to Photos") { savePreview() }
                         .disabled(savingPreview || (showsThermal ? thermalPNG : normalPNG) == nil)
                     if showsSamplePrintLink {
-                        NavigationLink("Print Display Samples with Your Photos") { SamplePrintStudioView(previewProfile: profile) }
+                        NavigationLink("Print Sample Using This Event Design") { SamplePrintStudioView(previewProfile: profile) }
                     }
                 } label: { Label("Preview Actions", systemImage: "ellipsis.circle").labelStyle(.iconOnly).frame(minWidth: 44, minHeight: 44) }
             }

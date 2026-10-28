@@ -6,7 +6,7 @@ import SwiftUI
     func testRenderAccessCardInPortraitAndLandscape() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         for size in [CGSize(width: 834, height: 1194), CGSize(width: 1194, height: 834)] {
-            let screen = OperatorAccessScreen(unlock: {}, passcode: {}, back: {})
+            let screen = OperatorAccessScreen(unlock: {}, verifyPIN: { _ in }, back: {})
             let controller = UIHostingController(rootView: screen)
             let window = UIWindow(windowScene: scene)
             window.frame = CGRect(origin: .zero, size: size)

@@ -72,7 +72,7 @@ struct BoothSessionEnvironment {
 }
 
 /// Device-owner authentication (Face ID, Touch ID or the iPad passcode) for attendants
-/// confirming cash. Mirrors the operator unlock; it stores nothing.
+/// confirming cash. This separate payment confirmation stores nothing.
 enum AttendantCashConfirmation {
     @MainActor static func authenticate(totalText: String) async -> Bool {
         let context = LAContext()

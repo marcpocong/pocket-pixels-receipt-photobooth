@@ -91,8 +91,8 @@ struct EventArtworkEditorView: View {
                 isProcessing: previewMode == .thermal && thermalStrip == nil
             )
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { canvasWidth = max(1, $0) }
-            .gesture(dragGesture)
-            .simultaneousGesture(magnifyGesture)
+            .gesture(dragGesture, including: isCoBranded ? .none : .all)
+            .simultaneousGesture(magnifyGesture, including: isCoBranded ? .none : .all)
 
             Text(gestureHint)
                 .font(.footnote)
@@ -139,7 +139,7 @@ struct EventArtworkEditorView: View {
     private var canCrop: Bool { overflow.width > 0.5 || overflow.height > 0.5 }
 
     private var gestureHint: String {
-        canCrop
+        isCoBranded ? "Use Adjust Header to position either identity or both together." : canCrop
             ? "Drag to reposition the artwork inside its frame. Pinch to zoom."
             : "Drag to move the artwork left or right. Pinch to resize."
     }
@@ -197,47 +197,54 @@ struct EventArtworkEditorView: View {
 
     private var controls: some View {
         VStack(alignment: .leading, spacing: 18) {
-            EditorCard(title: "Quick Layout") {
-                HStack(spacing: 10) {
-                    quickButton("Center", systemImage: "align.horizontal.center") {
-                        profile.receiptHeader.align(.center)
-                        profile.receiptHeader.cropPositionX = 0
-                        profile.receiptHeader.cropPositionY = 0
+            if !isCoBranded {
+                EditorCard(title: "Quick Layout") {
+                    HStack(spacing: 10) {
+                        quickButton("Center", systemImage: "align.horizontal.center") {
+                            profile.receiptHeader.align(.center)
+                            profile.receiptHeader.cropPositionX = 0
+                            profile.receiptHeader.cropPositionY = 0
+                        }
+                        quickButton("Fit Width", systemImage: "arrow.left.and.right") {
+                            profile.receiptHeader.scale = ReceiptHeaderConfiguration.maximumEditorScale
+                            profile.receiptHeader.align(.center)
+                        }
+                        quickButton("Fit Inside", systemImage: "rectangle.inset.filled") {
+                            profile.receiptHeader.layoutMode = .fit
+                            profile.receiptHeader.cropZoom = 1
+                            profile.receiptHeader.cropPositionX = 0
+                            profile.receiptHeader.cropPositionY = 0
+                        }
                     }
-                    quickButton("Fit Width", systemImage: "arrow.left.and.right") {
-                        profile.receiptHeader.scale = ReceiptHeaderConfiguration.maximumEditorScale
-                        profile.receiptHeader.align(.center)
+                    Picker("Frame", selection: $profile.receiptHeader.layoutMode) {
+                        Text("Whole Artwork").tag(ReceiptHeaderLayoutMode.fit)
+                        Text("Fill Banner").tag(ReceiptHeaderLayoutMode.fill)
                     }
-                    quickButton("Fit Inside", systemImage: "rectangle.inset.filled") {
-                        profile.receiptHeader.layoutMode = .fit
-                        profile.receiptHeader.cropZoom = 1
-                        profile.receiptHeader.cropPositionX = 0
-                        profile.receiptHeader.cropPositionY = 0
+                    .pickerStyle(.segmented)
+                }
+
+            }
+            if isCoBranded {
+                EditorCard(title: "Adjust Header") { CoBrandedHeaderControls(configuration: $profile.receiptHeader) }
+            } else {
+                EditorCard(title: "Size & Position") {
+                    labeledSlider("Size", value: $profile.receiptHeader.scale, range: ReceiptHeaderConfiguration.minimumScale...ReceiptHeaderConfiguration.maximumEditorScale, format: .percent)
+                    Picker("Alignment", selection: alignmentBinding) {
+                        ForEach(ReceiptHeaderAlignment.allCases) { alignment in
+                            Text(alignment.displayName).tag(alignment)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    labeledSlider("Horizontal", value: horizontalBinding, range: -1...1, format: .offset)
+                        .disabled(configuration.scale >= ReceiptHeaderConfiguration.maximumEditorScale)
+                    if configuration.layoutMode == .fill {
+                        labeledSlider("Banner Height", value: fillHeightBinding, range: ReceiptHeaderConfiguration.fillHeightRatioRange, format: .percent)
                     }
                 }
-                Picker("Frame", selection: $profile.receiptHeader.layoutMode) {
-                    Text("Whole Artwork").tag(ReceiptHeaderLayoutMode.fit)
-                    Text("Fill Banner").tag(ReceiptHeaderLayoutMode.fill)
-                }
-                .pickerStyle(.segmented)
+
             }
 
-            EditorCard(title: "Size & Position") {
-                labeledSlider("Size", value: $profile.receiptHeader.scale, range: ReceiptHeaderConfiguration.minimumScale...ReceiptHeaderConfiguration.maximumEditorScale, format: .percent)
-                Picker("Alignment", selection: alignmentBinding) {
-                    ForEach(ReceiptHeaderAlignment.allCases) { alignment in
-                        Text(alignment.displayName).tag(alignment)
-                    }
-                }
-                .pickerStyle(.segmented)
-                labeledSlider("Horizontal", value: horizontalBinding, range: -1...1, format: .offset)
-                    .disabled(configuration.scale >= ReceiptHeaderConfiguration.maximumEditorScale)
-                if configuration.layoutMode == .fill {
-                    labeledSlider("Banner Height", value: fillHeightBinding, range: ReceiptHeaderConfiguration.fillHeightRatioRange, format: .percent)
-                }
-            }
-
-            EditorCard(title: "Crop") {
+            EditorCard(title: "Crop · Event Logo") {
                 labeledSlider("Zoom", value: $profile.receiptHeader.cropZoom, range: 1...ReceiptHeaderConfiguration.maximumZoom, format: .multiplier)
                 labeledSlider("Crop Horizontal", value: $profile.receiptHeader.cropPositionX, range: -1...1, format: .offset)
                     .disabled(overflow.width <= 0.5)

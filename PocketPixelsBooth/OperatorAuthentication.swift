@@ -21,42 +21,55 @@ nonisolated final class OperatorAccessPermit: @unchecked Sendable {
     @Published private(set) var message = ""
     private let permit: OperatorAccessPermit
     private let evaluate: () async throws -> Bool
-    private let evaluatePasscode: () async throws -> Bool
+    private let pinStore: OperatorPINStore
     private var generation = UUID()
 
     init(permit: OperatorAccessPermit = .shared, evaluate: @escaping () async throws -> Bool = {
         let context = LAContext()
         context.touchIDAuthenticationAllowableReuseDuration = 0
-        context.localizedFallbackTitle = "Use iPad Passcode"
+        context.localizedFallbackTitle = ""
         var error: NSError?
-        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else {
+        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
             throw error ?? NSError(domain: "OperatorAuthentication", code: 1)
         }
-        return try await context.evaluatePolicy(.deviceOwnerAuthentication,
+        return try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics,
             localizedReason: "Unlock Made to Keep Studios operator controls")
-    }, evaluatePasscode: @escaping () async throws -> Bool = {
-        try await OperatorAuthentication.authenticateWithDevicePasscode()
-    }) {
+    }, pinStore: OperatorPINStore = OperatorPINStore()) {
         self.permit = permit
         self.evaluate = evaluate
-        self.evaluatePasscode = evaluatePasscode
+        self.pinStore = pinStore
     }
 
-    func unlock(usingPasscode: Bool = false) async {
+    func unlock(pin: String) {
+        guard !isAuthenticating else { return }
+        isAuthenticating = true
+        defer { isAuthenticating = false }
+        do {
+            if try pinStore.verify(pin) { grantAccess() }
+            else { message = "Incorrect operator passcode. Try again." }
+        } catch { message = error.localizedDescription }
+    }
+
+    private func grantAccess() {
+        permit.authorize()
+        isUnlocked = true
+        message = ""
+        NotificationCenter.default.post(name: OperatorWorkspace.didUnlock, object: nil)
+    }
+
+    func unlock() async {
         guard !isAuthenticating else { return }
         let request = UUID()
         generation = request
         isAuthenticating = true
         defer { if generation == request { isAuthenticating = false } }
         do {
-            let accepted = try await (usingPasscode ? evaluatePasscode() : evaluate())
+            let accepted = try await evaluate()
             guard generation == request else { return }
             if accepted {
-                permit.authorize()
-                isUnlocked = true
-                NotificationCenter.default.post(name: OperatorWorkspace.didUnlock, object: nil)
+                grantAccess()
             } else {
-                message = "Couldn’t unlock. Try again or use the iPad passcode."
+                message = "Couldn’t unlock with biometrics. Enter your operator passcode."
             }
         } catch {
             guard generation == request else { return }
@@ -65,9 +78,9 @@ nonisolated final class OperatorAccessPermit: @unchecked Sendable {
             } else if (error as NSError).code == Int(errSecUserCanceled) {
                 message = "Unlock cancelled. Try again when you’re ready."
             } else if let error = error as? LAError, error.code == .passcodeNotSet {
-                message = "Set an iPad passcode in Settings to unlock operator controls."
+                message = "Enter your operator passcode to unlock controls."
             } else {
-                message = "Couldn’t unlock. Try again or use the iPad passcode."
+                message = "Couldn’t unlock with biometrics. Enter your operator passcode."
             }
         }
     }
@@ -81,46 +94,6 @@ nonisolated final class OperatorAccessPermit: @unchecked Sendable {
 
     func synchronizeAuthorization() { if isUnlocked && !permit.isAuthorized { lock() } }
 
-    /// A passcode-only Keychain ACL gives attendants an explicit system passcode prompt,
-    /// without storing a PIN or relying on a failed Face ID attempt to reveal the fallback.
-    nonisolated private static func authenticateWithDevicePasscode() async throws -> Bool {
-        try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let context = LAContext()
-                context.localizedReason = "Unlock Made to Keep Studios operator controls with the iPad passcode"
-                context.touchIDAuthenticationAllowableReuseDuration = 0
-                var error: NSError?
-                guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error),
-                      let access = SecAccessControlCreateWithFlags(nil,
-                        kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly, .devicePasscode, nil) else {
-                    continuation.resume(throwing: error ?? NSError(domain: "OperatorAuthentication", code: 2))
-                    return
-                }
-                let identity: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-                    kSecAttrService as String: "com.pocketpixels.operator.authentication",
-                    kSecAttrAccount as String: "device-passcode-proof-v1"]
-                var item = identity
-                item[kSecAttrAccessControl as String] = access
-                item[kSecValueData as String] = Data(UUID().uuidString.utf8)
-                let added = SecItemAdd(item as CFDictionary, nil)
-                guard added == errSecSuccess || added == errSecDuplicateItem else {
-                    continuation.resume(throwing: NSError(domain: NSOSStatusErrorDomain, code: Int(added)))
-                    return
-                }
-                var query = identity
-                query[kSecUseAuthenticationContext as String] = context
-                query[kSecReturnData as String] = true
-                query[kSecMatchLimit as String] = kSecMatchLimitOne
-                var result: CFTypeRef?
-                let status = SecItemCopyMatching(query as CFDictionary, &result)
-                guard status == errSecSuccess, result is Data else {
-                    continuation.resume(throwing: NSError(domain: NSOSStatusErrorDomain, code: Int(status)))
-                    return
-                }
-                continuation.resume(returning: true)
-            }
-        }
-    }
 }
 
 struct OperatorAuthenticationView<Controls: View>: View {
@@ -152,7 +125,7 @@ struct OperatorAuthenticationView<Controls: View>: View {
                     disabled: authentication.isAuthenticating || scenePhase != .active,
                     message: authentication.message,
                     unlock: { Task { await authentication.unlock() } },
-                    passcode: { Task { await authentication.unlock(usingPasscode: true) } },
+                    verifyPIN: { authentication.unlock(pin: $0) },
                     back: { dismiss() }
                 )
                 .zIndex(1)
@@ -175,24 +148,26 @@ struct OperatorAuthenticationView<Controls: View>: View {
     }
 }
 
-/// Presentation only. Both authentication actions continue to use native owner authentication.
+/// Ordinary access uses the operator PIN; Apple owner authentication is recovery only.
 struct OperatorAccessScreen: View {
     var authenticating = false
     var disabled = false
     var message = ""
     var unlock: () -> Void
-    var passcode: () -> Void
+    var verifyPIN: (String) -> Void
+    @State private var pin = ""
+    @State private var recovering = false
     var back: () -> Void
 
     private let biometric: (title: String, icon: String) = {
         let context = LAContext()
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) else {
-            return ("Unlock Operator", "lock.open")
+            return ("Biometrics Unavailable", "lock.open")
         }
         switch context.biometryType {
         case .faceID: return ("Unlock with Face ID", "faceid")
         case .touchID: return ("Unlock with Touch ID", "touchid")
-        default: return ("Unlock Operator", "lock.open")
+        default: return ("Biometrics Unavailable", "lock.open")
         }
     }()
 
@@ -213,21 +188,24 @@ struct OperatorAccessScreen: View {
                                 .font(.body).foregroundStyle(.secondary)
                         }
                         VStack(spacing: 12) {
-                            Button(action: unlock) {
-                                HStack(spacing: 12) {
-                                    if authenticating { ProgressView().tint(Color(uiColor: .systemBackground)) }
-                                    else { Image(systemName: biometric.icon) }
-                                    Text(authenticating ? "Unlocking…" : biometric.title)
-                                }.font(.headline).frame(maxWidth: .infinity, minHeight: 56)
+                            SecureField("Six-digit operator passcode", text: $pin)
+                                .keyboardType(.numberPad).textContentType(.password)
+                                .textInputAutocapitalization(.never).autocorrectionDisabled()
+                                .textFieldStyle(.roundedBorder)
+                                .privacySensitive()
+                                .accessibilityIdentifier("operator-pin")
+                                .onChange(of: pin) { _, value in pin = String(value.filter { $0.isASCII && $0.isNumber }.prefix(6)) }
+                                .onSubmit { submitPIN() }
+                            Button(action: submitPIN) {
+                                Text(authenticating ? "Unlocking…" : "Unlock Operator")
+                                    .font(.headline).frame(maxWidth: .infinity, minHeight: 56)
+                            }.buttonStyle(.borderedProminent)
+                                .disabled(disabled || !OperatorPINStore.isValid(pin))
+                            if biometric.title != "Biometrics Unavailable" {
+                                Button(action: unlock) { Label(biometric.title, systemImage: biometric.icon).frame(minHeight: 44) }
+                                    .buttonStyle(.bordered).disabled(disabled)
                             }
-                            .buttonStyle(.borderedProminent).buttonBorderShape(.roundedRectangle(radius: 14))
-                            .disabled(disabled)
-                            Button(action: passcode) {
-                                Label("Use iPad Passcode", systemImage: "key.horizontal")
-                                    .font(.body.weight(.medium)).frame(maxWidth: .infinity, minHeight: 52)
-                            }
-                            .buttonStyle(.bordered).buttonBorderShape(.roundedRectangle(radius: 14))
-                            .disabled(disabled)
+                            Button("Forgot Operator Passcode?") { recovering = true }.disabled(disabled)
                         }
                         if !message.isEmpty {
                             Text(message).font(.callout).foregroundStyle(.secondary)
@@ -252,9 +230,20 @@ struct OperatorAccessScreen: View {
                 .frame(maxWidth: .infinity, minHeight: geometry.size.height)
             }
         }
+        .sheet(isPresented: $recovering) {
+            NavigationStack {
+                OperatorPINChangeView(ownerRecovery: true)
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { recovering = false } } }
+            }
+        }
         .tint(OperatorPalette.ink)
         .background(OperatorPalette.canvas.ignoresSafeArea())
     }
+    private func submitPIN() {
+        guard !disabled, OperatorPINStore.isValid(pin) else { return }
+        let entered = pin; pin = ""; verifyPIN(entered)
+    }
+
 }
 
 /// Covers the complete operator window (including sheets) before an app-switcher snapshot.

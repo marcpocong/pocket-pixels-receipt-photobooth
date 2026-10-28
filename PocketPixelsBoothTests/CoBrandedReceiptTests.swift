@@ -173,6 +173,89 @@ final class CoBrandedReceiptTests: XCTestCase {
         XCTAssertGreaterThan(darkFraction(in: thermal, rect: try XCTUnwrap(plan.customHeaderFrame)), 0.03, "the logo survives 1-bit conversion")
     }
 
+    func testIndependentHeaderMigrationPersistenceAndGeometry() throws {
+        for kind in [LogoKind.square, .veryWide, .tall, .largeTransparent] {
+            var profile = coBranded(try logoIdentifier(kind))
+            profile.receiptHeader.scale = 0.7
+            profile.receiptHeader.horizontalPosition = 0.35
+            let old = try ReceiptComposer.makeLayoutPlan(format: .solo, eventProfile: profile)
+            profile.receiptHeader.editCoBranded { _ in }
+            let migrated = try ReceiptComposer.makeLayoutPlan(format: .solo, eventProfile: profile)
+            XCTAssertEqual(old.mastheadFrames, migrated.mastheadFrames)
+            XCTAssertEqual(old.customHeaderFrame, migrated.customHeaderFrame)
+            XCTAssertEqual(old.photoFrames.map(\.rect), migrated.photoFrames.map(\.rect))
+            profile.receiptHeader.editCoBranded { $0.studioScale = 0.65; $0.studioPosition = 1; $0.studioY = 16 }
+            let studio = try ReceiptComposer.makeLayoutPlan(format: .solo, eventProfile: profile)
+            XCTAssertEqual(migrated.customHeaderFrame, studio.customHeaderFrame)
+            XCTAssertNotEqual(studio.mastheadFrames, migrated.mastheadFrames)
+            profile.receiptHeader.scale = 0.5
+            profile.receiptHeader.editCoBranded { $0.eventPosition = 1; $0.eventY = -48 }
+            let event = try ReceiptComposer.makeLayoutPlan(format: .solo, eventProfile: profile)
+            XCTAssertEqual(studio.mastheadFrames, event.mastheadFrames)
+            let saved = try JSONDecoder().decode(EventProfile.self, from: JSONEncoder().encode(profile))
+            XCTAssertEqual(saved.receiptHeader, profile.receiptHeader)
+            let restored = try ReceiptComposer.makeLayoutPlan(format: .solo, eventProfile: saved)
+            XCTAssertEqual(restored.mastheadFrames, event.mastheadFrames)
+            XCTAssertEqual(restored.customHeaderFrame, event.customHeaderFrame)
+            for x in [-48.0, 48] {
+                for y in [-48.0, 48] {
+                    profile.receiptHeader.editCoBranded { $0.compositionScale = 0.75 }
+                    profile.receiptHeader = ReceiptComposer.translateCoBrandedHeader(profile.receiptHeader, horizontal: x, vertical: y)
+                    let plan = try ReceiptComposer.makeLayoutPlan(format: .solo, eventProfile: profile)
+                    let cross = try XCTUnwrap(plan.coBrandSeparatorFrame)
+                    let logo = try XCTUnwrap(plan.customHeaderFrame)
+                    XCTAssertEqual(cross.midX, 288)
+                    XCTAssertGreaterThanOrEqual(logo.minY, 8)
+                    XCTAssertGreaterThanOrEqual(logo.minX, cross.maxX)
+                    XCTAssertLessThanOrEqual(logo.maxX, 540)
+                    XCTAssertLessThan(max(logo.maxY, plan.mastheadFrames.map(\.maxY).max()!), plan.photoFrames[0].rect.minY)
+                }
+            }
+            let studioBeforeReset = profile.receiptHeader.coBrandedAdjustments!.studioScale
+            profile.receiptHeader.resetEventIdentity()
+            XCTAssertEqual(profile.receiptHeader.coBrandedAdjustments!.studioScale, studioBeforeReset)
+            let eventBeforeReset = profile.receiptHeader.coBrandedAdjustments!.eventPosition
+            profile.receiptHeader.resetStudioIdentity()
+            XCTAssertEqual(profile.receiptHeader.coBrandedAdjustments!.eventPosition, eventBeforeReset)
+        }
+    }
+
+    func testMovingBothPreservesAlignmentAndIndependentEditsAtBoundaries() throws {
+        var profile = coBranded(try logoIdentifier(.square))
+        profile.receiptHeader.scale = 0.6
+        profile.receiptHeader.editCoBranded { $0.studioScale = 0.6; $0.studioPosition = 0; $0.eventPosition = 0 }
+        let before = try ReceiptComposer.makeLayoutPlan(format: .solo, eventProfile: profile)
+        profile.receiptHeader = ReceiptComposer.translateCoBrandedHeader(profile.receiptHeader, horizontal: 12, vertical: 8)
+        let moved = try ReceiptComposer.makeLayoutPlan(format: .solo, eventProfile: profile)
+        XCTAssertEqual(moved.mastheadFrames[0].minX - before.mastheadFrames[0].minX, 12, accuracy: 0.01)
+        XCTAssertEqual(moved.customHeaderFrame!.minX - before.customHeaderFrame!.minX, 12, accuracy: 0.01)
+        XCTAssertEqual(moved.mastheadFrames[0].minY - before.mastheadFrames[0].minY, 8, accuracy: 0.01)
+        XCTAssertEqual(moved.customHeaderFrame!.minY - before.customHeaderFrame!.minY, 8, accuracy: 0.01)
+        profile.receiptHeader = ReceiptComposer.translateCoBrandedHeader(profile.receiptHeader, horizontal: 48, vertical: -48)
+        let boundary = try ReceiptComposer.makeLayoutPlan(format: .solo, eventProfile: profile)
+        profile.receiptHeader.scale = 1
+        profile.receiptHeader.editCoBranded { $0.eventPosition = 1; $0.eventY = -48 }
+        let edited = try ReceiptComposer.makeLayoutPlan(format: .solo, eventProfile: profile)
+        XCTAssertEqual(edited.mastheadFrames, boundary.mastheadFrames)
+        let logo = edited.customHeaderFrame
+        profile.receiptHeader.editCoBranded { $0.studioScale = 1; $0.studioY = 48 }
+        XCTAssertEqual(try ReceiptComposer.makeLayoutPlan(format: .solo, eventProfile: profile).customHeaderFrame, logo)
+    }
+
+    func testAdjustedHeaderUsesProductionStripAndThermalRaster() throws {
+        var profile = coBranded(try logoIdentifier(.square))
+        profile.receiptHeader.editCoBranded { $0.studioScale = 0.7; $0.studioY = -12; $0.eventY = 24; $0.compositionScale = 0.8 }
+        let receipt = try compose(format: .solo, profile: profile, qr: false)
+        let strip = ReceiptComposer.renderHeaderStrip(eventProfile: profile)
+        let plan = try ReceiptComposer.makeLayoutPlan(format: .solo, includesGalleryQRCode: false, eventProfile: profile, date: Self.date)
+        XCTAssertEqual(strip.artworkFrame, plan.customHeaderFrame)
+        let raster = try ThermalImageRasterizer.rasterize(XCTUnwrap(UIImage(data: receipt.imagePNGData)), purpose: .completeReceipt)
+        XCTAssertEqual(raster.width, 576)
+        let thermal = try XCTUnwrap(UIImage(data: raster.previewPNGData)?.cgImage)
+        XCTAssertGreaterThan(darkFraction(in: thermal, rect: plan.mastheadFrames[0]), 0.02)
+        XCTAssertGreaterThan(darkFraction(in: thermal, rect: try XCTUnwrap(plan.coBrandSeparatorFrame)), 0.04)
+    }
+
     // MARK: Helpers
 
     private func coBranded(_ identifier: String) -> EventProfile {

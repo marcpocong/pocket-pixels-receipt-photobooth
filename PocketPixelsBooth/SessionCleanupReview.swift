@@ -5,52 +5,57 @@ struct SessionCleanupRequest: Identifiable {
     let candidates: [RecentSessionArchiveSummary]
 }
 
+/// One local deletion confirmation. Dependencies are checked again at the mutation boundary.
 struct SessionCleanupReview: View {
     let candidates: [RecentSessionArchiveSummary]
     @ObservedObject var model: RecentSessionsViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var decisions: [String: RecordCleanupDecision] = [:]
-    @State private var sizes: [String: Int] = [:]
     @State private var results: [String: String] = [:]
     @State private var working = false
 
+    private var eligibleCount: Int { decisions.values.filter { $0.category == .eligible }.count }
     var body: some View {
         NavigationStack {
             List {
-                Section("Delete Local Sessions") {
-                    Text("\(candidates.count) sessions · approximately \(ByteCountFormatter.string(fromByteCount: Int64(sizes.values.reduce(0, +)), countStyle: .file))")
-                    Text("Saved receipts, thermal previews, original photo files, thumbnails and reprint data in the selected local archives will be removed. Local reprinting will become unavailable.")
-                    Text("Public galleries, payment records, event statistics, print audits and separately protected recovery copies remain. Copies already saved to Photos remain in Photos.")
+                Section {
+                    Text("\(candidates.count) sessions selected").font(.headline)
+                    Text("Delete local photos, receipts and reprint files? Published online galleries, transactions and print history remain.")
                 }
-                Section("Dependency Review") {
-                    ForEach(candidates) { summary in
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("\(summary.eventName ?? "Regular Booth") · \(summary.createdAt.formatted())").font(.headline)
-                            Text(results[summary.archiveID] ?? decisions[summary.archiveID]?.reason ?? "Checking…").font(.callout)
+                if decisions.count != candidates.count { ProgressView("Checking sessions…") }
+                ForEach(candidates.filter { decisions[$0.archiveID]?.category != .eligible }) { summary in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(summary.eventName ?? "Regular Booth").font(.headline)
+                        Text(results[summary.archiveID] ?? decisions[summary.archiveID]?.reason ?? "Checking…").font(.callout)
+                    }
+                }
+                if !results.isEmpty {
+                    Section {
+                        ForEach(candidates.filter { results[$0.archiveID] != "Deleted local media." }) { summary in
+                            Text(results[summary.archiveID] ?? "Retained").font(.callout)
                         }
                     }
                 }
                 Section {
-                    if results.isEmpty {
-                        Button("Delete Eligible Sessions", role: .destructive) {
-                            working = true
-                            Task { results = await model.deleteSelected(candidates); working = false }
-                        }.disabled(working || decisions.values.allSatisfy { $0.category != .eligible } || decisions.count != candidates.count)
-                        Button("Hide Selected Instead") { model.setHidden(Set(candidates.map(\.archiveID)), hidden: true); dismiss() }.disabled(working)
-                    } else {
-                        Text("\(results.values.filter { $0 == "Deleted local media." }.count) deleted · \(candidates.count - results.values.filter { $0 == "Deleted local media." }.count) retained or unfinished")
-                    }
-                    if working { ProgressView("Removing eligible local media…") }
+                    Button(eligibleCount == candidates.count ? (candidates.count == 1 ? "Delete Session" : "Delete Selected") : "Delete \(eligibleCount) Eligible Sessions", role: .destructive) {
+                        working = true
+                        Task {
+                            results = await model.deleteSelected(candidates)
+                            working = false
+                            if candidates.allSatisfy({ results[$0.archiveID] == "Deleted local media." }) { dismiss() }
+                        }
+                    }.disabled(working || eligibleCount == 0 || decisions.count != candidates.count)
+                    Button("Hide Selected Instead") {
+                        model.setHidden(Set(candidates.map(\.archiveID)), hidden: true); dismiss()
+                    }.disabled(working)
+                    if working { ProgressView("Deleting local media…") }
                 }
-            }.navigationTitle("Review Local Deletion").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.disabled(working) } }
-                .interactiveDismissDisabled(working)
-                .task {
-                    for summary in candidates {
-                        decisions[summary.archiveID] = model.deletionDecision(summary)
-                        sizes[summary.archiveID] = await model.deletionSize(summary.archiveID)
-                    }
-                }
+            }
+            .navigationTitle(candidates.count == 1 ? "Delete Session?" : "Delete Sessions?")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(working) } }
+            .interactiveDismissDisabled(working)
+            .task { for summary in candidates { decisions[summary.archiveID] = model.deletionDecision(summary) } }
         }
     }
 }

@@ -7,6 +7,23 @@ import Combine
 import SwiftUI
 import UIKit
 
+nonisolated enum RecentSessionScope: String, CaseIterable, Identifiable {
+    case currentEvent = "Current Event", regularBooth = "Regular Booth", allHistory = "All History"
+    var id: String { rawValue }
+
+    func includes(_ summary: RecentSessionArchiveSummary, runID: String?) -> Bool {
+        switch self {
+        case .allHistory: return true
+        case .currentEvent: return runID != nil && summary.eventRunID == runID
+        case .regularBooth:
+            // Known legacy booth records have no event profile or run/design association.
+            // Unreadable and ambiguous event records stay available in All History.
+            return summary.rasterFingerprint != "CORRUPT" && summary.eventRunID == nil
+                && summary.eventDesignID == nil && summary.isKnownRegularBooth
+        }
+    }
+}
+
 @MainActor
 final class RecentSessionsViewModel: ObservableObject {
     @Published private(set) var summaries: [RecentSessionArchiveSummary] = []
@@ -16,6 +33,20 @@ final class RecentSessionsViewModel: ObservableObject {
     @Published private(set) var groupedSummaries: [(String, [RecentSessionArchiveSummary])] = []
     @Published private(set) var isLoading = false
     @Published private(set) var hasLoaded = false
+    @Published var scope: RecentSessionScope = .allHistory { didSet { selectedArchiveID = nil; eventFilter = nil; rebuildFilters() } }
+    @Published private(set) var currentEventRunID: String?
+    @Published private(set) var currentEventName: String?
+    private var contextInitialized = false
+    func configureContext(run: EventRunRecord?, eventApplied: Bool) {
+        let current = eventApplied && run.map { [.active, .paused].contains($0.status) } == true ? run : nil
+        let changed = !contextInitialized || currentEventRunID != current?.id || (currentEventName != nil) != eventApplied
+        currentEventRunID = current?.id
+        currentEventName = eventApplied ? (current?.displayName ?? "Event association unavailable") : nil
+        if changed {
+            contextInitialized = true
+            scope = eventApplied ? .currentEvent : .regularBooth
+        }
+    }
     @Published var searchText = "" { didSet { rebuildFilters() } }
     @Published var formatFilter: BoothFormat? { didSet { rebuildFilters() } }
     @Published var showsOnlyAttention = false { didSet { rebuildFilters() } }
@@ -102,7 +133,7 @@ final class RecentSessionsViewModel: ObservableObject {
     }
 
     var events: [String] { Array(Set(summaries.map { $0.eventName ?? "Regular Booth" })).sorted() }
-    var selectedSummary: RecentSessionArchiveSummary? { summaries.first { $0.archiveID == selectedArchiveID } }
+    var selectedSummary: RecentSessionArchiveSummary? { filteredSummaries.first { $0.archiveID == selectedArchiveID } }
     var storagePath: String { store?.storagePath ?? "Unavailable" }
 
     private func rebuildFilters() {
@@ -110,6 +141,7 @@ final class RecentSessionsViewModel: ObservableObject {
         let calendar = Calendar.current
         let end = dateThrough.flatMap { calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: $0)) }
         filteredSummaries = summaries.filter { summary in
+            if !scope.includes(summary, runID: currentEventRunID) { return false }
             if summary.isHidden && !showsHidden { return false }
             if let formatFilter, summary.format != formatFilter || summary.rasterFingerprint == "CORRUPT" { return false }
             if showsOnlyAttention && !needsAttention(summary) { return false }
@@ -382,7 +414,11 @@ final class RecentSessionsViewModel: ObservableObject {
     func deleteSelected(_ candidates: [RecentSessionArchiveSummary]) async -> [String: String] {
         guard managementAuthorized(), let store else { return ["error": "Unlock operator controls and check local storage."] }
         var results: [String: String] = [:]
+        let originalScope = scope, originalRun = currentEventRunID
         for summary in candidates {
+            guard managementAuthorized(), scope == originalScope, currentEventRunID == originalRun else {
+                results[summary.archiveID] = "Operator access or session scope changed. Review this session again."; continue
+            }
             let decision = deletionDecision(summary)
             guard decision.category == .eligible else { results[summary.archiveID] = decision.reason; continue }
             SessionMediaOperations.deleting.insert(summary.sessionIdentifier)
@@ -394,6 +430,7 @@ final class RecentSessionsViewModel: ObservableObject {
                 summaries.removeAll { $0.archiveID == summary.archiveID }
                 galleryStatuses[summary.archiveID] = nil
                 if selectedArchiveID == summary.archiveID { selectedArchiveID = nil }
+                rebuildFilters()
                 await thumbnails.remove(archiveID: summary.archiveID)
             case .failure:
                 results[summary.archiveID] = "Deletion could not finish. Its saved intent prevents stale media writes; retry cleanup after checking storage."
@@ -649,6 +686,8 @@ struct RecentSessionsView: View {
     var initialSearch = ""
     @StateObject private var viewModel: RecentSessionsViewModel
     @Environment(\.dynamicTypeSize) private var typeSize
+    @ObservedObject private var runs = EventRunStore.shared
+    @ObservedObject private var eventLibrary = EventDesignLibraryStore.shared
     @State private var filtersPresented = false
     @State private var galleryActionsPresented = false
     @State private var selecting = false
@@ -698,15 +737,30 @@ struct RecentSessionsView: View {
             }
             // Re-entering a retained workspace picks up newly archived guests without
             // resetting filters/selection, clearing the cache or showing a loading screen.
+            updateScopeContext()
             viewModel.refresh()
         }
+        .onChange(of: runs.current) { _, _ in updateScopeContext() }
+        .onChange(of: eventLibrary.library.appliedEventID) { _, _ in updateScopeContext() }
+        .onChange(of: viewModel.scope) { _, _ in selectedIDs.removeAll(); selecting = false; cleanupRequest = nil }
         .sheet(isPresented: $filtersPresented) { filterSheet }
         .sheet(item: $cleanupRequest, onDismiss: { selectedIDs.formIntersection(Set(viewModel.summaries.map(\.archiveID))) }) { request in SessionCleanupReview(candidates: request.candidates, model: viewModel) }
+    }
+
+    private func updateScopeContext() {
+        viewModel.configureContext(run: runs.current, eventApplied: !RegularBoothMode.isEnabled && (eventLibrary.library.appliedEventID != nil || runs.current != nil))
     }
 
     private func browser(wide: Bool, width: CGFloat) -> some View {
         VStack(spacing: 0) {
             VStack(spacing: 8) {
+                Picker("Session Scope", selection: $viewModel.scope) {
+                    ForEach(RecentSessionScope.allCases) { Text($0.rawValue).tag($0) }
+                }.pickerStyle(.segmented)
+                if viewModel.scope == .currentEvent {
+                    Text(viewModel.currentEventName ?? "No active event. Choose Regular Booth or All History.")
+                        .font(.subheadline.weight(.medium)).frame(maxWidth: .infinity, alignment: .leading)
+                }
                 HStack(spacing: 10) {
                     Image(systemName: "magnifyingglass").accessibilityHidden(true)
                     TextField("Search session, event or format", text: $viewModel.searchText)
@@ -859,7 +913,7 @@ struct RecentSessionsView: View {
     @ViewBuilder private var selectedActions: some View {
         Button("Hide Selected") { viewModel.setHidden(selectedIDs, hidden: true); selectedIDs.removeAll() }.frame(minHeight: 44).buttonStyle(.bordered)
         Button("Delete Selected", role: .destructive) {
-            cleanupRequest = SessionCleanupRequest(candidates: viewModel.summaries.filter { selectedIDs.contains($0.archiveID) })
+            cleanupRequest = SessionCleanupRequest(candidates: viewModel.filteredSummaries.filter { selectedIDs.contains($0.archiveID) })
         }.frame(minHeight: 44).buttonStyle(.borderedProminent).tint(OperatorPalette.danger)
     }
     private func sessionButton(_ summary: RecentSessionArchiveSummary, grid: Bool) -> some View {
@@ -887,7 +941,7 @@ struct RecentSessionsView: View {
                     Button("Save Receipt to Photos") { viewModel.exportReceipt(summary.archiveID) }
                     Button("Save Available Photos") { viewModel.exportPhotos(summary.archiveID) }
                     Button(summary.isHidden ? "Restore Visibility" : "Hide Session") { viewModel.setHidden([summary.archiveID], hidden: !summary.isHidden) }
-                    Button("Delete Local Session Permanently", role: .destructive) { cleanupRequest = SessionCleanupRequest(candidates: [summary]) }
+                    Button("Delete Session", role: .destructive) { cleanupRequest = SessionCleanupRequest(candidates: [summary]) }
                 } label: {
                     Image(systemName: "ellipsis").font(.headline).frame(width: 44, height: 44)
                         .background(.regularMaterial, in: Circle())
@@ -1350,7 +1404,7 @@ struct ArchivedSessionDetailView: View {
         let hidden = rootViewModel.summaries.first { $0.archiveID == summary.archiveID }?.isHidden ?? summary.isHidden
         return card("Session Management", systemImage: "tray") {
             Button(hidden ? "Restore Visibility" : "Hide Session") { rootViewModel.setHidden([summary.archiveID], hidden: !hidden) }.frame(minHeight: 44)
-            Button("Delete Local Session Permanently", role: .destructive) { isReviewingDeletion = true }.frame(minHeight: 44)
+            Button("Delete Session", role: .destructive) { isReviewingDeletion = true }.frame(minHeight: 44)
         }
     }
 

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import Security
 @testable import PocketPixelsBooth
 
 @Suite("Operator authentication", .serialized)
@@ -84,24 +85,52 @@ import Testing
         _ = try await api.listEvents()
     }
 
-    @Test func explicitPasscodeUsesPasscodeAuthenticationOnly() async {
+    @Test func operatorPINDefaultChangePersistenceAndGuessingDelay() throws {
+        let service = "operator-pin-test-" + UUID().uuidString
+        defer { SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service] as CFDictionary) }
+        let store = OperatorPINStore(service: service)
         let permit = OperatorAccessPermit()
-        var biometricRequests = 0
-        var passcodeRequests = 0
-        let authentication = OperatorAuthentication(permit: permit, evaluate: {
-            biometricRequests += 1
-            return false
-        }, evaluatePasscode: {
-            passcodeRequests += 1
-            return true
-        })
-        await authentication.unlock(usingPasscode: true)
-        #expect(biometricRequests == 0)
-        #expect(passcodeRequests == 1)
-        #expect(authentication.isUnlocked)
-        authentication.lock()
+        let authentication = OperatorAuthentication(permit: permit, evaluate: { false }, pinStore: store)
+        authentication.unlock(pin: "000000")
         #expect(!permit.isAuthorized)
+        authentication.unlock(pin: "987654")
+        #expect(authentication.isUnlocked && permit.isAuthorized)
+        authentication.lock()
+        try store.change(current: "987654", new: "123456", confirmation: "123456")
+        let relaunched = OperatorPINStore(service: service)
+        try relaunched.installDefaultIfNeeded()
+        #expect(try !relaunched.verify("987654"))
+        #expect(try relaunched.verify("123456"))
+        #expect(throws: (any Error).self) { try relaunched.change(current: "123456", new: "654321", confirmation: "111111") }
+        let now = Date()
+        for _ in 0..<5 { #expect(try !relaunched.verify("000000", now: now)) }
+        #expect(throws: (any Error).self) { try OperatorPINStore(service: service).verify("123456", now: now.addingTimeInterval(1)) }
+        #expect(try relaunched.verify("123456", now: now.addingTimeInterval(31)))
+        #expect(!OperatorPINStore.isValid("１２３４５６"))
+        #expect(try !relaunched.verify(""))
+        try relaunched.replaceAfterOwnerRecovery(new: "654321", confirmation: "654321")
+        #expect(try OperatorPINStore(service: service).verify("654321"))
     }
+
+    @Test func unreadablePINStorageNeverReinstallsDefaultAndOwnerCanRecover() throws {
+        let service = "operator-pin-test-" + UUID().uuidString
+        let identity: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+            kSecAttrAccount as String: "operator-pin-verifier"]
+        defer { SecItemDelete(identity as CFDictionary) }
+        let store = OperatorPINStore(service: service)
+        try store.installDefaultIfNeeded()
+        var query = identity; query[kSecReturnData as String] = true
+        var result: CFTypeRef?
+        #expect(SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess)
+        let data = try #require(result as? Data)
+        #expect(!(String(data: data, encoding: .utf8) ?? "").contains("987654"))
+        #expect(SecItemUpdate(identity as CFDictionary, [kSecValueData as String: Data("corrupt".utf8)] as CFDictionary) == errSecSuccess)
+        #expect(throws: (any Error).self) { try store.installDefaultIfNeeded() }
+        #expect(throws: (any Error).self) { try store.verify("987654") }
+        try store.replaceAfterOwnerRecovery(new: "654321", confirmation: "654321")
+        #expect(try store.verify("654321"))
+    }
+
 }
 
 private final class OperatorCredentialProtocol: URLProtocol {

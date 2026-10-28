@@ -68,6 +68,12 @@ struct EventReceiptDesignPanel: View {
                 if design.personalizeReceipt { logoArea; if artwork != nil { layoutChoices; adjustments } }
             }
 
+            NavigationLink(isRegularBooth ? "Print Sample Using This Booth Design" : "Print Sample Using This Event Design") {
+                SamplePrintStudioView(previewProfile: design.appliedProfile())
+            }
+            Text("Uses this preview design without applying edits to guests. Import sample photos in the studio before printing.")
+                .font(.footnote).foregroundStyle(.secondary)
+
             if isDirty && !editsLiveEvent && managesSaving {
                 HStack(spacing: 12) {
                     Label("Unsaved design changes", systemImage: "pencil.circle.fill").foregroundStyle(.orange).font(.callout)
@@ -178,30 +184,26 @@ struct EventReceiptDesignPanel: View {
     }
 
     private var adjustments: some View {
-        DisclosureGroup("Adjust Logo") {
+        DisclosureGroup("Adjust Header") {
             VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack { Text("Logo Size"); Spacer(); Text("\(Int((design.profile.receiptHeader.scale * 100).rounded()))%").monospacedDigit().foregroundStyle(.secondary) }
-                    Slider(value: $design.profile.receiptHeader.scale, in: ReceiptHeaderConfiguration.minimumScale...ReceiptHeaderConfiguration.maximumEditorScale)
-                        .accessibilityLabel("Logo size")
-                }
                 if design.layout == .coBranded {
-                    Picker("Placement", selection: placementBinding) {
-                        Text("Beside ×").tag(-1.0)
-                        Text("Centered").tag(0.0)
-                        Text("Outer Edge").tag(1.0)
+                    CoBrandedHeaderControls(configuration: $design.profile.receiptHeader)
+                } else {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack { Text("Logo Size"); Spacer(); Text("\(Int((design.profile.receiptHeader.scale * 100).rounded()))%").monospacedDigit().foregroundStyle(.secondary) }
+                        Slider(value: $design.profile.receiptHeader.scale, in: ReceiptHeaderConfiguration.minimumScale...ReceiptHeaderConfiguration.maximumEditorScale)
+                            .accessibilityLabel("Logo size")
+                    }
+                    Picker("Frame", selection: $design.profile.receiptHeader.layoutMode) {
+                        Text("Whole Logo (Fit)").tag(ReceiptHeaderLayoutMode.fit)
+                        Text("Fill Banner").tag(ReceiptHeaderLayoutMode.fill)
                     }
                     .pickerStyle(.segmented)
                 }
-                Picker("Frame", selection: $design.profile.receiptHeader.layoutMode) {
-                    Text("Whole Logo (Fit)").tag(ReceiptHeaderLayoutMode.fit)
-                    Text("Fill Banner").tag(ReceiptHeaderLayoutMode.fill)
-                }
-                .pickerStyle(.segmented)
                 Stepper("Space above: \(Int(design.profile.receiptHeader.topSpacing)) dots", value: $design.profile.receiptHeader.topSpacing, in: 0...ReceiptHeaderConfiguration.maximumSpacing, step: 4)
                 Stepper("Space below: \(Int(design.profile.receiptHeader.bottomSpacing)) dots", value: $design.profile.receiptHeader.bottomSpacing, in: 0...ReceiptHeaderConfiguration.maximumSpacing, step: 4)
                 HStack {
-                    Button("Reset to Recommended") { resetLayout() }.buttonStyle(.bordered)
+                    if design.layout != .coBranded { Button("Reset to Recommended") { resetLayout() }.buttonStyle(.bordered) }
                     Spacer()
                     Button { isStudioPresented = true } label: { Label("Open Event Artwork Studio", systemImage: "slider.horizontal.below.rectangle") }
                         .buttonStyle(.bordered)
@@ -210,16 +212,6 @@ struct EventReceiptDesignPanel: View {
             .padding(.top, 8)
         }
         .font(.callout)
-    }
-
-    private var placementBinding: Binding<Double> {
-        Binding(
-            get: {
-                let value = design.profile.receiptHeader.effectiveHorizontalPosition
-                return [-1.0, 0, 1].min { abs($0 - value) < abs($1 - value) } ?? -1
-            },
-            set: { design.profile.receiptHeader.horizontalPosition = $0 }
-        )
     }
 
     private var personalizeBinding: Binding<Bool> {

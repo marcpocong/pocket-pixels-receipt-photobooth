@@ -173,6 +173,9 @@ struct OperatorEquipmentView: View {
                 NavigationLink(value: OperatorWorkspaceRoute.monitoring) { Label("Monitoring", systemImage: "antenna.radiowaves.left.and.right") }
                 NavigationLink(value: OperatorWorkspaceRoute.boothCheck) { Label("Check Booth", systemImage: "checkmark.shield") }
             }
+            Section("Operator Access") {
+                NavigationLink("Change Passcode") { OperatorPINChangeView() }
+            }
             Section("Maintenance") {
                 NavigationLink("Help & Recovery", value: OperatorWorkspaceRoute.recovery)
                 NavigationLink("Print History", value: OperatorWorkspaceRoute.printHistory)

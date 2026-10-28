@@ -147,7 +147,7 @@ struct SamplePrintStudioView: View {
                 Text(usesPreviewDesign
                      ? "Samples use the design from the receipt preview. Guest branding and event acceptance are unchanged."
                      : model.hasSavedEventBranding
-                     ? "Saved Event Branding uses the design guests currently receive. Unsaved edits are never used."
+                     ? "Applied Event Design uses the settings guests currently receive. Import sample photos before printing."
                      : "No event branding is saved, so samples use the Made to Keep Studios design.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
