@@ -22,23 +22,7 @@ struct ReceiptStudioView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let sideBySide = geometry.size.width >= 720
-            let previewWidth = floor((geometry.size.width - 48) * 0.43)
-            Group {
-                if sideBySide {
-                    HStack(alignment: .top, spacing: 20) {
-                        preview(height: max(240, geometry.size.height - (typeSize.isAccessibilitySize ? 310 : 240))).frame(width: previewWidth)
-                        Divider()
-                        controls.frame(maxWidth: .infinity)
-                    }
-                } else {
-                    VStack(spacing: 12) {
-                        preview(height: max(150, geometry.size.height * 0.27))
-                        Divider()
-                        controls
-                    }
-                }
-            }.padding(sideBySide ? 16 : 12)
+            editorLayout(in: geometry.size)
         }
         .background(OperatorPalette.canvas)
         .navigationTitle("Receipt Studio").navigationBarTitleDisplayMode(.inline)
@@ -54,6 +38,35 @@ struct ReceiptStudioView: View {
             }
         }
         .textFieldStyle(.roundedBorder)
+    }
+
+    // Keep each layout expression small for the Xcode 16.4 compiler used by Production Gate.
+    @ViewBuilder private func editorLayout(in size: CGSize) -> some View {
+        if size.width >= 720 {
+            sideBySideLayout(in: size).padding(16)
+        } else {
+            stackedLayout(in: size).padding(12)
+        }
+    }
+
+    private func sideBySideLayout(in size: CGSize) -> some View {
+        let previewWidth: CGFloat = floor((size.width - 48) * 0.43)
+        let controlsAllowance: CGFloat = typeSize.isAccessibilitySize ? 310 : 240
+        let previewHeight: CGFloat = max(240, size.height - controlsAllowance)
+        return HStack(alignment: .top, spacing: 20) {
+            preview(height: previewHeight).frame(width: previewWidth)
+            Divider()
+            controls.frame(maxWidth: .infinity)
+        }
+    }
+
+    private func stackedLayout(in size: CGSize) -> some View {
+        let previewHeight: CGFloat = max(150, size.height * 0.27)
+        return VStack(spacing: 12) {
+            preview(height: previewHeight)
+            Divider()
+            controls
+        }
     }
 
     private func preview(height: CGFloat) -> some View {
