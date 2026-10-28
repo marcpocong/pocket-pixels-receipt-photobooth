@@ -285,6 +285,19 @@ enum ReceiptComposer {
         "PP-\(identifierFormatter.string(from: date))"
     }
 
+    /// Display only: retain the UUID-backed identity everywhere outside receipt text.
+    nonisolated static func displayedSessionIdentifier(_ identifier: String) -> String {
+        let parts = identifier.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 8, parts[0] == "PP", parts[1].utf8.count == 8, parts[2].utf8.count == 6,
+              (parts[1] + parts[2]).utf8.allSatisfy({ (48...57).contains($0) }) else { return identifier }
+        let suffix = parts.dropFirst(3).joined(separator: "-")
+        let timestamp = "\(parts[1])-\(parts[2])"
+        guard let uuid = UUID(uuidString: suffix), uuid.uuidString.lowercased() == suffix.lowercased(),
+              let date = identifierFormatter.date(from: timestamp),
+              identifierFormatter.string(from: date) == timestamp else { return identifier }
+        return parts.prefix(3).joined(separator: "-")
+    }
+
     /// - Parameters:
     ///   - galleryURL: the session's gallery. Always pass it when it exists: whether the QR is
     ///     printed is decided only by `printOptions`.
@@ -1232,7 +1245,7 @@ enum ReceiptComposer {
         // D. Keep normal digital spacing for previews, gallery and Photos exports.
         // Samples leave the identifier blank; only the outgoing paper raster is shortened.
         y += Metrics.sessionGap
-        let sessionText = makeTextFrame(textSnapshot.sessionIdentifier, style: .sessionIdentifier, size: Metrics.sessionSize, tracking: Metrics.sessionTracking, anchor: .center(center), y: y)
+        let sessionText = makeTextFrame(displayedSessionIdentifier(textSnapshot.sessionIdentifier), style: .sessionIdentifier, size: Metrics.sessionSize, tracking: Metrics.sessionTracking, anchor: .center(center), y: y)
         y = Int(ceil(sessionText.rect.maxY)) + Metrics.bottomPadding
 
         return ReceiptEditorialLayout(
