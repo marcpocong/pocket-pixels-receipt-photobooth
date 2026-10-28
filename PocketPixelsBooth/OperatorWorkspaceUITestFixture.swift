@@ -170,3 +170,44 @@ private final class FixtureGalleryProtocol: URLProtocol {
     override func stopLoading() {}
 }
 #endif
+
+#if DEBUG && targetEnvironment(simulator)
+/// Isolated authentication/header acceptance surface; never constructs guest or service flows.
+struct HeaderPINRefinementFixture: View {
+    @State private var configuration = ReceiptHeaderConfiguration.coBrandedRecommended
+    @State private var failure = ""
+    @StateObject private var authentication: OperatorAuthentication
+
+    init() {
+        let args = ProcessInfo.processInfo.arguments
+        let id = args.firstIndex(of: "--fixture-id").flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil } ?? UUID().uuidString
+        _authentication = StateObject(wrappedValue: OperatorAuthentication(permit: OperatorAccessPermit(), evaluate: { false },
+            pinStore: OperatorPINStore(service: "header-pin-fixture-" + id)))
+    }
+    var body: some View {
+        OperatorAuthenticationView(authentication: authentication) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Header Acceptance").font(.title)
+                    if !failure.isEmpty { Text(failure) }
+                    CoBrandedHeaderControls(configuration: $configuration)
+                }.padding(24)
+            }
+        }
+        .environment(\.dynamicTypeSize, ProcessInfo.processInfo.arguments.contains("--fixture-accessibility") ? .accessibility2 : .large)
+        .task {
+            guard configuration.assetIdentifier == nil else { return }
+            do {
+                let format = UIGraphicsImageRendererFormat(); format.scale = 1
+                let logo = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 300), format: format).image { context in
+                    UIColor.white.setFill(); context.fill(CGRect(x: 0, y: 0, width: 300, height: 300))
+                    UIColor.black.setStroke(); context.cgContext.setLineWidth(12)
+                    context.cgContext.strokeEllipse(in: CGRect(x: 12, y: 12, width: 276, height: 276))
+                    NSString(string: "EVENT").draw(at: CGPoint(x: 50, y: 120), withAttributes: [.font: UIFont.boldSystemFont(ofSize: 52)])
+                }
+                configuration.assetIdentifier = try EventHeaderAssetStore().importArtworkData(logo.pngData()!)
+            } catch { failure = "Could not prepare synthetic artwork." }
+        }
+    }
+}
+#endif

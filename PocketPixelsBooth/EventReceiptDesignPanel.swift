@@ -204,9 +204,11 @@ struct EventReceiptDesignPanel: View {
                 Stepper("Space below: \(Int(design.profile.receiptHeader.bottomSpacing)) dots", value: $design.profile.receiptHeader.bottomSpacing, in: 0...ReceiptHeaderConfiguration.maximumSpacing, step: 4)
                 HStack {
                     if design.layout != .coBranded { Button("Reset to Recommended") { resetLayout() }.buttonStyle(.bordered) }
-                    Spacer()
-                    Button { isStudioPresented = true } label: { Label("Open Event Artwork Studio", systemImage: "slider.horizontal.below.rectangle") }
-                        .buttonStyle(.bordered)
+                    if design.layout != .coBranded {
+                        Spacer()
+                        Button { isStudioPresented = true } label: { Label("Open Event Artwork Studio", systemImage: "slider.horizontal.below.rectangle") }
+                            .buttonStyle(.bordered)
+                    }
                 }
             }
             .padding(.top, 8)

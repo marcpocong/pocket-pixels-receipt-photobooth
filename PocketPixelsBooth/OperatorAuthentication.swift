@@ -155,7 +155,8 @@ struct OperatorAccessScreen: View {
     var message = ""
     var unlock: () -> Void
     var verifyPIN: (String) -> Void
-    @State private var pin = ""
+    @State private var entry = OperatorPINEntry()
+    @Environment(\.scenePhase) private var scenePhase
     @State private var recovering = false
     var back: () -> Void
 
@@ -175,7 +176,7 @@ struct OperatorAccessScreen: View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 22) {
-                    VStack(spacing: 28) {
+                    VStack(spacing: 20) {
                         VStack(spacing: 16) {
                             Text("MADE TO KEEP STUDIOS")
                                 .font(.caption.weight(.semibold)).tracking(2).foregroundStyle(.secondary)
@@ -188,24 +189,46 @@ struct OperatorAccessScreen: View {
                                 .font(.body).foregroundStyle(.secondary)
                         }
                         VStack(spacing: 12) {
-                            SecureField("Six-digit operator passcode", text: $pin)
-                                .keyboardType(.numberPad).textContentType(.password)
-                                .textInputAutocapitalization(.never).autocorrectionDisabled()
-                                .textFieldStyle(.roundedBorder)
-                                .privacySensitive()
-                                .accessibilityIdentifier("operator-pin")
-                                .onChange(of: pin) { _, value in pin = String(value.filter { $0.isASCII && $0.isNumber }.prefix(6)) }
-                                .onSubmit { submitPIN() }
-                            Button(action: submitPIN) {
-                                Text(authenticating ? "Unlocking…" : "Unlock Operator")
-                                    .font(.headline).frame(maxWidth: .infinity, minHeight: 56)
-                            }.buttonStyle(.borderedProminent)
-                                .disabled(disabled || !OperatorPINStore.isValid(pin))
-                            if biometric.title != "Biometrics Unavailable" {
-                                Button(action: unlock) { Label(biometric.title, systemImage: biometric.icon).frame(minHeight: 44) }
-                                    .buttonStyle(.bordered).disabled(disabled)
+                            Text("Enter your 6-digit passcode").font(.headline)
+                            HStack(spacing: 16) {
+                                ForEach(0..<6) { index in
+                                    Circle().fill(index < entry.count ? OperatorPalette.ink : .clear)
+                                        .overlay { Circle().stroke(OperatorPalette.ink.opacity(0.6), lineWidth: 1.5) }
+                                        .frame(width: 16, height: 16)
+                                }
                             }
-                            Button("Forgot Operator Passcode?") { recovering = true }.disabled(disabled)
+                            .padding(.vertical, 10)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("Passcode entry")
+                            .accessibilityValue("\(entry.count) of 6 digits entered")
+                            .accessibilityIdentifier("operator-pin")
+                            .privacySensitive()
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 12) {
+                                ForEach(1...9, id: \.self) { digit in keypadDigit(digit) }
+                                Color.clear.frame(minHeight: 64).accessibilityHidden(true)
+                                keypadDigit(0)
+                                Button { entry.delete() } label: {
+                                    Image(systemName: "delete.left").font(.title2)
+                                        .frame(maxWidth: .infinity, minHeight: 64)
+                                }
+                                .buttonStyle(OperatorKeypadButtonStyle())
+                                .accessibilityLabel("Delete last digit")
+                                .accessibilityIdentifier("operator-pin-delete")
+                                .disabled(disabled || entry.isSubmitting || entry.count == 0)
+                            }
+                            .background {
+                                OperatorHardwarePINInput(enabled: !disabled && !recovering && !entry.isSubmitting && scenePhase == .active,
+                                    insert: enter, delete: { entry.delete() })
+                                    .frame(width: 1, height: 1)
+                            }
+                            if authenticating || entry.isSubmitting { ProgressView("Unlocking…") }
+                            if biometric.title != "Biometrics Unavailable" {
+                                Button { entry.clear(); unlock() } label: { Label(biometric.title, systemImage: biometric.icon).frame(minHeight: 44) }
+                                    .buttonStyle(.plain).disabled(disabled || entry.isSubmitting)
+                            }
+                            Button("Forgot Passcode?") { entry.clear(); recovering = true }
+                                .font(.footnote).foregroundStyle(.secondary).frame(minHeight: 44)
+                                .disabled(disabled || entry.isSubmitting)
                         }
                         if !message.isEmpty {
                             Text(message).font(.callout).foregroundStyle(.secondary)
@@ -216,7 +239,7 @@ struct OperatorAccessScreen: View {
                             .font(.footnote).foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                     }
-                    .padding(36)
+                    .padding(28)
                     .frame(maxWidth: 480)
                     .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 28))
                     .overlay { RoundedRectangle(cornerRadius: 28).stroke(.secondary.opacity(0.12)) }
@@ -238,10 +261,115 @@ struct OperatorAccessScreen: View {
         }
         .tint(OperatorPalette.ink)
         .background(OperatorPalette.canvas.ignoresSafeArea())
+        .onChange(of: scenePhase) { _, phase in if phase != .active { entry.clear() } }
+        .onDisappear { entry.clear() }
     }
-    private func submitPIN() {
-        guard !disabled, OperatorPINStore.isValid(pin) else { return }
-        let entered = pin; pin = ""; verifyPIN(entered)
+
+    private func keypadDigit(_ digit: Int) -> some View {
+        Button { enter(String(digit)) } label: {
+            Text(String(digit)).font(.title2.weight(.medium))
+                .frame(maxWidth: .infinity, minHeight: 64)
+        }
+        .buttonStyle(OperatorKeypadButtonStyle())
+        .accessibilityLabel(String(digit))
+        .accessibilityIdentifier("operator-pin-\(digit)")
+        .disabled(disabled || entry.isSubmitting)
+    }
+
+    private func enter(_ text: String) {
+        guard !disabled, scenePhase == .active, !recovering, let attempt = entry.insert(text) else { return }
+        let request = entry.submissionID
+        Task { @MainActor in
+            await Task.yield()
+            // A background transition cancels an entry before it can grant access.
+            guard scenePhase == .active, !disabled, entry.isSubmitting, entry.submissionID == request else { entry.clear(); return }
+            verifyPIN(attempt)
+            entry.clear()
+        }
+    }
+
+}
+
+/// One input state for both touch and hardware keyboards. No PIN is exposed in accessibility.
+nonisolated struct OperatorPINEntry {
+    private var digits = ""
+    private(set) var isSubmitting = false
+    private(set) var submissionID: UUID?
+    var count: Int { isSubmitting ? 6 : digits.count }
+
+    mutating func insert(_ text: String) -> String? {
+        guard !isSubmitting else { return nil }
+        digits += text.filter { $0.isASCII && $0.isNumber }.prefix(6 - digits.count)
+        guard digits.count == 6 else { return nil }
+        isSubmitting = true
+        submissionID = UUID()
+        let attempt = digits
+        digits = ""
+        return attempt
+    }
+    mutating func delete() { if !isSubmitting && !digits.isEmpty { digits.removeLast() } }
+    mutating func clear() { digits = ""; isSubmitting = false; submissionID = nil }
+}
+
+private struct OperatorKeypadButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(OperatorPalette.canvas.opacity(configuration.isPressed ? 0.55 : 1), in: RoundedRectangle(cornerRadius: 16))
+            .overlay { RoundedRectangle(cornerRadius: 16).stroke(OperatorPalette.ink.opacity(configuration.isPressed ? 0.5 : 0.12)) }
+    }
+}
+
+/// Receives physical keyboard events without displaying a system keyboard or visible text field.
+private struct OperatorHardwarePINInput: UIViewRepresentable {
+    var enabled: Bool
+    var insert: (String) -> Void
+    var delete: () -> Void
+    func makeUIView(context: Context) -> KeyInput { KeyInput() }
+    func updateUIView(_ view: KeyInput, context: Context) {
+        view.insert = insert; view.delete = delete
+        view.acceptsInput = enabled
+        if enabled {
+            DispatchQueue.main.async { [weak view] in
+                guard let view, view.acceptsInput, view.window != nil, !view.isFirstResponder else { return }
+                view.becomeFirstResponder()
+            }
+        } else if view.isFirstResponder { view.resignFirstResponder() }
+    }
+    final class KeyInput: UITextField, UITextFieldDelegate {
+        var insert: (String) -> Void = { _ in }
+        var delete: () -> Void = {}
+        var acceptsInput = false
+        override var canBecomeFirstResponder: Bool { acceptsInput }
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            delegate = self
+            isSecureTextEntry = true
+            keyboardType = .numberPad
+            autocorrectionType = .no
+            spellCheckingType = .no
+            inputView = UIView(frame: .zero)
+            inputAccessoryView = nil
+            tintColor = .clear
+            textColor = .clear
+            accessibilityLabel = "Hardware passcode input"
+            accessibilityIdentifier = "operator-hardware-pin"
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        // Never pass characters into UITextField storage, accessibility, suggestions or undo.
+        func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
+            guard acceptsInput else { return false }
+            if string.isEmpty { delete() } else { insert(string) }
+            return false
+        }
+        override var hasText: Bool { true }
+        override func insertText(_ text: String) { if acceptsInput { insert(text) } }
+        override func deleteBackward() { if acceptsInput { delete() } }
+        override func caretRect(for position: UITextPosition) -> CGRect { .zero }
+        override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool { false }
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if acceptsInput, window != nil { becomeFirstResponder() }
+        }
     }
 
 }

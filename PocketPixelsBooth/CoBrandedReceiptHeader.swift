@@ -104,6 +104,8 @@ nonisolated struct CoBrandedHeaderAdjustments: Codable, Equatable, Sendable {
     var studioOffsetX: Double = 0
     var eventOffsetX: Double = 0
     var separatorY: Double = 0
+    /// Opt-in geometry. Nil keeps both generations of saved headers unchanged.
+    var placement: CoBrandedHeaderPlacement?
 
     init(configuration: ReceiptHeaderConfiguration) {
         referenceLogoScale = configuration.scale
@@ -129,6 +131,7 @@ nonisolated struct CoBrandedHeaderAdjustments: Codable, Equatable, Sendable {
         v.studioOffsetX = bound(studioOffsetX, -48...48)
         v.eventOffsetX = bound(eventOffsetX, -48...48)
         v.separatorY = bound(separatorY, -48...48)
+        v.placement = placement?.normalized()
         return v
     }
 }
@@ -141,10 +144,18 @@ extension ReceiptHeaderConfiguration {
     }
 
     nonisolated mutating func resetStudioIdentity() {
+        if coBrandedAdjustments?.placement != nil {
+            self = ReceiptComposer.resetHeaderElement(self, target: .studio)
+            return
+        }
         editCoBranded { $0.studioScale = 1; $0.studioPosition = -1; $0.studioY = 0; $0.studioOffsetX = 0 }
     }
 
     nonisolated mutating func resetEventIdentity() {
+        if coBrandedAdjustments?.placement != nil {
+            self = ReceiptComposer.resetHeaderElement(self, target: .event)
+            return
+        }
         editCoBranded { $0.eventPosition = -1; $0.eventY = 0; $0.eventOffsetX = 0 }
         scale = 1; layoutMode = .fit; cropZoom = 1; cropPositionX = 0; cropPositionY = 0
     }
@@ -153,5 +164,181 @@ extension ReceiptHeaderConfiguration {
         let identifier = assetIdentifier
         self = .coBrandedRecommended
         assetIdentifier = identifier
+    }
+}
+
+/// Centers are printer dots before whole-header scaling/translation. Keeping separate anchors
+/// prevents an identity resize from moving its neighbor. The reference scale preserves older edits.
+nonisolated struct CoBrandedHeaderPlacement: Codable, Equatable, Sendable {
+    var studioX: Double
+    var studioY: Double
+    var eventX: Double
+    var eventY: Double
+    var separatorX: Double
+    var separatorY: Double
+    var separatorScale: Double = 1
+    var referenceScale: Double = 1
+    var wholeX: Double = 0
+    var wholeY: Double = 0
+    var referenceTopSpacing: Double = 8
+    var pivotY: Double
+
+    func normalized() -> Self {
+        var v = self
+        func safe(_ n: Double, _ fallback: Double, _ range: ClosedRange<Double>) -> Double {
+            min(range.upperBound, max(range.lowerBound, n.isFinite ? n : fallback))
+        }
+        v.studioX = safe(studioX, 140, 0...576); v.eventX = safe(eventX, 420, 0...576)
+        v.studioY = safe(studioY, 70, 0...240); v.eventY = safe(eventY, 70, 0...240)
+        v.separatorX = safe(separatorX, 288, 100...476); v.separatorY = safe(separatorY, 70, 0...240)
+        v.separatorScale = safe(separatorScale, 1, 0.5...2)
+        v.referenceScale = safe(referenceScale, 1, 0.5...1)
+        v.wholeX = safe(wholeX, 0, -576...576); v.wholeY = safe(wholeY, 0, -240...240)
+        v.referenceTopSpacing = safe(referenceTopSpacing, 8, 0...48)
+        v.pivotY = safe(pivotY, 70, 0...240)
+        return v
+    }
+}
+
+nonisolated enum CoBrandedHeaderTarget: String, CaseIterable {
+    case whole = "Whole Header", studio = "Made to Keep", separator = "× Separator", event = "Event Logo"
+}
+
+extension ReceiptComposer {
+    nonisolated static func headerEditingPlan(_ configuration: ReceiptHeaderConfiguration) -> ReceiptLayoutPlan? {
+        var profile = EventProfile.pocketPixelsDefault
+        profile.isEnabled = true; profile.showEventTextBlock = false; profile.receiptHeader = configuration
+        return try? makeLayoutPlan(format: .solo, eventProfile: profile)
+    }
+
+    /// Available movement is measured from the final printed frames, including whole scale.
+    nonisolated static func headerTravel(_ configuration: ReceiptHeaderConfiguration, target: CoBrandedHeaderTarget,
+        vertical: Bool = false) -> ClosedRange<Double> {
+        let configuration = prepareCoBrandedEditing(configuration)
+        guard let plan = headerEditingPlan(configuration), let logo = plan.customHeaderFrame,
+              let cross = plan.coBrandSeparatorFrame, let a = configuration.coBrandedAdjustments,
+              let p = a.placement else { return 0...0 }
+        let studio = plan.mastheadFrames.reduce(CGRect.null) { $0.union($1) }
+        let bounds = studio.union(logo).union(cross)
+        let rect: CGRect = switch target {
+        case .whole: bounds
+        case .studio: studio
+        case .separator: cross
+        case .event: logo
+        }
+        let scale = CGFloat(a.compositionScale)
+        let spacingY = max(8, configuration.topSpacing) - max(8, p.referenceTopSpacing)
+        let localY = p.pivotY + (rect.midY - p.wholeY - spacingY - p.pivotY) / scale
+        if vertical {
+            let upper = target == .whole ? 240 - p.wholeY : (240 - localY) * scale
+            return Double(min(0, CGFloat(plan.headerStartY + 8) - rect.minY))...Double(max(0, upper))
+        }
+        let gap = 8 * scale
+        let lower: CGFloat, upper: CGFloat
+        switch target {
+        case .whole: lower = 36 - bounds.minX; upper = 540 - bounds.maxX
+        case .studio: lower = 36 - studio.minX; upper = cross.minX - gap - studio.maxX
+        case .separator: lower = studio.maxX + gap - cross.minX; upper = logo.minX - gap - cross.maxX
+        case .event: lower = cross.maxX + gap - logo.minX; upper = 540 - logo.maxX
+        }
+        let localX = 288 + (rect.midX - p.wholeX - 288) / scale
+        let allowed: ClosedRange<Double> = switch target {
+        case .whole: -576...576
+        case .separator: 100...476
+        default: 0...576
+        }
+        let current = target == .whole ? p.wholeX : localX
+        let multiplier = target == .whole ? 1 : scale
+        return Double(min(0, max(lower, (allowed.lowerBound - current) * multiplier)))...Double(max(0, min(upper, (allowed.upperBound - current) * multiplier)))
+    }
+
+    nonisolated static func moveHeaderElement(_ configuration: ReceiptHeaderConfiguration, target: CoBrandedHeaderTarget,
+        horizontal: Double = 0, vertical: Double = 0) -> ReceiptHeaderConfiguration {
+        var config = prepareCoBrandedEditing(configuration)
+        guard var a = config.coBrandedAdjustments, var p = a.placement else { return configuration }
+        let x = headerTravel(config, target: target)
+        let y = headerTravel(config, target: target, vertical: true)
+        let dx = min(x.upperBound, max(x.lowerBound, horizontal.isFinite ? horizontal : 0))
+        let dy = min(y.upperBound, max(y.lowerBound, vertical.isFinite ? vertical : 0))
+        let scale = a.compositionScale
+        guard let plan = headerEditingPlan(config), let logo = plan.customHeaderFrame,
+              let cross = plan.coBrandSeparatorFrame, let wordmark = plan.mastheadFrames.first else { return configuration }
+        let studio = plan.mastheadFrames.reduce(CGRect.null) { $0.union($1) }
+        let spacingY = max(8, config.topSpacing) - max(8, p.referenceTopSpacing)
+        func localX(_ x: Double) -> Double { 288 + (x + dx - p.wholeX - 288) / scale }
+        func localY(_ y: Double) -> Double { p.pivotY + (y + dy - p.wholeY - spacingY - p.pivotY) / scale }
+        // Use resolved centers, not an old request that may have been clamped by a resize.
+        switch target {
+        case .whole: p.wholeX += dx; p.wholeY += dy
+        case .studio:
+            p.studioX = localX(wordmark.midX - a.studioScale * p.referenceScale * scale / 2)
+            p.studioY = localY(studio.midY)
+        case .separator: p.separatorX = localX(cross.midX); p.separatorY = localY(cross.midY)
+        case .event: p.eventX = localX(logo.midX); p.eventY = localY(logo.midY)
+        }
+        a.placement = p.normalized(); config.coBrandedAdjustments = a
+        return config
+    }
+}
+
+extension ReceiptComposer {
+    nonisolated static func headerMaximumScale(_ configuration: ReceiptHeaderConfiguration, target: CoBrandedHeaderTarget,
+        current: Double, maximum: Double) -> Double {
+        let configuration = prepareCoBrandedEditing(configuration)
+        guard let plan = headerEditingPlan(configuration), let logo = plan.customHeaderFrame,
+              let cross = plan.coBrandSeparatorFrame else { return maximum }
+        let studio = plan.mastheadFrames.reduce(CGRect.null) { $0.union($1) }
+        let gap = 8 * CGFloat(configuration.coBrandedAdjustments?.compositionScale ?? 1)
+        var factor: CGFloat = 1
+        switch target {
+        case .studio: factor = (cross.minX - gap - 36) / studio.width
+        case .event: factor = (540 - cross.maxX - gap) / logo.width
+        case .separator:
+            factor = max(0, min(cross.midX - studio.maxX - gap, logo.minX - gap - cross.midX) * 2 / cross.width)
+        case .whole:
+            let bounds = studio.union(logo).union(cross)
+            let p = configuration.coBrandedAdjustments?.placement
+            let spacingY = max(8, configuration.topSpacing) - max(8, p?.referenceTopSpacing ?? configuration.topSpacing)
+            let pivot = CGPoint(x: 288 + (p?.wholeX ?? 0), y: (p?.pivotY ?? cross.midY) + (p?.wholeY ?? 0) + spacingY)
+            let limits: [(CGFloat, CGFloat)] = [(pivot.x - 36, pivot.x - bounds.minX),
+                (540 - pivot.x, bounds.maxX - pivot.x), (pivot.y - CGFloat(plan.headerStartY + 8), pivot.y - bounds.minY)]
+            factor = limits.filter { $0.1 > 0 }.map { $0.0 / $0.1 }.min() ?? 1
+        }
+        return max(0.5, min(maximum, current * Double(factor)))
+    }
+
+    nonisolated static func resetHeaderElement(_ configuration: ReceiptHeaderConfiguration,
+        target: CoBrandedHeaderTarget) -> ReceiptHeaderConfiguration {
+        var config = prepareCoBrandedEditing(configuration)
+        var recommended = ReceiptHeaderConfiguration.coBrandedRecommended
+        recommended.assetIdentifier = config.assetIdentifier
+        guard let plan = headerEditingPlan(recommended), let cross = plan.coBrandSeparatorFrame,
+              let logo = plan.customHeaderFrame, let wordmark = plan.mastheadFrames.first,
+              var a = config.coBrandedAdjustments, var p = a.placement else { return configuration }
+        switch target {
+        case .whole: a.compositionScale = 1; p.wholeX = 0; p.wholeY = 0
+        case .studio:
+            a.studioScale = 1
+            p.studioX = wordmark.midX - 0.5
+            p.studioY = plan.mastheadFrames.reduce(CGRect.null) { $0.union($1) }.midY
+        case .separator:
+            if let current = headerEditingPlan(config), let event = current.customHeaderFrame {
+                let studioRight = current.mastheadFrames.map(\.maxX).max() ?? 36
+                let scale = a.compositionScale
+                let gap = 8 * scale
+                let size = min(18 * scale, max(1, event.minX - studioRight - gap * 2))
+                let desiredX = 288 + p.wholeX
+                let centerX = min(event.minX - gap - size / 2, max(studioRight + gap + size / 2, desiredX))
+                p.separatorScale = size / scale / 18
+                p.separatorX = 288 + (centerX - p.wholeX - 288) / scale
+            }
+            p.separatorY = cross.midY
+        case .event:
+            config.scale = 1; config.layoutMode = .fit; config.fillHeightRatio = nil
+            config.cropZoom = 1; config.cropPositionX = 0; config.cropPositionY = 0
+            p.eventX = logo.midX; p.eventY = logo.midY
+        }
+        a.placement = p; config.coBrandedAdjustments = a.normalized()
+        return config
     }
 }

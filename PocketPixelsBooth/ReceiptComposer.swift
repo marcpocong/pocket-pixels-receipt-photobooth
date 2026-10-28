@@ -157,6 +157,7 @@ struct ReceiptLayoutPlan: Sendable {
     /// Co-Branded only: the × centred between the wordmark (`mastheadFrames`) and the logo
     /// (`customHeaderFrame`).
     let coBrandSeparatorFrame: CGRect?
+    nonisolated var headerStartY: Int { headerLayout.startY }
     let mastheadFrames: [CGRect]
     let captionLines: [String]
     let captionFrames: [CGRect]
@@ -877,6 +878,11 @@ enum ReceiptComposer {
         sourceSize: CGSize, startY: Int, bottomSpacing: Int, receiptWidth: CGFloat
     ) -> ReceiptHeaderLayout {
         let a = adjustments.normalized()
+        if let placement = a.placement {
+            return positionedCoBrandedHeader(wordmark: wordmark, studios: studios, logo: logo,
+                configuration: configuration, adjustments: a, placement: placement,
+                sourceSize: sourceSize, startY: startY, bottomSpacing: bottomSpacing, receiptWidth: receiptWidth)
+        }
         let baseBlock = wordmark.rect.union(studios.rect)
         let studioScale = CGFloat(a.studioScale)
         let sharedScale = CGFloat(a.compositionScale)
@@ -921,43 +927,97 @@ enum ReceiptComposer {
             bottom: Int(ceil(bottom)) + bottomSpacing, coBrandSeparator: cross)
     }
 
+    /// Initializes from the production layout, only on the first edit. Reading/opening a design
+    /// never rewrites it. Reference typography and old composition scale remain proportional.
+    nonisolated static func prepareCoBrandedEditing(_ configuration: ReceiptHeaderConfiguration) -> ReceiptHeaderConfiguration {
+        guard configuration.coBrandedAdjustments?.placement == nil else { return configuration }
+        var config = configuration.normalized()
+        var profile = EventProfile.pocketPixelsDefault
+        profile.isEnabled = true; profile.showEventTextBlock = false; profile.receiptHeader = config
+        let artwork = loadEffectiveHeaderArtwork(for: profile)
+        let snapshot = makeTextSnapshot(format: .solo, date: Date(), sessionIdentifier: "", eventProfile: profile,
+            headerSourceSize: artwork?.size, headerContentBounds: artwork?.contentBounds)
+        let header = makeHeaderLayout(format: .solo, textSnapshot: snapshot, isLegacyPassport: false, width: BoothConfiguration.receiptWidth)
+        guard let logo = header.customImageFrame, let cross = header.coBrandSeparator,
+              let wordmark = header.mastheadTexts.first else { return configuration }
+        let block = header.mastheadTexts.reduce(CGRect.null) { $0.union($1.rect) }
+        let referenceTopSpacing = config.topSpacing
+        config.editCoBranded { a in
+            let reference = a.compositionScale
+            a.placement = CoBrandedHeaderPlacement(
+                studioX: wordmark.rect.minX + (wordmark.rect.width - CGFloat(a.studioScale * reference)) / 2,
+                studioY: block.midY, eventX: logo.midX, eventY: logo.midY,
+                separatorX: cross.midX, separatorY: cross.midY, referenceScale: reference,
+                referenceTopSpacing: referenceTopSpacing, pivotY: cross.midY)
+            a.compositionScale = 1
+        }
+        return config
+    }
+
+    nonisolated private static func positionedCoBrandedHeader(
+        wordmark: ReceiptTextFrame, studios: ReceiptTextFrame, logo: CGRect,
+        configuration: ReceiptHeaderConfiguration, adjustments a: CoBrandedHeaderAdjustments,
+        placement p: CoBrandedHeaderPlacement, sourceSize: CGSize,
+        startY: Int, bottomSpacing: Int, receiptWidth: CGFloat
+    ) -> ReceiptHeaderLayout {
+        let inset = CoBrandedHeaderGeometry.sideInset
+        let scale = CGFloat(a.compositionScale)
+        let pivot = CGPoint(x: 288, y: p.pivotY)
+        let spacingY = max(8, configuration.topSpacing) - max(8, p.referenceTopSpacing)
+        let dx = CGFloat(p.wholeX), dy = CGFloat(p.wholeY + spacingY)
+        // Resolve margins in composition coordinates. Resizing a single identity clamps that
+        // identity, rather than changing the whole translation and displacing its neighbor.
+        let leftMargin = pivot.x + (inset - dx - pivot.x) / scale
+        let rightMargin = pivot.x + (receiptWidth - inset - dx - pivot.x) / scale
+        let topMargin = pivot.y + (CGFloat(startY + 8) - dy - pivot.y) / scale
+        let gap: CGFloat = 8
+        let block = wordmark.rect.union(studios.rect)
+        let reference = CGFloat(p.referenceScale)
+        let crossSize = CoBrandedHeaderGeometry.separatorSize * CGFloat(p.separatorScale)
+        let crossX = min(rightMargin - crossSize / 2 - gap - 40,
+            max(leftMargin + 40 + gap + crossSize / 2, CGFloat(p.separatorX)))
+        let leftEdge = crossX - crossSize / 2 - gap
+        let rightEdge = crossX + crossSize / 2 + gap
+        // Size is constrained proportionally to the live separator regions, never stretched.
+        let textScale = min(CGFloat(a.studioScale) * reference,
+            (leftEdge - leftMargin) / block.width)
+        let studioHeight = block.height * textScale
+        let anchorX = wordmark.rect.minX + (wordmark.rect.width - 1) / 2
+        let leftExtent = (anchorX - block.minX) * textScale
+        let rightExtent = (block.maxX - anchorX) * textScale
+        let studioX = min(leftEdge - rightExtent, max(leftMargin + leftExtent, CGFloat(p.studioX)))
+        let studioY = max(topMargin + studioHeight / 2, CGFloat(p.studioY))
+        let naturalLogo = CoBrandedHeaderGeometry.logoFrameSize(sourceSize: sourceSize, configuration: configuration, receiptWidth: receiptWidth)
+        let logoScale = min(reference, (rightMargin - rightEdge) / naturalLogo.width)
+        let logoSize = CGSize(width: naturalLogo.width * logoScale, height: naturalLogo.height * logoScale)
+        let logoX = min(rightMargin - logoSize.width / 2, max(rightEdge + logoSize.width / 2, CGFloat(p.eventX)))
+        let logoY = max(topMargin + logoSize.height / 2, CGFloat(p.eventY))
+        let crossY = max(topMargin + crossSize / 2, CGFloat(p.separatorY))
+        func scaled(_ rect: CGRect) -> CGRect {
+            CGRect(x: pivot.x + (rect.minX - pivot.x) * scale,
+                y: pivot.y + (rect.minY - pivot.y) * scale,
+                width: rect.width * scale, height: rect.height * scale)
+        }
+        let textRects = [wordmark, studios].map { frame in
+            scaled(CGRect(x: studioX + (frame.rect.minX - anchorX) * textScale,
+                y: studioY + (frame.rect.minY - block.midY) * textScale,
+                width: frame.rect.width * textScale, height: frame.rect.height * textScale))
+        }
+        let eventRect = scaled(CGRect(x: logoX - logoSize.width / 2, y: logoY - logoSize.height / 2, width: logoSize.width, height: logoSize.height))
+        let crossRect = scaled(CGRect(x: crossX - crossSize / 2, y: crossY - crossSize / 2, width: crossSize, height: crossSize))
+        let bounds = (textRects + [eventRect, crossRect]).reduce(CGRect.null) { $0.union($1) }
+        let texts = zip([wordmark, studios], textRects).map { frame, rect in
+            ReceiptTextFrame(style: frame.style, text: frame.text, rect: rect.offsetBy(dx: dx, dy: dy),
+                fontSize: frame.fontSize * textScale * scale, tracking: frame.tracking * textScale * scale)
+        }
+        return ReceiptHeaderLayout(mode: .customEventHeader, startY: startY, mastheadTexts: texts,
+            customImageFrame: eventRect.offsetBy(dx: dx, dy: dy), eventTextFrames: [], dividerY: nil,
+            bottom: Int(ceil(bounds.maxY + dy)) + bottomSpacing, coBrandSeparator: crossRect.offsetBy(dx: dx, dy: dy))
+    }
+
     nonisolated static func translateCoBrandedHeader(_ configuration: ReceiptHeaderConfiguration,
         horizontal: Double = 0, vertical: Double = 0) -> ReceiptHeaderConfiguration {
-        var config = configuration.normalized()
-        config.editCoBranded { _ in }
-        var profile = EventProfile.pocketPixelsDefault
-        profile.isEnabled = true; profile.showEventTextBlock = false
-        profile.receiptHeader = config
-        guard let current = try? makeLayoutPlan(format: .solo, eventProfile: profile),
-              let logo = current.customHeaderFrame, let wordmark = current.mastheadFrames.first,
-              let separator = current.coBrandSeparatorFrame,
-              var a = config.coBrandedAdjustments else { return configuration }
-        var baseline = config
-        baseline.editCoBranded { $0.studioOffsetX = 0; $0.eventOffsetX = 0; $0.studioY = 0; $0.eventY = 0; $0.separatorY = 0 }
-        profile.receiptHeader = baseline
-        guard let base = try? makeLayoutPlan(format: .solo, eventProfile: profile),
-              let baseLogo = base.customHeaderFrame, let baseWordmark = base.mastheadFrames.first,
-              let baseSeparator = base.coBrandSeparatorFrame else { return configuration }
-        let studioOffset = wordmark.minX - baseWordmark.minX
-        let eventOffset = logo.minX - baseLogo.minX
-        let studioY = wordmark.minY - baseWordmark.minY
-        let eventY = logo.minY - baseLogo.minY
-        let separatorY = separator.minY - baseSeparator.minY
-        let edges = CoBrandedHeaderGeometry.innerEdges()
-        let studioRight = wordmark.maxX - CGFloat(a.studioScale * a.compositionScale)
-        let lowerX = max(CoBrandedHeaderGeometry.sideInset - wordmark.minX, edges.right - logo.minX,
-            -48 - studioOffset, -48 - eventOffset)
-        let upperX = min(edges.left - studioRight, CGFloat(BoothConfiguration.receiptWidth) - CoBrandedHeaderGeometry.sideInset - logo.maxX, 48 - studioOffset, 48 - eventOffset)
-        let dx = min(upperX, max(lowerX, CGFloat(horizontal.isFinite ? horizontal : 0)))
-        let top = CGFloat(Metrics.receiptTopPadding + 8)
-        let lowerY = max(top - min(wordmark.minY, logo.minY, separator.minY),
-            -48 - studioY, -48 - eventY, -48 - separatorY)
-        let upperY = min(48 - studioY, 48 - eventY, 48 - separatorY)
-        let dy = min(upperY, max(lowerY, CGFloat(vertical.isFinite ? vertical : 0)))
-        a.studioOffsetX = Double(studioOffset + dx); a.eventOffsetX = Double(eventOffset + dx)
-        a.studioY = Double(studioY + dy); a.eventY = Double(eventY + dy); a.separatorY = Double(separatorY + dy)
-        config.coBrandedAdjustments = a.normalized()
-        return config
+        moveHeaderElement(configuration, target: .whole, horizontal: horizontal, vertical: vertical)
     }
 
     /// Profiles saved before branding modes keep their header exactly where it was: the saved
@@ -1398,7 +1458,7 @@ enum ReceiptComposer {
     }
 
     /// The wordmark sits left of the ×, the logo right of it, nothing touches, everything stays
-    /// inside the printable width and the × is centred on the paper.
+    /// inside the printable width, including an independently positioned ×.
     nonisolated private static func validateCoBrandedHeader(_ header: ReceiptHeaderLayout, separator: CGRect, canvas: CGRect) throws {
         try validateFrame(separator, name: "header.coBrandSeparator", inside: canvas)
         guard let logo = header.customImageFrame, header.mastheadTexts.count == 2 else {
@@ -1407,10 +1467,11 @@ enum ReceiptComposer {
         let printableLeft = CGFloat(BoothConfiguration.receiptHorizontalMargin)
         let printableRight = canvas.width - CGFloat(BoothConfiguration.receiptHorizontalMargin)
         let wordmarkRight = header.mastheadTexts.map { $0.rect.maxX - $0.tracking - 1 }.max() ?? canvas.maxX
-        guard abs(separator.midX - canvas.midX) <= 1,
-              header.mastheadTexts.allSatisfy({ $0.rect.minX >= printableLeft }),
-              wordmarkRight <= separator.minX,
-              logo.minX >= separator.maxX,
+        // Legacy and independently positioned headers share the same collision checks.
+        // The separator may move; it must retain a real visual gap on both sides.
+        guard header.mastheadTexts.allSatisfy({ $0.rect.minX >= printableLeft }),
+              wordmarkRight <= separator.minX - 4,
+              logo.minX >= separator.maxX + 4,
               logo.maxX <= printableRight,
               logo.width > 0, logo.height > 0 else {
             throw ReceiptComposerError.invalidLayout("co-branded identities overlap the × or leave the printable width")

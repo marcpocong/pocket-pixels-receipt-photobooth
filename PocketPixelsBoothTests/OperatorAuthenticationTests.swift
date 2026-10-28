@@ -85,6 +85,34 @@ import Security
         _ = try await api.listEvents()
     }
 
+    @Test func keypadSubmitsOnceDeletesClearsAndRetriesThroughSecureAuthentication() throws {
+        let service = "operator-pin-test-" + UUID().uuidString
+        defer { SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service] as CFDictionary) }
+        let authentication = OperatorAuthentication(permit: OperatorAccessPermit(), evaluate: { false }, pinStore: OperatorPINStore(service: service))
+        var entry = OperatorPINEntry()
+        var attempts = 0
+        for digit in ["9", "8", "7", "6", "5"] { #expect(entry.insert(digit) == nil) }
+        #expect(entry.count == 5)
+        entry.delete(); #expect(entry.count == 4)
+        #expect(entry.insert("5") == nil)
+        if let pin = entry.insert("0") { attempts += 1; authentication.unlock(pin: pin) }
+        #expect(entry.isSubmitting)
+        #expect(entry.insert("4") == nil)
+        #expect(attempts == 1)
+        #expect(!authentication.isUnlocked)
+        #expect(!authentication.message.isEmpty)
+        entry.clear(); #expect(entry.count == 0 && !entry.isSubmitting)
+        #expect(entry.insert("１２３ABC") == nil)
+        #expect(entry.count == 0)
+        if let pin = entry.insert("9876549") { attempts += 1; authentication.unlock(pin: pin) }
+        entry.clear()
+        #expect(attempts == 2)
+        #expect(authentication.isUnlocked)
+        #expect(entry.count == 0)
+        authentication.lock()
+        #expect(!authentication.isUnlocked)
+    }
+
     @Test func operatorPINDefaultChangePersistenceAndGuessingDelay() throws {
         let service = "operator-pin-test-" + UUID().uuidString
         defer { SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service] as CFDictionary) }

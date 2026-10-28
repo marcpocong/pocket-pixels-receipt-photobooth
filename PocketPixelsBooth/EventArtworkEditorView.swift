@@ -225,7 +225,8 @@ struct EventArtworkEditorView: View {
 
             }
             if isCoBranded {
-                EditorCard(title: "Adjust Header") { CoBrandedHeaderControls(configuration: $profile.receiptHeader) }
+                Text("Use Adjust Header in Event Receipt Design to edit this co-branded header.")
+                    .font(.callout).foregroundStyle(.secondary)
             } else {
                 EditorCard(title: "Size & Position") {
                     labeledSlider("Size", value: $profile.receiptHeader.scale, range: ReceiptHeaderConfiguration.minimumScale...ReceiptHeaderConfiguration.maximumEditorScale, format: .percent)

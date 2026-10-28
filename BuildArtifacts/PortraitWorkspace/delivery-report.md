@@ -1,5 +1,20 @@
 # Delivery record
 
+## Header editor and Operator Access refinement — October 29, 2026
+
+Delivered one targeted implementation on `main` using the existing signing, bundle ID and portrait orientation. Legacy saved header rendering stays unchanged until an edit; editor initialization is pixel-preserving across previously adjusted and unadjusted designs. Independent printer-dot placement uses the live separator bounds and measured identity sizes. Whole Header translates/scales all three elements together. Size and movement limits preserve margins, gaps and photo clearance; unavailable arrows are disabled. Separator size, horizontal and vertical placement are independent.
+
+Adjust Header is the primary Co-Branded workflow, with a large production-rendered header preview, four targets, inline Advanced Artwork & Crop, spacing and two scoped reset actions. Co-Branded no longer exposes the separate Artwork Studio link; other layout modes retain it. The full receipt preview remains available.
+
+Operator Access now uses six masked indicators, a large 3-column keypad, backspace and automatic single submission. A concealed native input receiver supports hardware digits/backspace without a system keyboard. Existing Keychain verification, custom PINs, retry limits, biometrics, owner recovery and app-switcher/background privacy are preserved.
+
+Validation: **70 focused tests passed, 0 failed, 0 skipped** in `/tmp/pp-validation.xcresult` (CoBrandedReceiptTests, EventHeaderTests, EventDesignStudioTests, OperatorAuthenticationTests, OperatorAccessAppearanceTests, and two native UI acceptance cases). A final boundary test also passed after a concurrency-annotation correction (`/tmp/pp-annotation-check.xcresult`). Both simulator builds and the final signed device Release build passed; strict codesign verification passed. Portrait screenshots were reviewed at normal and accessibility text sizes. Full/header production geometry agrees; raster comparison allows 0.05% edge-pixel variation from CoreText antialiasing between context heights (observed difference: at most one pixel).
+
+Carlo: the signed Release application was installed **in place once**, then launched normally; process 5988 was verified. No uninstall, container wipe, Keychain reset or physical print occurred. The installation comparison found no removed saved entries, all original event-library/artwork/history files unchanged, and all 18 preference-file entries unchanged. A workspace checkpoint and one new artwork asset appeared during the pre/post interval; directory metadata also changed. Physical existing-PIN/Face ID use and operator acceptance on Carlo remain pending owner verification; the new UI interactions were verified on the isolated simulator fixture. No payment, event activation or gallery upload was initiated by the agent.
+
+Local evidence: [device data comparison](header-pin-refinement/device-data-summary.json), [validation log](header-pin-refinement/validation.log), [Release build](header-pin-refinement/release-final.log), [Carlo install](header-pin-refinement/carlo-install.log), [Carlo launch](header-pin-refinement/carlo-launch.log), [PIN portrait](header-pin-refinement/pin-portrait.png), [header portrait](header-pin-refinement/header-portrait.png), [PIN accessibility](header-pin-refinement/pin-accessibility.png), [header accessibility](header-pin-refinement/header-accessibility.png). Machine-local logs/images remain ignored by Git. The commit and current GitHub Actions status are reported in the delivery message.
+
+
 ## Final 27 October handoff
 
 The owner accepts the remaining **16–17 mm G80 bottom gap** and has closed the investigation. Normal digital margins and footer-first, paper-only blank-row trimming remain. The failed cut-and-return controls have been retired from the sample screen; the probe is retained only under `DEBUG`. The final change also fixes empty sample placeholders and multi-copy authorization for Regular Booth/private-prepaid events, while retaining purchased-copy limits.
