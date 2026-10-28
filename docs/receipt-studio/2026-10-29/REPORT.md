@@ -52,4 +52,14 @@ Result bundles (local): `/tmp/pp-studio-regression-final.xcresult`, `/tmp/pp-stu
 
 Physical acceptance used an isolated staged design through the real Session Setup → Customize Receipt entry point and production preview path. It did not edit CIM INTRAMS or any real saved event, activate/terminate an event, contact payments, or issue a physical print. The preview QR is an illustrative code with no live gallery. Physical paper quality was not retested because no print was authorized.
 
-Production Gate configuration is unchanged. One implementation commit is intended for `main`; the live CI status is reported with delivery after pushing.
+Production Gate configuration is unchanged. The implementation and Xcode 16.4 compatibility follow-ups are on `main`.
+
+## CI follow-up
+
+Run [40783333852](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/40783333852) confirmed both hosted Xcode 16.4 builds pass. The complete production suite passed all 945 tests. Native UI passed 24 of 27 tests; the three failures were investigated using its logs, screen recordings and accessibility hierarchy:
+
+- Receipt inspector gestures queried the image while the screen still showed “Rendering receipt…”. The test now waits for the visible rendered preview and its scroll view before exercising the same gestures and zoom assertions.
+- Historical archive/restore tapped Manage as the six-second success banner disappeared and shifted the list. The test now explicitly dismisses and waits for that banner before locating the restored row. Rename, archive, restore and cancellation assertions remain intact.
+- The simulator-only active-guest fixture supplied the general setup blocker but omitted the separate End Event blocker. It now supplies both and isolates follow-up retention from normal simulator state. This failure reproduced locally before the correction. Production lifecycle and recovery behavior are unchanged.
+
+The app and test targets were rebuilt after the corrections. The receipt gesture, historical rename/archive/restore, active-guest removal refusal and idle applied-event removal UI tests passed locally. No test is skipped, retried or disabled, and no workflow requirement is reduced. Hosted verification of the follow-up is reported separately.

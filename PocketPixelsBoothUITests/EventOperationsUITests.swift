@@ -241,7 +241,16 @@ final class EventOperationsUITests: XCTestCase {
         XCTAssertTrue(app.buttons["expand-receipt-preview"].waitForExistence(timeout: 10))
         app.buttons["expand-receipt-preview"].tap()
         XCTAssertTrue(app.navigationBars["Receipt Preview"].waitForExistence(timeout: 10))
-        let preview = try XCTUnwrap(app.otherElements.matching(identifier: "operator-receipt-preview").allElementsBoundByIndex.first(where: \.isHittable))
+        // The inspector navigation can appear before the debounced receipt render finishes.
+        // Wait for its visible image/scroll view rather than taking a one-time snapshot.
+        var visiblePreview: XCUIElement?
+        let rendered = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            visiblePreview = app.otherElements.matching(identifier: "operator-receipt-preview")
+                .allElementsBoundByIndex.first { $0.isHittable && $0.scrollViews.firstMatch.exists }
+            return visiblePreview != nil
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [rendered], timeout: 30), .completed)
+        let preview = try XCTUnwrap(visiblePreview)
         let scroll = preview.scrollViews.firstMatch
         XCTAssertTrue(scroll.exists)
         scroll.doubleTap()
@@ -425,6 +434,13 @@ final class EventOperationsUITests: XCTestCase {
         app.buttons["Archive Run"].tap()
         let archived = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: sameRun)
         XCTAssertEqual(XCTWaiter.wait(for: [archived], timeout: 5), .completed)
+        // The success banner removes its top inset after six seconds. Dismiss it before
+        // locating the restored row so its disappearance cannot move the tap target.
+        let archiveFeedback = app.staticTexts["Run archived. Reports are kept."]
+        XCTAssertTrue(archiveFeedback.waitForExistence(timeout: 5))
+        app.buttons["Dismiss message"].tap()
+        let feedbackDismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: archiveFeedback)
+        XCTAssertEqual(XCTWaiter.wait(for: [feedbackDismissed], timeout: 5), .completed)
         let showArchived = app.switches["Show Archived Events"]
         visible(showArchived, in: app); showArchived.switches.firstMatch.tap()
         capture("historical-run-archive-visibility")

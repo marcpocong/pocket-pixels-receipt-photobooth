@@ -126,7 +126,8 @@ struct OperatorWorkspaceUITestFixture: View {
             let acceptance = SessionAcceptanceStore(directory: root)
             let fixtureLibrary = library
             lifecycle = EventLifecycleCoordinator(runs: runs, acceptance: acceptance, authorized: { true },
-                blockingReason: { activeGuest ? "Finish the active guest first." : nil }, recoveryReason: { nil }, source: { .localPrepaid },
+                blockingReason: { activeGuest ? "Finish the active guest first." : nil }, recoveryReason: { nil },
+                endBlockingReason: { activeGuest ? "Finish the active guest first." : nil }, retainFollowUps: {}, source: { .localPrepaid },
                 appliedContext: { .init(designID: fixtureLibrary.library.appliedEventID, commercialEventID: nil, serverBinding: nil, name: "Synthetic") },
                 applyRegularConfiguration: { try fixtureLibrary.recordApplied(eventModeEnabled: false, eventID: nil) })
             health = ProductionHealthReport(.init(admissionOpen: true, eventStatus: .regular, runID: nil, runStatus: nil, paid: false,
