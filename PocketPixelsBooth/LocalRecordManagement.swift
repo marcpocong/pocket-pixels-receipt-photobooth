@@ -165,7 +165,7 @@ nonisolated enum CheckoutDeletionPolicy {
             originalCheckout.method = "CASH_DECLARED" // authoritative consumed entitlement is still required
         }
         let classification = CheckoutRecoveryClassifier.classify(checkpoint: originalCheckout, server: server,
-            localPrintStarted: dependencies.copies.contains { $0.localState.mayHavePrinted }, offlineRecordExists: !dependencies.cash.isEmpty)
+            localPrintStarted: dependencies.copies.contains { $0.isCustomerCopy && $0.localState.mayHavePrinted }, offlineRecordExists: !dependencies.cash.isEmpty)
         switch classification {
         case .nothingCharged:
             guard checkpoint.phase == .orderRequested, checkpoint.method == nil,

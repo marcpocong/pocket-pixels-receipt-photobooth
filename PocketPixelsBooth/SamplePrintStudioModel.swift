@@ -113,7 +113,7 @@ nonisolated enum SamplePrintPolicy {
         operationActive: Bool,
         guestSessionActive: Bool
     ) -> Bool {
-        hasPreview && !printerBusy && !recoveryLocked && !unresolvedPrint && !operationActive && !guestSessionActive
+        hasPreview && !printerBusy && !recoveryLocked && !operationActive && !guestSessionActive
     }
 
     static func clampedCopies(_ copies: Int) -> Int {
@@ -417,6 +417,19 @@ final class SamplePrintStudioModel: ObservableObject {
 
     /// Fills empty slots, in order, with library photos that are not used yet. Never repeats a
     /// photo on its own: duplicates are only made explicitly.
+    func fillEmptySlots(reusingPhotos: Bool = false) {
+        guard !isPrinting, !library.isEmpty else { return }
+        fillEmptySlotsWithUnusedPhotos()
+        if reusingPhotos {
+            var next = 0
+            for index in slots.indices where slots[index] == nil {
+                slots[index] = library[next % library.count].id
+                next += 1
+            }
+        }
+        invalidate()
+    }
+
     private func fillEmptySlotsWithUnusedPhotos() {
         var unused = library.map(\.id).filter { !slots.contains($0) }
         for index in slots.indices where slots[index] == nil && !unused.isEmpty {
@@ -501,10 +514,11 @@ final class SamplePrintStudioModel: ObservableObject {
         var recoveryLocked: Bool
         var unresolvedPrint: Bool
         var guestSessionActive: Bool
+        var unavailableReason: String? = nil
     }
 
     func canPrint(_ gate: PrinterGate) -> Bool {
-        SamplePrintPolicy.canStart(
+        gate.unavailableReason == nil && SamplePrintPolicy.canStart(
             hasPreview: printableSample != nil,
             printerBusy: gate.printerBusy,
             recoveryLocked: gate.recoveryLocked,
@@ -516,12 +530,16 @@ final class SamplePrintStudioModel: ObservableObject {
 
     func blockedReason(_ gate: PrinterGate) -> String? {
         if gate.guestSessionActive { return "A guest session is in progress. Print samples between guests." }
-        if gate.unresolvedPrint { return "Resolve the previous print in Fix Printer before printing samples." }
-        if gate.recoveryLocked { return "Printer needs attention. Open Fix Printer first." }
+        if let reason = gate.unavailableReason { return reason }
+        if gate.recoveryLocked { return "Check the printer and acknowledge readiness in Printer Setup." }
         if gate.printerBusy && !isPrinting { return "Printer is busy. Wait for the current print to finish." }
         if missingSlotCount > 0 {
             return missingSlotCount == 1 ? "Fill 1 more photo slot to print." : "Fill \(missingSlotCount) more photo slots to print."
         }
+        if isImporting { return "Importing photos…" }
+        if isPrinting { return "Printing sample…" }
+        if case .failed(let message) = previewState { return "Preview could not be prepared: \(message)" }
+        if printableSample == nil { return "Preparing print preview…" }
         return nil
     }
 

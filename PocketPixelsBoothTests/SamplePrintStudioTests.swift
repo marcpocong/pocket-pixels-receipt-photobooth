@@ -78,12 +78,12 @@ final class SamplePrintStudioTests: XCTestCase {
         }
     }
 
-    func testPolicyBlocksGuestSessionsUnresolvedPrintsRecoveryAndDoubleTap() {
+    func testPolicyBlocksActiveGuestsHardwareRecoveryAndDoubleTapButAllowsHistoricalUncertainty() {
         XCTAssertTrue(SamplePrintPolicy.canStart(hasPreview: true, printerBusy: false, recoveryLocked: false, unresolvedPrint: false, operationActive: false, guestSessionActive: false))
         XCTAssertFalse(SamplePrintPolicy.canStart(hasPreview: false, printerBusy: false, recoveryLocked: false, unresolvedPrint: false, operationActive: false, guestSessionActive: false))
         XCTAssertFalse(SamplePrintPolicy.canStart(hasPreview: true, printerBusy: true, recoveryLocked: false, unresolvedPrint: false, operationActive: false, guestSessionActive: false))
         XCTAssertFalse(SamplePrintPolicy.canStart(hasPreview: true, printerBusy: false, recoveryLocked: true, unresolvedPrint: false, operationActive: false, guestSessionActive: false))
-        XCTAssertFalse(SamplePrintPolicy.canStart(hasPreview: true, printerBusy: false, recoveryLocked: false, unresolvedPrint: true, operationActive: false, guestSessionActive: false))
+        XCTAssertTrue(SamplePrintPolicy.canStart(hasPreview: true, printerBusy: false, recoveryLocked: false, unresolvedPrint: true, operationActive: false, guestSessionActive: false))
         XCTAssertFalse(SamplePrintPolicy.canStart(hasPreview: true, printerBusy: false, recoveryLocked: false, unresolvedPrint: false, operationActive: true, guestSessionActive: false))
         XCTAssertFalse(SamplePrintPolicy.canStart(hasPreview: true, printerBusy: false, recoveryLocked: false, unresolvedPrint: false, operationActive: false, guestSessionActive: true))
         XCTAssertEqual(SamplePrintPolicy.clampedCopies(0), 1)
@@ -489,7 +489,7 @@ final class SamplePrintStudioTests: XCTestCase {
         XCTAssertNotNil(plan.coBrandSeparatorFrame)
         XCTAssertEqual(ReceiptComposer.renderHeaderStrip(eventProfile: snapshot).artworkFrame, plan.customHeaderFrame)
         XCTAssertTrue(model.canPrint(openGate))
-        XCTAssertFalse(model.canPrint(.init(printerBusy: false, recoveryLocked: false, unresolvedPrint: true, guestSessionActive: false)))
+        XCTAssertTrue(model.canPrint(.init(printerBusy: false, recoveryLocked: false, unresolvedPrint: true, guestSessionActive: false)))
     }
 
     func testDecoderAppliesOrientationAndBoundsLargePhotos() throws {

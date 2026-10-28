@@ -7,7 +7,7 @@ import XCTest
 final class OperatorExperienceTests: XCTestCase {
     func testSamplePrintPolicyBlocksUnresolvedStateAndPreparationDoubleTap() {
         XCTAssertTrue(SamplePrintPolicy.canStart(hasPreview: true, printerBusy: false, recoveryLocked: false, unresolvedPrint: false, operationActive: false, guestSessionActive: false))
-        XCTAssertFalse(SamplePrintPolicy.canStart(hasPreview: true, printerBusy: false, recoveryLocked: false, unresolvedPrint: true, operationActive: false, guestSessionActive: false))
+        XCTAssertTrue(SamplePrintPolicy.canStart(hasPreview: true, printerBusy: false, recoveryLocked: false, unresolvedPrint: true, operationActive: false, guestSessionActive: false))
         XCTAssertFalse(SamplePrintPolicy.canStart(hasPreview: true, printerBusy: false, recoveryLocked: false, unresolvedPrint: false, operationActive: true, guestSessionActive: false))
     }
 

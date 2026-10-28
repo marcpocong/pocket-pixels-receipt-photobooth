@@ -177,7 +177,7 @@ final class PrinterNetworkService {
     func confirmPrinterRestarted(onStateChange: @escaping StateHandler) {
         stateQueue.sync {
             isRecoveryLockoutActive = false
-            requiresConnectionTestBeforeRasterPrint = true
+            requiresConnectionTestBeforeRasterPrint = false
         }
 
         DispatchQueue.main.async {
@@ -801,7 +801,7 @@ final class PrinterNetworkService {
                 return .rejected(.jobAlreadyActive)
             }
 
-            guard !isRecoveryLockoutActive else {
+            guard !isRecoveryLockoutActive || isConnectionTest else {
                 return .rejected(.printerRecoveryRequired)
             }
 

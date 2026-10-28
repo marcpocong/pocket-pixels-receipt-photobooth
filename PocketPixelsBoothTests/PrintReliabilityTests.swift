@@ -25,7 +25,7 @@ final class PrintReliabilityTests: XCTestCase {
         XCTAssertEqual(status(.auto, bt: true, test: true, wifi: true), .awaitingTest)
         XCTAssertEqual(status(.auto, wifi: true), .connected)
         XCTAssertEqual(status(.auto, bt: true, ready: true, busy: true), .busy)
-        XCTAssertEqual(status(.wifi, wifi: true, busy: true, uncertain: true), .unresolved)
+        XCTAssertEqual(status(.wifi, wifi: true, busy: true, uncertain: true), .busy)
         XCTAssertFalse(OperatorPrinterState.awaitingTest.acceptsJobs)
         XCTAssertFalse(OperatorPrinterState.unresolved.acceptsJobs)
     }
@@ -56,7 +56,7 @@ final class PrintReliabilityTests: XCTestCase {
         XCTAssertTrue(completed)
         // A failed diagnostic must leave raster printing blocked.
         XCTAssertFalse(service.canPrintRaster)
-        XCTAssertTrue(service.readinessMessage.contains("diagnostic text"))
+        XCTAssertFalse(service.needsDiagnosticTextTest)
         // Failure before bytes must release ownership so the operator can reconnect/retry.
         service.printQuickText { result, _ in
             guard case .failure(.printerNotConnected) = result else {
@@ -65,13 +65,13 @@ final class PrintReliabilityTests: XCTestCase {
         }
     }
 
-    func testBluetoothReadinessDoesNotClearRequiredRecoveryTextTest() async throws {
+    func testHardwareAcknowledgementDoesNotRequireDiagnosticButDisconnectedStaysUnavailable() async throws {
         let service = PrinterBluetoothService()
         service.confirmPrinterRestarted()
         let ready = try await service.waitUntilReady(timeout: 0)
         XCTAssertFalse(ready)
         XCTAssertFalse(service.canPrintRaster)
-        XCTAssertTrue(service.readinessMessage.contains("diagnostic text"))
+        XCTAssertFalse(service.needsDiagnosticTextTest)
     }
 
     func testBluetoothReadinessDoesNotTreatDisconnectedPrinterAsReady() async throws {

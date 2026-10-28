@@ -120,7 +120,7 @@ struct CurrentEventCard: View {
             }
             if [.active, .paused].contains(run?.status) {
                 actionButton("End Event", systemImage: "flag.checkered", role: .destructive) { showsEnd = true }
-                    .disabled(SessionSetupSafety.blockingReason != nil).accessibilityIdentifier("end-event")
+                    .disabled(lifecycle.endUnavailableReason != nil).accessibilityIdentifier("end-event")
             }
             if OperatorHomeActionPolicy(status: status).showsPause, !acceptance.state.blocked {
                 actionButton("Pause Booth", systemImage: "pause.fill") { confirm = .pauseBooth }
@@ -362,8 +362,8 @@ struct EndEventSheet: View {
                     }
                 }
                 Section("Before ending") {
-                    if let reason = SessionSetupSafety.blockingReason { Label(reason, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.warning) }
-                    else { Label("No guest, payment or print is in progress.", systemImage: "checkmark.circle") }
+                    if let reason = lifecycle.endUnavailableReason { Label(reason, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.warning) }
+                    else { Text("This event has outstanding receipt or payment follow-up. Ending the event will retain these records for later.") }
                     LabeledContent("Galleries still uploading", value: "\(operations.pendingUploadCount)")
                     if operations.pendingUploadCount > 0 { Text("Keep the app open online afterwards; waiting galleries keep uploading.").font(.footnote) }
                 }
@@ -379,9 +379,9 @@ struct EndEventSheet: View {
                             if ended { isPresented = false }
                         }
                     } label: {
-                        Text(closesCommercial ? "End Event for Every Booth" : "End Event on This iPad").font(.headline).frame(maxWidth: .infinity, minHeight: 48)
+                        Text(closesCommercial ? "End Event for Every Booth & Retain Follow-ups" : "End Event & Retain Follow-ups").font(.headline).frame(maxWidth: .infinity, minHeight: 48)
                     }
-                    .disabled(lifecycle.operation != nil || SessionSetupSafety.blockingReason != nil)
+                    .disabled(lifecycle.operation != nil || lifecycle.endUnavailableReason != nil)
                     .accessibilityIdentifier("confirm-end-event")
                     if lifecycle.operation == .ending { ProgressView("Confirming…") }
                     if result == false { Label(lifecycle.message, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.danger) }

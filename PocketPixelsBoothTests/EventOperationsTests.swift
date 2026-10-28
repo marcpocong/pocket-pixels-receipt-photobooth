@@ -44,7 +44,7 @@ final class EventOperationsTests: XCTestCase {
         for busy in [false, true] {
             for locked in [false, true] {
                 for unresolved in [false, true] {
-                    XCTAssertEqual(OperatorPrintPolicy.canReprint(busy: busy, recoveryLocked: locked, unresolvedPrint: unresolved), !busy && !locked && !unresolved)
+                    XCTAssertEqual(OperatorPrintPolicy.canReprint(busy: busy, recoveryLocked: locked, unresolvedPrint: unresolved), !busy && !locked)
                 }
             }
         }

@@ -219,6 +219,18 @@ nonisolated struct EventSetupRequests: SessionSetupAPI {
            checkpoints?.unresolved.contains(where: { !$0.isParked && $0.id != currentCheckoutID }) == false { issue = nil }
         return Decision(reason: issue?.message, destination: issue?.destination ?? .recovery)
     }
+    static var eventEndReason: String? {
+        if PrinterCoordinator.shared.isWorking { return "Wait for the active print transport to finish before ending." }
+        if let reason = ActiveGuestInteraction.model?.operatorCloseBlockReason { return reason }
+        guard let checkpoints = CheckoutCheckpointStore.shared, let outbox = PrintOutcomeOutbox.shared,
+              checkpoints.integrityFault == nil, outbox.integrityFault == nil,
+              outbox.persistenceFailure == nil, !outbox.hasUnfinishedPhysicalSend,
+              EventOperationalState.shared.recoveryStorageError == nil else {
+            return "Save the outstanding checkout and print records in Help & Recovery before ending."
+        }
+        return nil
+    }
+
     static var blockingReason: String? { decision(for: .changeEvent).reason }
     /// Current financial or physical-print obligations, excluding historical outcome reports.
     static var recoveryReason: String? {

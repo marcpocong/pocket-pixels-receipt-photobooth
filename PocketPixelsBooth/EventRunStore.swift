@@ -485,7 +485,7 @@ nonisolated struct EventRunSession: Codable, Identifiable, Equatable, Sendable {
     /// Reconcile only sessions already assigned to a run, using the authoritative local print
     /// outbox after launch. This repairs a crash between print accounting and statistics writes.
     func reconcilePrintEvidence(_ entries: [PrintOutboxEntry]) async {
-        for (sessionID, copies) in Dictionary(grouping: entries.filter { $0.kind == .copy }, by: \.sessionID) {
+        for (sessionID, copies) in Dictionary(grouping: entries.filter { $0.isCustomerCopy }, by: \.sessionID) {
             do {
                 guard var record = try session(id: sessionID) else { continue }
                 let original = record

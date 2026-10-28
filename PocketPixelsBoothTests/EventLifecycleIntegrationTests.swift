@@ -167,9 +167,10 @@ import SwiftUI
         return EventRunContext.admission(library: library.library, commercialEventID: paid ? acceptance.state.eventID : nil,
                                          serverBinding: paid ? binding : nil, fallbackName: local.name)
     }
-    func lifecycle() -> EventLifecycleCoordinator {
+    func lifecycle(retainFollowUps: @escaping @MainActor () throws -> Void = {}) -> EventLifecycleCoordinator {
         EventLifecycleCoordinator(runs: runs, acceptance: acceptance, api: { [unowned self] in self.server },
             authorized: { [unowned self] in self.permitted }, blockingReason: { [unowned self] in self.operationBlockingReason }, recoveryReason: { [unowned self] in self.recoveryReason() },
+            endBlockingReason: { [unowned self] in self.busyReason }, retainFollowUps: retainFollowUps,
             source: { [unowned self] in self.source }, loadLocal: { [unowned self] in self.local }, saveLocal: { [unowned self] in self.local = $0 },
             binding: { [unowned self] in self.binding }, appliedContext: { [unowned self] in self.appliedContext },
             hasUnsavedSetup: { [unowned self] in self.workspace.hasUnsavedDrafts }, makeSetup: { [unowned self] in self.setup() }, applyRegularConfiguration: { [unowned self] in

@@ -52,6 +52,22 @@ final class BoothSessionViewModel: ObservableObject {
     /// True while the attendant confirms cash or the checkout is being created.
     var isCheckoutTransitionActive: Bool { isTransitionActive }
     @Published private(set) var isPrintBatchActive = false
+    @Published private(set) var completedCountdown = CompletedSessionCountdown()
+
+    func startCompletedCountdownIfReady(now: Date = Date()) {
+        guard state == .thankYou else { return }
+        completedCountdown.start(generation: customerSessionGeneration,
+            printedGalleryQR: sessionPrintOptions.includesPrintedGalleryQR, safe: isCustomerResetSafe, now: now)
+    }
+    func extendCompletedCountdown(now: Date = Date()) {
+        guard state == .thankYou, isCustomerResetSafe else { return }
+        completedCountdown.extend(generation: customerSessionGeneration, now: now)
+    }
+    func resetCompletedSessionIfDue(now: Date = Date()) {
+        guard state == .thankYou,
+              completedCountdown.isDue(generation: customerSessionGeneration, safe: isCustomerResetSafe, now: now) else { return }
+        resetToWelcome()
+    }
     @Published var selectedPrintCopies = 1 {
         didSet {
             guard printBatchTask == nil,
@@ -269,10 +285,10 @@ final class BoothSessionViewModel: ObservableObject {
         if let entitlement = checkoutEntitlement, entitlement.authorizationSource != .privatePrepaid, capturedPhotos.isEmpty { return false }
         return CustomerIdleResetPolicy.isEligible(
             state: state,
-            printerWorking: printerState.isWorking,
+            printerWorking: printerState.isWorking || printerCoordinator.isWorking,
             printBatchActive: isPrintBatchActive,
             recoveryLocked: printerCoordinator.requiresRecovery,
-            unresolvedPrint: operationalState.hasUnresolvedPrint
+            unresolvedPrint: state == .thankYou ? (printOutbox?.hasUnfinishedPhysicalSend ?? true) : operationalState.hasUnresolvedPrint
         )
     }
 
@@ -1106,7 +1122,7 @@ final class BoothSessionViewModel: ObservableObject {
                 copyCount: envelope.copyCount,
                 // The actual selection is persisted immediately before bytes may be sent. A
                 // previous job's active transport is not evidence for this copy.
-                transport: PrinterTransportSelection.none.rawValue
+                transport: PrinterTransportSelection.none.rawValue, source: envelope.source
             )
         } catch {
             throw PrintCheckpointError.persistenceFailed(error.localizedDescription)
@@ -1462,9 +1478,6 @@ final class BoothSessionViewModel: ObservableObject {
     func closeSessionForOperator() throws {
         guard OperatorAccessPermit.shared.isAuthorized else { throw SetupFailure("Unlock Operator before closing a guest session.") }
         if let reason = operatorCloseBlockReason { throw SetupFailure(reason) }
-        guard !printerCoordinator.requiresRecovery, !operationalState.hasUnresolvedPrint else {
-            throw SetupFailure("Review Receipt and record the physical check before closing this session.")
-        }
         guard let recoveryStore else { throw AppRecoveryStoreError.unavailable }
         let saved = try recoveryStore.loadChecked()
         let snapshot: AppRecoverySnapshot?
@@ -2231,10 +2244,9 @@ final class BoothSessionViewModel: ObservableObject {
         guard case .recoveryRequired = state,
               !printerCoordinator.requiresRecovery, !printerCoordinator.isWorking,
               !operationalState.hasUnresolvedPrint else { return }
-        guard receiptRasterizedImage != nil else { resetToWelcome(); return }
         printerState = .disconnected
-        state = .receiptPreview
-        statusMessage = "Operator recovery confirmed. Reconnect the printer before choosing to print."
+        statusMessage = "Printer readiness acknowledged. Use Operator → Reprint This Receipt for a deliberate replacement, or close the guest screen."
+        state = .recoveryRequired(statusMessage)
     }
 
     func restartCameraForOperator() {
@@ -2304,6 +2316,8 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     func resetAfterDone() {
+        guard !printerCoordinator.isWorking, !printerState.isWorking, !isPrintBatchActive,
+              !printerCoordinator.requiresRecovery else { return }
         resetToWelcome()
     }
 
@@ -2645,6 +2659,7 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     private func clearCustomerData() {
+        completedCountdown = CompletedSessionCountdown()
         detachedRecoveryReference = nil
         capturedPhotos.removeAll()
         originalCaptureBytes.removeAll()
@@ -2826,6 +2841,9 @@ final class BoothSessionViewModel: ObservableObject {
         }
 
         finishPaidCheckout(batchID: printBatchID)
+        // Release batch ownership before publishing Thank You. The view can now schedule safely.
+        printBatchTask = nil
+        isPrintBatchActive = false
         showThankYou()
     }
 

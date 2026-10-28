@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import UIKit
 
 enum ESCPOSTestReceipt {
     static func payload(printerIP: String, port: UInt16, date: Date = Date()) -> Data {
@@ -37,4 +38,19 @@ enum ESCPOSTestReceipt {
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
         return formatter
     }()
+}
+
+/// No event or guest data. Production heading/finishing commands remain unchanged.
+enum QuickPrinterTest {
+    static let content = "MADE TO KEEP\nPRINTER TEST\n\nPAPER CHECK\n\nTEST ONLY"
+    static func raster() throws -> ThermalRasterizedImage {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 576, height: 220), format: format).image { context in
+            UIColor.white.setFill(); context.fill(CGRect(x: 0, y: 0, width: 576, height: 220))
+            let style = NSMutableParagraphStyle(); style.alignment = .center
+            (content as NSString).draw(in: CGRect(x: 16, y: 8, width: 544, height: 204), withAttributes: [
+                .font: UIFont.monospacedSystemFont(ofSize: 24, weight: .bold), .foregroundColor: UIColor.black, .paragraphStyle: style])
+        }
+        return try ThermalImageRasterizer.rasterize(image)
+    }
 }

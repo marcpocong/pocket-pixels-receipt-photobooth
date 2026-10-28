@@ -59,3 +59,13 @@ struct BluetoothPrinterJobLifecycle: Equatable {
         transportCompletionScheduledJobID = nil
     }
 }
+
+nonisolated enum PrinterReconnectPolicy {
+    enum Action { case keepHealthyConnection, joinExistingAttempt, waitForPhysicalJob, reconnect }
+    static func action(ready: Bool, connecting: Bool, transmitting: Bool) -> Action {
+        if transmitting { return .waitForPhysicalJob }
+        if ready { return .keepHealthyConnection }
+        if connecting { return .joinExistingAttempt }
+        return .reconnect
+    }
+}

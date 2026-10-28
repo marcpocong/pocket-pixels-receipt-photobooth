@@ -117,64 +117,15 @@ struct EventPreflightView: View {
 struct OperatorRecoveryView: View {
     @StateObject private var operations = EventOperationalState.shared
     @StateObject private var printer = PrinterCoordinator.shared
-    @State private var confirming = false
-    @State private var physicalIdentity: String?
     @StateObject private var lifecycle = EventLifecycleCoordinator()
     @State private var showsEndEvent = false
-    @State private var confirmingTest = false
-    @State private var confirmingPaper = false
-    @State private var testRunning = false
-    @State private var textTestSent = false
-    @State private var testMessage = ""
-    @ObservedObject private var bluetooth = PrinterBluetoothService.shared
     var body: some View {
         List {
-            Section {
-                if printer.requiresRecovery || operations.hasUnresolvedPrint {
-                    Label("A receipt may already have printed", systemImage: "exclamationmark.triangle.fill").font(.headline)
-                    Text("1. Check the paper and ask whether the guest received the receipt.\n2. Clear any jam and restart the printer.\n3. Record your check below, then reconnect.")
-                    OperatorCloseContinueButton()
-                    Button("Record Receipt Check Only") { physicalIdentity = operations.physicalRecoveryIdentity; confirming = true }
-                        .disabled(printer.isWorking)
-                    Text("The result stays recorded as uncertain. Recording your check never prints another copy.").font(.footnote)
-                } else {
-                    Label("No receipt waiting for a paper check", systemImage: "checkmark.circle").font(.headline)
-                }
-                NavigationLink("Reconnect / Printer Setup") { OperatorPrinterSetupView() }
-                    .disabled(printer.isWorking)
+            Section("Printer & Reprints") { OperatorPrinterControls() }
+            Section("Guest interaction") {
+                OperatorCloseContinueButton()
+                Text("Closing retains the original payment, receipt and photos. It never prints or settles a payment.").font(.footnote)
                 if !operations.recoveryActionMessage.isEmpty { Text(operations.recoveryActionMessage) }
-            } header: { Text("Action needed now") }
-
-            if printer.preferredMode != .wifi, bluetooth.needsDiagnosticTextTest || textTestSent {
-                Section("Finish the printer check") {
-                    Text("Reconnect first, print one short text test, then inspect the paper. This unlocks receipt printing after a restart.")
-                    Button("Print One Text Test · Uses Paper") { confirmingTest = true }
-                        .disabled(testRunning || printer.isWorking || printer.requiresRecovery || operations.hasUnresolvedPrint || !bluetooth.isConnectedAndReady)
-                    if textTestSent {
-                        Button("The Text Printed Correctly") { confirmingPaper = true }
-                            .disabled(printer.isWorking || printer.requiresRecovery || !bluetooth.isConnectedAndReady)
-                    }
-                    if !testMessage.isEmpty { Text(testMessage) }
-                }
-            }
-            if let snapshot = operations.recoverableSession {
-                Section {
-                    Text(snapshot.sessionIdentifier).font(.headline)
-                    if operations.hasPendingSessionRecovery {
-                        Text(snapshot.stage == .printStatusUnknown
-                             ? "Check the previous receipt above. Its photos and print record are kept."
-                             : "A guest session stopped before printing was recorded. Keep its photos for reference before continuing.")
-                        if snapshot.stage != .printStatusUnknown {
-                            OperatorCloseContinueButton()
-                            Text("Keeps the checkpoint and photos on this iPad. Pending payments still need payment recovery.").font(.footnote)
-                        }
-                    } else {
-                        Text("Already reviewed. Kept for reference; this is not a new printer warning.")
-                    }
-                } header: { Text(operations.hasPendingSessionRecovery ? "Interrupted guest session" : "Earlier session") }
-            }
-            if operations.customerSessionActive, operations.recoverableSession == nil {
-                Section("Current guest") { OperatorCloseContinueButton() }
             }
             if let error = operations.recoveryStorageError { Section("Saved guest records") { Text(error).foregroundStyle(.orange) } }
             if let error = PrintOutcomeOutbox.shared?.persistenceFailure {
@@ -188,12 +139,9 @@ struct OperatorRecoveryView: View {
             }
             CheckoutRecoverySection()
             Section("Continue operation") {
-                Button("Return to Regular Booth") {
-                    if let run = lifecycle.runs.current, [.active, .paused].contains(run.status) { showsEndEvent = true }
-                    else { Task { _ = await lifecycle.returnToRegular() } }
-                }.disabled(lifecycle.operation != nil || SessionSetupSafety.blockingReason != nil)
+                Button("End Event & Retain Follow-ups") { showsEndEvent = true }
+                    .disabled(lifecycle.operation != nil || lifecycle.endUnavailableReason != nil)
                 if !lifecycle.message.isEmpty { Text(lifecycle.message).font(.footnote) }
-                NavigationLink("Regular Booth Settings", value: OperatorWorkspaceRoute.regularBooth)
                 NavigationLink("Open Session Setup", value: OperatorWorkspaceRoute.sessionSetup)
             }
             Section("History & help") {
@@ -201,43 +149,79 @@ struct OperatorRecoveryView: View {
                 NavigationLink("Retained Interrupted Sessions") { RetainedRecoverySessionsView() }
                 NavigationLink("Print History") { OperatorPrintAuditView() }
                 NavigationLink("Payment Recovery", value: OperatorWorkspaceRoute.payments)
-                Text("An intentional reprint is a new print job. Inspect previous output first; uncertain prints are never retried automatically.").font(.footnote)
             }
         }.navigationTitle("Help & Recovery")
         .environment(\.defaultMinListRowHeight, 52)
         .task { operations.refresh() }
         .sheet(isPresented: $showsEndEvent) { EndEventSheet(lifecycle: lifecycle, isPresented: $showsEndEvent) }
-        .onChange(of: bluetooth.isConnectedAndReady) { _, ready in if !ready { textTestSent = false } }
-        .confirmationDialog("Print one diagnostic text test on paper?", isPresented: $confirmingTest, titleVisibility: .visible) {
-            Button("Print Diagnostic Text") {
-                guard !testRunning, !printer.isWorking, !printer.requiresRecovery, !operations.hasUnresolvedPrint else { return }
-                testRunning = true
-                textTestSent = false
-                printer.quickBluetoothTextTest { result in
-                    testRunning = false
-                    switch result {
-                    case .success: textTestSent = true; testMessage = "Transport completed. Inspect the paper before confirming."
-                    case .failure(let error): testMessage = "\(error.localizedDescription) No automatic retry."
-                    }
-                    operations.refresh()
-                }
+    }
+}
+
+/// One set of commands and gates for Home, Setup, History and Recovery.
+struct OperatorPrinterControls: View {
+    var showInterruptedReceipt = true
+    @ObservedObject private var printer = PrinterCoordinator.shared
+    @ObservedObject private var bluetooth = PrinterBluetoothService.shared
+    @ObservedObject private var operations = EventOperationalState.shared
+    @State private var confirmingReady = false
+    @State private var identity: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label(printer.currentPrinterLabel, systemImage: "printer.fill").font(.headline)
+            Text(printer.operatorState.label).font(.title3)
+            Button("Reconnect Printer") { printer.reconnectSelectedPrinter() }
+                .buttonStyle(.bordered).disabled(printer.isWorking)
+            if printer.needsHardwareAcknowledgement {
+                Text("Check paper, clear any jam or restart the printer, then reconnect. This confirms readiness for new commands; earlier receipt outcomes stay uncertain.").font(.callout)
+                Button("Printer Checked & Ready") {
+                    identity = operations.physicalRecoveryIdentity; confirmingReady = true
+                }.buttonStyle(.borderedProminent)
+                    .disabled(printer.isWorking || !printer.transportConnected)
             }
-            Button("Cancel", role: .cancel) {}
-        }
-        .confirmationDialog("Did the diagnostic text physically print correctly?", isPresented: $confirmingPaper, titleVisibility: .visible) {
-            Button("Yes — Paper Output Verified") {
-                guard textTestSent, !printer.isWorking, !printer.requiresRecovery else { return }
-                bluetooth.confirmDiagnosticTextTestSucceeded()
-                textTestSent = false
-                testMessage = "Operator verified diagnostic paper output."
-                operations.refresh()
+            Button("Quick Test Print") { printer.quickTestPrint() }
+                .buttonStyle(.borderedProminent)
+                .disabled(printer.operatorPrintBlockReason != nil)
+                .accessibilityIdentifier("quick-test-print")
+            if let reason = printer.operatorPrintBlockReason { Text(reason).font(.footnote).foregroundStyle(.secondary) }
+            if !printer.quickTestMessage.isEmpty { Text(printer.quickTestMessage).font(.callout) }
+            if printer.preferredMode == .wifi { Text(printer.wifiCheckMessage).font(.footnote) }
+            else { Text(bluetooth.readinessMessage).font(.footnote).foregroundStyle(.secondary) }
+            if showInterruptedReceipt, let id = operations.interruptedSessionID {
+                Text("PRINT INTERRUPTED").font(.headline)
+                Text(operations.interruptedCopySummary(sessionID: id)).font(.callout)
+                NavigationLink("Reprint This Receipt / View Session") { InterruptedReceiptView(sessionID: id) }
+                    .buttonStyle(.bordered).accessibilityIdentifier("reprint-interrupted-receipt")
+                Button("Close Guest Screen") { _ = operations.closeSessionAndContinue() }
+                    .disabled(printer.isWorking)
             }
-            Button("Cancel", role: .cancel) {}
+            NavigationLink("Recent Sessions / Reprint") { RecentSessionsView() }
         }
-        .confirmationDialog("Have you physically checked the receipt and restarted the printer?", isPresented: $confirming, titleVisibility: .visible) {
-            Button("Yes — Confirm Physical Recovery") { operations.confirmPhysicalPrinterRecovery(expectedIdentity: physicalIdentity) }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .confirmationDialog("Is the connected printer checked and ready for new commands?", isPresented: $confirmingReady, titleVisibility: .visible) {
+            Button("Printer Checked & Ready") { _ = operations.confirmPhysicalPrinterRecovery(expectedIdentity: identity) }
             Button("Cancel", role: .cancel) {}
-        } message: { Text("This acknowledges operator inspection. It does not prove whether the previous receipt printed and does not retry it.") }
+        } message: { Text("This does not confirm delivery of any earlier receipt and never resends it.") }
+    }
+}
+
+struct InterruptedReceiptView: View {
+    let sessionID: String
+    @StateObject private var model = RecentSessionsViewModel()
+    @State private var summary: RecentSessionArchiveSummary?
+    @State private var error: String?
+    var body: some View {
+        Group {
+            if let summary { ArchivedSessionDetailView(summary: summary, rootViewModel: model) }
+            else if let error { Text(error).padding() }
+            else { ProgressView("Opening original receipt…") }
+        }
+        .task {
+            do {
+                summary = try RecentSessionArchiveStore().summaries().first { $0.sessionIdentifier == sessionID }
+                if summary == nil { error = "The original printable archive is unavailable. Retained session photos and payment records remain in Help & Recovery. A substitute receipt will not be generated." }
+            } catch { self.error = "The original archive could not be read: \(error.localizedDescription)" }
+        }
     }
 }
 
@@ -403,33 +387,16 @@ struct OperatorCloseContinueButton: View {
     @ObservedObject private var operations = EventOperationalState.shared
     @ObservedObject private var printer = PrinterCoordinator.shared
     @State private var confirming = false
-    @State private var expectedPhysicalIdentity = ""
-    @State private var checkingPaper = false
 
     var body: some View {
-        Button(title) {
-            operations.refresh()
-            checkingPaper = printer.requiresRecovery || operations.hasUnresolvedPrint
-            expectedPhysicalIdentity = operations.physicalRecoveryIdentity
-            confirming = true
-        }
-        .buttonStyle(.bordered).controlSize(.large)
-        .frame(minHeight: 48)
-        .disabled(printer.isWorking)
-        .accessibilityIdentifier("operator.closeContinue")
-        .confirmationDialog(checkingPaper ? "Review Receipt, then Close & Continue" : "Close this guest interaction?",
-                            isPresented: $confirming, titleVisibility: .visible) {
-            Button(checkingPaper ? "I've Checked the Paper & Restarted · Close & Continue" : "Close Session & Continue") {
-                if checkingPaper {
-                    guard operations.confirmPhysicalPrinterRecovery(expectedIdentity: expectedPhysicalIdentity) else { return }
-                }
-                _ = operations.closeSessionAndContinue(checkoutID: checkoutID)
+        Button(title) { operations.refresh(); confirming = true }
+            .buttonStyle(.bordered).controlSize(.large).frame(minHeight: 48)
+            .disabled(printer.isWorking).accessibilityIdentifier("operator.closeContinue")
+            .confirmationDialog("Close this guest interaction and retain follow-ups?", isPresented: $confirming, titleVisibility: .visible) {
+                Button("Close Session & Continue") { _ = operations.closeSessionAndContinue(checkoutID: checkoutID) }
+                Button("Keep Session", role: .cancel) {}
+            } message: {
+                Text("Keeps the original photos, receipt and checkout. Pending payments remain pending in Outstanding Payments. Earlier print uncertainty stays recorded. This sends no print commands and does not confirm current hardware readiness.")
             }
-            Button("Keep Session", role: .cancel) {}
-        } message: {
-            Text(checkingPaper
-                 ? "Physically inspect the receipt and clear any jam first. Paper may already exist. The outcome stays unknown and no copy is resent. Photos and financial records stay saved."
-                 : "Keep the original photos and checkout, close this guest's screen, and continue unrelated operation. Pending payments remain pending in Outstanding Payments. Paid copies remain recoverable. This does not cancel, refund or settle a payment.")
-        }
     }
 }

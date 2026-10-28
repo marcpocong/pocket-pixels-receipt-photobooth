@@ -495,33 +495,27 @@ final class ArchivedReceiptReprintController: ObservableObject {
     @Published private(set) var isReprinting = false
     @Published var statusMessage = "Ready to reprint."
 
-    private let printerCoordinator = PrinterCoordinator.shared
+    private let printerCoordinator: PrinterCoordinator
+    private let archiveStore: () throws -> RecentSessionArchiveStore
+    init(printerCoordinator: PrinterCoordinator? = nil,
+         archiveStore: @escaping () throws -> RecentSessionArchiveStore = { try RecentSessionArchiveStore() }) {
+        self.printerCoordinator = printerCoordinator ?? .shared
+        self.archiveStore = archiveStore
+    }
     private var reprintTask: Task<Void, Never>?
 
     var canReprint: Bool {
-        OperatorPrintPolicy.canReprint(
-            busy: printerCoordinator.isWorking,
-            recoveryLocked: printerCoordinator.requiresRecovery,
-            unresolvedPrint: EventOperationalState.shared.hasUnresolvedPrint)
-            && !isReprinting
-            && !printerCoordinator.isWorking
-            && !PrinterBluetoothService.shared.jobState.isWorking
-            && !printerState.requiresPrinterRestart
+        !isReprinting && printerCoordinator.canPerformOperatorPrint
     }
 
     var buttonTitle: String {
-        quantity == 1 ? "Print 1 Extra Copy" : "Print \(quantity) Extra Copies"
+        quantity == 1 ? "Reprint 1 Copy" : "Reprint \(quantity) Copies"
     }
 
     var reprintUnavailableMessage: String? {
         guard !isReprinting else { return nil }
-        if printerState.requiresPrinterRestart || printerCoordinator.requiresRecovery || EventOperationalState.shared.hasUnresolvedPrint {
-            return "Check the previous receipt in Help & Recovery before printing another copy."
-        }
-        if printerCoordinator.isWorking || PrinterBluetoothService.shared.jobState.isWorking {
-            return "Printer is busy. Wait for the current job to finish."
-        }
-        return nil
+        if !OperatorAccessPermit.shared.isAuthorized { return "Unlock Operator before printing." }
+        return printerCoordinator.operatorPrintBlockReason
     }
 
     func decreaseQuantity() {
@@ -555,7 +549,7 @@ final class ArchivedReceiptReprintController: ObservableObject {
         }
 
         guard !SessionMediaOperations.deleting.contains(archive.summary.sessionIdentifier),
-              (try? RecentSessionArchiveStore().summary(archiveID: archive.summary.archiveID)) != nil else {
+              (try? archiveStore().summary(archiveID: archive.summary.archiveID)) != nil else {
             statusMessage = "This local receipt was deleted or is being cleaned up. Nothing was sent."; return
         }
         let copies = quantity
@@ -1411,6 +1405,7 @@ struct ArchivedSessionDetailView: View {
     /// Operator-only and visually separate from previews: a new batch behind a confirmation.
     private func reprintCard(_ archive: RecentSessionArchive) -> some View {
         card("Operator Reprint", systemImage: "printer.dotmatrix") {
+            OperatorPrinterControls(showInterruptedReceipt: false)
             Text("Prints a new copy of the exact archived receipt. Inspect any earlier paper first; this never resumes or recovers a previous print.")
                 .font(.callout)
                 .foregroundStyle(OperatorPalette.secondaryText)
@@ -1450,7 +1445,7 @@ struct ArchivedSessionDetailView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(OperatorPalette.accent)
                 .frame(minHeight: 44)
-                .disabled(!reprintController.canReprint || printer.requiresRecovery || operations.hasUnresolvedPrint)
+                .disabled(!reprintController.canReprint)
             }
 
             if reprintController.isReprinting {

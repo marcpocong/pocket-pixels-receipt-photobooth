@@ -91,15 +91,16 @@ nonisolated enum ProductionReceiptTransportDecision {
 
 /// Shared presentation/readiness vocabulary for Home, setup, checkout and owner monitoring.
 nonisolated enum OperatorPrinterState: String, Equatable {
-    case disconnected, connected, ready, busy, awaitingTest, unresolved
+    case disconnected, connecting, connected, ready, busy, awaitingTest, unresolved
     var label: String {
         switch self {
-        case .disconnected: "Not connected"
+        case .disconnected: "Disconnected"
+        case .connecting: "Connecting"
         case .connected: "Connected · check paper"
         case .ready: "Ready · check paper"
         case .busy: "Printing · please wait"
-        case .awaitingTest: "Connected · test print needed"
-        case .unresolved: "Check the previous receipt"
+        case .awaitingTest: "Needs attention"
+        case .unresolved: "Needs attention"
         }
     }
     /// Preserve the deployed monitoring protocol; busy is healthy, not a new incident.
@@ -107,14 +108,14 @@ nonisolated enum OperatorPrinterState: String, Equatable {
         switch self {
         case .ready, .connected, .busy: "ready"
         case .unresolved: "recovery"
-        case .disconnected, .awaitingTest: "unavailable"
+        case .disconnected, .connecting, .awaitingTest: "unavailable"
         }
     }
     var acceptsJobs: Bool { self == .ready || self == .connected }
     static func resolve(mode: PrinterConnectionMode, bluetoothConnected: Bool, bluetoothReady: Bool,
                         bluetoothNeedsTest: Bool, wifiConnected: Bool, busy: Bool, unresolved: Bool) -> Self {
-        if unresolved { return .unresolved }
         if busy { return .busy }
+        if unresolved { return .unresolved }
         if mode != .wifi {
             if bluetoothReady { return .ready }
             // Auto selects a connected Bluetooth printer before trying Wi-Fi, so its text-test
@@ -150,9 +151,48 @@ final class PrinterCoordinator: ObservableObject {
     private static let receiptBluetoothTransferModeKey = "receiptBluetoothTransferMode"
     private let bluetoothService: PrinterBluetoothService
     private let wifiService: PrinterNetworkService
-    private let spooler = PrintSpooler.shared
+    private let spooler: PrintSpooler
+    private let printOutbox: () -> PrintOutcomeOutbox?
+    private let operatorAuthorized: () -> Bool
+    private let readinessOverride: (() -> String?)?
+    private let transportOverride: PrintSpooler.TransportOperation?
+    private var submissionReserved = false
+    @Published private(set) var quickTestMessage = ""
 
-    private init() {
+    var transportConnected: Bool {
+        preferredMode == .wifi ? wifiConnectionVerified : (bluetoothService.isConnectedAndReady || (preferredMode == .auto && wifiConnectionVerified))
+    }
+
+    func quickTestPrint() {
+        guard operatorAuthorized(), operatorPrintBlockReason == nil else { return }
+        do {
+            let raster = try QuickPrinterTest.raster()
+            let envelope = try PrintJobEnvelope.diagnostic(heading: ThermalImageRasterizer.receiptPrintHeading(),
+                rasterizedImage: raster, finishing: ThermalImageRasterizer.receiptPrintFinishing(),
+                sessionIdentifier: "operator-quick-test", copyIndex: 1, copyCount: 1, batchID: UUID(), transportPolicy: .safeIntegrity)
+            let defaults = UserDefaults.standard
+            quickTestMessage = "Sending test…"
+            printEnvelope(envelope, wifiHost: defaults.string(forKey: "printerIP") ?? BoothConfiguration.defaultPrinterIP,
+                wifiPort: UInt16(defaults.string(forKey: "printerPort") ?? BoothConfiguration.defaultPrinterPort), completion: { [weak self] result in
+                switch result {
+                case .success: self?.quickTestMessage = "Test sent. Check the paper."
+                case .failure(let error): self?.quickTestMessage = "\(error.localizedDescription) No automatic retry."
+                }
+                EventOperationalState.shared.refresh()
+            })
+        } catch { quickTestMessage = error.localizedDescription }
+    }
+
+    init(spooler: PrintSpooler? = nil,
+         outbox: @escaping () -> PrintOutcomeOutbox? = { .shared },
+         authorized: @escaping () -> Bool = { OperatorAccessPermit.shared.isAuthorized },
+         readiness: (() -> String?)? = nil,
+         transport: PrintSpooler.TransportOperation? = nil) {
+        self.spooler = spooler ?? .shared
+        self.printOutbox = outbox
+        self.operatorAuthorized = authorized
+        self.readinessOverride = readiness
+        self.transportOverride = transport
         bluetoothService = PrinterBluetoothService.shared
         wifiService = PrinterNetworkService()
         receiptBluetoothTransferMode = UserDefaults.standard.string(forKey: Self.receiptBluetoothTransferModeKey)
@@ -202,11 +242,11 @@ final class PrinterCoordinator: ObservableObject {
     }
 
     var isWorking: Bool {
-        spooler.isWorking || state.isWorking || checkingWiFi
+        submissionReserved || spooler.isWorking || state.isWorking || bluetoothService.isTransmitting || checkingWiFi
     }
 
     var requiresRecovery: Bool {
-        state.requiresPrinterRestart || spooler.requiresRecovery
+        state.requiresPrinterRestart || spooler.requiresRecovery || bluetoothService.needsHardwareAcknowledgement
     }
 
     private var wifiEndpoint: String {
@@ -221,10 +261,29 @@ final class PrinterCoordinator: ObservableObject {
         objectWillChange.send()
         wifiCheckedAt = nil
     }
+    var needsHardwareAcknowledgement: Bool {
+        requiresRecovery || EventOperationalState.shared.hasUnresolvedPrint
+    }
+
+    var canPerformOperatorPrint: Bool { operatorAuthorized() && operatorPrintBlockReason == nil }
+
+    var operatorPrintBlockReason: String? {
+        if isWorking { return "Another print is still finishing." }
+        guard let outbox = printOutbox(), outbox.integrityFault == nil,
+              outbox.persistenceFailure == nil, !outbox.hasUnfinishedPhysicalSend else {
+            return "Print records need saving. Open Help & Recovery → Retry Saving Resolution."
+        }
+        if let readinessOverride { return readinessOverride() }
+        if needsHardwareAcknowledgement { return "Check the printer, reconnect and acknowledge readiness below." }
+        if !operatorState.acceptsJobs { return "Printer disconnected. Reconnect to print." }
+        return nil
+    }
+
     var operatorState: OperatorPrinterState {
-        OperatorPrinterState.resolve(mode: preferredMode, bluetoothConnected: bluetoothService.isConnectedAndReady,
+        if !isWorking, bluetoothService.jobState.isWorking { return .connecting }
+        return OperatorPrinterState.resolve(mode: preferredMode, bluetoothConnected: bluetoothService.isConnectedAndReady,
             bluetoothReady: bluetoothService.canPrintRaster, bluetoothNeedsTest: bluetoothService.needsDiagnosticTextTest,
-            wifiConnected: wifiConnectionVerified, busy: isWorking || checkingWiFi, unresolved: requiresRecovery || EventOperationalState.shared.hasUnresolvedPrint)
+            wifiConnected: wifiConnectionVerified, busy: isWorking || checkingWiFi, unresolved: needsHardwareAcknowledgement)
     }
     var currentPrinterLabel: String {
         if preferredMode == .wifi || (preferredMode == .auto && !bluetoothService.isConnectedAndReady && wifiConnectionVerified) {
@@ -235,7 +294,7 @@ final class PrinterCoordinator: ObservableObject {
     /// A bounded connection-only probe using the same network service that prints receipts.
     /// This clears its post-restart connection-test gate without sending receipt bytes.
     func checkWiFiConnection() async -> Bool {
-        guard !isWorking, !checkingWiFi, !requiresRecovery else { return false }
+        guard !isWorking, !checkingWiFi else { return false }
         let endpoint = wifiEndpoint
         let defaults = UserDefaults.standard
         let host = defaults.string(forKey: "printerIP") ?? BoothConfiguration.defaultPrinterIP
@@ -272,6 +331,7 @@ final class PrinterCoordinator: ObservableObject {
         return await checkWiFiConnection()
     }
     func reconnectSelectedPrinter() {
+        guard !isWorking else { return }
         if preferredMode == .wifi { Task { _ = await checkWiFiConnection() } }
         else { reconnectBluetoothPrinter() }
     }
@@ -289,6 +349,7 @@ final class PrinterCoordinator: ObservableObject {
     }
 
     func reconnectBluetoothPrinter() {
+        guard !isWorking else { return }
         fallbackReason = nil
         bluetoothService.reconnectSavedPrinter()
     }
@@ -301,12 +362,11 @@ final class PrinterCoordinator: ObservableObject {
     }
 
     func confirmPrinterRestarted() {
-        wifiCheckedAt = nil
+        guard !isWorking else { return }
         spooler.confirmPrinterRestarted()
         bluetoothService.confirmPrinterRestarted()
-        wifiService.confirmPrinterRestarted { [weak self] state in
-            self?.publish(state)
-        }
+        wifiService.confirmPrinterRestarted { _ in }
+        publish(.disconnected)
     }
 
     func quickBluetoothTextTest(completion: CompletionHandler? = nil) {
@@ -423,20 +483,54 @@ final class PrinterCoordinator: ObservableObject {
             return
         }
 
+        if envelope.source != .liveCustomer {
+            guard operatorAuthorized() else {
+                completion?(.failure(SetupFailure("Unlock Operator before printing."))); return
+            }
+            if let reason = operatorPrintBlockReason {
+                completion?(.failure(SetupFailure(reason))); return
+            }
+        }
         fallbackReason = nil
+        submissionReserved = true
+        objectWillChange.send()
+        let operatorJob = envelope.source != .liveCustomer && prePrintCheckpoint == nil
+        let gate: PrePrintCheckpointGate?
+        if operatorJob {
+            gate = PrePrintCheckpointGate({ job in
+                guard let outbox = self.printOutbox() else { throw AppRecoveryStoreError.unavailable }
+                try outbox.beginCopy(batchID: job.batchID.uuidString.lowercased(), sessionID: job.sessionIdentifier,
+                    entitlementID: nil, receiptFingerprint: job.payloadFingerprint, copyIndex: job.copyIndex,
+                    copyCount: job.copyCount, transport: "none", source: job.source)
+            }, selectTransport: { job, transport in
+                try self.printOutbox()?.selectTransportBeforeBytes(batchID: job.batchID.uuidString.lowercased(), copyIndex: job.copyIndex, transport: transport)
+            })
+        } else { gate = prePrintCheckpoint }
 
         Task {
-            let result = await spooler.submit(envelope: envelope, prePrintCheckpoint: prePrintCheckpoint?.persist) { envelope in
+            let result = await spooler.submit(envelope: envelope, prePrintCheckpoint: gate?.persist) { envelope in
+                if let transport = self.transportOverride { return await transport(envelope) }
                 return await self.printReceiptWithSelectedTransport(
                     envelope: envelope,
                     wifiHost: wifiHost,
                     wifiPort: wifiPort,
-                    prePrintCheckpoint: prePrintCheckpoint,
+                    prePrintCheckpoint: gate,
                     onStateChange: onStateChange
                 )
             }
-
-            switch result {
+            var outcome = result
+            if operatorJob {
+                let local: PrintCopyLocalState
+                switch result {
+                case .success: local = .delivered
+                case .failure(let error): local = ((error as? PrintTransportFailure)?.bytesStarted ?? false) ? .uncertain : .notStarted
+                }
+                if self.printOutbox()?.hasUnfinishedPhysicalSend == true, self.printOutbox()?.finishCopy(batchID: envelope.batchID.uuidString.lowercased(), copyIndex: envelope.copyIndex, state: local) != true {
+                    outcome = .failure(SetupFailure("Print outcome needs saving. Do not resend; open Help & Recovery."))
+                }
+            }
+            self.submissionReserved = false
+            switch outcome {
             case .success:
                 self.publish(.success("Your receipt is ready."), onStateChange: onStateChange)
                 completion?(.success(()))

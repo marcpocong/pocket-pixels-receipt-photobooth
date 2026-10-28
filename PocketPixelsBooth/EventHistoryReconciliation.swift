@@ -150,7 +150,7 @@ nonisolated struct HistoricalActivityReport: Equatable, Sendable {
         unassigned = Dictionary(grouping: loose) { calendar.startOfDay(for: $0.createdAt) }
             .map { DayGroup(day: $0.key, archives: $0.value.sorted { $0.createdAt < $1.createdAt }) }
             .sorted { $0.day > $1.day }
-        unassignedPrintCopies = Set(printEntries.filter { $0.kind == .copy && journal[$0.sessionID] == nil }.map { "\($0.batchID)/\($0.copyIndex)" }).count
+        unassignedPrintCopies = Set(printEntries.filter { $0.isCustomerCopy && journal[$0.sessionID] == nil }.map { "\($0.batchID)/\($0.copyIndex)" }).count
     }
 
     var unassignedCount: Int { unassigned.reduce(0) { $0 + $1.archives.count } }

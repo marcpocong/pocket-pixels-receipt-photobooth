@@ -25,24 +25,7 @@ struct PrinterSetupView: View {
                 wifiSection
                 activeTransportSection
             } else {
-                Label(printerCoordinator.currentPrinterLabel, systemImage: "printer.fill").font(.headline)
-                Text(printerCoordinator.operatorState.label).font(.title3)
-                if printerCoordinator.isWorking {
-                    Label("Finish the active print job before reconnecting or changing printers.", systemImage: "info.circle")
-                        .font(.callout).foregroundStyle(.secondary)
-                }
-                if printerCoordinator.operatorState == .unresolved {
-                    Text("A receipt may already have printed. Check the paper before continuing.")
-                    NavigationLink("Check Previous Receipt") { OperatorRecoveryView() }.buttonStyle(.borderedProminent)
-                } else {
-                    Button("Reconnect") { printerCoordinator.reconnectSelectedPrinter() }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(printerCoordinator.isWorking || printerCoordinator.checkingWiFi)
-                    if printerCoordinator.preferredMode == .wifi { Text(printerCoordinator.wifiCheckMessage).font(.callout) }
-                    if printerCoordinator.operatorState == .awaitingTest {
-                        NavigationLink("Complete Paper Test") { OperatorRecoveryView() }.buttonStyle(.bordered)
-                    }
-                }
+                OperatorPrinterControls()
                 DisclosureGroup("Change Printer", isExpanded: $changingPrinter) {
                     VStack(alignment: .leading, spacing: 16) {
                         modeSection
@@ -50,9 +33,9 @@ struct PrinterSetupView: View {
                         else { wifiSection }
                     }.padding(.vertical, 12)
                 }
-                NavigationLink("Manual Test Print · Uses Paper") { SamplePrintStudioView() }
+                NavigationLink("Sample Print Studio") { SamplePrintStudioView() }
                     .buttonStyle(.bordered)
-                    .disabled(printerCoordinator.isWorking || printerCoordinator.requiresRecovery)
+                    .disabled(printerCoordinator.isWorking)
                 Text("Manual tests open a preview first. Nothing prints until you choose Print. A connection check does not prove paper output.")
                     .font(.footnote).foregroundStyle(.secondary)
                 NavigationLink("Advanced Printer Settings") { ScrollView { PrinterSetupView(advancedOnly: true).padding() }.navigationTitle("Advanced Printer") }

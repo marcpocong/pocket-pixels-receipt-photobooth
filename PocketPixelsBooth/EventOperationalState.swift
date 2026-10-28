@@ -364,7 +364,7 @@ final class EventOperationalState: ObservableObject {
     @discardableResult
     func confirmPhysicalPrinterRecovery(expectedIdentity: String? = nil) -> Bool {
         let printer = PrinterCoordinator.shared
-        guard OperatorAccessPermit.shared.isAuthorized, !printer.isWorking, printer.requiresRecovery || hasUnresolvedPrint else { return false }
+        guard OperatorAccessPermit.shared.isAuthorized, !printer.isWorking, printer.needsHardwareAcknowledgement || hasUnresolvedPrint else { return false }
         if let expectedIdentity, expectedIdentity != physicalRecoveryIdentity {
             recoveryActionMessage = "A different receipt now needs inspection. Review Receipt again."
             return false
@@ -390,7 +390,7 @@ final class EventOperationalState: ObservableObject {
             do { try store.acknowledgeUncertainPrint(runID: run.runID, note: "Confirmed through Printer Recovery.") }
             catch { recoveryActionMessage = "Could not save the hardware receipt check. \(error.localizedDescription)"; return false }
         }
-        recoveryActionMessage = "Receipt check recorded. Reconnect the printer and complete any requested paper test."
+        recoveryActionMessage = "Current hardware readiness acknowledged. Earlier uncertain outcomes are unchanged. Diagnostics are optional."
         recoveryConfirmation += 1
         refresh()
         return true
@@ -421,7 +421,7 @@ final class EventOperationalState: ObservableObject {
         do {
             guard OperatorAccessPermit.shared.isAuthorized else { throw SetupFailure("Unlock Operator before closing a guest session.") }
             guard !PrinterCoordinator.shared.isWorking else { throw SetupFailure("Wait for the active print transport to finish before closing.") }
-            guard !hasUnresolvedPrint, !PrinterCoordinator.shared.requiresRecovery else { throw SetupFailure("Review Receipt and record the physical check first. Paper may already exist.") }
+            // Historical uncertainty stays in the journal; closing the guest sends no bytes.
             guard let checkpoints = CheckoutCheckpointStore.shared, let outbox = PrintOutcomeOutbox.shared,
                   checkpoints.integrityFault == nil, outbox.integrityFault == nil,
                   outbox.persistenceFailure == nil, !outbox.hasUnfinishedPhysicalSend else {
@@ -450,6 +450,20 @@ final class EventOperationalState: ObservableObject {
             recoveryActionMessage = "Could not close this session. \(error.localizedDescription)"
             return false
         }
+    }
+
+    /// Admission has already closed. Retain every obligation before detaching the event.
+    /// Parking ends only the interaction; no payment, entitlement, outcome or report is settled.
+    func retainFollowUpsForEventEnd() throws {
+        if let reason = SessionSetupSafety.eventEndReason { throw SetupFailure(reason) }
+        guard let checkpoints = CheckoutCheckpointStore.shared, let recoveryStore else { throw AppRecoveryStoreError.unavailable }
+        if let model = ActiveGuestInteraction.model, model.state != .welcome {
+            try model.closeSessionForOperator()
+        }
+        try CheckoutInteractionClosure.retainForEventEnd(checkpoints: checkpoints, recovery: recoveryStore, detached: DetachedCheckoutStore())
+        customerSessionActive = false
+        refresh()
+        PaymentRecoveryCoordinator.shared.refreshLocalDecisions()
     }
 
     func recordOperatorCameraCheck(passed: Bool, message: String) {

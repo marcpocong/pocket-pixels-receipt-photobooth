@@ -141,6 +141,8 @@ struct BoothSessionView: View {
                 handleCustomerStateChange(from: oldState, to: newState)
                 scheduleIdleReset()
             }
+            .onChange(of: viewModel.isCustomerResetSafe) { _, _ in scheduleIdleReset() }
+            .onChange(of: viewModel.isPrintBatchActive) { _, _ in scheduleIdleReset() }
             .onChange(of: viewModel.selectedPrintCopies) { _, _ in
                 scheduleIdleReset()
             }
@@ -1201,7 +1203,7 @@ struct BoothSessionView: View {
 
                 MadeToKeepLockup(scale: .compact)
 
-                MadeToKeepEditorialHeader(eyebrow: "A LITTLE PAUSE", title: "printer needs attention", titleSize: 46)
+                MadeToKeepEditorialHeader(eyebrow: "PRINT INTERRUPTED", title: "printer needs attention", titleSize: 46)
 
                 Text("Please ask the booth operator for help. Your photos are still saved for this session.")
                     .font(MadeToKeepTheme.Typography.sans(size: 19, weight: .regular))
@@ -1210,7 +1212,7 @@ struct BoothSessionView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(width: contentWidth)
 
-                Text(message)
+                Text(viewModel.sessionIdentifier.map { operations.interruptedCopySummary(sessionID: $0) } ?? "Original receipt and photos retained.")
                     .font(MadeToKeepTheme.Typography.sans(size: 16, weight: .medium))
                     .multilineTextAlignment(.center)
                     .foregroundStyle(MadeToKeepTheme.ColorPalette.secondaryText)
@@ -1218,9 +1220,9 @@ struct BoothSessionView: View {
                     .frame(width: contentWidth * 0.9)
 
                 Button {
-                    openAdminAccess()
+                    openPrinterRecovery()
                 } label: {
-                    Label("Open Staff Recovery", systemImage: "wrench.and.screwdriver.fill")
+                    Label("Operator · Reconnect / Reprint Receipt", systemImage: "wrench.and.screwdriver.fill")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(MadeToKeepSecondaryButtonStyle())
@@ -1240,7 +1242,12 @@ struct BoothSessionView: View {
             qrImage: viewModel.galleryQRCodeImage,
             status: thankYouGalleryStatusText,
             message: customerThankYouMessage,
-            startAnotherSession: { viewModel.resetAfterDone() }
+            startAnotherSession: {
+                guard viewModel.isCustomerResetSafe else { return }
+                cancelIdleReset(); viewModel.resetAfterDone()
+            },
+            deadline: viewModel.completedCountdown.deadline,
+            needMoreTime: { viewModel.extendCompletedCountdown() }
         )
         .transition(.opacity)
     }
@@ -1330,6 +1337,8 @@ struct BoothSessionView: View {
                 .buttonStyle(MadeToKeepSecondaryButtonStyle())
                 .padding(.top, 16)
 
+                Button("Open Operator Help") { openPrinterRecovery() }
+                    .buttonStyle(MadeToKeepSecondaryButtonStyle())
                 Text("Staff assistance required")
                     .font(.footnote)
                     .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
@@ -1390,6 +1399,19 @@ struct BoothSessionView: View {
         guard scenePhase == .active, viewModel.isCustomerResetSafe else { return }
 
         let state = viewModel.state
+        if state == .thankYou {
+            viewModel.startCompletedCountdownIfReady()
+            idleResetTask = Task { @MainActor in
+                do {
+                    while viewModel.state == .thankYou {
+                        try Task.checkCancellation()
+                        viewModel.resetCompletedSessionIfDue()
+                        try await Task.sleep(for: .seconds(1))
+                    }
+                } catch { }
+            }
+            return
+        }
         let initialDelay = CustomerIdleResetPolicy.initialDelay(for: state)
         idleResetTask = Task { @MainActor in
             do {
@@ -1789,6 +1811,12 @@ struct BoothSessionView: View {
         }
     }
 
+    private func openPrinterRecovery() {
+        guard onAdminAccessRequested != nil else { return }
+        OperatorWorkspace.shared.navigate(to: .recovery)
+        openAdminAccess()
+    }
+
     private func openAdminAccess() {
         guard let onAdminAccessRequested else {
             return
@@ -2026,6 +2054,8 @@ struct SessionThankYouContent: View {
     let status: String
     var message: String? = nil
     let startAnotherSession: () -> Void
+    var deadline: Date? = nil
+    var needMoreTime: () -> Void = {}
     @ScaledMetric(relativeTo: .title) private var headingSize = 40.0
 
     var body: some View {
@@ -2044,7 +2074,7 @@ struct SessionThankYouContent: View {
                                 .interpolation(.none)
                                 .resizable()
                                 .scaledToFit()
-                                .accessibilityLabel("Gallery QR code. The same QR is on your receipt.")
+                                .accessibilityLabel("Gallery QR code. Scan to save your photos.")
                         } else {
                             Text("Preparing your QR. Please ask our attendant for help.")
                                 .font(.body)
@@ -2062,6 +2092,18 @@ struct SessionThankYouContent: View {
                         .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
                     if let message {
                         Text(message).font(MadeToKeepTheme.Typography.body())
+                    }
+                    if let deadline {
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            let seconds = max(0, Int(ceil(deadline.timeIntervalSince(context.date))))
+                            Text("Returning to welcome in \(seconds) seconds").font(.footnote)
+                                .accessibilityIdentifier("thank-you-countdown")
+                            if seconds <= 10 {
+                                Button("Need More Time", action: needMoreTime)
+                                    .buttonStyle(.bordered).frame(minHeight: 44)
+                                    .accessibilityIdentifier("thank-you-more-time")
+                            }
+                        }
                     }
                     Button("Start Another Session", action: startAnotherSession)
                         .buttonStyle(MadeToKeepPrimaryButtonStyle())

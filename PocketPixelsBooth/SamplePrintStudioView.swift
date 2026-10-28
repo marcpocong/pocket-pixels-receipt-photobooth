@@ -27,9 +27,10 @@ struct SamplePrintStudioView: View {
     private var gate: SamplePrintStudioModel.PrinterGate {
         .init(
             printerBusy: printer.isWorking,
-            recoveryLocked: printer.requiresRecovery,
+            recoveryLocked: printer.needsHardwareAcknowledgement,
             unresolvedPrint: operations.hasUnresolvedPrint,
-            guestSessionActive: operations.customerSessionActive
+            guestSessionActive: operations.customerSessionActive && !(ActiveGuestInteraction.model?.sessionIdentifier.map { operations.interruptedSessionID == $0 } ?? false),
+            unavailableReason: printer.operatorPrintBlockReason
         )
     }
 
@@ -115,6 +116,12 @@ struct SamplePrintStudioView: View {
                     }
                 }
 
+                if model.missingSlotCount > 0, !model.library.isEmpty {
+                    Button("Fill Empty Slots") { model.fillEmptySlots() }.buttonStyle(.bordered).disabled(model.isPrinting)
+                    Button("Fill Empty Slots · Reuse Imported Photos") { model.fillEmptySlots(reusingPhotos: true) }
+                        .buttonStyle(.bordered).disabled(model.isPrinting)
+                    Text("Reuse explicitly allows the same imported photograph in multiple slots.").font(.footnote).foregroundStyle(.secondary)
+                }
                 if !model.library.isEmpty {
                     Text("Photo tray (\(model.library.count) of \(SamplePrintPolicy.maximumImportedPhotos))")
                         .font(.subheadline.weight(.semibold))
@@ -238,6 +245,7 @@ struct SamplePrintStudioView: View {
                     .accessibilityIdentifier("sample-save-status")
             }
 
+            DisclosureGroup("Printer & Reprints") { OperatorPrinterControls(showInterruptedReceipt: false) }
             Stepper(value: $model.copies, in: 1...SamplePrintPolicy.maximumCopies) {
                 Text(model.copies == 1 ? "1 copy" : "\(model.copies) copies").font(.headline)
             }

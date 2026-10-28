@@ -294,7 +294,7 @@ enum BluetoothPrinterServiceError: Error, LocalizedError {
         case .jobAlreadyActive:
             "A Bluetooth printer job is already active."
         case .recoveryRequired:
-            "Bluetooth Printer Recovery Required. Turn the printer off for 10 seconds, turn it back on, reconnect Bluetooth, then run a text test before another raster job."
+            "Bluetooth Printer Recovery Required. Check or restart the printer, reconnect, then acknowledge that it is ready for new commands."
         case .connectionTestRequired:
             "Run the Bluetooth diagnostic text test after reconnecting before another raster job."
         case .invalidRaster(let message):
@@ -386,6 +386,8 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
     private var shouldPrepareWhenPoweredOn = false
     private var scanShouldConnectFirstCandidate = false
     private var reconnectAttemptsRemaining = 0
+    private var connectionWatchdog: Task<Void, Never>?
+    private var reconnectRetryTask: Task<Void, Never>?
     private var idleReconnectBudget = 2
 
     override init() {
@@ -411,6 +413,8 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
     }
 
     var needsDiagnosticTextTest: Bool { requiresTextTestBeforeRasterPrint }
+    var needsHardwareAcknowledgement: Bool { recoveryLockoutActive }
+    var isTransmitting: Bool { isJobActive }
 
     var canPrintRaster: Bool {
         isConnectedAndReady
@@ -499,18 +503,19 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
     }
 
     func reconnectSavedPrinter() {
-        if isJobActive {
-            jobState = .failure("Wait for the current Bluetooth printer job to finish before reconnecting.")
-            return
+        // Repeated taps join connection/discovery; a healthy link is never torn down.
+        guard PrinterReconnectPolicy.action(ready: isConnectedAndReady,
+            connecting: connectionWatchdog != nil || reconnectRetryTask != nil || isScanning,
+            transmitting: isJobActive) == .reconnect else { return }
+        reconnectAttemptsRemaining = 2
+        try? PrintOutcomeOutbox.shared?.recordHardwareAction("bluetooth_reconnect_requested")
+        if let peripheral = connectedPeripheral, peripheral.state == .connected {
+            armConnectionWatchdog(peripheral)
+            peripheral.discoverServices([Self.vozyServiceUUID])
+        } else {
+            if connectedPeripheral?.state != .connecting { clearConnection() }
+            prepareSavedPrinter()
         }
-
-        if let connectedPeripheral {
-            centralManager?.cancelPeripheralConnection(connectedPeripheral)
-            clearConnection()
-        }
-
-        reconnectAttemptsRemaining = 1
-        prepareSavedPrinter()
     }
 
     func forgetKnownPrinter() {
@@ -545,7 +550,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         ])
 
         scanStopTask = Task { [weak self, scanDuration] in
-            try? await Task.sleep(nanoseconds: UInt64(scanDuration * 1_000_000_000))
+            do { try await Task.sleep(nanoseconds: UInt64(scanDuration * 1_000_000_000)) } catch { return }
             self?.finishTimedScan()
         }
     }
@@ -579,12 +584,16 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         peripheral.delegate = self
         jobState = .connecting(peripheralDisplayName(peripheral))
         appendLog("Connecting to \(peripheralDisplayName(peripheral)).")
+        armConnectionWatchdog(peripheral)
         centralManager?.connect(peripheral, options: nil)
     }
 
     func disconnect() {
         stopScan()
         operatorDisconnectInProgress = true
+        reconnectRetryTask?.cancel()
+        reconnectRetryTask = nil
+        reconnectAttemptsRemaining = 0
 
         if isJobActive {
             failActiveJob(message: "Bluetooth raster job interrupted by operator disconnect.")
@@ -600,10 +609,11 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
     }
 
     func confirmPrinterRestarted() {
+        guard !isJobActive else { return }
         recoveryLockoutActive = false
-        requiresTextTestBeforeRasterPrint = true
-        jobState = .idle
-        appendLog("Bluetooth recovery lockout cleared by operator. Diagnostic text test is required before another raster job.")
+        requiresTextTestBeforeRasterPrint = false
+        jobState = isConnectedAndReady ? .connected(connectedPrinterName ?? "VOZY G80") : .idle
+        appendLog("Operator checked current hardware readiness. Earlier receipt outcomes are unchanged; diagnostics are optional.")
     }
 
     func confirmDiagnosticTextTestSucceeded() {
@@ -1385,7 +1395,9 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         let name = peripheralDisplayName(peripheral)
         jobState = .connecting(name)
         appendLog("Production reconnect using \(reason): \(name).")
-        centralManager?.connect(peripheral, options: nil)
+        armConnectionWatchdog(peripheral)
+        if peripheral.state == .connected { peripheral.discoverServices([Self.vozyServiceUUID]) }
+        else { centralManager?.connect(peripheral, options: nil) }
     }
 
     private func startTargetedReconnectScan() {
@@ -1404,7 +1416,7 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
         ])
 
         scanStopTask = Task { [weak self, scanDuration] in
-            try? await Task.sleep(nanoseconds: UInt64(scanDuration * 1_000_000_000))
+            do { try await Task.sleep(nanoseconds: UInt64(scanDuration * 1_000_000_000)) } catch { return }
             self?.finishTimedScan()
         }
     }
@@ -1846,6 +1858,8 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
     }
 
     private func finishTimedScan() {
+        let reconnectScan = scanShouldConnectFirstCandidate
+        scanStopTask = nil
         centralManager?.stopScan()
 
         if case .scanning = jobState {
@@ -1856,9 +1870,38 @@ final class PrinterBluetoothService: NSObject, ObservableObject {
 
         scanShouldConnectFirstCandidate = false
         appendLog("BT2 scan finished. Candidates: \(candidates.count).")
+        if reconnectScan, !isConnectedAndReady { retryConnectionIfAllowed() }
+    }
+
+    private func armConnectionWatchdog(_ peripheral: CBPeripheral) {
+        connectionWatchdog?.cancel()
+        connectionWatchdog = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(8)) } catch { return }
+            guard let self, self.connectedPeripheral?.identifier == peripheral.identifier,
+                  !self.isConnectedAndReady, !self.isJobActive else { return }
+            self.clearConnection()
+            self.centralManager?.cancelPeripheralConnection(peripheral)
+            self.jobState = .failure("Printer connection or discovery timed out. Check printer power and Bluetooth.")
+            self.appendLog(self.jobState.message)
+            try? PrintOutcomeOutbox.shared?.recordHardwareAction("bluetooth_connection_discovery_timed_out")
+            self.retryConnectionIfAllowed()
+        }
+    }
+
+    private func retryConnectionIfAllowed() {
+        guard reconnectAttemptsRemaining > 0, reconnectRetryTask == nil, !operatorDisconnectInProgress else { return }
+        reconnectAttemptsRemaining -= 1
+        reconnectRetryTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            guard let self else { return }
+            self.reconnectRetryTask = nil
+            self.prepareSavedPrinter()
+        }
     }
 
     private func clearConnection() {
+        connectionWatchdog?.cancel()
+        connectionWatchdog = nil
         connectedPeripheral?.delegate = nil
         connectedPeripheral = nil
         connectedPrinterName = nil
@@ -1925,6 +1968,9 @@ extension PrinterBluetoothService: CBCentralManagerDelegate {
                 }
                 return
             } else {
+                shouldPrepareWhenPoweredOn = hasSavedPrinter && !operatorDisconnectInProgress
+                reconnectRetryTask?.cancel()
+                reconnectRetryTask = nil
                 stopScan()
                 if isJobActive {
                     failActiveJob(message: "Bluetooth state changed to \(central.state.displayName).")
@@ -2004,6 +2050,8 @@ extension PrinterBluetoothService: CBCentralManagerDelegate {
             clearConnection()
             jobState = .failure("Bluetooth connection failed. \(detail)")
             appendLog("Connection failed. \(detail)")
+            try? PrintOutcomeOutbox.shared?.recordHardwareAction("bluetooth_connection_failed")
+            retryConnectionIfAllowed()
         }
     }
 
@@ -2029,15 +2077,11 @@ extension PrinterBluetoothService: CBCentralManagerDelegate {
             } else {
                 jobState = .failure("Bluetooth printer disconnected. \(detail)")
                 appendLog("Bluetooth printer disconnected. \(detail)")
-                if reconnectAttemptsRemaining > 0 || idleReconnectBudget > 0 {
-                    let delay: TimeInterval = reconnectAttemptsRemaining > 0 ? 1 : 2
-                    reconnectAttemptsRemaining = max(0, reconnectAttemptsRemaining - 1)
-                    idleReconnectBudget = max(0, idleReconnectBudget - 1)
-                    Task { [weak self] in
-                        try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                        self?.prepareSavedPrinter()
-                    }
+                if reconnectAttemptsRemaining == 0, idleReconnectBudget > 0 {
+                    idleReconnectBudget -= 1
+                    reconnectAttemptsRemaining = 1
                 }
+                retryConnectionIfAllowed()
             }
         }
     }
@@ -2095,7 +2139,13 @@ extension PrinterBluetoothService: CBPeripheralDelegate {
                 return
             }
 
+            connectionWatchdog?.cancel()
+            connectionWatchdog = nil
+            reconnectRetryTask?.cancel()
+            reconnectRetryTask = nil
+            reconnectAttemptsRemaining = 0
             writeCharacteristic = characteristic
+            try? PrintOutcomeOutbox.shared?.recordHardwareAction("bluetooth_writable_transport_ready")
             saveKnownPrinter(peripheral)
             jobState = .connected(connectedPrinterName ?? "VOZY G80")
             appendLog("Characteristic 2AF1 ready. Properties: \(characteristic.propertyLabels.joined(separator: ", ")).")

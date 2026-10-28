@@ -67,11 +67,9 @@ extension CustomerScreenTheme {
 nonisolated enum CustomerIdleResetPolicy {
     static let inactivityDuration: TimeInterval = 5 * 60
     static let warningDuration: Int = 30
-    static let thankYouInactivityDuration: TimeInterval = 60
-    static let thankYouWarningDuration: Int = 15
 
     static func warningDuration(for state: BoothSessionState) -> Int {
-        state == .thankYou ? thankYouWarningDuration : warningDuration
+        state == .thankYou ? 0 : warningDuration
     }
 
     static func isEligible(
@@ -95,9 +93,9 @@ nonisolated enum CustomerIdleResetPolicy {
         }
     }
 
-    static func initialDelay(for state: BoothSessionState) -> TimeInterval {
+    static func initialDelay(for state: BoothSessionState, printedGalleryQR: Bool = true) -> TimeInterval {
         if case .thankYou = state {
-            return thankYouInactivityDuration
+            return CompletedSessionCountdown.duration(printedGalleryQR: printedGalleryQR)
         }
         return inactivityDuration
     }
@@ -187,5 +185,24 @@ enum GuestReceiptPreview {
     var needsGrayscaleFilter: Bool {
         if case .grayscaleFallback = self { return true }
         return false
+    }
+}
+
+/// One deadline per completed guest, independent of gallery notifications and view lifetimes.
+nonisolated struct CompletedSessionCountdown: Equatable {
+    private(set) var sessionGeneration: Int?
+    private(set) var deadline: Date?
+    static func duration(printedGalleryQR: Bool) -> TimeInterval { printedGalleryQR ? 30 : 60 }
+    mutating func start(generation: Int, printedGalleryQR: Bool, safe: Bool, now: Date) {
+        guard safe, sessionGeneration != generation || deadline == nil else { return }
+        sessionGeneration = generation
+        deadline = now.addingTimeInterval(Self.duration(printedGalleryQR: printedGalleryQR))
+    }
+    mutating func extend(generation: Int, now: Date) {
+        guard sessionGeneration == generation, let deadline else { return }
+        self.deadline = max(deadline, now).addingTimeInterval(30)
+    }
+    func isDue(generation: Int, safe: Bool, now: Date) -> Bool {
+        safe && sessionGeneration == generation && deadline.map { now >= $0 } == true
     }
 }

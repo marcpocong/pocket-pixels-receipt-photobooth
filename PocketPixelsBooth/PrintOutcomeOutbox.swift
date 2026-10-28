@@ -59,6 +59,10 @@ nonisolated struct PrintOutboxEntry: Codable, Equatable, Identifiable, Sendable 
     var lastError: String?
     var updatedAt: Date
     var inspectionRequired: Bool? = nil
+    var hardwareAcknowledgedAt: Date? = nil
+    var source: PrintJobSource? = nil
+    /// Older journals contain only customer copies. Operator batches never fulfill a purchase.
+    var isCustomerCopy: Bool { kind == .copy && (source == nil || source == .liveCustomer) }
 }
 
 /// Durable journal of every live-customer copy attempt plus an outbox of server reports.
@@ -93,6 +97,17 @@ final class PrintOutcomeOutbox {
 
     private struct FilePayload: Codable {
         var entries: [PrintOutboxEntry]
+        var hardwareActions: [PrinterHardwareAction]? = nil
+    }
+    struct PrinterHardwareAction: Codable, Sendable {
+        let kind: String
+        let at: Date
+    }
+    var hardwareActions: [PrinterHardwareAction] { payload.hardwareActions ?? [] }
+    func recordHardwareAction(_ kind: String) throws {
+        var candidate = payload
+        candidate.hardwareActions = Array(((candidate.hardwareActions ?? []) + [PrinterHardwareAction(kind: kind, at: Date())]).suffix(300))
+        try commit(candidate)
     }
 
     private let url: URL
@@ -140,12 +155,24 @@ final class PrintOutcomeOutbox {
     }
 
     func copiesThatMayHavePrinted(sessionID: String) -> [PrintOutboxEntry] {
-        payload.entries.filter { $0.kind == .copy && $0.sessionID == sessionID && $0.localState.mayHavePrinted }
+        payload.entries.filter { $0.isCustomerCopy && $0.sessionID == sessionID && $0.localState.mayHavePrinted }
+    }
+
+    var latestInterruptedSessionID: String? {
+        guard let last = payload.entries.last(where: { $0.isCustomerCopy }),
+              last.localState == .uncertain || last.localState == .notStarted else { return nil }
+        return last.sessionID
+    }
+
+    func latestBatchEntries(sessionID: String) -> [PrintOutboxEntry] {
+        let copies = payload.entries.filter { $0.isCustomerCopy && $0.sessionID == sessionID }
+        guard let batch = copies.last?.batchID else { return [] }
+        return copies.filter { $0.batchID == batch }
     }
 
     /// Durable intent written immediately before bytes are sent. Throwing blocks the copy.
     func beginCopy(batchID: String, sessionID: String, entitlementID: String?, receiptFingerprint: String,
-                   copyIndex: Int, copyCount: Int, transport: String, now: Date = Date()) throws {
+                   copyIndex: Int, copyCount: Int, transport: String, now: Date = Date(), source: PrintJobSource? = nil) throws {
         if let integrityFault { throw OutboxError.integrityFault(integrityFault) }
         let batch = payload.entries.filter { $0.kind == .copy && $0.batchID == batchID }
         if batch.contains(where: { $0.copyIndex == copyIndex && $0.localState.mayHavePrinted }) {
@@ -159,7 +186,7 @@ final class PrintOutcomeOutbox {
             kind: .copy, batchID: batchID, sessionID: sessionID, entitlementID: entitlementID,
             receiptFingerprint: receiptFingerprint, copyIndex: copyIndex, copyCount: copyCount, transport: transport,
             idempotencyKey: Self.idempotencyKey(batchID: batchID, copyIndex: copyIndex), createdAt: now,
-            localState: .inFlight, reportState: .awaitingOutcome, attempts: 0, nextAttemptAt: nil, lastError: nil, updatedAt: now
+            localState: .inFlight, reportState: .awaitingOutcome, attempts: 0, nextAttemptAt: nil, lastError: nil, updatedAt: now, source: source
         )
         var candidate = payload
         candidate.entries.append(entry)
@@ -273,8 +300,10 @@ final class PrintOutcomeOutbox {
     func acknowledgeInspection(entryIDs: Set<String>) throws {
         guard entryIDs == inspectionEntryIDs else { throw OutboxError.persistFailed("A different receipt now needs inspection. Review Receipt again.") }
         var candidate = payload
+        candidate.hardwareActions = (candidate.hardwareActions ?? []) + [PrinterHardwareAction(kind: "operator_acknowledged_current_hardware_readiness", at: Date())]
         for index in candidate.entries.indices where entryIDs.contains(candidate.entries[index].id) {
             candidate.entries[index].inspectionRequired = false
+            candidate.entries[index].hardwareAcknowledgedAt = Date()
         }
         try commit(candidate)
     }
@@ -393,8 +422,15 @@ final class PrintOutcomeOutbox {
     private func commit(_ candidate: FilePayload) throws {
         if let integrityFault { throw OutboxError.integrityFault(integrityFault) }
         var pruned = candidate
-        // Retain all unresolved evidence; trim only the oldest fully reported entries.
-        let settled = pruned.entries.enumerated().filter { [.delivered, .notApplicable].contains($0.element.reportState) && $0.element.localState != .inFlight && $0.element.inspectionRequired != true }
+        // Keep every copy in an uncertain batch, including earlier reported sends. Otherwise
+        // pruning successful copies would turn missing historical evidence into "not started".
+        let protectedBatches = Set(pruned.entries.filter {
+            $0.localState == .uncertain || $0.localState == .inFlight || $0.inspectionRequired == true ||
+            [.pending, .conflict, .awaitingOutcome].contains($0.reportState)
+        }.map(\.batchID))
+        let settled = pruned.entries.enumerated().filter {
+            !protectedBatches.contains($0.element.batchID) && [.delivered, .notApplicable].contains($0.element.reportState)
+        }
         if settled.count > Self.retainedDeliveredCount {
             let drop = Set(settled.prefix(settled.count - Self.retainedDeliveredCount).map(\.offset))
             pruned.entries = pruned.entries.enumerated().filter { !drop.contains($0.offset) }.map(\.element)

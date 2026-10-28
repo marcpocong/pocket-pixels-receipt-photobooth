@@ -87,6 +87,17 @@ nonisolated struct DetachedCheckoutStore {
 
     /// Commit retained assets first, then the local decision. Failure leaves the operation gate
     /// closed. Repeated calls reuse the same original checkout and reference.
+    static func retainForEventEnd(checkpoints: CheckoutCheckpointStore, recovery: AppRecoveryStore,
+                                  detached: DetachedCheckoutStore, defaults: UserDefaults = .standard) throws {
+        guard checkpoints.integrityFault == nil else { throw AppRecoveryStoreError.verificationFailed }
+        let snapshot = try recovery.loadChecked()
+        if let snapshot { _ = try OperatorRecoveryAcknowledgement.retainAndAcknowledge(snapshot, store: recovery, defaults: defaults) }
+        for checkpoint in checkpoints.unresolved where !checkpoint.isParked {
+            try close(id: checkpoint.id, reason: "operator:event_ended_follow_up_retained", checkpoints: checkpoints,
+                recovery: recovery, detached: detached, snapshot: snapshot.flatMap { $0.sessionIdentifier == checkpoint.id ? $0 : nil })
+        }
+    }
+
     static func close(id: String, reason: String, checkpoints: CheckoutCheckpointStore,
                       recovery: AppRecoveryStore, detached: DetachedCheckoutStore,
                       snapshot: AppRecoverySnapshot?) throws {

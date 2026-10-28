@@ -30,7 +30,7 @@ enum OperatorPrintPolicy {
     }
 
     static func canReprint(busy: Bool, recoveryLocked: Bool, unresolvedPrint: Bool) -> Bool {
-        !busy && !recoveryLocked && !unresolvedPrint
+        !busy && !recoveryLocked
     }
 }
 
@@ -115,5 +115,30 @@ extension GalleryDeliveryState {
         case .posted: "Posted; awaiting delivery confirmation"
         case .deliveryUnknown: "Delivery unknown; retry safely"
         }
+    }
+}
+
+extension EventOperationalState {
+    var interruptedSessionID: String? {
+        if let snapshot = recoverableSession, snapshot.stage == .printStatusUnknown, hasPendingSessionRecovery { return snapshot.sessionIdentifier }
+        if let journal = PrintOutcomeOutbox.shared, !journal.entries.isEmpty { return journal.latestInterruptedSessionID }
+        guard let latest = auditRecords.last(where: { $0.source == .liveCustomer }), latest.terminalResult != .completed else { return nil }
+        return latest.sessionIdentifier
+    }
+    func interruptedCopySummary(sessionID: String) -> String {
+        let entries = PrintOutcomeOutbox.shared?.latestBatchEntries(sessionID: sessionID) ?? []
+        return InterruptedPrintSummary(entries: entries).text
+    }
+}
+
+struct InterruptedPrintSummary {
+    let entries: [PrintOutboxEntry]
+    var requested: Int { entries.map(\.copyCount).max() ?? 0 }
+    var reported: Int { Set(entries.filter { $0.localState == .delivered }.map(\.copyIndex)).count }
+    var uncertain: Int { Set(entries.filter { $0.localState == .uncertain || $0.localState == .inFlight }.map(\.copyIndex)).count }
+    var notStarted: Int { max(0, requested - reported - uncertain) }
+    var text: String {
+        guard !entries.isEmpty else { return "Copy outcomes are unavailable in the retained journal. Inspect the original session; physical delivery cannot be inferred." }
+        return "Requested: \(requested) copies\nReported successful: \(reported)\nUncertain: \(uncertain)\nNot started: \(notStarted)\nTransport reports do not prove physical delivery."
     }
 }

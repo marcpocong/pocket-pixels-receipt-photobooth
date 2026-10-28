@@ -144,11 +144,11 @@ final class CustomerExperienceTests: XCTestCase {
     }
 
     func testThankYouUsesShorterButConservativeTimeout() {
-        XCTAssertEqual(CustomerIdleResetPolicy.initialDelay(for: .thankYou), CustomerIdleResetPolicy.thankYouInactivityDuration)
+        XCTAssertEqual(CustomerIdleResetPolicy.initialDelay(for: .thankYou), 30)
         XCTAssertEqual(CustomerIdleResetPolicy.initialDelay(for: .review), CustomerIdleResetPolicy.inactivityDuration)
         XCTAssertGreaterThanOrEqual(CustomerIdleResetPolicy.warningDuration, 30)
-        XCTAssertEqual(CustomerIdleResetPolicy.initialDelay(for: .thankYou), 60)
-        XCTAssertEqual(CustomerIdleResetPolicy.warningDuration(for: .thankYou), 15)
+        XCTAssertEqual(CustomerIdleResetPolicy.initialDelay(for: .thankYou, printedGalleryQR: false), 60)
+        XCTAssertEqual(CustomerIdleResetPolicy.warningDuration(for: .thankYou), 0)
         XCTAssertEqual(CustomerIdleResetPolicy.warningDuration(for: .review), 30)
     }
 

@@ -33,6 +33,10 @@ struct OperatorDashboardView: View {
                         equipmentButton(lifecycle.runs.operational == nil ? "Start Event" : "Manage Event", detail: "Setup, design and saved drafts", symbol: "calendar", route: lifecycle.runs.operational == nil ? .newEvent : .sessionSetup, ready: true)
                         equipmentButton("Help & Recovery", detail: "\(recovery.activeInterruptionCount) active checkout interruption(s) · receipt recovery", symbol: "lifepreserver", route: .recovery, ready: !recovery.needsAttention)
                     }
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Printer & Reprints").font(.headline)
+                        OperatorPrinterControls()
+                    }.padding(16).background(OperatorPalette.surface, in: RoundedRectangle(cornerRadius: 12))
                     if !status.attentionItems.isEmpty { OperatorAttentionCard(items: status.attentionItems, workspace: workspace) }
                     if recovery.parkedFollowUpCount > 0 {
                         Button { workspace.navigate(to: .recovery) } label: {
@@ -61,7 +65,7 @@ struct OperatorDashboardView: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
                 equipmentButton("Camera", detail: status.camera.label, symbol: "camera", route: .camera, ready: status.camera.isReady)
                 equipmentButton("Printer", detail: printer.operatorState.label,
-                    symbol: "printer", route: printer.requiresRecovery || operations.hasUnresolvedPrint ? .recovery : .printer, ready: status.printer.isReady)
+                    symbol: "printer", route: .printer, ready: status.printer.isReady)
                 equipmentButton("Gallery / connectivity", detail: status.internet.isReady ? (status.gallery.isReady ? "Configured · online" : status.gallery.label) : status.internet.label,
                     symbol: "icloud", route: operations.pendingUploadCount > 0 ? .waitingGalleries : .gallery,
                     ready: status.gallery.isReady && status.internet.isReady)

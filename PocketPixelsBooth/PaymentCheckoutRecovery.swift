@@ -742,7 +742,7 @@ final class PaymentRecoveryCoordinator: ObservableObject {
 
     /// True only when exactly copies 1…N of one batch were delivered and none is uncertain.
     nonisolated static func allPaidCopiesDelivered(_ copies: [PrintOutboxEntry], paidCopies: Int) -> Bool {
-        guard paidCopies >= 1, !copies.isEmpty, Set(copies.map(\.batchID)).count == 1 else { return false }
+        guard paidCopies >= 1, !copies.isEmpty, copies.allSatisfy(\.isCustomerCopy), Set(copies.map(\.batchID)).count == 1 else { return false }
         return copies.allSatisfy { $0.localState == .delivered } && Set(copies.map(\.copyIndex)) == Set(1...paidCopies)
     }
 

@@ -250,6 +250,9 @@ nonisolated enum EventStatusModel {
     private let authorized: @MainActor () -> Bool
     private let blockingReason: @MainActor () -> String?
     private let recoveryReason: @MainActor () -> String?
+    private let endBlockingReason: @MainActor () -> String?
+    private let retainFollowUps: @MainActor () throws -> Void
+    var endUnavailableReason: String? { endBlockingReason() }
     private let source: @MainActor () -> CommercialPolicySource
     private let loadLocal: @MainActor () -> CommercialEventRun
     private let saveLocal: @MainActor (CommercialEventRun) throws -> Void
@@ -268,6 +271,8 @@ nonisolated enum EventStatusModel {
          authorized: @escaping @MainActor () -> Bool = { OperatorAccessPermit.shared.isAuthorized },
          blockingReason: @escaping @MainActor () -> String? = { SessionSetupSafety.blockingReason },
          recoveryReason: @escaping @MainActor () -> String? = { SessionSetupSafety.recoveryReason },
+         endBlockingReason: @escaping @MainActor () -> String? = { SessionSetupSafety.eventEndReason },
+         retainFollowUps: @escaping @MainActor () throws -> Void = { try EventOperationalState.shared.retainFollowUpsForEventEnd() },
          source: @escaping @MainActor () -> CommercialPolicySource = { CommercialPolicySource.load() },
          loadLocal: @escaping @MainActor () -> CommercialEventRun = { CommercialEventRunStore.load() },
          saveLocal: @escaping @MainActor (CommercialEventRun) throws -> Void = { try CommercialEventRunStore.publish($0) },
@@ -281,6 +286,8 @@ nonisolated enum EventStatusModel {
              CommercialPolicySource.save(.localPrepaid)
          }) {
         self.applyRegularConfiguration = applyRegularConfiguration
+        self.endBlockingReason = endBlockingReason
+        self.retainFollowUps = retainFollowUps
         self.runs = runs ?? .shared; self.acceptance = acceptance ?? .shared
         self.api = api; self.authorized = authorized; self.blockingReason = blockingReason; self.recoveryReason = recoveryReason
         self.source = source; self.loadLocal = loadLocal; self.saveLocal = saveLocal; self.binding = binding
@@ -486,7 +493,7 @@ nonisolated enum EventStatusModel {
         guard acceptance.setupOperationID == nil else { message = "Event setup is still finishing. Wait for its result, then End Event."; return false }
         guard operation == nil else { return false }
         guard authorized() else { message = "Unlock Operator again before continuing."; return false }
-        if let reason = blockingReason() { message = reason; return false }
+        if let reason = endBlockingReason() { message = reason; return false }
         guard runs.pendingTransition == nil else { message = "Finish Ending Event using Check Status first."; return false }
         guard let run = runs.current, [.active, .paused, .completed, .archived].contains(run.status) else {
             message = "There is no event run to end."; return false
@@ -503,6 +510,8 @@ nonisolated enum EventStatusModel {
                 runID: run.id, commercialEventID: eventID ?? "", serverBinding: binding(), createdAt: Date(),
                 returnsToRegular: true, serverConfirmed: eventID == nil)
             try closeAdmission()
+            try retainFollowUps()
+            if let reason = endBlockingReason() { throw SetupFailure(reason) }
             try runs.beginTransition(intent)
             if let eventID {
                 let client = try api()
@@ -531,7 +540,7 @@ nonisolated enum EventStatusModel {
     }
 
     private func commitRegular(_ intent: EventTransitionIntent) throws {
-        if let reason = blockingReason() { throw SetupFailure(reason) }
+        if let reason = endBlockingReason() { throw SetupFailure(reason) }
         guard !runs.historyUnreadable, acceptance.storageError == nil else { throw SetupFailure("Recover event and admission storage before returning to Regular Booth.") }
         try closeAdmission()
         try runs.completeAndDetachForRegular(intentID: intent.id)
