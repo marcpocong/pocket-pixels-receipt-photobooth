@@ -21,23 +21,39 @@ struct ReceiptStudioView: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
+        styledWorkspace
+            .onChange(of: section) { (_: EditingSection, value: EditingSection) in
+                updatePreviewFocus(for: value)
+            }
+            .onChange(of: textField) { (_: ReceiptTextFocus?, value: ReceiptTextFocus?) in
+                updateTextFocus(value)
+            }
+    }
+
+    private var styledWorkspace: some View {
+        GeometryReader { (geometry: GeometryProxy) in
             editorLayout(in: geometry.size)
         }
         .background(OperatorPalette.canvas)
-        .navigationTitle("Receipt Studio").navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("Receipt Studio")
+        .navigationBarTitleDisplayMode(.inline)
         .tint(OperatorPalette.ink)
-        .onChange(of: section) { _, value in
-            // A manual focus choice stays in effect until the operator selects another section.
-            focus = value == .header ? .header : (value == .footer ? .footer : .text)
-        }
-        .onChange(of: textField) { _, value in
-            if let value {
-                textTarget = value
-                if focus != .full { focus = .text }
-            }
-        }
         .textFieldStyle(.roundedBorder)
+    }
+
+    private func updatePreviewFocus(for section: EditingSection) {
+        // A manual focus choice stays in effect until the operator selects another section.
+        switch section {
+        case .header: focus = ReceiptPreviewFocus.header
+        case .footer: focus = ReceiptPreviewFocus.footer
+        case .text: focus = ReceiptPreviewFocus.text
+        }
+    }
+
+    private func updateTextFocus(_ value: ReceiptTextFocus?) {
+        guard let value else { return }
+        textTarget = value
+        if focus != ReceiptPreviewFocus.full { focus = ReceiptPreviewFocus.text }
     }
 
     // Keep each layout expression small for the Xcode 16.4 compiler used by Production Gate.
