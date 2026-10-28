@@ -45,12 +45,21 @@ enum QuickPrinterTest {
     static let content = "MADE TO KEEP\nPRINTER TEST\n\nPAPER CHECK\n\nTEST ONLY"
     static func raster() throws -> ThermalRasterizedImage {
         let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
-        let image = UIGraphicsImageRenderer(size: CGSize(width: 576, height: 220), format: format).image { context in
-            UIColor.white.setFill(); context.fill(CGRect(x: 0, y: 0, width: 576, height: 220))
+        // 1,200 dots at 8 dots/mm gives a receipt-length 150 mm paper check.
+        let size = CGSize(width: 576, height: 1200)
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            UIColor.white.setFill(); context.fill(CGRect(origin: .zero, size: size))
             let style = NSMutableParagraphStyle(); style.alignment = .center
-            (content as NSString).draw(in: CGRect(x: 16, y: 8, width: 544, height: 204), withAttributes: [
-                .font: UIFont.monospacedSystemFont(ofSize: 24, weight: .bold), .foregroundColor: UIColor.black, .paragraphStyle: style])
+            let frames: [CGRect] = [
+                CGRect(x: 16, y: 24, width: 544, height: 80),
+                CGRect(x: 16, y: size.height / 2 - 20, width: 544, height: 40),
+                CGRect(x: 16, y: size.height - 64, width: 544, height: 40)
+            ]
+            for (block, frame) in zip(content.components(separatedBy: "\n\n"), frames) {
+                (block as NSString).draw(in: frame, withAttributes: [
+                    .font: UIFont.monospacedSystemFont(ofSize: 24, weight: .bold), .foregroundColor: UIColor.black, .paragraphStyle: style])
+            }
         }
-        return try ThermalImageRasterizer.rasterize(image)
+        return try ThermalImageRasterizer.rasterize(image, purpose: .completeReceipt)
     }
 }

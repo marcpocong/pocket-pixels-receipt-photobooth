@@ -372,12 +372,20 @@ import UIKit
 
     func testQuickDiagnosticUsesExistingFinishingWithoutCustomerData() throws {
         let raster = try QuickPrinterTest.raster()
-        XCTAssertEqual(raster.width, 576); XCTAssertLessThanOrEqual(raster.height, 240)
+        XCTAssertEqual(raster.width, 576)
+        XCTAssertEqual(raster.height, 1200, "Quick Test should feed approximately 150 mm of paper")
+        guard raster.height == 1200 else { return }
+        for rows in [0..<120, 560..<640, 1120..<1200] {
+            let bytes = raster.rasterData[(rows.lowerBound * raster.widthBytes)..<(rows.upperBound * raster.widthBytes)]
+            XCTAssertTrue(bytes.contains { $0 != 0 }, "Keep readable test marks at the top, middle and bottom")
+        }
         XCTAssertEqual(QuickPrinterTest.content, "MADE TO KEEP\nPRINTER TEST\n\nPAPER CHECK\n\nTEST ONLY")
         let job = try PrintJobEnvelope.diagnostic(heading: ThermalImageRasterizer.receiptPrintHeading(), rasterizedImage: raster,
             finishing: ThermalImageRasterizer.receiptPrintFinishing(), sessionIdentifier: "operator-quick-test", copyIndex: 1,
             copyCount: 1, batchID: UUID(), transportPolicy: .safeIntegrity)
         try job.verifyPayloadIntegrity()
+        XCTAssertEqual(job.imageHeight, 1200, "The diagnostic envelope must retain the longer paper length")
+        try raster.previewPNGData.write(to: URL(fileURLWithPath: "/tmp/pp-long-quick-test.png"))
         XCTAssertTrue(job.payload.suffix(ThermalImageRasterizer.receiptPrintFinishing().count).elementsEqual(ThermalImageRasterizer.receiptPrintFinishing()))
         XCTAssertEqual(job.source, .diagnostic)
     }
