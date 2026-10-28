@@ -2,18 +2,13 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Event receipt design inside Session Setup: optional event logo, layout and a live preview.
+/// Header controls in Receipt Studio. Production receipt preview belongs to the shared viewport.
 /// Edits a design draft only; the saved event changes on Save Design, guests on Start.
 struct EventReceiptDesignPanel: View {
     @Binding var design: SavedEventDesign
-    let isDirty: Bool
-    let save: () -> Void
-    let discard: () -> Void
-    var isRegularBooth = false
-    var editsLiveEvent = false
-    var managesSaving = true
-    var showsGalleryOptions = true
     var studioProfile: EventProfile? = nil
+    var headerTarget: Binding<CoBrandedHeaderTarget>? = nil
+    var isRegularBooth = false
 
     @State private var photoItem: PhotosPickerItem?
     @State private var isPhotoPickerPresented = false
@@ -23,65 +18,10 @@ struct EventReceiptDesignPanel: View {
     @State private var artwork: EventArtwork?
     @State private var artworkMissing = false
     @State private var isStudioPresented = false
-    @State private var isAdvancedLayoutExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            if showsGalleryOptions {
-            Picker(isRegularBooth ? "Printed Gallery Code" : "Event Gallery Code Style", selection: Binding(get: { design.profile.receiptDesign.footerStyleOverride ?? ReceiptPrintSettingsStore.load().footerStyle }, set: { design.profile.receiptDesign.footerStyleOverride = $0 })) {
-                ForEach(ReceiptFooterStyle.allCases) { style in Text(style.displayName).tag(style) }
-            }
-            Button("Reset Footer to Studio") { design.profile.receiptDesign.footerStyleOverride = ReceiptPrintSettingsStore.load().footerStyle }
-            if design.profile.receiptDesign.footerStyleOverride == .decorativeBarcodeOnly {
-                Label("Decorative barcode only: no printed gallery access. The iPad gallery QR remains available.", systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(.orange)
-            }
-
-            Picker("Gallery Receipt Appearance", selection: Binding(get: { design.profile.galleryReceiptStyleOverride ?? GalleryReceiptSettingsStore.load() }, set: { design.profile.galleryReceiptStyleOverride = $0 })) {
-                ForEach(GalleryReceiptStyle.allCases) { style in Text(style.title).tag(style) }
-            }
-            Text(isRegularBooth ? "Save Regular Booth Defaults to apply to the next guest." : (editsLiveEvent ? "Staged for the next sessions. Use Apply to Next Sessions when ready." : "Customer Gallery only. Review & Start applies this event’s staged settings.")).font(.footnote).foregroundStyle(.secondary)
-
-            }
-            if let studioProfile {
-                if design.personalizeReceipt {
-                    logoArea
-                    if artwork != nil { layoutChoices; adjustments }
-                } else {
-                    HStack(spacing: 16) {
-                        MadeToKeepWordmark(size: 22, color: OperatorPalette.ink).frame(width: 120, height: 56)
-                        VStack(alignment: .leading) {
-                            Text("Made to Keep Studios").font(.headline)
-                            Text("Header logo").font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    sourceMenu(title: "Replace Logo", systemImage: "arrow.triangle.2.circlepath", prominent: false)
-                }
-                Button("Reset to Studio") {
-                    design.profile.receiptHeader = studioProfile.receiptHeader
-                    design.personalizeReceipt = studioProfile.isEnabled
-                    reloadArtwork()
-                }.frame(minHeight: 44)
-            } else {
-                Toggle(isRegularBooth ? "Add a Logo to Regular Booth Receipts" : "Event Logo", isOn: personalizeBinding)
-                    .frame(minHeight: 44)
-                if design.personalizeReceipt { logoArea; if artwork != nil { layoutChoices; adjustments } }
-            }
-
-            NavigationLink(isRegularBooth ? "Print Sample Using This Booth Design" : "Print Sample Using This Event Design") {
-                SamplePrintStudioView(previewProfile: design.appliedProfile())
-            }
-            Text("Uses this preview design without applying edits to guests. Import sample photos in the studio before printing.")
-                .font(.footnote).foregroundStyle(.secondary)
-
-            if isDirty && !editsLiveEvent && managesSaving {
-                HStack(spacing: 12) {
-                    Label("Unsaved design changes", systemImage: "pencil.circle.fill").foregroundStyle(.orange).font(.callout)
-                    Spacer()
-                    Button("Cancel Changes", role: .destructive, action: discard).buttonStyle(.bordered)
-                    Button("Save Design", action: save).buttonStyle(.borderedProminent)
-                }
-            }
+            studioHeaderControls
         }
         .onAppear { reloadArtwork() }
         .onChange(of: design.logoIdentifier) { _, _ in reloadArtwork() }
@@ -101,11 +41,53 @@ struct EventReceiptDesignPanel: View {
         }
     }
 
+    @ViewBuilder private var studioHeaderControls: some View {
+        Toggle(isRegularBooth ? "Use Custom Logo" : "Use Event Logo", isOn: personalizeBinding).frame(minHeight: 44)
+        if design.personalizeReceipt {
+            if artwork == nil || design.layout != .coBranded || headerTarget?.wrappedValue == .event { logoArea }
+            if artwork != nil {
+                if headerTarget?.wrappedValue == .whole && design.layout == .coBranded {
+                    Picker("Branding Mode", selection: Binding(get: { design.layout }, set: { setLayout($0) })) {
+                        ForEach(ReceiptBrandingMode.allCases) { Text($0.displayName).tag($0) }
+                    }.frame(minHeight: 44)
+                }
+                if design.layout == .coBranded {
+                    CoBrandedHeaderControls(configuration: $design.profile.receiptHeader, showsPreview: false, selection: headerTarget)
+                } else {
+                    Text("Logo Size").font(.headline)
+                    Slider(value: $design.profile.receiptHeader.scale, in: ReceiptHeaderConfiguration.minimumScale...ReceiptHeaderConfiguration.maximumEditorScale)
+                        .accessibilityLabel("Logo Size")
+                    Button("Advanced Artwork & Crop") { isStudioPresented = true }.buttonStyle(.bordered)
+                    Picker("Branding Mode", selection: Binding(get: { design.layout }, set: { setLayout($0) })) {
+                        ForEach(ReceiptBrandingMode.allCases) { Text($0.displayName).tag($0) }
+                    }
+                }
+                if headerTarget?.wrappedValue == .whole {
+                    Stepper("Space above: \(Int(design.profile.receiptHeader.topSpacing)) dots", value: $design.profile.receiptHeader.topSpacing, in: 0...ReceiptHeaderConfiguration.maximumSpacing, step: 4)
+                    Stepper("Space below: \(Int(design.profile.receiptHeader.bottomSpacing)) dots", value: $design.profile.receiptHeader.bottomSpacing, in: 0...ReceiptHeaderConfiguration.maximumSpacing, step: 4)
+                }
+            }
+        } else {
+            MadeToKeepWordmark(size: 28, color: OperatorPalette.ink).frame(height: 70)
+            sourceMenu(title: "Add Event Logo", systemImage: "plus", prominent: true)
+        }
+        if let studioProfile {
+            DisclosureGroup("Studio Defaults") {
+                Button("Restore Studio Defaults") {
+                    design.profile.receiptHeader = studioProfile.receiptHeader
+                    design.personalizeReceipt = studioProfile.receiptHeader.assetIdentifier != nil
+                    reloadArtwork()
+                }.frame(minHeight: 44)
+                Text("Replaces this staged header with Regular Booth’s saved header.").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
     // MARK: Logo
 
     @ViewBuilder private var logoArea: some View {
         if let artwork {
-            HStack(alignment: .center, spacing: 18) {
+            VStack(alignment: .leading, spacing: 12) {
                 LogoThumbnail(artwork: artwork)
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Event Logo").font(.headline)
@@ -153,6 +135,22 @@ struct EventReceiptDesignPanel: View {
 
     private func sourceMenu(title: String, systemImage: String, prominent: Bool) -> some View {
         Menu {
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("--event-operations-validation") {
+                Button("Use Synthetic Test Logo") {
+                    runImport {
+                        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+                        let image = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 180), format: format).image { context in
+                            UIColor.black.setFill()
+                            context.fill(CGRect(x: 10, y: 10, width: 280, height: 160))
+                            NSString(string: "CIM").draw(at: CGPoint(x: 50, y: 45), withAttributes: [.font: UIFont.boldSystemFont(ofSize: 80), .foregroundColor: UIColor.white])
+                        }
+                        guard let data = image.pngData() else { throw EventArtworkImporter.ImportError.noFile }
+                        return try await EventArtworkImporter.importData(data)
+                    }
+                }
+            }
+            #endif
             Button { isPhotoPickerPresented = true } label: { Label("Choose from Photos", systemImage: "photo.on.rectangle") }
             Button { isFileImporterPresented = true } label: { Label("Choose from Files (PNG, JPEG, PDF)", systemImage: "folder") }
         } label: {
@@ -164,57 +162,6 @@ struct EventReceiptDesignPanel: View {
     }
 
     // MARK: Layout
-
-    private var layoutChoices: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Receipt Layout").font(.headline)
-            LayoutOption(title: "Co-Branded", subtitle: "Made to Keep × your logo at the top. Recommended.", systemImage: "rectangle.split.2x1",
-                         selected: design.layout == .coBranded) { setLayout(.coBranded) }
-            DisclosureGroup("Advanced Layouts", isExpanded: $isAdvancedLayoutExpanded) {
-                VStack(spacing: 10) {
-                    ForEach(ReceiptBrandingMode.advancedLayouts) { mode in
-                        LayoutOption(title: mode.displayName, subtitle: mode.summary, systemImage: mode == .studioFirst ? "signature" : "photo",
-                                     selected: design.layout == mode) { setLayout(mode) }
-                    }
-                }
-                .padding(.top, 8)
-            }
-            .font(.callout)
-        }
-    }
-
-    private var adjustments: some View {
-        DisclosureGroup("Adjust Header") {
-            VStack(alignment: .leading, spacing: 14) {
-                if design.layout == .coBranded {
-                    CoBrandedHeaderControls(configuration: $design.profile.receiptHeader)
-                } else {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack { Text("Logo Size"); Spacer(); Text("\(Int((design.profile.receiptHeader.scale * 100).rounded()))%").monospacedDigit().foregroundStyle(.secondary) }
-                        Slider(value: $design.profile.receiptHeader.scale, in: ReceiptHeaderConfiguration.minimumScale...ReceiptHeaderConfiguration.maximumEditorScale)
-                            .accessibilityLabel("Logo size")
-                    }
-                    Picker("Frame", selection: $design.profile.receiptHeader.layoutMode) {
-                        Text("Whole Logo (Fit)").tag(ReceiptHeaderLayoutMode.fit)
-                        Text("Fill Banner").tag(ReceiptHeaderLayoutMode.fill)
-                    }
-                    .pickerStyle(.segmented)
-                }
-                Stepper("Space above: \(Int(design.profile.receiptHeader.topSpacing)) dots", value: $design.profile.receiptHeader.topSpacing, in: 0...ReceiptHeaderConfiguration.maximumSpacing, step: 4)
-                Stepper("Space below: \(Int(design.profile.receiptHeader.bottomSpacing)) dots", value: $design.profile.receiptHeader.bottomSpacing, in: 0...ReceiptHeaderConfiguration.maximumSpacing, step: 4)
-                HStack {
-                    if design.layout != .coBranded { Button("Reset to Recommended") { resetLayout() }.buttonStyle(.bordered) }
-                    if design.layout != .coBranded {
-                        Spacer()
-                        Button { isStudioPresented = true } label: { Label("Open Event Artwork Studio", systemImage: "slider.horizontal.below.rectangle") }
-                            .buttonStyle(.bordered)
-                    }
-                }
-            }
-            .padding(.top, 8)
-        }
-        .font(.callout)
-    }
 
     private var personalizeBinding: Binding<Bool> {
         Binding(get: { design.personalizeReceipt }, set: { enabled in
@@ -238,15 +185,6 @@ struct EventReceiptDesignPanel: View {
         design.profile.receiptHeader.assetIdentifier = identifier
     }
 
-    private func resetLayout() {
-        let mode = design.layout
-        let identifier = design.logoIdentifier
-        design.profile.receiptHeader = .coBrandedRecommended
-        design.profile.receiptHeader.brandingMode = mode
-        if mode != .coBranded { design.profile.receiptHeader.horizontalPosition = nil }
-        design.profile.receiptHeader.assetIdentifier = identifier
-    }
-
     // MARK: Import
 
     private func runImport(_ operation: @escaping () async throws -> EventArtworkImporter.Imported) {
@@ -257,14 +195,7 @@ struct EventReceiptDesignPanel: View {
             defer { isImporting = false; photoItem = nil }
             do {
                 let result = try await operation()
-                // A new logo starts from the recommended layout; the old file stays on disk for
-                // any frozen session or reprint that references it.
-                let mode = design.profile.receiptHeader.brandingMode ?? .coBranded
-                design.profile.receiptHeader = .coBrandedRecommended
-                design.profile.receiptHeader.brandingMode = mode
-                if mode != .coBranded { design.profile.receiptHeader.horizontalPosition = nil }
-                design.personalizeReceipt = true
-                design.profile.receiptHeader.assetIdentifier = result.identifier
+                design.replaceLogo(identifier: result.identifier)
                 artwork = result.artwork
                 artworkMissing = false
             } catch {
@@ -293,35 +224,6 @@ private struct ProminentIf: ViewModifier {
     let prominent: Bool
     func body(content: Content) -> some View {
         if prominent { content.buttonStyle(.borderedProminent) } else { content.buttonStyle(.bordered) }
-    }
-}
-
-private struct LayoutOption: View {
-    let title: String
-    let subtitle: String
-    let systemImage: String
-    let selected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                Image(systemName: systemImage).font(.title3).frame(width: 30)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title).font(.headline)
-                    Text(subtitle).font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer()
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle").font(.title3)
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
-            .background(selected ? OperatorPalette.selected : Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
-            .overlay { RoundedRectangle(cornerRadius: 14).stroke(selected ? OperatorPalette.ink : .secondary.opacity(0.25), lineWidth: selected ? 2 : 1) }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 

@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Combine
 
@@ -517,5 +518,42 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
             storageError = "Event design could not be saved on this iPad. Your edits are kept in setup; try again."
             throw SetupFailure(storageError!)
         }
+    }
+}
+
+// Replacement keeps the draft, run and immutable archived artwork references intact.
+extension SavedEventDesign {
+    mutating func replaceLogo(identifier: String) {
+        var header = profile.receiptHeader
+        if logoIdentifier == nil {
+            let mode: ReceiptBrandingMode = header.mode == .pocketPixelsDefault ? .coBranded : (header.brandingMode ?? .coBranded)
+            header = .coBrandedRecommended
+            header.brandingMode = mode
+            if mode != .coBranded { header.horizontalPosition = nil }
+        } else {
+            if layout == .coBranded { header = ReceiptComposer.prepareCoBrandedEditing(header) }
+            // Retain a compatible crop; a changed visible aspect needs its own crop framing.
+            let assets = try? EventHeaderAssetStore()
+            let oldBounds = assets?.loadArtwork(identifier: header.assetIdentifier)?.contentBounds
+            let newBounds = assets?.loadArtwork(identifier: identifier)?.contentBounds
+            let compatibleCrop: Bool
+            if let oldBounds, let newBounds {
+                let oldAspect = oldBounds.width / max(1, oldBounds.height)
+                let newAspect = newBounds.width / max(1, newBounds.height)
+                compatibleCrop = abs(oldAspect / max(0.001, newAspect) - 1) <= 0.01
+            } else { compatibleCrop = false }
+            if !compatibleCrop {
+                header.cropZoom = 1
+                header.cropPositionX = 0
+                header.cropPositionY = 0
+            }
+        }
+        header.assetIdentifier = identifier
+        if header.brandingMode == .coBranded {
+            // Resolve only the new logo's legal centre using the production collision engine.
+            header = ReceiptComposer.moveHeaderElement(header, target: .event)
+        }
+        profile.receiptHeader = header.normalized()
+        personalizeReceipt = true
     }
 }

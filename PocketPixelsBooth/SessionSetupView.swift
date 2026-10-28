@@ -16,15 +16,13 @@ struct SessionSetupView: View {
     @ObservedObject private var acceptance: SessionAcceptanceStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var typeSize
-    @State private var devicePrintOptions = ReceiptPrintSettingsStore.load()
-    @State private var previewSelection = ReceiptPreviewSelection()
     @State private var review = false
     @Environment(\.dismiss) private var dismiss
     private let opensNewEventDraft: Bool
     @State private var previousEventPicker = false
     @State private var confirmDiscard = false
     @State private var paymentExpanded = false
-    @State private var receiptExpanded = false
+    @State private var receiptStudioPresented = false
     @State private var guestExpanded = false
     @State private var galleryExpanded = false
     @State private var reviewExpanded = false
@@ -99,19 +97,6 @@ struct SessionSetupView: View {
                     OperatorFeedbackBanner(feedback: .init(message: setup.message, isError: setup.needsRefresh)) { setup.clearMessage() }
                         .padding(.horizontal).padding(.top, 8)
                 }
-                if receiptExpanded {
-                    SetupCard {
-                        HStack {
-                            Text("Live Receipt Preview").font(.headline)
-                            Spacer()
-                            Button("Close Receipt Controls") { endEditing(); receiptExpanded = false }
-                                .font(.callout).frame(minHeight: 44)
-                                .accessibilityIdentifier("close-receipt-controls")
-                        }
-                        EventReceiptComposerPreview(profile: setup.effectiveProfile, printOptions: devicePrintOptions, compact: true, selection: $previewSelection)
-                    }.accessibilityElement(children: .contain).accessibilityIdentifier("event-pinned-preview")
-                        .padding(.horizontal, 24).padding(.vertical, 8)
-                }
             }.background(OperatorPalette.canvas)
         }
         .safeAreaInset(edge: .bottom) { bottomBar }
@@ -120,10 +105,7 @@ struct SessionSetupView: View {
             else if setup.mode == .serverManaged { await setup.refresh() }
         }
         .onDisappear { workspace.checkpoint() }
-        .onAppear { setup.reloadDesignFromStorage(); devicePrintOptions = ReceiptPrintSettingsStore.load() }
-        .onReceive(NotificationCenter.default.publisher(for: ReceiptPrintSettingsStore.didChangeNotification)) { _ in
-            devicePrintOptions = ReceiptPrintSettingsStore.load()
-        }
+        .onAppear { setup.reloadDesignFromStorage() }
         .onReceive(NotificationCenter.default.publisher(for: OperatorWorkspace.didUnlock)) { _ in
             if setup.mode == .serverManaged { Task { await setup.refresh() } }
         }
@@ -131,6 +113,9 @@ struct SessionSetupView: View {
             if phase != .active { review = false; confirmDiscard = false; workspace.checkpoint() }
         }
 
+        .fullScreenCover(isPresented: $receiptStudioPresented) {
+            NavigationStack { EventDesignEditorView(setup: setup) }.dynamicTypeSize(typeSize)
+        }
         .sheet(isPresented: $review) { reviewSheet }
         .sheet(isPresented: $previousEventPicker) {
             NavigationStack {
@@ -196,10 +181,20 @@ struct SessionSetupView: View {
             paymentSection
         }
         SetupCard {
-            sectionHeading("Receipt Design", summary: setup.effectiveProfile.receiptDesign.typography.preset.displayName,
-                           id: "event-customize-receipt", expanded: $receiptExpanded)
-            if !receiptExpanded { EventReceiptComposerPreview(profile: setup.effectiveProfile, printOptions: devicePrintOptions, compact: true, selection: $previewSelection) }
-            if receiptExpanded { EventDesignEditorView(setup: setup, inline: true, showsPreview: false) }
+            Text("Receipt Design").font(.headline)
+            HStack(spacing: 16) {
+                Image(systemName: "doc.text.image").font(.largeTitle).frame(width: 52, height: 72)
+                    .background(.white, in: RoundedRectangle(cornerRadius: 6))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(setup.design?.personalizeReceipt == true ? (setup.design?.layout.displayName ?? "Co-Branded Receipt") : "Made to Keep Studios").font(.headline)
+                    Text(setup.design?.personalizeReceipt == true ? "Made to Keep × \(setup.design?.displayName ?? "Event")" : "Studio branding").font(.callout)
+                    Text(setup.design?.logoIdentifier == nil ? "No event logo" : (setup.logoIsUsable ? "Event logo ready" : "Event logo needs attention"))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Button { endEditing(); receiptStudioPresented = true } label: { Text("Customize Receipt").frame(minHeight: 44) }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("event-customize-receipt")
         }.disabled(setup.busy)
         inlineSection("Guest Experience", summary: "\(setup.design?.guestScreensEnabled == true ? "Event welcome" : "Studio welcome") · Stickers \(stickerEnabled ? "enabled" : "disabled")", id: "event-guest-experience", expanded: $guestExpanded) {
             if let design = Binding($setup.design) {
@@ -223,7 +218,7 @@ struct SessionSetupView: View {
                 CustomerExperiencePreviewView(profile: setup.effectiveProfile)
             }
         }
-        inlineSection("Gallery & QR", summary: (setup.effectiveProfile.receiptDesign.footerStyleOverride ?? devicePrintOptions.footerStyle).displayName,
+        inlineSection("Gallery & QR", summary: (setup.effectiveProfile.galleryReceiptStyleOverride ?? GalleryReceiptSettingsStore.load()).title,
                       id: "event-gallery-qr", expanded: $galleryExpanded) {
             EventGalleryPresentationControls(setup: setup)
         }

@@ -42,6 +42,7 @@ final class HeaderPINRefinementUITests: XCTestCase {
         app.buttons["Move × Separator right"].tap()
         app.buttons["Move × Separator down"].tap()
         try capture("header-portrait")
+        app.buttons["Event Logo"].tap()
         app.buttons["Advanced Artwork & Crop"].tap()
         XCTAssertTrue(app.sliders["Crop Zoom"].exists)
         XCUIDevice.shared.press(.home)

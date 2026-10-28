@@ -114,6 +114,39 @@ import SwiftUI
 }
 
 @MainActor final class SessionSetupTests: XCTestCase {
+    func testReceiptStudioDraftCheckpointSaveAndLiveStagePreserveOtherConfiguration() async throws {
+        let f = SetupFixture(); defer { f.cleanup() }
+        await f.model.prepareNewWorkspace()
+        f.model.design?.name = "CIM INTRAMS"
+        f.model.prepaid.activePolicy.defaultCopies = 2
+        let policy = f.model.prepaid.activePolicy
+        let regular = RegularBoothSettings.load()
+        f.model.design?.profile.receiptDesign.editorialCaption = "MADE FOR CIM"
+        f.model.design?.profile.receiptDesign.footerStyleOverride = .decorativeBarcodeOnly
+        f.model.design?.profile.receiptDesign.typography.preset = .editorial
+        f.model.design?.profile.subtitle = "INTRAMS"
+        f.workspace.checkpoint(); await f.workspace.flush()
+        let id = try XCTUnwrap(f.model.designID)
+        let checkpoint = OperatorWorkspace(directory: f.directory)
+        XCTAssertEqual(checkpoint.designDraft(id: id)?.profile.receiptDesign.editorialCaption, "MADE FOR CIM")
+        XCTAssertTrue(f.applied.isEmpty); XCTAssertNil(f.runs.currentRunID)
+        let saved = await f.model.saveForLater(); XCTAssertTrue(saved)
+        let reopened = f.makeModel(); await reopened.chooseDesign(id)
+        XCTAssertEqual(reopened.design?.profile.receiptDesign.typography.preset, .editorial)
+        XCTAssertEqual(reopened.design?.profile.receiptDesign.footerStyleOverride, .decorativeBarcodeOnly)
+        XCTAssertEqual(f.model.prepaid.activePolicy, policy)
+        XCTAssertEqual(RegularBoothSettings.load(), regular)
+        await assertStart(f.model, expected: true)
+        let frozen = f.profile, run = f.runs.currentRunID
+        let live = f.makeModel(live: true)
+        live.design?.profile.receiptDesign.editorialCaption = "NEXT GUEST ONLY"
+        f.workspace.checkpoint(); await f.workspace.flush()
+        XCTAssertEqual(f.profile, frozen)
+        XCTAssertEqual(f.runs.currentRunID, run)
+        XCTAssertEqual(OperatorWorkspace(directory: f.directory).designDraft(id: id)?.profile.receiptDesign.editorialCaption, "NEXT GUEST ONLY")
+        XCTAssertEqual(f.local.activePolicy, policy)
+    }
+
     func testEventStickerChoicesPersistIndependentlyAndTemplateDoesNotShareState() async throws {
         let f = SetupFixture(); defer { f.cleanup() }
         f.stickerSettings.isEnabled = true

@@ -1,12 +1,14 @@
 import SwiftUI
 
 struct RegularBoothSettingsView: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     @ObservedObject private var workspace: OperatorWorkspace
     private let footerOnly: Bool
     @State private var settings: RegularBoothSettings
     @State private var saved: RegularBoothSettings
     @State private var message = ""
     @State private var loadIssue = RegularBoothSettings.loadIssue()
+    @State private var studioPresented = false
     @State private var design: SavedEventDesign
 
     init(workspace: OperatorWorkspace? = nil, footerOnly: Bool = false) {
@@ -42,6 +44,20 @@ struct RegularBoothSettingsView: View {
             else { settingsForm }
         }
         .safeAreaInset(edge: .bottom) { saveBar }
+        .fullScreenCover(isPresented: $studioPresented) {
+            NavigationStack {
+                ReceiptStudioView(design: $design, profile: regularProfile, isRegularBooth: true)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            NavigationLink("Print Sample") { SamplePrintStudioView(previewProfile: regularProfile) }
+                        }
+                        ToolbarItem(placement: .confirmationAction) { Button("Done") { checkpoint(); studioPresented = false } }
+                    }
+                    .safeAreaInset(edge: .bottom) {
+                        if let error = workspace.persistenceError { Text(error).font(.footnote).padding().background(.bar) }
+                    }
+            }.dynamicTypeSize(typeSize)
+        }
         .tint(OperatorPalette.accent)
         .onAppear { reloadDraft() }
         .onChange(of: settings) { _, _ in message = ""; checkpoint() }
@@ -52,9 +68,8 @@ struct RegularBoothSettingsView: View {
             Section("Regular Booth receipt") {
                 Text("Applies to the next Regular Booth guest. Event designs and admitted guests keep their own settings.")
                     .font(.callout).foregroundStyle(OperatorPalette.secondaryText)
-                EventReceiptDesignPanel(design: $design, isDirty: false, save: {}, discard: {}, isRegularBooth: true)
-                TextField("Footer text / optional receipt caption", text: $design.profile.receiptDesign.editorialCaption, axis: .vertical)
-                    .accessibilityIdentifier("regular-footer-text")
+                Button("Customize Receipt") { studioPresented = true }.buttonStyle(.borderedProminent)
+                Text("\((design.profile.receiptDesign.footerStyleOverride ?? ReceiptPrintSettingsStore.load().footerStyle).displayName) · \(design.profile.receiptDesign.typography.preset.displayName)").font(.footnote)
             }
             Section {
                 NavigationLink("Preview Receipt") {

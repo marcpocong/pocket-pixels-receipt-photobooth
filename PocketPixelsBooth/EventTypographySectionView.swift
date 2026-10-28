@@ -9,6 +9,7 @@ import UIKit
 /// Event Setup → Receipt Typography. Presets first; individual controls only for Custom.
 struct EventTypographySection: View {
     @Binding var typography: EventTypographyConfiguration
+    var showsSample = true
 
     var body: some View {
         Section {
@@ -17,11 +18,11 @@ struct EventTypographySection: View {
                     Text(preset.displayName).tag(preset)
                 }
             }
-            .pickerStyle(.segmented)
+            .pickerStyle(.menu)
             .accessibilityIdentifier("event-typography-style")
             .accessibilityHint("Sets the fonts used for event details on printed receipts.")
 
-            TypographySample(resolved: typography.resolved)
+            if showsSample { TypographySample(resolved: typography.resolved) }
 
             if typography.preset == .custom {
                 DisclosureGroup("Advanced Typography") {

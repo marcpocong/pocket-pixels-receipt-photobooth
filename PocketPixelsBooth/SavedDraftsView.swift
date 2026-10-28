@@ -221,8 +221,13 @@ struct SavedDesignDraftEditor: View {
                 if let design = Binding($setup.design) {
                     Text(design.wrappedValue.displayName).font(.title.bold())
                     Text("Editing a saved draft. Guests keep the applied design.").foregroundStyle(.secondary)
-                    EventReceiptDesignPanel(design: design, isDirty: setup.designDirty, save: { setup.saveDesign() }, discard: { confirmsDiscard = true })
-                    NavigationLink("More Design Options") { EventDesignEditorView(setup: setup) }.buttonStyle(.bordered)
+                    NavigationLink("Customize Receipt") { EventDesignEditorView(setup: setup) }.buttonStyle(.borderedProminent)
+                    if setup.designDirty {
+                        HStack {
+                            Button("Cancel Changes", role: .destructive) { confirmsDiscard = true }
+                            Button("Save Design") { setup.saveDesign() }.buttonStyle(.borderedProminent)
+                        }
+                    }
                 } else { ContentUnavailableView("Design unavailable", systemImage: "doc.questionmark") }
                 if !setup.message.isEmpty { Text(setup.message).foregroundStyle(.secondary) }
             }.padding(28).frame(maxWidth: 850).frame(maxWidth: .infinity)

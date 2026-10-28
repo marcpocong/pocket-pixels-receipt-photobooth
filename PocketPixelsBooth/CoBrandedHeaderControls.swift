@@ -3,7 +3,10 @@ import SwiftUI
 /// The single co-branded editing surface. All positions and limits come from production frames.
 struct CoBrandedHeaderControls: View {
     @Binding var configuration: ReceiptHeaderConfiguration
-    @State private var target: CoBrandedHeaderTarget = .whole
+    var showsPreview = true
+    var selection: Binding<CoBrandedHeaderTarget>? = nil
+    @State private var localTarget: CoBrandedHeaderTarget = .whole
+    private var target: CoBrandedHeaderTarget { selection?.wrappedValue ?? localTarget }
 
     private var adjustments: CoBrandedHeaderAdjustments {
         ReceiptComposer.prepareCoBrandedEditing(configuration).coBrandedAdjustments ?? .init(configuration: configuration)
@@ -11,10 +14,10 @@ struct CoBrandedHeaderControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            CoBrandedHeaderPreview(configuration: configuration)
+            if showsPreview { CoBrandedHeaderPreview(configuration: configuration) }
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                 ForEach(CoBrandedHeaderTarget.allCases, id: \.self) { item in
-                    Button { target = item } label: {
+                    Button { if let selection { selection.wrappedValue = item } else { localTarget = item } } label: {
                         Text(item.rawValue).frame(maxWidth: .infinity, minHeight: 44)
                     }
                     .buttonStyle(.bordered)
@@ -42,6 +45,7 @@ struct CoBrandedHeaderControls: View {
             movement("Vertical", vertical: true)
             Text("Moves in 4 printer dots. A dimmed arrow has reached the margin or the minimum gap. Resize an identity or adjust × to make room.")
                 .font(.caption).foregroundStyle(.secondary)
+            if target == .event {
             DisclosureGroup("Advanced Artwork & Crop") {
                 VStack(spacing: 12) {
                     if configuration.layoutMode == .fill {
@@ -55,6 +59,7 @@ struct CoBrandedHeaderControls: View {
                     Text("Crop affects only the event artwork inside its frame.").font(.caption).foregroundStyle(.secondary)
                 }.padding(.top, 10)
             }
+            }
             ViewThatFits(in: .horizontal) {
                 HStack { resetSelected; resetEntire }
                 VStack(alignment: .leading) { resetSelected; resetEntire }
@@ -63,25 +68,39 @@ struct CoBrandedHeaderControls: View {
     }
 
     private var resetSelected: some View {
-        Button("Reset Selected Element") { configuration = ReceiptComposer.resetHeaderElement(configuration, target: target) }
+        Button("Reset This Element") { configuration = ReceiptComposer.resetHeaderElement(configuration, target: target) }
     }
     private var resetEntire: some View {
-        Button("Reset Entire Header") { configuration.resetEntireCoBrandedHeader() }
+        Button("Reset Header") { configuration.resetEntireCoBrandedHeader() }
             .accessibilityHint("Restores recommended header geometry and spacing. Keeps the imported event logo.")
     }
 
     private func movement(_ title: String, vertical: Bool) -> some View {
         let travel = ReceiptComposer.headerTravel(configuration, target: target, vertical: vertical)
         return HStack {
-            Text(title)
+            Text(title + " Position")
             Spacer()
             Button { move(vertical: vertical, amount: -4) } label: {
                 Image(systemName: vertical ? "arrow.up" : "arrow.left").frame(minWidth: 52, minHeight: 44)
             }.disabled(travel.lowerBound > -0.5).accessibilityLabel("Move \(target.rawValue) \(vertical ? "up" : "left")")
+            Text(positionText(vertical: vertical)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                .accessibilityLabel("Position in printer dots")
             Button { move(vertical: vertical, amount: 4) } label: {
                 Image(systemName: vertical ? "arrow.down" : "arrow.right").frame(minWidth: 52, minHeight: 44)
             }.disabled(travel.upperBound < 0.5).accessibilityLabel("Move \(target.rawValue) \(vertical ? "down" : "right")")
         }.buttonStyle(.bordered)
+    }
+
+    private func positionText(vertical: Bool) -> String {
+        guard let plan = ReceiptComposer.headerEditingPlan(configuration) else { return "—" }
+        let rect: CGRect? = switch target {
+        case .whole: plan.mastheadFrames.reduce(CGRect.null) { $0.union($1) }.union(plan.customHeaderFrame ?? .null).union(plan.coBrandSeparatorFrame ?? .null)
+        case .studio: plan.mastheadFrames.reduce(CGRect.null) { $0.union($1) }
+        case .separator: plan.coBrandSeparatorFrame
+        case .event: plan.customHeaderFrame
+        }
+        guard let rect, !rect.isNull else { return "—" }
+        return "\(Int((vertical ? rect.midY : rect.midX).rounded())) dots"
     }
 
     private func move(vertical: Bool, amount: Double) {
