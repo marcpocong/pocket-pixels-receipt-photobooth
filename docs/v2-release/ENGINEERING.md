@@ -86,3 +86,33 @@ undo/redo, save/reopen, cancellation and accessibility. Reviewed the portrait sc
 flagged two legacy assertions for whole reset retaining individual scale; those assertions now
 verify the intended complete reset against original production frames. An updated model and
 integrated run follow. No physical thermal output has been tested.
+
+## Monitoring checkpoint
+
+The existing monitoring Worker/D1 remain the owners of heartbeat, payment-health checks,
+incidents, cooldown, supersession and bounded Telegram delivery. `/v1/telegram` accepts only
+five fixed read-only commands after a constant-time secret check, bounded 4 KiB UTF-8 parsing,
+private owner user/chat allowlisting and update/date validation. D1 batches bound concurrent
+commands to ten/minute. Unique update IDs persist one timestamped reply; atomic leases and
+five attempts protect its delivery. Both alert and command delivery honor Telegram retry
+advice. Failed replies remain visible via the authenticated overview. Seven-day replay
+retention exceeds the accepted 24-hour message window.
+
+Optional bounded telemetry adds snapshot time, event activity state, last observed guest
+activity and aggregated queue metrics. It carries no session identifiers, customer names,
+photos, gallery tokens/URLs or payment identifiers. A posted gallery remains in the unverified
+count. Missing telemetry remains unknown; reports distinguish heartbeat age, sample age and
+independent payment-backend check age. Legacy apps still work. The new app negotiates schema
+support and falls back once on 422 after a Worker rollback.
+
+Warnings distinguish an active event's ten-minute delivery backlog or operator-attention items
+from routine idle/offline pending work. Storage / paid-camera block incidents are critical;
+existing recovery notifications, deduplication and supersession remain. Telegram delivery has
+bounded at-least-once retry semantics because sendMessage offers no idempotency key. A crash
+after a remote send but before recording its response can duplicate a status reply/alert; it
+cannot operate the booth or transmit a gallery/print/payment.
+
+Validation: 19 real-local-D1 / mocked-outbound monitoring tests passed. The targeted combined
+receipt + telemetry simulator run passed 47 tests. Worker dry-run packaging passed without
+publishing. Additive migration 0003 preserves existing tables and records. No webhook was
+registered, live message sent or production Worker deployed.

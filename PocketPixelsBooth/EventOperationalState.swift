@@ -79,7 +79,10 @@ final class EventOperationalState: ObservableObject {
     @Published private(set) var recoveryConfirmation = 0
     @Published private(set) var recoveryActionMessage = ""
     @Published private(set) var recoveryStorageError: String?
-    @Published var customerSessionActive = false
+    @Published private(set) var lastGuestActivityAt: Date?
+    @Published var customerSessionActive = false {
+        didSet { if oldValue != customerSessionActive { lastGuestActivityAt = Date() } }
+    }
     /// A hardware qualification print may have started without a confirmed outcome. The printer's
     /// physical state is unknown, so customers are blocked exactly like an unresolved customer print.
     @Published private(set) var qualificationPrintNeedsInspection = false

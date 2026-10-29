@@ -11,6 +11,34 @@ nonisolated struct BoothTelemetry: Codable, Equatable, Sendable {
     var storage: String
     var incidents: [String]
     var eventReference: String?
+    var reportedAt: String? = nil
+    var eventState: String? = nil
+    var activityAt: String? = nil
+    var uploads: GalleryQueueTelemetry? = nil
+
+    func legacy() -> Self {
+        var value = self
+        value.reportedAt = nil; value.eventState = nil; value.activityAt = nil; value.uploads = nil
+        return value
+    }
+}
+
+nonisolated struct GalleryQueueTelemetry: Codable, Equatable, Sendable {
+    var pending: Int
+    var uploading: Int
+    var verifying: Int
+    var attention: Int
+    var oldestAt: String?
+    var activityAt: String?
+
+    init(summaries: [GalleryPendingUploadSummary], activeToken: String?, verifying: Bool, lastActivityAt: Date?) {
+        pending = min(100000, summaries.count)
+        uploading = activeToken != nil && !verifying ? 1 : 0
+        self.verifying = activeToken != nil && verifying ? 1 : 0
+        attention = min(100000, summaries.filter(\.needsAttention).count)
+        oldestAt = summaries.first?.createdAt
+        activityAt = lastActivityAt.map { ISO8601DateFormatter().string(from: $0) }
+    }
 }
 
 /// Independent observational service: it has no ability to authorize payment, print, change
@@ -21,6 +49,7 @@ nonisolated struct BoothTelemetry: Codable, Equatable, Sendable {
     @Published private(set) var lastHeartbeat: Date?
     private var task: Task<Void, Never>?
     private var sending = false
+    private var supportsV2: Bool?
     private let credentialService = "com.pocketpixels.booth-monitoring"
     var endpoint: String { UserDefaults.standard.string(forKey: "pocketPixels.monitoring.endpoint") ?? "" }
 
@@ -34,6 +63,7 @@ nonisolated struct BoothTelemetry: Codable, Equatable, Sendable {
         if status == errSecItemNotFound { status = SecItemAdd(key.merging(value) { _,new in new } as CFDictionary,nil) }
         guard status == errSecSuccess else { throw SetupFailure("Monitoring credential could not be saved in Keychain.") }
         UserDefaults.standard.set(url.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn:"/")),forKey:"pocketPixels.monitoring.endpoint")
+        supportsV2 = nil
         lastResult = "Configured. A heartbeat will verify the connection."
     }
     private func token() -> String? {
@@ -71,8 +101,24 @@ nonisolated struct BoothTelemetry: Codable, Equatable, Sendable {
         request.httpMethod="POST";request.setValue("Bearer "+token,forHTTPHeaderField:"Authorization")
         request.setValue("application/json",forHTTPHeaderField:"Content-Type")
         do {
-            request.httpBody=try JSONEncoder().encode(snapshot())
-            let (_,response)=try await URLSession.shared.data(for:request)
+            if supportsV2 == nil {
+                // Old deployed Workers allowlist the legacy schema. Negotiate before adding fields.
+                let healthRequest = URLRequest(url: base.appendingPathComponent("health"), timeoutInterval: 8)
+                if let (data, response) = try? await URLSession.shared.data(for: healthRequest),
+                   (response as? HTTPURLResponse)?.statusCode == 200,
+                   let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    supportsV2 = (body["telemetryVersion"] as? Int ?? 1) >= 2
+                }
+            }
+            let telemetry = snapshot()
+            request.httpBody=try JSONEncoder().encode(supportsV2 == true ? telemetry : telemetry.legacy())
+            var (_,response)=try await URLSession.shared.data(for:request)
+            if (response as? HTTPURLResponse)?.statusCode == 422, supportsV2 == true {
+                // Code rollback to a legacy Worker cannot silently stop heartbeat enrollment.
+                supportsV2 = false
+                request.httpBody = try JSONEncoder().encode(telemetry.legacy())
+                (_,response) = try await URLSession.shared.data(for: request)
+            }
             guard let response=response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
             if response.statusCode==429 { lastResult="Heartbeat cooldown; monitoring remains configured.";return }
             guard response.statusCode==200 else { throw URLError(.badServerResponse) }
@@ -105,10 +151,20 @@ nonisolated struct BoothTelemetry: Codable, Equatable, Sendable {
         let paused=acceptance.state.blocked || runs.pendingTransition != nil
         if paused { incidents.append("paused") }
         if CommercialPolicySource.load() == .serverManaged, operations.networkPathStatus != "Online" { payment="unavailable" }
-        return BoothTelemetry(mode:runs.pendingTransition != nil ? "recovery" : (paused ? "paused" : (RegularBoothMode.isEnabled ? "regular" : "event")),
+        var value = BoothTelemetry(mode:runs.pendingTransition != nil ? "recovery" : (paused ? "paused" : (RegularBoothMode.isEnabled ? "regular" : "event")),
             network:operations.networkPathStatus=="Online" ? "online" : (operations.networkPathStatus=="Offline" ? "offline" : "unknown"),
             payment:payment,printer:uncertain ? "uncertain" : (printer.requiresRecovery ? "recovery" : printer.operatorState.telemetryValue),storage:storage ? "error" : "ready",
             incidents:Array(Set(incidents)).sorted(),eventReference:runs.operational?.id)
+        let scheduler = GalleryUploadScheduler.shared
+        value.reportedAt = ISO8601DateFormatter().string(from: Date())
+        value.eventState = runs.pendingTransition != nil ? "recovery" : (runs.operational == nil ? "idle" : (paused || runs.operational?.status == .paused ? "paused" : "active"))
+        value.activityAt = operations.lastGuestActivityAt.map { ISO8601DateFormatter().string(from: $0) }
+        // Re-read metadata only; no photographs are loaded for monitoring.
+        if let queue = try? GalleryPendingUploadStore().summaries() {
+            value.uploads = GalleryQueueTelemetry(summaries: queue, activeToken: scheduler.activeToken,
+                verifying: scheduler.phase == .verifying, lastActivityAt: scheduler.lastActivityAt)
+        }
+        return value
     }
 }
 
@@ -120,7 +176,7 @@ struct BoothMonitoringView: View {
     var body: some View {
         Form {
             Section("Owner alerts") {
-                Text("Private Telegram alerts use a separate monitoring Worker. Only fixed health codes and an event reference are sent. Monitoring cannot authorize payments or change booth operation.")
+                Text("Private Telegram alerts use a separate monitoring Worker. Only bounded health codes, queue counts, timestamps and an event reference are sent. Monitoring cannot authorize payments or change booth operation.")
                 TextField("Monitoring Worker URL",text:$endpoint).textInputAutocapitalization(.never).autocorrectionDisabled()
                 SecureField("Device heartbeat credential",text:$credential).textInputAutocapitalization(.never).autocorrectionDisabled()
                 Button("Save Monitoring Connection") {
