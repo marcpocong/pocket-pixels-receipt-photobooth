@@ -52,6 +52,7 @@ final class EventOperationsUITests: XCTestCase {
             if element.exists && frame.midY < (top + bottom) / 2 { scroll.swipeDown(velocity: .slow) }
             else { scroll.swipeUp(velocity: .slow) }
         }
+        capture("missing-" + element.identifier)
         XCTFail("Element is not visible: \(element)")
     }
     private func tapVisible(_ query: XCUIElementQuery) throws {
