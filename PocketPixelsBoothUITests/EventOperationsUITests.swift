@@ -43,16 +43,21 @@ final class EventOperationsUITests: XCTestCase {
             if !reviewing && pinned.exists { top = max(top, pinned.frame.maxY) }
             let primary = reviewing ? app.buttons["Start Accepting Guests"]
                 : (app.buttons["apply-live-event"].exists ? app.buttons["apply-live-event"] : app.buttons["review-setup"])
-            let bottom = primary.exists ? primary.frame.minY - 10 : app.frame.maxY
+            // At accessibility sizes, Save for Later sits above the primary action. The entire
+            // pinned bar occludes content, even when a partially visible row reports hittable.
+            let pinnedActions = reviewing ? [primary] : [primary, app.buttons["save-setup-draft"]]
+            let bottom = pinnedActions.filter { $0.exists && $0.frame.height > 0 }.map { $0.frame.minY - 10 }.min() ?? app.frame.maxY
             let frame = element.exists ? element.frame : .zero
-            if element.exists && (!requireHitTarget || element.isHittable) && frame.height > 0 && frame.width > 0
-                && frame.minY >= top && frame.maxY <= bottom { return }
+            // Keyboard dismissal can consume an otherwise hittable section tap. Finish editing
+            // before accepting the geometry, so the next tap actually invokes the control.
             let done = app.buttons["event-finish-editing"]
             if !reviewing && app.keyboards.firstMatch.exists && done.exists && done.isHittable { done.tap(); continue }
+            if element.exists && (!requireHitTarget || element.isHittable) && frame.height > 0 && frame.width > 0
+                && frame.minY >= top && frame.maxY <= bottom { return }
             if element.exists && frame.midY < (top + bottom) / 2 { scroll.swipeDown(velocity: .slow) }
             else { scroll.swipeUp(velocity: .slow) }
         }
-        capture("missing-" + element.identifier)
+        capture("missing-control")
         XCTFail("Element is not visible: \(element)")
     }
     private func tapVisible(_ query: XCUIElementQuery) throws {
@@ -630,7 +635,11 @@ final class EventOperationsUITests: XCTestCase {
         let name = app.textFields["event-name"]
         XCTAssertTrue(name.waitForExistence(timeout: 10)); name.tap(); name.typeText("Accessible Portrait Event")
         let guest = app.buttons["event-guest-experience"]
-        visible(guest, in: app); guest.tap()
+        visible(guest, in: app)
+        XCTAssertTrue(guest.isEnabled)
+        guest.tap()
+        let expanded = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Expanded"), object: guest)
+        XCTAssertEqual(XCTWaiter.wait(for: [expanded], timeout: 5), .completed)
         let stickers = app.buttons["event-sticker-studio"]
         visible(stickers, in: app); stickers.tap()
         XCTAssertEqual(stickers.value as? String, "Enabled")
@@ -647,6 +656,7 @@ final class EventOperationsUITests: XCTestCase {
         XCTAssertEqual(app.textFields["event-name"].value as? String, "Accessible Portrait Event")
         let reopenedGuest = app.buttons["event-guest-experience"]
         visible(reopenedGuest, in: app); reopenedGuest.tap()
+        XCTAssertEqual(reopenedGuest.value as? String, "Expanded")
         let reopenedStickers = app.buttons["event-sticker-studio"]
         visible(reopenedStickers, in: app)
         XCTAssertEqual(reopenedStickers.value as? String, "Enabled")

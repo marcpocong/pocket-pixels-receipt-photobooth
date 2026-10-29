@@ -163,3 +163,15 @@ fields actually edited since opening into the latest Setup value, retaining refr
 bindings, event identity/name and unrelated guest/gallery settings. A draft from another design
 cannot be applied. The new model regression and all seven ReceiptStudioV2Tests passed before
 the later host storage interruption; no active event or payment record is replaced by Save.
+
+## Native accessibility test geometry
+
+The existing Guest Experience navigation test also exposed an occlusion error in its visibility
+helper: at accessibility sizes the pinned Save for Later row sits above Review & Start, but the
+helper used only the latter's top edge. A partially visible section reported hittable while its
+center was covered by the pinned bar. Before/after screenshots were identical and the section
+remained collapsed. The helper now uses the top of the entire pinned action area and dismisses
+the keyboard before accepting geometry. The test explicitly checks expansion and preserves all
+save/relaunch/sticker/rotation assertions. No production UI was changed. The corrected test
+passed on iOS 26.5; a complete native suite follows. The final production suite passed all
+864 XCTest plus 98 Swift Testing tests on iOS 27.0, with no failures.
