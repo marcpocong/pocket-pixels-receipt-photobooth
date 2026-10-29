@@ -1,5 +1,20 @@
 # Validation record
 
+## Current result
+
+| Check | Outcome |
+|---|---|
+| Simulator build-for-testing (Xcode 27.1) | Passed |
+| Complete production suite, iOS 27.0 | **962 passed, 0 failed** (864 XCTest + 98 Swift Testing) |
+| Final complete native UI suite, iOS 26.5 | **28 passed, 0 failed** |
+| Payments Worker | **223 passed** |
+| Gallery Worker | **39 passed** |
+| Monitoring Worker | **20 passed** |
+| Apps Script validation and monitoring Worker dry-run package | Passed |
+| Hosted Production Gate | **Blocked before execution by Actions budget** |
+| Physical iPad / G80 / real weak networks / live Telegram | **Not performed** |
+
+
 Repository: `marcpocong/pocket-pixels-receipt-photobooth` (private).
 Fetched main: `ff4c06d5ecadabcd32001b5e560bc1c96b4b8253`.
 Branch: `feat/operations-studio-monitor-v2`.
@@ -39,9 +54,9 @@ No physical iPad or printer. No deployment or live Telegram delivery.
 
 ## Full gate and follow-up
 
-Complete local production and native UI suites run separately on two isolated simulators with
+Initial complete local production and native UI suites ran separately on two isolated simulators with
 CI-equivalent `-test-timeouts-enabled YES -default-test-execution-time-allowance 600
--maximum-test-execution-time-allowance 900`. Results are recorded below when complete.
+-maximum-test-execution-time-allowance 900`. Initial and final outcomes are recorded below.
 
 The first full local production run flagged a guest passport landscape screenshot color
 fraction (0.003922 versus >0.004). The test and guest screen have not been weakened/changed;
@@ -98,8 +113,56 @@ worktree/build. Existing simulator app/customer records were not erased. More th
 recovered. Simulator testmanager services initially retained missing socket paths after the
 storage failure; shutdown/boot repaired them without erasing device data.
 
-The complete current-candidate gate is running on one iOS 27 simulator in
+The complete current-candidate gate was rerun on one iOS 27 simulator in
 `/tmp/mtk-v2-complete-gate-rebooted.xcresult`, using the same timeout/signing flags and
 `-collect-test-diagnostics never`. This disables bulky automatic sysdiagnose collection only;
 all unit/UI tests, assertions, screenshot attachments and result reporting remain enabled.
-Final outcome is recorded below after completion.
+Its production suite passed; its one remaining UI fixture failure was corrected and the complete native suite subsequently passed below.
+
+## Final candidate production / accessibility results
+
+The complete current-app production suite passed **864 XCTest and 98 Swift Testing tests**
+on iOS 27.0, with no failures or skips. This includes receipt/raster, all gallery scheduler /
+recovery / proof tests, commercial/session integrity, print recovery and the 1,000-session
+isolation regression. The combined run's native suite passed 27/28; only the pre-existing
+accessibility navigation fixture's occluded tap failed. Its exact combined summary is retained
+in `results/combined-before-ui-fixture-fix.json` (989 passed, 1 failed, 990 total).
+
+The final UI helper fix accounts for the entire pinned action area, including Save for Later
+above Review & Start at accessibility sizes, and keyboard dismissal. Screenshots proved the
+previous tap landed beneath the pinned bar. Expansion is now explicitly asserted. The targeted
+save/relaunch/reopen/rotation test passed on iOS 26.5 in
+`/tmp/mtk-v2-pinned-bar26-verified.xcresult`. No production UI or assertion threshold was changed.
+
+The final monitoring allowlist additionally rejects inherited JavaScript object names and
+non-string incident codes. `npm --prefix Backend/PaymentsWorker run test:monitoring` passed
+**20/20** in `/tmp/mtk-v2-monitor-allowlist-tests.log`; the corresponding final Worker dry-run
+package passed in `/tmp/mtk-v2-monitor-final-dry-run.log`.
+
+Latest hosted run for the pushed checkpoint:
+https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/40902153554
+It also failed before steps ran. The same Actions-budget annotation was verified using the
+read-only `gh api .../check-runs/123547070669/annotations` call.
+
+## Final complete native UI result — passed
+
+`/tmp/mtk-v2-native-final-verified.xcresult` completed on the 11-inch iPad Pro simulator, iOS 26.5,
+with **28 passed, 0 failed, 0 skipped**. It ran the entire `PocketPixelsBoothUITests` target,
+including all editor, accessibility, persistence/relaunch, PIN/relock, event lifecycle,
+archive/restore, gallery, recent-session, export and recovery tests. The exact summary is
+retained in `results/native-ui-final.json`.
+
+Command: `xcodebuild test-without-building -project PocketPixelsBooth.xcodeproj -scheme
+PocketPixelsBooth -destination 'platform=iOS Simulator,id=643C1CF2-771A-4553-B562-869E09E571B1'
+-derivedDataPath /tmp/mtk-v2-derived -resultBundlePath /tmp/mtk-v2-native-final-verified.xcresult
+-only-testing:PocketPixelsBoothUITests -parallel-testing-enabled NO -collect-test-diagnostics
+never -test-timeouts-enabled YES -default-test-execution-time-allowance 600
+-maximum-test-execution-time-allowance 900 CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual
+DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER=`.
+
+The complete production suite and complete final native suite therefore pass locally, across
+the two recorded full runs. No failed or interrupted run was recast as passing. Hosted CI,
+physical/live acceptance and deployment remain separate outstanding release gates. Generated
+browser comparison images were restored; project signing, dependencies and production data
+were not changed. Temporary extra simulators and the baseline audit worktree/build were removed;
+existing simulator data remains intact.

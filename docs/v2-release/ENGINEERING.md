@@ -181,3 +181,12 @@ passed on iOS 26.5; a complete native suite follows. The final production suite 
 Incident validation now checks own keys and string types, rejecting inherited JavaScript object
 names such as constructor/toString/__proto__. This does not widen the telemetry schema or
 command surface. All 20 monitoring tests and a fresh Worker dry-run package passed afterward.
+
+## Final available validation
+
+Complete production: 864 XCTest + 98 Swift Testing tests passed on iOS 27.0. Complete final
+native UI: all 28 tests passed on iOS 26.5. Payments 223, Gallery 39, Monitoring 20 tests passed;
+Apps Script validation and final monitoring dry-run packaging passed. See VALIDATION.md for
+exact commands, summaries and all earlier failures/corrections/environment interruptions.
+Hosted Actions remains budget-blocked before execution. All physical/live checks remain pending.
+No production deployment, webhook registration, physical install or live Telegram send occurred.

@@ -50,5 +50,6 @@ Baseline `ff4c06d`. Generated browser-test screenshots are restored after valida
 - `docs/v2-release/HARDWARE-ACCEPTANCE.md`
 - `docs/v2-release/CHANGED-FILES.md`
 - `docs/v2-release/screenshots/receipt-studio-portrait.png`
+- `docs/v2-release/results/` (actual xcresult summary JSON)
 
 No changes to project/bundle/signing/deployment settings, payment source, printer transport or raster generation. `EventProfile.swift` changes are preview-only; `CoBrandedReceiptHeader.swift` changes are explicit editor reset/recenter operations.

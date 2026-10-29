@@ -4,6 +4,12 @@ Implementation is on `feat/operations-studio-monitor-v2`, draft [PR #20](https:/
 Production deployment, physical iPad/G80 testing and live Telegram delivery have **not** occurred.
 Hosted CI is blocked by the repository's Actions budget; this is not a passing release gate.
 
+Local validation completed: **962/962 production tests** on iOS 27.0 and **28/28 native UI tests**
+on iOS 26.5 passed in their complete recorded runs. Payments **223/223**, Gallery **39/39** and
+Monitoring **20/20** backend tests passed, along with Apps Script checks and Worker dry-run
+packaging. See VALIDATION.md for commands, exact result summaries, corrected failures and the
+separate interrupted host-storage runs.
+
 ## 1. Baseline
 
 Inspected latest fetched `main`, `ff4c06d5ecadabcd32001b5e560bc1c96b4b8253`, root AGENTS.md,
@@ -111,8 +117,8 @@ Existing receipt/raster, guest isolation and recovery checks remain. Native UI c
 portrait columns, whole preview, gestures, target movement, tabs, undo/redo, save/reopen, cancel
 and accessibility. Monitoring tests use real local D1 and mocked outbound services.
 
-Full-suite review also found and corrected an overly broad viewport policy and asynchronous
-fixture ordering/isolation. Test coverage/thresholds were not suppressed or weakened.
+Full-suite review also found and corrected an overly broad viewport policy, asynchronous
+fixture ordering/isolation and an accessibility test tap occluded by the pinned action area. Test coverage/thresholds were not suppressed or weakened.
 
 ## 9. Commands and outcomes
 
@@ -137,14 +143,16 @@ Hosted CI must run successfully after account capacity is restored before releas
 - `d20cdfa`: sequential recovery fairness and reconciliation backoff.
 - `aaf8790`: viewport scope, queue fixture isolation and snapshot/banner ordering.
 - `237161f`: merge receipt edits without replacing refreshed Setup records.
+- `4473537`: keyboard/pinned-action geometry in native accessibility tests.
+- `06bcfec`: reject inherited object names in incident allowlists.
 
 Further final validation/save-safety documentation commits are listed in the branch history.
 PR remains draft; no merge, production deploy, secret update or physical install was performed.
 
 ## 12. Outstanding items
 
-Hosted Actions budget and physical/live acceptance remain external release gates. Any remaining
-local validation failures are recorded explicitly in VALIDATION.md. Do not treat this document
+Hosted Actions budget and physical/live acceptance remain external release gates. The complete final local production and native suites pass; earlier failures, their corrections
+and interrupted environment runs are recorded explicitly in VALIDATION.md. Do not treat this document
 or simulator results as approval to deploy or proof of hardware behavior.
 
 ## 13. Physical validation
