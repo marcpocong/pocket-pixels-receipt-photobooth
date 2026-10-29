@@ -56,7 +56,9 @@ release. Use synthetic guests and a separate test event; preserve existing event
 
 ## Rollout / rollback
 
-Keep PR #20 a draft until release checks and required manual acceptance are reviewed. Deploy the
+The owner authorized validated main integration and an in-place Carlo update on 30 October 2026;
+see CORRECTIVE-RELEASE.md for the current release record. Hardware/live checks below remain
+separate from automated validation. Deploy the
 monitoring Worker and additive migration before enabling V2 commands. The app negotiates old
 heartbeat schemas and can run against the previous Worker. No Gallery/Payments Worker deploy
 is required by these changes. No live webhook has been registered by the implementation task.

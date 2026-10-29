@@ -64,21 +64,72 @@ nonisolated enum ReceiptStudioLayout {
 }
 
 extension SavedEventDesign {
-    /// Commit only this editor's changed fields into the latest Setup value. Background server
-    /// reconciliation can update commercial bindings while a receipt draft is open.
-    nonisolated mutating func applyReceiptEdits(from draft: Self, baseline: Self) {
-        guard id == draft.id, id == baseline.id else { return }
-        if draft.personalizeReceipt != baseline.personalizeReceipt { personalizeReceipt = draft.personalizeReceipt }
-        if draft.profile.receiptHeader != baseline.profile.receiptHeader { profile.receiptHeader = draft.profile.receiptHeader }
-        if draft.profile.receiptDesign.typography != baseline.profile.receiptDesign.typography { profile.receiptDesign.typography = draft.profile.receiptDesign.typography }
-        if draft.profile.receiptDesign.editorialCaption != baseline.profile.receiptDesign.editorialCaption { profile.receiptDesign.editorialCaption = draft.profile.receiptDesign.editorialCaption }
-        if draft.profile.receiptDesign.footerStyleOverride != baseline.profile.receiptDesign.footerStyleOverride { profile.receiptDesign.footerStyleOverride = draft.profile.receiptDesign.footerStyleOverride }
-        if draft.profile.receiptExtrasEnabled != baseline.profile.receiptExtrasEnabled { profile.receiptExtrasEnabled = draft.profile.receiptExtrasEnabled }
-        if draft.profile.showEventTextBlock != baseline.profile.showEventTextBlock { profile.showEventTextBlock = draft.profile.showEventTextBlock }
-        if draft.profile.subtitle != baseline.profile.subtitle { profile.subtitle = draft.profile.subtitle }
-        if draft.profile.includeEventDate != baseline.profile.includeEventDate { profile.includeEventDate = draft.profile.includeEventDate }
-        if draft.profile.eventDate != baseline.profile.eventDate { profile.eventDate = draft.profile.eventDate }
-        if draft.profile.location != baseline.profile.location { profile.location = draft.profile.location }
-        if draft.profile.shortMessage != baseline.profile.shortMessage { profile.shortMessage = draft.profile.shortMessage }
+    /// Three-way, all-or-nothing commit. A conflicting save changes nothing; the operator can
+    /// keep editing (including Undo) or explicitly reload the latest receipt. No force overwrite.
+    @discardableResult
+    nonisolated mutating func applyReceiptEdits(from draft: Self, baseline: Self) -> [String] {
+        guard id == draft.id, id == baseline.id else { return ["Selected design"] }
+        var candidate = self
+        var conflicts: [String] = []
+        func merge<Value: Equatable>(_ path: WritableKeyPath<Self, Value>, _ label: String) {
+            let before = baseline[keyPath: path], edited = draft[keyPath: path], latest = self[keyPath: path]
+            guard edited != before else { return }
+            guard latest == before || latest == edited else { conflicts.append(label); return }
+            candidate[keyPath: path] = edited
+        }
+        func mergeComponents<Value: Codable>(_ path: WritableKeyPath<Self, Value>, _ label: String) {
+            do {
+                candidate[keyPath: path] = try ReceiptComponentMerge.merge(
+                    baseline[keyPath: path], draft[keyPath: path], self[keyPath: path],
+                    label: label, conflicts: &conflicts)
+            } catch { conflicts.append(label + " could not be read") }
+        }
+        merge(\.personalizeReceipt, "Personalization")
+        mergeComponents(\.profile.receiptHeader, "Header")
+        mergeComponents(\.profile.receiptDesign.typography, "Typography")
+        merge(\.profile.receiptDesign.editorialCaption, "Caption")
+        merge(\.profile.receiptDesign.footerStyleOverride, "Footer layout")
+        merge(\.profile.receiptExtrasEnabled, "Printed extras")
+        merge(\.profile.showEventTextBlock, "Event details")
+        merge(\.profile.subtitle, "Subtitle")
+        merge(\.profile.includeEventDate, "Show date")
+        merge(\.profile.eventDate, "Date")
+        merge(\.profile.location, "Location")
+        merge(\.profile.shortMessage, "Message")
+        if conflicts.isEmpty { self = candidate }
+        return conflicts.sorted()
+    }
+}
+
+/// Recurses through persisted header/typography components only. Missing optional components
+/// are distinct from initialized geometry: simultaneous creation/reset is a component conflict,
+/// rather than guessing reference coordinates. Existing components merge by individual property.
+nonisolated private enum ReceiptComponentMerge {
+    static func merge<Value: Codable>(_ baseline: Value, _ draft: Value, _ latest: Value,
+                                       label: String, conflicts: inout [String]) throws -> Value {
+        func object(_ value: Value) throws -> Any {
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(value))
+        }
+        func equal(_ a: Any, _ b: Any) -> Bool {
+            NSDictionary(dictionary: ["v": a]).isEqual(to: ["v": b])
+        }
+        func visit(_ before: Any, _ edited: Any, _ current: Any, _ path: String) -> Any {
+            if equal(before, edited) { return current }
+            if equal(before, current) || equal(edited, current) { return edited }
+            if let before = before as? [String: Any], let edited = edited as? [String: Any],
+               let current = current as? [String: Any] {
+                var result = current
+                for key in Set(before.keys).union(edited.keys).union(current.keys).sorted() {
+                    let value = visit(before[key] ?? NSNull(), edited[key] ?? NSNull(),
+                                      current[key] ?? NSNull(), path + "." + key)
+                    if value is NSNull { result.removeValue(forKey: key) } else { result[key] = value }
+                }
+                return result
+            }
+            conflicts.append(path)
+            return current
+        }
+        let merged = visit(try object(baseline), try object(draft), try object(latest), label)
+        return try JSONDecoder().decode(Value.self, from: JSONSerialization.data(withJSONObject: merged))
     }
 }

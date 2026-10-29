@@ -14,8 +14,7 @@ struct EventReceiptDesignPanel: View {
     @State private var photoItem: PhotosPickerItem?
     @State private var isPhotoPickerPresented = false
     @State private var isFileImporterPresented = false
-    @State private var isImporting = false
-    @State private var importError: String?
+    let artworkImport: ReceiptArtworkImportSession
     @State private var artwork: EventArtwork?
     @State private var artworkMissing = false
     @State private var isStudioPresented = false
@@ -23,6 +22,7 @@ struct EventReceiptDesignPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             studioHeaderControls
+                .disabled(artworkImport.isImporting)
         }
         .onAppear { reloadArtwork() }
         .onChange(of: design.logoIdentifier) { _, _ in reloadArtwork() }
@@ -114,15 +114,12 @@ struct EventReceiptDesignPanel: View {
             .background(Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
             .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 5])).foregroundStyle(.secondary.opacity(0.5)) }
         }
-        if isImporting {
-            ProgressView("Preparing logo…").frame(maxWidth: .infinity)
-        }
-        if let importError {
+        if let importError = artworkImport.errorMessage {
             VStack(alignment: .leading, spacing: 8) {
                 Label(importError, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                 HStack {
                     sourceMenu(title: "Choose Another File", systemImage: "folder", prominent: false)
-                    if artwork == nil { Button("Turn Off Personalization") { design.personalizeReceipt = false; self.importError = nil }.buttonStyle(.bordered) }
+                    if artwork == nil { Button("Turn Off Personalization") { design.personalizeReceipt = false; artworkImport.cancelImport() }.buttonStyle(.bordered) }
                 }
             }
             .font(.callout)
@@ -153,7 +150,7 @@ struct EventReceiptDesignPanel: View {
             Label(title, systemImage: systemImage).font(.headline).frame(minHeight: 44).padding(.horizontal, 6)
         }
         .modifier(ProminentIf(prominent: prominent))
-        .disabled(isImporting)
+        .disabled(artworkImport.isImporting)
         .accessibilityHint("Choose the logo from Photos or Files.")
     }
 
@@ -164,7 +161,7 @@ struct EventReceiptDesignPanel: View {
             design.personalizeReceipt = enabled
             // A newly personalized event starts on the recommended Co-Branded layout.
             if enabled, design.logoIdentifier == nil, design.profile.receiptHeader.brandingMode == nil { setLayout(.coBranded) }
-            importError = nil
+            artworkImport.cancelImport()
         })
     }
 
@@ -184,20 +181,7 @@ struct EventReceiptDesignPanel: View {
     // MARK: Import
 
     private func runImport(_ operation: @escaping () async throws -> EventArtworkImporter.Imported) {
-        guard !isImporting else { return }
-        isImporting = true
-        importError = nil
-        Task {
-            defer { isImporting = false; photoItem = nil }
-            do {
-                let result = try await operation()
-                design.replaceLogo(identifier: result.identifier)
-                artwork = result.artwork
-                artworkMissing = false
-            } catch {
-                importError = error.localizedDescription
-            }
-        }
+        if artworkImport.begin(operation) { photoItem = nil }
     }
 
     private func removeLogo() {

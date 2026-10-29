@@ -11,6 +11,9 @@ struct ReceiptStudioView: View {
     @State private var original: SavedEventDesign
     @State private var draft: SavedEventDesign
     @State private var history = ReceiptStudioHistory()
+    @State private var artworkImport = ReceiptArtworkImportSession()
+    @State private var saveConflicts: [String] = []
+    @State private var showsConflict = false
     @State private var compactShowsPreview = false
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var section: EditingSection = .header
@@ -56,6 +59,15 @@ struct ReceiptStudioView: View {
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 12) {
+                if artworkImport.isImporting {
+                    HStack {
+                        ProgressView("Preparing logo… Save is available when it finishes.")
+                        Button("Cancel Import") { artworkImport.cancelImport() }
+                    }.accessibilityIdentifier("receipt-studio-importing")
+                }
+                if let error = artworkImport.errorMessage {
+                    Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                }
                 Picker("Editing Section", selection: $section) {
                     ForEach(EditingSection.allCases) { Text($0.rawValue).tag($0) }
                 }.pickerStyle(.segmented).accessibilityIdentifier("receipt-studio-section")
@@ -82,22 +94,40 @@ struct ReceiptStudioView: View {
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button { draft = history.undo(draft) } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
-                    .disabled(!history.canUndo).accessibilityIdentifier("receipt-studio-undo")
+                    .disabled(!history.canUndo || artworkImport.isImporting).accessibilityIdentifier("receipt-studio-undo")
                 Button { draft = history.redo(draft) } label: { Label("Redo", systemImage: "arrow.uturn.forward") }
-                    .disabled(!history.canRedo).accessibilityIdentifier("receipt-studio-redo")
+                    .disabled(!history.canRedo || artworkImport.isImporting).accessibilityIdentifier("receipt-studio-redo")
                 Button("Save") {
+                    guard !artworkImport.isImporting else { return }
                     var latest = design
-                    latest.applyReceiptEdits(from: draft, baseline: original)
+                    saveConflicts = artworkImport.save(draft, baseline: original, into: &latest)
+                    guard saveConflicts.isEmpty else { showsConflict = true; return }
+                    artworkImport.close()
                     design = latest; onSave?()
-                }.disabled(design.id != draft.id).accessibilityIdentifier("receipt-studio-done")
+                }.disabled(design.id != draft.id || artworkImport.isImporting).accessibilityIdentifier("receipt-studio-done")
             }
             ToolbarItem(placement: .topBarLeading) {
                 NavigationLink("Print Sample") { SamplePrintStudioView(previewProfile: previewProfile) }
-                    .accessibilityIdentifier("receipt-studio-print-sample")
+                    .disabled(artworkImport.isImporting).accessibilityIdentifier("receipt-studio-print-sample")
             }
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { onCancel?() }.accessibilityIdentifier("receipt-studio-cancel")
+                Button("Cancel") { artworkImport.close(); onCancel?() }.accessibilityIdentifier("receipt-studio-cancel")
             }
+        }
+        .task(id: artworkImport.requestID) {
+            await artworkImport.process { result in
+                editing.wrappedValue.replaceLogo(identifier: result.identifier)
+            }
+        }
+        .onDisappear { artworkImport.cancelImport() }
+        .alert("Receipt changed elsewhere", isPresented: $showsConflict) {
+            Button("Keep Editing", role: .cancel) { }
+            Button("Reload Latest Receipt", role: .destructive) {
+                original = design; draft = design; history = ReceiptStudioHistory()
+            }
+        } message: {
+            Text("Nothing was saved. Conflicting adjustments: " + saveConflicts.joined(separator: ", ")
+                 + ". Keep editing to undo your conflicting adjustments, or reload to discard this receipt draft and use the latest values.")
         }
         .onChange(of: section) { _, _ in history.endGroup() }
         .onChange(of: target) { _, _ in history.endGroup() }
@@ -119,7 +149,7 @@ struct ReceiptStudioView: View {
                 Text(section.title).font(.title3.weight(.semibold))
                 switch section {
                 case .header:
-                    EventReceiptDesignPanel(design: editing, studioProfile: studioProfile, headerTarget: $target, isRegularBooth: isRegularBooth)
+                    EventReceiptDesignPanel(design: editing, studioProfile: studioProfile, headerTarget: $target, isRegularBooth: isRegularBooth, artworkImport: artworkImport)
                 case .footer: footerControls
                 case .text: textControls
                 }

@@ -68,6 +68,159 @@ import UIKit
         XCTAssertEqual(latest, committed, "Another design's draft cannot replace this design")
     }
 
+    func testScaleAndExternalLogoMergeThenPersistAcrossReopen() throws {
+        let original = SavedEventDesign.new(name: "Merge", venue: "")
+        var local = original, latest = original
+        local.profile.receiptHeader.scale = 0.7
+        latest.profile.receiptHeader.assetIdentifier = "new-external-logo"
+        latest.serverEvents = ["live:synthetic": "binding"]
+        XCTAssertTrue(latest.applyReceiptEdits(from: local, baseline: original).isEmpty)
+        let reopened = try JSONDecoder().decode(SavedEventDesign.self, from: JSONEncoder().encode(latest))
+        XCTAssertEqual(reopened.profile.receiptHeader.scale, 0.7)
+        XCTAssertEqual(reopened.logoIdentifier, "new-external-logo")
+        XCTAssertEqual(reopened.serverEvents, latest.serverEvents)
+    }
+
+    func testLocalLogoAndExternalSpacingAndNestedAdjustmentsMerge() {
+        var original = SavedEventDesign.new(name: "Merge", venue: "")
+        original.profile.receiptHeader.coBrandedAdjustments = CoBrandedHeaderAdjustments(configuration: .coBrandedRecommended)
+        var local = original, latest = original
+        local.profile.receiptHeader.assetIdentifier = "local-logo"
+        local.profile.receiptHeader.coBrandedAdjustments?.studioScale = 0.8
+        latest.profile.receiptHeader.bottomSpacing = 33
+        latest.profile.receiptHeader.coBrandedAdjustments?.eventY = 12
+        XCTAssertTrue(latest.applyReceiptEdits(from: local, baseline: original).isEmpty)
+        XCTAssertEqual(latest.logoIdentifier, "local-logo")
+        XCTAssertEqual(latest.profile.receiptHeader.bottomSpacing, 33)
+        XCTAssertEqual(latest.profile.receiptHeader.coBrandedAdjustments?.studioScale, 0.8)
+        XCTAssertEqual(latest.profile.receiptHeader.coBrandedAdjustments?.eventY, 12)
+    }
+
+    func testConflictBlocksEntireSaveAndUndoAllowsSafeRetryAcrossSections() {
+        let original = SavedEventDesign.new(name: "Conflict", venue: "")
+        var local = original, latest = original, history = ReceiptStudioHistory()
+        local.profile.receiptHeader.scale = 0.7
+        history.record(from: original, to: local); history.endGroup() // changing sections
+        let headerEdit = local
+        local.profile.receiptDesign.editorialCaption = "Footer edit"
+        history.record(from: headerEdit, to: local)
+        latest.profile.receiptHeader.scale = 0.9
+        latest.name = "Concurrent setup"
+        let external = latest
+        XCTAssertEqual(latest.applyReceiptEdits(from: local, baseline: original), ["Header.scale"])
+        XCTAssertEqual(latest, external, "A conflicting save must not partially commit other sections")
+        local = history.undo(local); local = history.undo(local)
+        XCTAssertTrue(latest.applyReceiptEdits(from: local, baseline: original).isEmpty)
+        XCTAssertEqual(latest, external)
+        local = history.redo(local)
+        XCTAssertEqual(latest.applyReceiptEdits(from: local, baseline: original), ["Header.scale"])
+        XCTAssertEqual(latest, external, "Redo must not bypass conflict detection")
+    }
+
+    func testSameValueConcurrentEditIsNotConflictAndOptionalRemovalIsPreserved() {
+        var original = SavedEventDesign.new(name: "Optional", venue: "")
+        original.profile.receiptHeader.assetIdentifier = "old-logo"
+        var local = original, latest = original
+        local.profile.receiptHeader.scale = 0.8
+        latest.profile.receiptHeader.scale = 0.8
+        latest.profile.receiptHeader.assetIdentifier = nil
+        XCTAssertTrue(latest.applyReceiptEdits(from: local, baseline: original).isEmpty)
+        XCTAssertNil(latest.logoIdentifier)
+        XCTAssertEqual(latest.profile.receiptHeader.scale, 0.8)
+    }
+
+    func testSimultaneousGeometryInitializationOrResetConflictsWithoutGuessing() {
+        let original = SavedEventDesign.new(name: "Geometry", venue: "")
+        var local = original, latest = original
+        local.profile.receiptHeader.coBrandedAdjustments = CoBrandedHeaderAdjustments(configuration: .coBrandedRecommended)
+        latest.profile.receiptHeader.coBrandedAdjustments = CoBrandedHeaderAdjustments(configuration: .coBrandedRecommended)
+        latest.profile.receiptHeader.coBrandedAdjustments?.studioY = 20
+        let external = latest
+        XCTAssertEqual(latest.applyReceiptEdits(from: local, baseline: original), ["Header.coBrandedAdjustments"])
+        XCTAssertEqual(latest, external)
+    }
+
+    func testImportBlocksSaveUntilCompletionAndRejectsDuplicateThenReopensSavedLogo() async throws {
+        let session = ReceiptArtworkImportSession()
+        let gate = ArtworkImportGate()
+        let original = SavedEventDesign.new(name: "Import", venue: "")
+        var local = original, parent = original
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 30)).image { ctx in
+            UIColor.black.setFill(); ctx.fill(CGRect(x: 0, y: 0, width: 40, height: 30))
+        }
+        let imported = try await EventArtworkImporter.importData(XCTUnwrap(image.pngData()))
+        XCTAssertTrue(session.begin { try await gate.wait() })
+        XCTAssertFalse(session.begin { imported })
+        let task = Task { await session.process { local.replaceLogo(identifier: $0.identifier) } }
+        await gate.waitUntilStarted()
+        XCTAssertTrue(session.isImporting)
+        XCTAssertEqual(session.save(local, baseline: original, into: &parent), ["Logo is still importing"])
+        XCTAssertEqual(parent, original)
+        gate.finish(.success(imported)); await task.value
+        XCTAssertFalse(session.isImporting); XCTAssertNil(session.errorMessage)
+        XCTAssertTrue(session.save(local, baseline: original, into: &parent).isEmpty)
+        let reopened = try JSONDecoder().decode(SavedEventDesign.self, from: JSONEncoder().encode(parent))
+        XCTAssertEqual(reopened.logoIdentifier, imported.identifier)
+        XCTAssertNotNil(try EventHeaderAssetStore().loadArtwork(identifier: reopened.logoIdentifier))
+    }
+
+    func testImportFailureKeepsExistingLogoAndReportsFailure() async {
+        let session = ReceiptArtworkImportSession()
+        var local = SavedEventDesign.new(name: "Failure", venue: "")
+        local.profile.receiptHeader.assetIdentifier = "existing-logo"
+        let before = local
+        session.begin { throw EventArtworkImporter.ImportError.noFile }
+        await session.process { local.replaceLogo(identifier: $0.identifier) }
+        XCTAssertEqual(local, before); XCTAssertFalse(session.isImporting)
+        XCTAssertEqual(session.errorMessage, EventArtworkImporter.ImportError.noFile.localizedDescription)
+    }
+
+    func testCancelDuringImportPreventsLateDraftOrParentMutationAndRetainsArtwork() async throws {
+        let session = ReceiptArtworkImportSession(), gate = ArtworkImportGate()
+        var local = SavedEventDesign.new(name: "Cancel", venue: "")
+        let original = local
+        var parent = local
+        parent.name = "Concurrent Setup change"
+        parent.serverEvents = ["live:synthetic": "new-binding"]
+        parent.profile.receiptHeader.assetIdentifier = "new-external-logo"
+        let external = parent
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { ctx in
+            UIColor.black.setFill(); ctx.fill(CGRect(x: 0, y: 0, width: 20, height: 20))
+        }
+        let imported = try await EventArtworkImporter.importData(XCTUnwrap(image.pngData()))
+        session.begin { try await gate.wait() }
+        let task = Task { await session.process { local.replaceLogo(identifier: $0.identifier) } }
+        await gate.waitUntilStarted()
+        session.close(); task.cancel()
+        gate.finish(.success(imported)); await task.value
+        XCTAssertEqual(local, original); XCTAssertFalse(session.isImporting)
+        XCTAssertEqual(session.save(local, baseline: original, into: &parent), ["Editing session is closed"])
+        XCTAssertEqual(parent, external, "Cancel preserves concurrent Setup updates and cannot commit a late result")
+        XCTAssertFalse(session.begin { imported }, "A dismissed session cannot accept new imports")
+        XCTAssertNotNil(try EventHeaderAssetStore().loadArtwork(identifier: imported.identifier))
+    }
+
+    func testCancelledImportCannotOverwriteLaterReplacementOrRemoval() async throws {
+        let session = ReceiptArtworkImportSession(), gate = ArtworkImportGate()
+        var local = SavedEventDesign.new(name: "Replacement", venue: "")
+        local.profile.receiptHeader.assetIdentifier = "existing-logo"
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { _ in }
+        let artwork = EventArtwork(image: image)
+        let old = EventArtworkImporter.Imported(identifier: "late-old-import", artwork: artwork)
+        let new = EventArtworkImporter.Imported(identifier: "chosen-replacement", artwork: artwork)
+        session.begin { try await gate.wait() }
+        let first = Task { await session.process { local.replaceLogo(identifier: $0.identifier) } }
+        await gate.waitUntilStarted()
+        session.cancelImport()
+        session.begin { new }
+        await session.process { local.replaceLogo(identifier: $0.identifier) }
+        XCTAssertEqual(local.logoIdentifier, new.identifier)
+        local.profile.receiptHeader.assetIdentifier = nil; local.personalizeReceipt = false
+        gate.finish(.success(old)); await first.value
+        XCTAssertNil(local.logoIdentifier); XCTAssertFalse(local.personalizeReceipt)
+        XCTAssertFalse(session.isImporting)
+    }
+
     func testHistoryIgnoresNoOpsAndBoundsRetainedValues() {
         var value = SavedEventDesign.new(name: "Bounded", venue: ""), history = ReceiptStudioHistory()
         history.record(from: value, to: value); XCTAssertFalse(history.canUndo)
@@ -142,5 +295,23 @@ import UIKit
         XCTAssertEqual(reset.assetIdentifier, config.assetIdentifier)
         XCTAssertNil(reset.coBrandedAdjustments)
         XCTAssertNotNil(try EventHeaderAssetStore().loadArtwork(identifier: XCTUnwrap(config.assetIdentifier)))
+    }
+}
+
+/// Deterministic provider completion; no timing delays or network services.
+@MainActor private final class ArtworkImportGate {
+    private var continuation: CheckedContinuation<EventArtworkImporter.Imported, Error>?
+    private var started: CheckedContinuation<Void, Never>?
+    func wait() async throws -> EventArtworkImporter.Imported {
+        try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation; started?.resume(); started = nil
+        }
+    }
+    func waitUntilStarted() async {
+        if continuation != nil { return }
+        await withCheckedContinuation { started = $0 }
+    }
+    func finish(_ result: Result<EventArtworkImporter.Imported, Error>) {
+        continuation?.resume(with: result); continuation = nil
     }
 }
