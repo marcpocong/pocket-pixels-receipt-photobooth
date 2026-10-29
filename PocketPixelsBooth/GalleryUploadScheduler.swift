@@ -67,6 +67,9 @@ final class GalleryUploadScheduler: ObservableObject {
                 activeWaiters = []
                 activeToken = nil
                 for waiter in waiters { waiter.resume(with: result) }
+                // Let a completed recovery submit its next durable item before fast cached jobs
+                // consume every remaining slot. No in-flight network operation is interrupted.
+                await Task.yield()
             }
             worker = nil
             report("Delivery pass finished. Unverified galleries remain saved on iPad.")

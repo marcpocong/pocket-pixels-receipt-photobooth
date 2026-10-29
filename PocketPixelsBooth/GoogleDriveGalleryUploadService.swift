@@ -40,12 +40,12 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
         connectivityTester: GalleryBackendConnectivityTester = GalleryBackendConnectivityTester(),
         pendingStore: GalleryPendingUploadStore? = nil,
         verificationStore: GalleryVerificationStore? = nil,
-        scheduler: GalleryUploadScheduler = .shared,
+        scheduler: GalleryUploadScheduler? = nil,
         onPublicGalleryVerified: @escaping @MainActor (String) -> Void = { sessionID in
             EventRunStore.shared.updateSession(id: sessionID) { if $0.galleryVerifiedAt == nil { $0.galleryVerifiedAt = Date() } }
         }
     ) {
-        self.scheduler = scheduler
+        self.scheduler = scheduler ?? .shared
         self.verificationStore = verificationStore ?? (try? GalleryVerificationStore())
         self.onPublicGalleryVerified = onPublicGalleryVerified
         self.configurationProvider = configurationProvider
@@ -258,6 +258,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
                 guard let current = try pendingStore?.load(galleryToken: galleryToken) else {
                     return GalleryUploadResult(galleryToken: galleryToken, galleryURL: payload.galleryURL, status: .existingComplete)
                 }
+                try pendingStore?.recordAttempt(galleryToken: galleryToken)
                 scheduler.report("Verifying saved gallery through its original QR address.", phase: .verifying)
                 try await verifyPublicGallery(current)
                 try pendingStore?.updateDeliveryState(.posted, galleryToken: galleryToken)
@@ -269,6 +270,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             try Task.checkCancellation()
             if error is URLError { throw error }
             if case GalleryPublicVerificationError.rateLimited = error { throw error }
+            if case GalleryUploadError.configuration = error { throw error }
             return nil
         }
     }

@@ -35,6 +35,62 @@ import UIKit
         XCTAssertLessThanOrEqual(try XCTUnwrap(order.firstIndex(of: "old-waiting")), 3)
     }
 
+    func testSequentialRecoveryGetsFairSlotAmongImmediatelyCompletedFreshJobs() async throws {
+        let scheduler = GalleryUploadScheduler()
+        var order: [String] = [], finish: CheckedContinuation<Void, Never>?
+        let started = expectation(description: "old gallery active")
+        let recovery = Task {
+            for index in 0..<2 {
+                let token = "old-\(index)"
+                _ = try await scheduler.perform(token: token, priority: .recovery) {
+                    order.append(token)
+                    if index == 0 {
+                        started.fulfill()
+                        await withCheckedContinuation { finish = $0 }
+                    }
+                    return self.result(token)
+                }
+            }
+        }
+        await fulfillment(of: [started])
+        let guests = (0..<20).map { index in Task {
+            let token = "fresh-\(index)"
+            return try await scheduler.perform(token: token) { order.append(token); return self.result(token) }
+        } }
+        for _ in 0..<30 { await Task.yield() }
+        finish?.resume()
+        _ = try await recovery.value
+        for guest in guests { _ = try await guest.value }
+        XCTAssertLessThanOrEqual(try XCTUnwrap(order.firstIndex(of: "old-1")), 3,
+            "Sequential durable recovery participates before all immediate cached jobs drain")
+    }
+
+    func testReconnectSignalsCoalesceWithoutCompetingRecoveryPasses() async {
+        let scheduler = GalleryUploadScheduler()
+        var calls = 0, active = 0, peak = 0
+        var finish: CheckedContinuation<Void, Never>?
+        let started = expectation(description: "single recovery owner")
+        let repeated = expectation(description: "coalesced follow-up")
+        scheduler.configureRecovery {
+            calls += 1; active += 1; peak = max(peak, active)
+            if calls == 1 { started.fulfill(); await withCheckedContinuation { finish = $0 } }
+            else { repeated.fulfill() }
+            active -= 1
+            return nil
+        }
+        scheduler.connectionChanged(available: false)
+        scheduler.requestRecovery()
+        for _ in 0..<5 { await Task.yield() }
+        XCTAssertEqual(calls, 0, "Offline signals retain work without polling")
+        scheduler.connectionChanged(available: true)
+        await fulfillment(of: [started])
+        for _ in 0..<20 { scheduler.connectionChanged(available: false); scheduler.connectionChanged(available: true); scheduler.requestRecovery() }
+        XCTAssertEqual(calls, 1)
+        finish?.resume()
+        await fulfillment(of: [repeated])
+        XCTAssertEqual(peak, 1); XCTAssertEqual(calls, 2)
+    }
+
     func testTwoRetryRequestsJoinOneOperationEvenWhenFirstCallerCancels() async throws {
         let scheduler = GalleryUploadScheduler()
         var calls = 0

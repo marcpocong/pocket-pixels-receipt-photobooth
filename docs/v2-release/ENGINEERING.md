@@ -116,3 +116,19 @@ Validation: 19 real-local-D1 / mocked-outbound monitoring tests passed. The targ
 receipt + telemetry simulator run passed 47 tests. Worker dry-run packaging passed without
 publishing. Additive migration 0003 preserves existing tables and records. No webhook was
 registered, live message sent or production Worker deployed.
+
+## Integrated gallery follow-up
+
+A standalone fast-operation probe found a fairness edge beyond the original queued-job test:
+sequential recovery only submits its next durable item after the previous result resumes. A
+MainActor worker could drain immediate jobs before that continuation ran. Yielding only after
+a completed operation gives the resumed recovery caller an opportunity to enqueue; the next
+old slot now follows at most two fresh slots. No in-flight request is preempted. Added simulator
+regressions cover this sequence and rapid reconnect signals joining one recovery owner.
+
+Public-reconciliation attempts now update attempt evidence too, so repeated failed public GETs
+increase bounded backoff instead of repeatedly using the first delay. An integration regression
+checks offline reads cause no POST and accepted galleries honor public Retry-After while
+retaining media. Gallery initializer defaults no longer introduce an actor-isolation warning.
+Build-for-testing passed; 35 final focused gallery / editor-history / close-continue regression
+tests passed on iOS 26.5 in `/tmp/mtk-v2-gallery-final-regression.xcresult`.
