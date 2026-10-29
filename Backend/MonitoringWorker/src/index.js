@@ -55,7 +55,7 @@ export function validate(value) {
         if (!values.includes(value[key])) throw new Error('invalid');
         clean[key] = value[key];
     }
-    if (!Array.isArray(value.incidents) || value.incidents.length>10 || value.incidents.some(code=>!CODES[code] || ['offline','backend','reconciliation','uploads'].includes(code))) throw new Error('invalid');
+    if (!Array.isArray(value.incidents) || value.incidents.length>10 || value.incidents.some(code=>typeof code!=='string' || !Object.hasOwn(CODES,code) || ['offline','backend','reconciliation','uploads'].includes(code))) throw new Error('invalid');
     clean.incidents = [...new Set(value.incidents)].sort();
     if (value.eventReference != null && (typeof value.eventReference!=='string' || !/^[a-zA-Z0-9-]{1,40}$/.test(value.eventReference))) throw new Error('invalid');
     clean.eventReference = value.eventReference || null;
@@ -91,7 +91,7 @@ async function authorized(request,secret) {
 
 export async function syncIncidents(env, states, time=Date.now()) {
     for (const [code,active] of Object.entries(states)) {
-        if (!CODES[code]) continue;
+        if (!Object.hasOwn(CODES,code)) continue;
         const old = await env.DB.prepare('SELECT active,changed_at FROM incidents WHERE code=?').bind(code).first();
         if (old?.active===+active || (!old && !active)) continue;
         // Guard on the previous value inside one atomic batch; concurrent Cron/heartbeat changes

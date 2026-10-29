@@ -267,3 +267,12 @@ test('fresh receipt of an old device sample is explicitly stale',()=>withMonitor
     assert.ok(reply.text.includes('STALE / unavailable'));
     assert.ok(reply.text.includes('Device sample time:'));
 }));
+
+
+test('incident allowlist rejects inherited object names and non-string values',()=>withMonitor(async h=>{
+    for(const code of ['constructor','toString','__proto__',{},null]) {
+        assert.equal((await h.request('/v1/heartbeat',{...clean,incidents:[code]})).status,422);
+    }
+    assert.equal((await h.db.prepare('SELECT COUNT(*) c FROM devices').first()).c,0);
+    assert.equal(h.messages.length,0);
+}));

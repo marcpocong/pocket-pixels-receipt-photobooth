@@ -175,3 +175,9 @@ the keyboard before accepting geometry. The test explicitly checks expansion and
 save/relaunch/sticker/rotation assertions. No production UI was changed. The corrected test
 passed on iOS 26.5; a complete native suite follows. The final production suite passed all
 864 XCTest plus 98 Swift Testing tests on iOS 27.0, with no failures.
+
+## Incident allowlist hardening
+
+Incident validation now checks own keys and string types, rejecting inherited JavaScript object
+names such as constructor/toString/__proto__. This does not widen the telemetry schema or
+command surface. All 20 monitoring tests and a fresh Worker dry-run package passed afterward.
