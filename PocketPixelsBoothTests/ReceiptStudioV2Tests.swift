@@ -68,6 +68,7 @@ import UIKit
         let format = UIGraphicsImageRendererFormat(); format.scale = 1
         let image = UIGraphicsImageRenderer(size: CGSize(width: 576, height: 4000), format: format).image { _ in }
         let view = ReceiptZoomScrollView(frame: CGRect(x: 0, y: 0, width: 470, height: 720))
+        view.preservesViewportOnImageChange = true
         view.display(image, rendering: .smooth); view.layoutIfNeeded()
         XCTAssertEqual(view.fitScale, 720 / 4000, accuracy: 0.001)
         XCTAssertLessThanOrEqual(view.contentSize.height, 720.1)

@@ -473,8 +473,12 @@ enum ScreenshotHarness {
         window.frame = CGRect(origin: .zero, size: size)
         window.rootViewController = controller
         window.makeKeyAndVisible()
-        try await Task.sleep(for: settle)
+        // Start SwiftUI layout / onAppear before measuring the settle interval. A busy simulator
+        // can otherwise defer first layout until after the wait and capture an entrance at zero opacity.
         controller.view.frame = window.bounds
+        controller.view.layoutIfNeeded()
+        await Task.yield()
+        try await Task.sleep(for: settle)
         controller.view.layoutIfNeeded()
         try await Task.sleep(for: .milliseconds(150))
         let image = UIGraphicsImageRenderer(size: size).image { _ in window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) }

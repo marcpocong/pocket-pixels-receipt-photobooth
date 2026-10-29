@@ -105,7 +105,7 @@ struct OperatorZoomableReceiptView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            ZoomableImageScrollView(image: image, rendering: rendering, controller: controller, sizing: showsFitControls ? (fittedWidth ? .fitWidth : .wholeReceipt) : sizing, focus: focus, focusRect: focusRect, focusIdentity: focusIdentity, showsSelection: showsSelection, elementFrames: elementFrames, selectedElement: selectedElement, onSelectElement: onSelectElement)
+            ZoomableImageScrollView(image: image, rendering: rendering, controller: controller, preservesViewportOnImageChange: showsFitControls, sizing: showsFitControls ? (fittedWidth ? .fitWidth : .wholeReceipt) : sizing, focus: focus, focusRect: focusRect, focusIdentity: focusIdentity, showsSelection: showsSelection, elementFrames: elementFrames, selectedElement: selectedElement, onSelectElement: onSelectElement)
                 .background(Color(white: 0.93))
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .overlay { RoundedRectangle(cornerRadius: 10).stroke(MadeToKeepTheme.ColorPalette.hairline) }
@@ -169,6 +169,7 @@ private struct ZoomableImageScrollView: UIViewRepresentable {
     let image: UIImage
     let rendering: OperatorZoomableReceiptView.Rendering
     let controller: ZoomController
+    let preservesViewportOnImageChange: Bool
     let sizing: OperatorZoomableReceiptView.Sizing
     let focus: ReceiptPreviewFocus
     let focusRect: CGRect?
@@ -189,6 +190,7 @@ private struct ZoomableImageScrollView: UIViewRepresentable {
     func updateUIView(_ view: ReceiptZoomScrollView, context: Context) {
         controller.scrollView = view
         view.sizing = sizing
+        view.preservesViewportOnImageChange = preservesViewportOnImageChange
         view.showsSelection = showsSelection
         view.elementFrames = elementFrames
         view.selectedElement = selectedElement
@@ -207,6 +209,7 @@ final class ReceiptZoomScrollView: UIScrollView, UIScrollViewDelegate {
     var sizing: OperatorZoomableReceiptView.Sizing = .wholeReceipt {
         didSet { if oldValue != sizing { fit(sizing) } }
     }
+    var preservesViewportOnImageChange = false
     var elementFrames: [CoBrandedHeaderTarget: CGRect] = [:] { didSet { setNeedsLayout() } }
     var selectedElement: CoBrandedHeaderTarget = .whole { didSet { setNeedsLayout() } }
     var onSelectElement: ((CoBrandedHeaderTarget) -> Void)? { didSet { setNeedsLayout() } }
@@ -255,7 +258,8 @@ final class ReceiptZoomScrollView: UIScrollView, UIScrollViewDelegate {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     func display(_ image: UIImage, rendering: OperatorZoomableReceiptView.Rendering) {
-        let relative = imageView.image == nil ? 1 : zoomScale / max(fitScale, 0.0001)
+        let preservesViewport = sizing == .fitWidth || preservesViewportOnImageChange
+        let relative = preservesViewport && imageView.image != nil ? zoomScale / max(fitScale, 0.0001) : 1
         let previousOffset = contentOffset
         self.rendering = rendering
         // Restore a neutral UIKit zoom coordinate system before replacing image dimensions.
@@ -273,7 +277,7 @@ final class ReceiptZoomScrollView: UIScrollView, UIScrollViewDelegate {
         contentSize = image.size
         lastBoundsSize = .zero
         pendingRelative = max(1, relative)
-        restoreOffset = previousOffset
+        restoreOffset = preservesViewport ? previousOffset : nil
         onZoomChange = callback
         setNeedsLayout()
         // SwiftUI may be updating this representable. Publish the actual resulting zoom after

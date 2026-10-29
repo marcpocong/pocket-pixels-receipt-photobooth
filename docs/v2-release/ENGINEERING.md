@@ -132,3 +132,26 @@ checks offline reads cause no POST and accepted galleries honor public Retry-Aft
 retaining media. Gallery initializer defaults no longer introduce an actor-isolation warning.
 Build-for-testing passed; 35 final focused gallery / editor-history / close-continue regression
 tests passed on iOS 26.5 in `/tmp/mtk-v2-gallery-final-regression.xcresult`.
+
+## Full-suite corrections
+
+The first complete iOS 27 run exposed three issues beyond the focused paths: generic archived
+image replacement inherited editor viewport preservation; a static screenshot could settle
+before first layout; and a gallery fixture's manually injected queue snapshot was overwritten
+by the live app queue publisher. The viewport policy is now opt-in for Receipt Studio (legacy
+fit-width behavior remains). ScreenshotHarness performs first layout before its existing
+settle interval, without disabling animations or changing thresholds. Recent Sessions accepts
+an optional queue publisher, allowing the fixture to use its own durable source while production
+still uses the shared operations publisher. All original assertions remain.
+
+The complete native run passed 27/28; its only failure missed a six-second archive feedback
+banner after waiting on List virtualization. The test now asserts/dismisses that feedback first,
+then verifies row disappearance. No product timing or recovery behavior changed. The new full
+runs include these corrections. Focused iOS 27 follow-up passed 60 receipt / archive viewer /
+static screenshot / motion / emoji tests and 17 public-gallery / telemetry tests. The guest
+screenshot also passed unchanged on untouched main and the updated app independently.
+
+Monitoring now surfaces queue read failures as storage incidents instead of omitting metrics
+while accidentally retaining a ready storage label. Historical verification explicitly reports
+its verifying phase. Final build-for-testing passed. Complete local unit and native UI suites
+are rerunning on the final candidate; hosted CI remains externally budget-blocked.

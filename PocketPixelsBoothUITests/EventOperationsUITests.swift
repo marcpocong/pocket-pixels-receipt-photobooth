@@ -476,13 +476,13 @@ final class EventOperationsUITests: XCTestCase {
         XCTAssertTrue(app.buttons["View History"].isHittable)
         capture("historical-run-management-actions")
         app.buttons["Archive Run"].tap()
-        let archived = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: sameRun)
-        XCTAssertEqual(XCTWaiter.wait(for: [archived], timeout: 5), .completed)
-        // The success banner removes its top inset after six seconds. Dismiss it before
-        // locating the restored row so its disappearance cannot move the tap target.
+        // Assert and dismiss the six-second feedback before waiting on List virtualization;
+        // querying a removed row first can consume the entire banner lifetime on a busy runner.
         let archiveFeedback = app.staticTexts["Run archived. Reports are kept."]
         XCTAssertTrue(archiveFeedback.waitForExistence(timeout: 5))
         app.buttons["Dismiss message"].tap()
+        let archived = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: sameRun)
+        XCTAssertEqual(XCTWaiter.wait(for: [archived], timeout: 5), .completed)
         let feedbackDismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: archiveFeedback)
         XCTAssertEqual(XCTWaiter.wait(for: [feedbackDismissed], timeout: 5), .completed)
         let showArchived = app.switches["Show Archived Events"]

@@ -160,9 +160,13 @@ nonisolated struct GalleryQueueTelemetry: Codable, Equatable, Sendable {
         value.eventState = runs.pendingTransition != nil ? "recovery" : (runs.operational == nil ? "idle" : (paused || runs.operational?.status == .paused ? "paused" : "active"))
         value.activityAt = operations.lastGuestActivityAt.map { ISO8601DateFormatter().string(from: $0) }
         // Re-read metadata only; no photographs are loaded for monitoring.
-        if let queue = try? GalleryPendingUploadStore().summaries() {
+        do {
+            let queue = try GalleryPendingUploadStore().summaries()
             value.uploads = GalleryQueueTelemetry(summaries: queue, activeToken: scheduler.activeToken,
                 verifying: scheduler.phase == .verifying, lastActivityAt: scheduler.lastActivityAt)
+        } catch {
+            value.storage = "error"
+            value.incidents = Array(Set(value.incidents + ["storage"])).sorted()
         }
         return value
     }

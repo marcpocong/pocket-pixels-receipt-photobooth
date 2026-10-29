@@ -284,6 +284,7 @@ final class GoogleDriveGalleryUploadService: GalleryUploadService {
             guard pending.sessionID == target.sessionID, pending.galleryURL == target.url else { throw GalleryUploadError.deliveryUnknown }
         }
         let exact = pending.map(GalleryVerificationTarget.init) ?? target
+        scheduler.report("Verifying original gallery without transmitting media.", phase: .verifying)
         let source = try await GalleryPublicVerifier.verify(exact, session: verificationSession)
         if let pending, pending.deliveryState != .posted { try pendingStore?.updateDeliveryState(.posted, galleryToken: target.token) }
         try recordVerifiedDelivery(exact, source: source)

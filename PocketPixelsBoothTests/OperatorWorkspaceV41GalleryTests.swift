@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 import UIKit
 @testable import PocketPixelsBooth
@@ -166,10 +167,11 @@ import UIKit
         let queue = try GalleryPendingUploadStore(directoryURL: root.appendingPathComponent("queue"))
         try queue.save(payload()); try queue.updateDeliveryState(.deliveryUnknown, galleryToken: token)
         let pending = try queue.summaries()
-        let model = RecentSessionsViewModel(store: archive, summaryLoader: { [summary] }, verificationStore: evidence, recheckSession: network())
+        // The fixture's durable queue is independent of the running app's real queue publisher.
+        let pendingUpdates = CurrentValueSubject<[GalleryPendingUploadSummary], Never>(pending)
+        let model = RecentSessionsViewModel(store: archive, summaryLoader: { [summary] }, verificationStore: evidence, recheckSession: network(), pendingUploadPublisher: pendingUpdates.eraseToAnyPublisher())
         model.refresh()
         while !model.hasLoaded { try await Task.sleep(for: .milliseconds(10)) }
-        model.updatePendingUploadSnapshot(pending)
         V41GalleryProtocol.mode = .offline
         model.verifyGalleries([summary])
         while model.isVerifying { try await Task.sleep(for: .milliseconds(10)) }
@@ -178,7 +180,7 @@ import UIKit
         let queuedStatus = ArchivedGalleryStatus.needsAttention(GalleryDeliveryState.deliveryUnknown.operatorTitle)
         for _ in 0..<100 where model.galleryStatus(for: summary) != queuedStatus { try await Task.sleep(for: .milliseconds(10)) }
         XCTAssertEqual(model.galleryStatus(for: summary), queuedStatus, "The proof notification was applied while the old queue snapshot was still published")
-        model.updatePendingUploadSnapshot([])
+        pendingUpdates.send([])
         XCTAssertEqual(model.galleryStatus(for: summary), .verified, "An old failed recheck cannot hide a later durable successful delivery")
     }
 
