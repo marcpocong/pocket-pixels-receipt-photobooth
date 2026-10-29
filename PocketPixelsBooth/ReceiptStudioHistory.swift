@@ -44,6 +44,8 @@ nonisolated struct ReceiptStudioHistory {
         }
         guard let a = object(a), let b = object(b) else { return nil }
         visit(a, b, "")
+        // Enabling printed extras is derived from a caption/details edit, not a second user action.
+        if paths.count > 1 { paths.removeAll { $0 == ".profile.receiptExtrasEnabled" } }
         return paths.count == 1 ? paths[0] : nil
     }
 }

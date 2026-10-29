@@ -28,6 +28,23 @@ import UIKit
         XCTAssertEqual(try JSONDecoder().decode(SavedEventDesign.self, from: JSONEncoder().encode(caption)), caption)
     }
 
+    func testCaptionWithDerivedEnableFlagIsOneUndoAndRestoresFlagOnRedo() {
+        let initial = SavedEventDesign.new(name: "Caption", venue: "")
+        var history = ReceiptStudioHistory(), value = initial
+        let time = Date()
+        for (index, caption) in ["K", "Ke", "Keep"].enumerated() {
+            var next = value
+            next.profile.receiptDesign.editorialCaption = caption
+            next.profile.receiptExtrasEnabled = true
+            history.record(from: value, to: next, now: time.addingTimeInterval(Double(index) / 10))
+            value = next
+        }
+        XCTAssertEqual(history.undoValues.count, 1)
+        let edited = value
+        value = history.undo(value); XCTAssertEqual(value, initial)
+        value = history.redo(value); XCTAssertEqual(value, edited)
+    }
+
     func testHistoryIgnoresNoOpsAndBoundsRetainedValues() {
         var value = SavedEventDesign.new(name: "Bounded", venue: ""), history = ReceiptStudioHistory()
         history.record(from: value, to: value); XCTAssertFalse(history.canUndo)

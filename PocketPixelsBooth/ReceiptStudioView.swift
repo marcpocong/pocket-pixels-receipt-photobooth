@@ -33,7 +33,12 @@ struct ReceiptStudioView: View {
     }
 
     private var editing: Binding<SavedEventDesign> {
-        Binding(get: { draft }, set: { value in
+        Binding(get: { draft }, set: { candidate in
+            var value = candidate
+            if value.profile.receiptDesign.editorialCaption != draft.profile.receiptDesign.editorialCaption
+                || value.profile.showEventTextBlock != draft.profile.showEventTextBlock {
+                value.profile.receiptExtrasEnabled = true
+            }
             history.record(from: draft, to: value)
             draft = value
         })
@@ -126,7 +131,6 @@ struct ReceiptStudioView: View {
             TextField("Receipt footer caption (optional)", text: limited(editing.profile.receiptDesign.editorialCaption, ReceiptEditorialCaption.inputLimit), axis: .vertical)
                 .lineLimit(2...3).accessibilityIdentifier("event-footer-caption")
                 .focused($textField, equals: .caption)
-                .onChange(of: draft.profile.receiptDesign.editorialCaption) { _, _ in editing.wrappedValue.profile.receiptExtrasEnabled = true }
             if let studioProfile {
                 Button("Reset Caption to Studio") {
                     editing.wrappedValue.profile.receiptDesign.editorialCaption = studioProfile.receiptDesign.editorialCaption
@@ -145,7 +149,6 @@ struct ReceiptStudioView: View {
             if !isRegularBooth {
             Divider()
             Toggle("Print event details below the footer", isOn: editing.profile.showEventTextBlock)
-                .onChange(of: draft.profile.showEventTextBlock) { _, _ in editing.wrappedValue.profile.receiptExtrasEnabled = true }
             if draft.profile.showEventTextBlock {
                 Text("The event name comes from Event Setup.").font(.caption).foregroundStyle(.secondary)
                 TextField("Subtitle / Host", text: limited(editing.profile.subtitle, EventProfile.subtitleLimit)).focused($textField, equals: .subtitle)
