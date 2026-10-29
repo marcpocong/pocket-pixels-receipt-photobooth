@@ -155,3 +155,11 @@ Monitoring now surfaces queue read failures as storage incidents instead of omit
 while accidentally retaining a ready storage label. Historical verification explicitly reports
 its verifying phase. Final build-for-testing passed. Complete local unit and native UI suites
 are rerunning on the final candidate; hosted CI remains externally budget-blocked.
+
+## Staged-save safety
+
+Setup can refresh server-event bindings while the editor is open. Save now merges only receipt
+fields actually edited since opening into the latest Setup value, retaining refreshed commercial
+bindings, event identity/name and unrelated guest/gallery settings. A draft from another design
+cannot be applied. The new model regression and all seven ReceiptStudioV2Tests passed before
+the later host storage interruption; no active event or payment record is replaced by Save.

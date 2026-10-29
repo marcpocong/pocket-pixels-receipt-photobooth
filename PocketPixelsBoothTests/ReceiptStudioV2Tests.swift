@@ -45,6 +45,29 @@ import UIKit
         value = history.redo(value); XCTAssertEqual(value, edited)
     }
 
+    func testReceiptSaveMergesOnlyEditedFieldsWithoutReplacingNewCommercialOrGuestData() {
+        let original = SavedEventDesign.new(name: "Original", venue: "")
+        var draft = original
+        draft.profile.receiptDesign.editorialCaption = "Our keepsake"
+        draft.profile.receiptExtrasEnabled = true
+        var latest = original
+        latest.serverEvents = ["live:synthetic": "new-commercial-binding"]
+        latest.name = "Renamed in Setup"
+        latest.profile.customerWelcomeMessage = "New guest settings"
+        latest.profile.galleryReceiptStyleOverride = GalleryReceiptStyle.allCases.last
+        latest.profile.location = "New setup location"
+        latest.applyReceiptEdits(from: draft, baseline: original)
+        XCTAssertEqual(latest.serverEvents, ["live:synthetic": "new-commercial-binding"])
+        XCTAssertEqual(latest.name, "Renamed in Setup")
+        XCTAssertEqual(latest.profile.customerWelcomeMessage, "New guest settings")
+        XCTAssertEqual(latest.profile.location, "New setup location", "Unedited receipt fields keep the latest parent value")
+        XCTAssertEqual(latest.profile.receiptDesign.editorialCaption, "Our keepsake")
+        XCTAssertEqual(latest.profile.receiptExtrasEnabled, true)
+        let committed = latest
+        latest.applyReceiptEdits(from: SavedEventDesign.new(name: "Other", venue: ""), baseline: original)
+        XCTAssertEqual(latest, committed, "Another design's draft cannot replace this design")
+    }
+
     func testHistoryIgnoresNoOpsAndBoundsRetainedValues() {
         var value = SavedEventDesign.new(name: "Bounded", venue: ""), history = ReceiptStudioHistory()
         history.record(from: value, to: value); XCTAssertFalse(history.canUndo)

@@ -8,6 +8,7 @@ struct ReceiptStudioView: View {
     var isRegularBooth = false
     var onSave: (() -> Void)? = nil
     var onCancel: (() -> Void)? = nil
+    @State private var original: SavedEventDesign
     @State private var draft: SavedEventDesign
     @State private var history = ReceiptStudioHistory()
     @State private var compactShowsPreview = false
@@ -29,6 +30,7 @@ struct ReceiptStudioView: View {
          isRegularBooth: Bool = false, onSave: (() -> Void)? = nil, onCancel: (() -> Void)? = nil) {
         _design = design; self.profile = profile; self.studioProfile = studioProfile
         self.isRegularBooth = isRegularBooth; self.onSave = onSave; self.onCancel = onCancel
+        _original = State(initialValue: design.wrappedValue)
         _draft = State(initialValue: design.wrappedValue)
     }
 
@@ -83,7 +85,11 @@ struct ReceiptStudioView: View {
                     .disabled(!history.canUndo).accessibilityIdentifier("receipt-studio-undo")
                 Button { draft = history.redo(draft) } label: { Label("Redo", systemImage: "arrow.uturn.forward") }
                     .disabled(!history.canRedo).accessibilityIdentifier("receipt-studio-redo")
-                Button("Save") { design = draft; onSave?() }.accessibilityIdentifier("receipt-studio-done")
+                Button("Save") {
+                    var latest = design
+                    latest.applyReceiptEdits(from: draft, baseline: original)
+                    design = latest; onSave?()
+                }.disabled(design.id != draft.id).accessibilityIdentifier("receipt-studio-done")
             }
             ToolbarItem(placement: .topBarLeading) {
                 NavigationLink("Print Sample") { SamplePrintStudioView(previewProfile: previewProfile) }
@@ -117,6 +123,7 @@ struct ReceiptStudioView: View {
                 case .footer: footerControls
                 case .text: textControls
                 }
+                if design.id != draft.id { Text("Setup changed to another design. Cancel and reopen Receipt Studio.").foregroundStyle(.orange) }
                 Text(isRegularBooth ? "Save returns edits to Settings. Save Defaults applies them to future guests."
                      : "Save returns edits to Setup. Save Design keeps them for future use.")
                     .font(.caption).foregroundStyle(.secondary)

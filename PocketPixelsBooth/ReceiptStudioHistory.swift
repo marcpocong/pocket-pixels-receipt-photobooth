@@ -62,3 +62,23 @@ nonisolated enum ReceiptStudioLayout {
     }
     static func usesColumns(width: CGFloat) -> Bool { width >= 680 }
 }
+
+extension SavedEventDesign {
+    /// Commit only this editor's changed fields into the latest Setup value. Background server
+    /// reconciliation can update commercial bindings while a receipt draft is open.
+    nonisolated mutating func applyReceiptEdits(from draft: Self, baseline: Self) {
+        guard id == draft.id, id == baseline.id else { return }
+        if draft.personalizeReceipt != baseline.personalizeReceipt { personalizeReceipt = draft.personalizeReceipt }
+        if draft.profile.receiptHeader != baseline.profile.receiptHeader { profile.receiptHeader = draft.profile.receiptHeader }
+        if draft.profile.receiptDesign.typography != baseline.profile.receiptDesign.typography { profile.receiptDesign.typography = draft.profile.receiptDesign.typography }
+        if draft.profile.receiptDesign.editorialCaption != baseline.profile.receiptDesign.editorialCaption { profile.receiptDesign.editorialCaption = draft.profile.receiptDesign.editorialCaption }
+        if draft.profile.receiptDesign.footerStyleOverride != baseline.profile.receiptDesign.footerStyleOverride { profile.receiptDesign.footerStyleOverride = draft.profile.receiptDesign.footerStyleOverride }
+        if draft.profile.receiptExtrasEnabled != baseline.profile.receiptExtrasEnabled { profile.receiptExtrasEnabled = draft.profile.receiptExtrasEnabled }
+        if draft.profile.showEventTextBlock != baseline.profile.showEventTextBlock { profile.showEventTextBlock = draft.profile.showEventTextBlock }
+        if draft.profile.subtitle != baseline.profile.subtitle { profile.subtitle = draft.profile.subtitle }
+        if draft.profile.includeEventDate != baseline.profile.includeEventDate { profile.includeEventDate = draft.profile.includeEventDate }
+        if draft.profile.eventDate != baseline.profile.eventDate { profile.eventDate = draft.profile.eventDate }
+        if draft.profile.location != baseline.profile.location { profile.location = draft.profile.location }
+        if draft.profile.shortMessage != baseline.profile.shortMessage { profile.shortMessage = draft.profile.shortMessage }
+    }
+}
