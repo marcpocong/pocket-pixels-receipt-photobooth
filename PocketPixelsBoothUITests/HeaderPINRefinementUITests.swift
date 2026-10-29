@@ -20,6 +20,10 @@ final class HeaderPINRefinementUITests: XCTestCase {
         for digit in digits { app.buttons["operator-pin-\(digit)"].tap() }
     }
 
+    private func selectTarget(_ name: String, app: XCUIApplication) {
+        app.buttons["receipt-header-target"].tap(); app.buttons[name].tap()
+    }
+
     func testKeypadRetryDeleteHeaderControlsAndBackgroundRelock() throws {
         let app = launch()
         XCTAssertLessThanOrEqual(app.secureTextFields["operator-hardware-pin"].frame.width, 8)
@@ -34,15 +38,15 @@ final class HeaderPINRefinementUITests: XCTestCase {
         enter("987654", app: app)
         XCTAssertTrue(app.staticTexts["Header Acceptance"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Live Header Preview"].exists)
-        app.buttons["Made to Keep"].tap()
+        selectTarget("Made to Keep", app: app)
         XCTAssertTrue(app.buttons["Move Made to Keep right"].isEnabled)
         app.buttons["Move Made to Keep right"].tap()
-        app.buttons["× Separator"].tap()
+        selectTarget("× Separator", app: app)
         XCTAssertTrue(app.staticTexts["Separator Size"].exists)
         app.buttons["Move × Separator right"].tap()
         app.buttons["Move × Separator down"].tap()
         try capture("header-portrait")
-        app.buttons["Event Logo"].tap()
+        selectTarget("Event Logo", app: app)
         app.buttons["Advanced Artwork & Crop"].tap()
         XCTAssertTrue(app.sliders["Crop Zoom"].exists)
         XCUIDevice.shared.press(.home)
@@ -61,7 +65,7 @@ final class HeaderPINRefinementUITests: XCTestCase {
         XCTAssertEqual(app.otherElements["operator-pin"].value as? String, "4 of 6 digits entered")
         hardware.typeText("54")
         XCTAssertTrue(app.staticTexts["Header Acceptance"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["Made to Keep"].exists)
+        XCTAssertTrue(app.buttons["receipt-header-target"].exists)
         try capture("header-accessibility")
         XCUIDevice.shared.press(.home); app.activate()
         XCTAssertTrue(app.buttons["operator-pin-1"].waitForExistence(timeout: 10))

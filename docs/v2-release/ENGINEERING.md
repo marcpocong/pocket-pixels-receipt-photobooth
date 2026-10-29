@@ -55,3 +55,34 @@ Validation: simulator build-for-testing passed; targeted GallerySchedulerV2Tests
 GalleryDeliveryHardeningTests and GalleryFrontDoorMigrationTests passed in
 `/tmp/mtk-v2-gallery-reviewed.xcresult`. Historical test logs also contain a simulator stall
 in the 1,000-session isolation test; this is not counted as a passing integrated run.
+
+## Receipt Studio checkpoint
+
+Portrait uses top Header/Footer/Text tabs with a persistent approximately 60% left receipt
+and minimum 290-point right controls. Below 680 points the operator explicitly chooses Receipt
+or Tools instead of receiving a tiny stacked thumbnail. The default is the complete receipt;
+tabs, element selection, ordinary re-rendering and text focus do not request zoom or recenter.
+Native pinch/pan, explicit Fit Full / Fit Width and expanded inspection remain available.
+Geometry changes recompute fit, preserving relative manual zoom. Selection outlines remain
+UIKit layers over the preview, never composed pixels.
+
+Co-brand Whole Header is first-class and selected by default. A conventional 44-point direction
+pad uses Fine/Normal/Fast = 1/4/12 printer dots through production travel/bounds functions.
+Existing independent size support remains, with unsupported ranges disabled. Recenter changes
+position only within valid geometry; Reset Selection restores selected defaults. Whole reset
+restores combined header geometry/crop without deleting the imported artwork. Advanced artwork,
+composition, footer and typography capabilities remain accessible.
+
+A value-only, 60-entry undo/redo history records actual staged design changes. Continuous
+single-field bursts coalesce; section/target changes break groups. Studio owns a local copy:
+Save returns it to the existing Setup/Settings draft; Cancel/back abandonment leaves the caller
+unchanged. Existing Save Design / Save Defaults still own library persistence and event apply
+is unchanged. Print Sample previews the local edited profile, not a stale parent binding.
+
+Simulator UI: all five focused editor flows passed in `/tmp/mtk-v2-studio-ui.xcresult`, including
+portrait columns, default whole viewport, pinch/pan, stable tab changes, whole movement,
+undo/redo, save/reopen, cancellation and accessibility. Reviewed the portrait screenshot in
+`screenshots/receipt-studio-portrait.png`. Initial model run passed all five new V2 tests but
+flagged two legacy assertions for whole reset retaining individual scale; those assertions now
+verify the intended complete reset against original production frames. An updated model and
+integrated run follow. No physical thermal output has been tested.

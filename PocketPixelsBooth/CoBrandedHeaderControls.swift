@@ -5,7 +5,8 @@ struct CoBrandedHeaderControls: View {
     @Binding var configuration: ReceiptHeaderConfiguration
     var showsPreview = true
     var selection: Binding<CoBrandedHeaderTarget>? = nil
-    @State private var localTarget: CoBrandedHeaderTarget = .studio
+    @State private var localTarget: CoBrandedHeaderTarget = .whole
+    @State private var precision: ReceiptMovementPrecision = .normal
     @State private var layoutExpanded = false
     private var target: CoBrandedHeaderTarget { selection?.wrappedValue ?? localTarget }
     private var adjustments: CoBrandedHeaderAdjustments {
@@ -15,45 +16,52 @@ struct CoBrandedHeaderControls: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if showsPreview { CoBrandedHeaderPreview(configuration: configuration) }
-            Text("Tap an element in the preview to edit it.").font(.caption).foregroundStyle(.secondary)
-            HStack(spacing: 6) {
-                ForEach([CoBrandedHeaderTarget.studio, .separator, .event], id: \.self) { item in targetButton(item) }
-            }
+            Picker("Move", selection: Binding(get: { target }, set: { select($0) })) {
+                ForEach(CoBrandedHeaderTarget.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }.pickerStyle(.menu).frame(minHeight: 44).accessibilityIdentifier("receipt-header-target")
             Text("Editing: \(target.rawValue)").font(.headline).accessibilityIdentifier("receipt-editing-target")
-            if target != .whole {
-                elementControls
-            }
-            Divider()
-            DisclosureGroup("Layout & Spacing", isExpanded: $layoutExpanded) {
+            directionPad
+            Picker("Movement precision", selection: $precision) {
+                ForEach(ReceiptMovementPrecision.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }.pickerStyle(.segmented).accessibilityIdentifier("receipt-movement-precision")
+            Text("\(Int(precision.dots)) \(precision.dots == 1 ? "dot" : "dots") per move")
+                .font(.caption).foregroundStyle(.secondary)
+            elementControls
+            Button("Recenter Selection") { configuration = ReceiptComposer.recenterHeaderElement(configuration, target: target) }
+                .frame(minHeight: 44).accessibilityIdentifier("receipt-recenter-selection")
+            Button("Reset Selection") { configuration = ReceiptComposer.resetHeaderElement(configuration, target: target) }
+                .frame(minHeight: 44).accessibilityIdentifier("receipt-reset-selection")
+            DisclosureGroup("More Settings", isExpanded: $layoutExpanded) {
                 VStack(alignment: .leading, spacing: 12) {
-                    targetButton(.whole)
-                    if target == .whole { elementControls }
                     Stepper("Space above: \(Int(max(8, configuration.topSpacing))) dots", value: Binding(get: { max(8, configuration.topSpacing) }, set: { spacing in edit { $0.topSpacing = spacing } }), in: 8...ReceiptHeaderConfiguration.maximumSpacing, step: 4)
                     Stepper("Space below: \(Int(configuration.bottomSpacing)) dots", value: $configuration.bottomSpacing, in: 0...ReceiptHeaderConfiguration.maximumSpacing, step: 4)
-                    Button("Center & Fit") { configuration.resetEntireCoBrandedHeader() }
-                        .accessibilityHint("Uses the recommended balanced layout and spacing. Keeps the event artwork and its aspect ratio.")
-                    Button("Reset Header") { configuration.resetEntireCoBrandedHeader() }
-                        .accessibilityHint("Restores recommended geometry and crop. Keeps the imported event logo.")
-                }.buttonStyle(.bordered).padding(.top, 10)
+                }.padding(.top, 10)
             }
-        }
-        .onChange(of: target) { _, value in if value == .whole { layoutExpanded = true } }
+        }.buttonStyle(.bordered)
+    }
+
+    private var directionPad: some View {
+        VStack(spacing: 4) {
+            arrow("up", symbol: "arrow.up", vertical: true, amount: -precision.dots)
+            HStack(spacing: 8) {
+                arrow("left", symbol: "arrow.left", vertical: false, amount: -precision.dots)
+                Image(systemName: "move.3d").foregroundStyle(.secondary).frame(width: 44, height: 44).accessibilityHidden(true)
+                arrow("right", symbol: "arrow.right", vertical: false, amount: precision.dots)
+            }
+            arrow("down", symbol: "arrow.down", vertical: true, amount: precision.dots)
+            Text(positionText(vertical: false)).accessibilityIdentifier("receipt-position-horizontal")
+            Text(positionText(vertical: true)).accessibilityIdentifier("receipt-position-vertical")
+        }.font(.caption).frame(maxWidth: .infinity)
+    }
+    private func arrow(_ direction: String, symbol: String, vertical: Bool, amount: Double) -> some View {
+        Button { move(vertical: vertical, amount: amount) } label: {
+            Image(systemName: symbol).font(.body).frame(width: 44, height: 44)
+        }.disabled(!canMove(vertical: vertical, amount: amount))
+            .accessibilityLabel("Move \(target.rawValue) \(direction)")
     }
 
     private func select(_ item: CoBrandedHeaderTarget) {
         if let selection { selection.wrappedValue = item } else { localTarget = item }
-    }
-
-    private func targetButton(_ item: CoBrandedHeaderTarget) -> some View {
-        Button { select(item) } label: {
-            VStack(spacing: 3) {
-                if target == item { Image(systemName: "checkmark.circle.fill").font(.caption) }
-                Text(item.rawValue).font(.subheadline.weight(.medium)).multilineTextAlignment(.center)
-            }.frame(maxWidth: .infinity, minHeight: 44).padding(.horizontal, 4)
-                .background(target == item ? OperatorPalette.ink : Color.white, in: RoundedRectangle(cornerRadius: 8))
-                .foregroundStyle(target == item ? Color.white : OperatorPalette.ink)
-                .overlay { RoundedRectangle(cornerRadius: 8).stroke(OperatorPalette.ink, lineWidth: target == item ? 2 : 1) }
-        }.buttonStyle(.plain).accessibilityAddTraits(target == item ? [.isSelected] : [])
     }
 
     @ViewBuilder private var elementControls: some View {
@@ -67,8 +75,6 @@ struct CoBrandedHeaderControls: View {
         case .event:
             sizeControl("Logo Size", value: min(1, configuration.scale)) { $0.scale = $1 }
         }
-        movement("Horizontal", vertical: false)
-        movement("Vertical", vertical: true)
         if target == .event {
             DisclosureGroup("Advanced Artwork & Crop") {
                 VStack(spacing: 12) {
@@ -85,8 +91,6 @@ struct CoBrandedHeaderControls: View {
                 }.padding(.top, 10)
             }
         }
-        Button("Reset This Element") { configuration = ReceiptComposer.resetHeaderElement(configuration, target: target) }
-            .buttonStyle(.bordered).frame(minHeight: 44)
     }
 
     private func frame(_ config: ReceiptHeaderConfiguration) -> CGRect? {
@@ -99,37 +103,6 @@ struct CoBrandedHeaderControls: View {
         let moved = ReceiptComposer.moveHeaderElement(configuration, target: target, horizontal: vertical ? 0 : amount, vertical: vertical ? amount : 0)
         guard let before = frame(configuration), let after = frame(moved) else { return false }
         return abs(vertical ? after.midY - before.midY : after.midX - before.midX) > 0.5
-    }
-
-    private func movement(_ title: String, vertical: Bool) -> some View {
-        let backward = canMove(vertical: vertical, amount: -4)
-        let forward = canMove(vertical: vertical, amount: 4)
-        return VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title + " Position").font(.subheadline)
-                    Text(positionText(vertical: vertical)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                        .accessibilityIdentifier("receipt-position-\(vertical ? "vertical" : "horizontal")")
-                }
-                Spacer(minLength: 4)
-                Button { move(vertical: vertical, amount: -4) } label: {
-                    Image(systemName: vertical ? "arrow.up" : "arrow.left").frame(minWidth: 44, minHeight: 44)
-                }.disabled(!backward).accessibilityLabel("Move \(target.rawValue) \(vertical ? "up" : "left")")
-                Button { move(vertical: vertical, amount: 4) } label: {
-                    Image(systemName: vertical ? "arrow.down" : "arrow.right").frame(minWidth: 44, minHeight: 44)
-                }.disabled(!forward).accessibilityLabel("Move \(target.rawValue) \(vertical ? "down" : "right")")
-            }.buttonStyle(.bordered)
-            if !backward || !forward {
-                Text(limitText(vertical: vertical, backward: backward, forward: forward)).font(.caption).foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private func limitText(vertical: Bool, backward: Bool, forward: Bool) -> String {
-        if !backward && !forward { return "No room to move. Reduce the size to create space." }
-        if vertical { return backward ? "At lower movement limit." : "At top printable margin." }
-        let margin = (target == .studio && !backward) || (target == .event && !forward) || target == .whole
-        return margin ? "At printable margin." : "Minimum gap between identities reached. Resize to create room."
     }
 
     private func positionText(vertical: Bool) -> String {

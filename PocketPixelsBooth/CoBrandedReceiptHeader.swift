@@ -309,6 +309,9 @@ extension ReceiptComposer {
 
     nonisolated static func resetHeaderElement(_ configuration: ReceiptHeaderConfiguration,
         target: CoBrandedHeaderTarget) -> ReceiptHeaderConfiguration {
+        if target == .whole {
+            var reset = configuration; reset.resetEntireCoBrandedHeader(); return reset
+        }
         var config = prepareCoBrandedEditing(configuration)
         var recommended = ReceiptHeaderConfiguration.coBrandedRecommended
         recommended.assetIdentifier = config.assetIdentifier
@@ -373,5 +376,26 @@ extension ReceiptComposer {
             else { low = middle }
         }
         return (high, true)
+    }
+}
+
+// Reposition only. Scaling, crop, artwork and composition spacing survive recentering.
+extension ReceiptComposer {
+    nonisolated static func recenterHeaderElement(_ configuration: ReceiptHeaderConfiguration,
+        target: CoBrandedHeaderTarget) -> ReceiptHeaderConfiguration {
+        guard let plan = headerEditingPlan(configuration) else { return configuration }
+        let geometry = ReceiptEditorGeometry(plan: plan)
+        guard let rect = geometry.elements[target] else { return configuration }
+        let travel = headerTravel(configuration, target: target)
+        let desiredY: CGFloat
+        if target == .whole {
+            var baseline = ReceiptHeaderConfiguration.coBrandedRecommended
+            baseline.assetIdentifier = configuration.assetIdentifier
+            desiredY = headerEditingPlan(baseline).map { ReceiptEditorGeometry(plan: $0).header.midY } ?? rect.midY
+        } else if target == .separator {
+            desiredY = ((geometry.elements[.studio]?.midY ?? rect.midY) + (geometry.elements[.event]?.midY ?? rect.midY)) / 2
+        } else { desiredY = geometry.elements[.separator]?.midY ?? rect.midY }
+        return moveHeaderElement(configuration, target: target,
+            horizontal: (travel.lowerBound + travel.upperBound) / 2, vertical: Double(desiredY - rect.midY))
     }
 }

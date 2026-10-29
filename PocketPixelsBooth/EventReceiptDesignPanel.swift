@@ -45,26 +45,25 @@ struct EventReceiptDesignPanel: View {
     @ViewBuilder private var studioHeaderControls: some View {
         Toggle(isRegularBooth ? "Use Custom Logo" : "Use Event Logo", isOn: personalizeBinding).frame(minHeight: 44)
         if design.personalizeReceipt {
-            logoArea
-            if artwork != nil {
-                if design.layout == .coBranded {
+            if artwork != nil, design.layout == .coBranded {
+                CoBrandedHeaderControls(configuration: $design.profile.receiptHeader, showsPreview: false, selection: headerTarget)
+            } else if artwork != nil {
+                Text("Event Logo").font(.headline)
+                Text("Logo Size").font(.subheadline)
+                Slider(value: $design.profile.receiptHeader.scale, in: ReceiptHeaderConfiguration.minimumScale...ReceiptHeaderConfiguration.maximumEditorScale)
+                    .accessibilityLabel("Logo Size")
+                Button("Advanced Artwork & Crop") { isStudioPresented = true }.buttonStyle(.bordered)
+            }
+            DisclosureGroup("Artwork & Composition") {
+                VStack(alignment: .leading, spacing: 12) {
+                    logoArea
                     Picker("Branding Mode", selection: Binding(get: { design.layout }, set: { setLayout($0) })) {
                         ForEach(ReceiptBrandingMode.allCases) { Text($0.displayName).tag($0) }
                     }.frame(minHeight: 44)
                 }
-                if design.layout == .coBranded {
-                    CoBrandedHeaderControls(configuration: $design.profile.receiptHeader, showsPreview: false, selection: headerTarget)
-                } else {
-                    Text("Logo Size").font(.headline)
-                    Slider(value: $design.profile.receiptHeader.scale, in: ReceiptHeaderConfiguration.minimumScale...ReceiptHeaderConfiguration.maximumEditorScale)
-                        .accessibilityLabel("Logo Size")
-                    Button("Advanced Artwork & Crop") { isStudioPresented = true }.buttonStyle(.bordered)
-                    Picker("Branding Mode", selection: Binding(get: { design.layout }, set: { setLayout($0) })) {
-                        ForEach(ReceiptBrandingMode.allCases) { Text($0.displayName).tag($0) }
-                    }
-                }
-
             }
+            if artwork == nil { logoArea }
+
         } else {
             MadeToKeepWordmark(size: 28, color: OperatorPalette.ink).frame(height: 70)
             sourceMenu(title: "Add Event Logo", systemImage: "plus", prominent: true)

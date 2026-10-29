@@ -46,13 +46,8 @@ struct RegularBoothSettingsView: View {
         .safeAreaInset(edge: .bottom) { saveBar }
         .fullScreenCover(isPresented: $studioPresented) {
             NavigationStack {
-                ReceiptStudioView(design: $design, profile: regularProfile, isRegularBooth: true)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarLeading) {
-                            NavigationLink("Print Sample") { SamplePrintStudioView(previewProfile: regularProfile) }
-                        }
-                        ToolbarItem(placement: .confirmationAction) { Button("Done") { checkpoint(); studioPresented = false } }
-                    }
+                ReceiptStudioView(design: $design, profile: regularProfile, isRegularBooth: true,
+                                  onSave: { checkpoint(); studioPresented = false }, onCancel: { studioPresented = false })
                     .safeAreaInset(edge: .bottom) {
                         if let error = workspace.persistenceError { Text(error).font(.footnote).padding().background(.bar) }
                     }
