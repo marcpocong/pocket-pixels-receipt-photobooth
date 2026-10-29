@@ -197,6 +197,7 @@ enum GalleryUploadError: Error, LocalizedError, Equatable {
     case stalePendingUpload
     case requestTooLarge(String)
     case qrGeneration(String)
+    case rateLimited(TimeInterval)
     case httpStatus(Int)
     case server(String)
     case decoding(String)
@@ -248,6 +249,8 @@ enum GalleryUploadError: Error, LocalizedError, Equatable {
             "Gallery upload is too large. \(message)"
         case .qrGeneration(let message):
             "QR code could not be generated. \(message)"
+        case .rateLimited:
+            "Upload service is busy. The scheduled retry will respect its cooldown."
         case .httpStatus(let status):
             "Gallery upload failed with HTTP status \(status)."
         case .server(let message):

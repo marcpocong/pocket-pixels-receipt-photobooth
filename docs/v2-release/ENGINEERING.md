@@ -31,3 +31,27 @@
 No changes to signing, bundle identity, deployment target, payment authorization or physical
 print recovery. No production Worker deployment, secrets, data modification or iPad install.
 No new dependencies. Retained uncertain print evidence is never automatically resent.
+
+## Gallery checkpoint
+
+One process-wide scheduler owns both public reconciliation and POST work. Callers for the
+same token join one operation, including after caller cancellation. No in-flight request is
+preempted. At most two fresh guest slots pass an eligible recovery slot; recovery is oldest
+first. The public reconciliation sweep remains ahead of historical POSTs, preserving the
+existing later-ready-gallery recovery fix. Only one recovery pass and one cancellable deadline
+exist; queue changes, foreground activation, connectivity restoration and explicit retries
+signal that owner. There is no 30-second polling loop.
+
+Retry category, attempt time/count and next deadline are additive optional metadata. Old
+queues decode unchanged. Temporary failures use exponential jittered backoff capped at 15
+minutes. Retry-After (seconds or HTTP date) wins over backoff, including public-read 429s.
+Connectivity restoration never clears authentication/manual-inspection or rate-limit gates.
+Explicit operator retry permits a repaired configuration to be checked again. NWPath status
+is labelled as path evidence only. Accepted POSTs retry public reads, never another POST;
+ambiguous outcomes reconcile the frozen QR before same-token backend-idempotent recovery.
+Media is removed only after public verification and durable local verification evidence.
+
+Validation: simulator build-for-testing passed; targeted GallerySchedulerV2Tests,
+GalleryDeliveryHardeningTests and GalleryFrontDoorMigrationTests passed in
+`/tmp/mtk-v2-gallery-reviewed.xcresult`. Historical test logs also contain a simulator stall
+in the 1,000-session isolation test; this is not counted as a passing integrated run.

@@ -17,6 +17,9 @@ struct GalleryPendingUploadSummary: Equatable, Sendable, Identifiable {
     let retryAttemptCount: Int
     let lastAttemptAt: Date?
     let lastSafeError: String?
+    var retryCategory: GalleryRetryCategory? = nil
+    var nextAttemptAt: Date? = nil
+    var needsAttention: Bool { retryCategory?.needsAttention == true }
 }
 
 struct GalleryPendingUploadStore: Sendable {
@@ -60,11 +63,13 @@ struct GalleryPendingUploadStore: Sendable {
             thermalReceiptFilename: payload.thermalReceipt?.filename,
             gifFilename: payload.gif?.filename,
             metrics: payload.metrics,
-            deliveryState: payload.deliveryState,
+            deliveryState: existingMetadata(for: payload.galleryToken)?.deliveryState ?? payload.deliveryState,
             retryAttemptCount: existingRetryAttemptCount(for: payload.galleryToken),
             lastAttemptAt: existingLastAttemptAt(for: payload.galleryToken),
             lastSafeError: lastSafeError,
-            shareColorReceiptFilename: payload.shareColorReceipt?.filename, receiptVariants: payload.receiptVariants
+            shareColorReceiptFilename: payload.shareColorReceipt?.filename, receiptVariants: payload.receiptVariants,
+            retryCategory: existingMetadata(for: payload.galleryToken)?.retryCategory,
+            nextAttemptAt: existingMetadata(for: payload.galleryToken)?.nextAttemptAt
         )
 
         if fileManager.fileExists(atPath: finalURL.path) {
@@ -155,10 +160,11 @@ struct GalleryPendingUploadStore: Sendable {
                 createdAt: metadata.createdAt,
                 deliveryState: metadata.deliveryState,
                 metrics: metadata.metrics,
-                payloadSizeBytes: payloadSize(at: directory),
+                payloadSizeBytes: metadata.metrics.totalDecodedBytes,
                 retryAttemptCount: metadata.retryAttemptCount,
                 lastAttemptAt: metadata.lastAttemptAt,
-                lastSafeError: metadata.lastSafeError
+                lastSafeError: metadata.lastSafeError,
+                retryCategory: metadata.retryCategory, nextAttemptAt: metadata.nextAttemptAt
             )
         }
         .sorted { $0.createdAt < $1.createdAt }
@@ -170,24 +176,52 @@ struct GalleryPendingUploadStore: Sendable {
 
     func updateDeliveryState(_ deliveryState: GalleryDeliveryState, galleryToken: String? = nil, lastSafeError: String? = nil) throws {
         let token = try galleryToken ?? oldestQueuedToken()
-        guard let token, var payload = try load(galleryToken: token) else {
-            return
+        guard let token else { return }
+        try updateMetadata(token) { metadata in
+            metadata.deliveryState = deliveryState
+            metadata.lastSafeError = lastSafeError
         }
-        payload = GalleryPreparedUploadPayload(
-            schemaVersion: payload.schemaVersion,
-            galleryToken: payload.galleryToken,
-            galleryURL: payload.galleryURL,
-            sessionID: payload.sessionID,
-            createdAt: payload.createdAt,
-            photos: payload.photos,
-            colorReceipt: payload.colorReceipt,
-            thermalReceipt: payload.thermalReceipt,
-            gif: payload.gif,
-            metrics: payload.metrics,
-            deliveryState: deliveryState,
-            shareColorReceipt: payload.shareColorReceipt, receiptVariants: payload.receiptVariants
-        )
-        try save(payload, lastSafeError: lastSafeError)
+    }
+
+    func recordFailure(galleryToken: String, error: Error, now: Date = Date()) throws {
+        try updateMetadata(galleryToken) { metadata in
+            let category = GalleryRetryCategory.classify(error, state: metadata.deliveryState)
+            metadata.retryCategory = category
+            let retryAfter: TimeInterval?
+            if case GalleryUploadError.rateLimited(let delay) = error { retryAfter = delay }
+            else if case GalleryPublicVerificationError.rateLimited(let delay) = error { retryAfter = delay } else { retryAfter = nil }
+            metadata.nextAttemptAt = category.nextAttempt(at: now, attempts: metadata.retryAttemptCount, retryAfter: retryAfter)
+            // Fixed descriptions only: backend response bodies can contain identities or tokens.
+            metadata.lastSafeError = category.needsAttention
+                ? "Delivery needs operator inspection in Gallery Setup. Photos are retained."
+                : "Delivery is waiting (\(category.rawValue)). Photos are retained; automatic retry is scheduled."
+        }
+        NotificationCenter.default.post(name: .galleryQueueChanged, object: nil)
+    }
+
+    func requestRetry(galleryToken: String? = nil, now: Date = Date(), connectivityRestored: Bool = false) throws {
+        for summary in try summaries() where galleryToken == nil || summary.galleryToken == galleryToken {
+            // A connection signal cannot fix credentials or bypass a server rate limit.
+            if connectivityRestored && (summary.needsAttention || summary.retryCategory == .rateLimited) { continue }
+            if summary.retryCategory == .rateLimited, let deadline = summary.nextAttemptAt, deadline > now { continue }
+            try updateMetadata(summary.galleryToken) { metadata in
+                metadata.nextAttemptAt = now
+                if !connectivityRestored { metadata.retryCategory = nil }
+            }
+        }
+    }
+
+    private func existingMetadata(for token: String) -> GalleryPendingUploadMetadata? {
+        try? JSONDecoder().decode(GalleryPendingUploadMetadata.self,
+            from: Data(contentsOf: payloadDirectoryURL(for: token).appendingPathComponent(Self.metadataFilename)))
+    }
+
+    private func updateMetadata(_ token: String, change: (inout GalleryPendingUploadMetadata) -> Void) throws {
+        guard var metadata = existingMetadata(for: token) else {
+            throw GalleryUploadError.configuration("Pending gallery metadata could not be read. Files are retained.")
+        }
+        change(&metadata)
+        try JSONEncoder().encode(metadata).write(to: payloadDirectoryURL(for: token).appendingPathComponent(Self.metadataFilename), options: .atomic)
     }
 
     func recordAttempt(galleryToken: String) throws {
@@ -369,7 +403,8 @@ struct GalleryPendingUploadStore: Sendable {
             retryAttemptCount: metadata.retryAttemptCount,
             lastAttemptAt: metadata.lastAttemptAt,
             lastSafeError: metadata.lastSafeError,
-            shareColorReceiptFilename: metadata.shareColorReceiptFilename, receiptVariants: metadata.receiptVariants
+            shareColorReceiptFilename: metadata.shareColorReceiptFilename, receiptVariants: metadata.receiptVariants,
+            retryCategory: metadata.retryCategory, nextAttemptAt: metadata.nextAttemptAt
         )
         try JSONEncoder().encode(migratedMetadata).write(to: metadataURL, options: .atomic)
         return migratedMetadata
@@ -394,10 +429,12 @@ private struct GalleryPendingUploadMetadata: Codable {
     let thermalReceiptFilename: String?
     let gifFilename: String?
     let metrics: GalleryPreparedUploadMetrics
-    let deliveryState: GalleryDeliveryState
+    var deliveryState: GalleryDeliveryState
     var retryAttemptCount: Int
     var lastAttemptAt: Date?
-    let lastSafeError: String?
+    var lastSafeError: String?
+    var retryCategory: GalleryRetryCategory?
+    var nextAttemptAt: Date?
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion
@@ -413,7 +450,7 @@ private struct GalleryPendingUploadMetadata: Codable {
         case deliveryState
         case retryAttemptCount
         case lastAttemptAt
-        case lastSafeError
+        case lastSafeError, retryCategory, nextAttemptAt
     }
 
     init(
@@ -431,7 +468,8 @@ private struct GalleryPendingUploadMetadata: Codable {
         retryAttemptCount: Int,
         lastAttemptAt: Date?,
         lastSafeError: String?,
-        shareColorReceiptFilename: String? = nil, receiptVariants: GalleryReceiptVariants? = nil
+        shareColorReceiptFilename: String? = nil, receiptVariants: GalleryReceiptVariants? = nil,
+        retryCategory: GalleryRetryCategory? = nil, nextAttemptAt: Date? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.galleryToken = galleryToken
@@ -447,6 +485,7 @@ private struct GalleryPendingUploadMetadata: Codable {
         self.retryAttemptCount = retryAttemptCount
         self.lastAttemptAt = lastAttemptAt
         self.lastSafeError = lastSafeError
+        self.retryCategory = retryCategory; self.nextAttemptAt = nextAttemptAt
         self.shareColorReceiptFilename = shareColorReceiptFilename; self.receiptVariants = receiptVariants
     }
 
@@ -468,5 +507,7 @@ private struct GalleryPendingUploadMetadata: Codable {
         retryAttemptCount = try container.decodeIfPresent(Int.self, forKey: .retryAttemptCount) ?? 0
         lastAttemptAt = try container.decodeIfPresent(Date.self, forKey: .lastAttemptAt)
         lastSafeError = try container.decodeIfPresent(String.self, forKey: .lastSafeError)
+        retryCategory = try container.decodeIfPresent(GalleryRetryCategory.self, forKey: .retryCategory)
+        nextAttemptAt = try container.decodeIfPresent(Date.self, forKey: .nextAttemptAt)
     }
 }
