@@ -16,28 +16,12 @@ struct EventDesignEditorView: View {
     var body: some View {
         Group {
             if let design = Binding($setup.design) {
-                ReceiptStudioView(design: design, profile: design.wrappedValue.appliedProfile(), studioProfile: setup.studioDefaultsForPresentation.profile)
+                ReceiptStudioView(design: design, profile: design.wrappedValue.appliedProfile(), studioProfile: setup.studioDefaultsForPresentation.profile, onSave: finishEditing, onCancel: { dismiss() })
             }
         }
         .safeAreaInset(edge: .bottom) {
             if let error = workspace.persistenceError {
                 Label(error, systemImage: "exclamationmark.triangle").font(.footnote).padding().background(.bar)
-            }
-        }
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                NavigationLink("Print Sample") { SamplePrintStudioView(previewProfile: setup.design?.appliedProfile() ?? setup.effectiveProfile) }
-                    .accessibilityIdentifier("receipt-studio-print-sample")
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Done") {
-                    finishing = true
-                    Task {
-                        await workspace.flush()
-                        finishing = false
-                        if workspace.persistenceError != nil { persistenceAlert = true } else { dismiss() }
-                    }
-                }.disabled(finishing).accessibilityIdentifier("receipt-studio-done")
             }
         }
         .onDisappear { workspace.checkpoint() }
@@ -46,6 +30,16 @@ struct EventDesignEditorView: View {
             Button("Return with Staged Changes") { dismiss() }
         } message: { Text(workspace.persistenceError ?? "The changes remain staged in this event.") }
     }
+    private func finishEditing() {
+        guard !finishing else { return }
+        finishing = true
+        Task {
+            await workspace.flush()
+            finishing = false
+            if workspace.persistenceError != nil { persistenceAlert = true } else { dismiss() }
+        }
+    }
+
 }
 
 /// Digital appearance is edited only in Gallery & QR; printed footer belongs to Receipt Studio.

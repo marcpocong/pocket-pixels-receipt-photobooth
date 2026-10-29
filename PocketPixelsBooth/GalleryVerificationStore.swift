@@ -81,7 +81,7 @@ nonisolated struct GalleryVerificationTarget: Sendable {
     }
 }
 
-nonisolated enum GalleryPublicVerificationError: Error { case unavailable, rateLimited }
+nonisolated enum GalleryPublicVerificationError: Error { case unavailable, rateLimited(TimeInterval) }
 
 nonisolated enum GalleryPublicVerifier {
     struct Readiness: Decodable {
@@ -121,7 +121,9 @@ nonisolated enum GalleryPublicVerifier {
         do { (data, response) = try await session.data(for: request) }
         catch { try Task.checkCancellation(); throw error }
         try Task.checkCancellation()
-        if (response as? HTTPURLResponse)?.statusCode == 429 { throw GalleryPublicVerificationError.rateLimited }
+        if let http = response as? HTTPURLResponse, http.statusCode == 429 {
+            throw GalleryPublicVerificationError.rateLimited(GoogleDriveGalleryUploadService.retryAfter(http.value(forHTTPHeaderField: "Retry-After")))
+        }
         if let finalURL = response.url, let items = URLComponents(url: finalURL, resolvingAgainstBaseURL: false)?.queryItems,
            items.contains(where: { $0.name == "g" && $0.value != target.token }) { throw GalleryUploadError.deliveryUnknown }
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw GalleryUploadError.deliveryUnknown }

@@ -60,6 +60,38 @@ final class GalleryDeliveryHardeningTests: XCTestCase {
         }
     }
 
+    func testFailedReconciliationCountsAttemptsAndPublicReadsRespectRetryAfter() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let queue = try GalleryPendingUploadStore(directoryURL: directory)
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { _ in }
+        let token = String(repeating: "e", count: 64)
+        try queue.save(GoogleDriveGalleryUploadService.preparePayload(photos: [image], composedReceipt: image,
+            sessionID: "PP-RECONCILE-BACKOFF", createdAt: Date(), galleryToken: token,
+            customerGalleryBaseURL: URL(string: "https://delivery-fixture.example.test")!))
+        try queue.updateDeliveryState(.deliveryUnknown, galleryToken: token)
+        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [DeliveryProtocol.self]
+        let service = GoogleDriveGalleryUploadService(urlSession: URLSession(configuration: configuration), pendingStore: queue, scheduler: GalleryUploadScheduler())
+        DeliveryProtocol.scenario = .offline; DeliveryProtocol.requests = []
+        for attempt in 1...2 {
+            try queue.requestRetry(galleryToken: token)
+            do { _ = try await service.retryPendingQueue(deviceToken: String(repeating: "x", count: 32)); XCTFail("Offline public read stays pending") }
+            catch is GalleryPendingQueueFailure { }
+            XCTAssertEqual(try queue.summary()?.retryAttemptCount, attempt)
+            XCTAssertNotNil(try queue.summary()?.nextAttemptAt)
+        }
+        XCTAssertTrue(DeliveryProtocol.requests.allSatisfy { $0.httpMethod == "GET" }, "Offline reconciliation never permits a POST")
+        try queue.updateDeliveryState(.posted, galleryToken: token)
+        DeliveryProtocol.scenario = .busy
+        do { _ = try await service.uploadPendingGallery(galleryToken: token, deviceToken: String(repeating: "x", count: 32)); XCTFail("Public service is rate limited") }
+        catch GalleryPublicVerificationError.rateLimited { }
+        let summary = try XCTUnwrap(queue.summary())
+        XCTAssertEqual(summary.retryCategory, .rateLimited)
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(summary.nextAttemptAt).timeIntervalSince(try XCTUnwrap(summary.lastAttemptAt)), 179)
+        XCTAssertEqual(try queue.load(galleryToken: token)?.deliveryState, .posted)
+        XCTAssertTrue(DeliveryProtocol.requests.allSatisfy { $0.httpMethod == "GET" })
+    }
+
     func testRetryAllContinuesAfterFailureAndReconcilesWithoutAnotherPOST() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -251,7 +283,7 @@ private final class DeliveryProtocol: URLProtocol {
             let token = String(repeating: "e", count: 64)
             body = "{\"ok\":true,\"schemaVersion\":2,\"galleryToken\":\"\(token)\",\"galleryURL\":\"https://delivery-fixture.example.test/?g=\(token)\",\"fileCount\":4,\"status\":\"created\"}"
         }
-        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: Self.scenario == .busy ? ["Retry-After":"180"] : nil)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(body.utf8))
         client?.urlProtocolDidFinishLoading(self)

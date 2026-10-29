@@ -43,15 +43,21 @@ final class EventOperationsUITests: XCTestCase {
             if !reviewing && pinned.exists { top = max(top, pinned.frame.maxY) }
             let primary = reviewing ? app.buttons["Start Accepting Guests"]
                 : (app.buttons["apply-live-event"].exists ? app.buttons["apply-live-event"] : app.buttons["review-setup"])
-            let bottom = primary.exists ? primary.frame.minY - 10 : app.frame.maxY
+            // At accessibility sizes, Save for Later sits above the primary action. The entire
+            // pinned bar occludes content, even when a partially visible row reports hittable.
+            let pinnedActions = reviewing ? [primary] : [primary, app.buttons["save-setup-draft"]]
+            let bottom = pinnedActions.filter { $0.exists && $0.frame.height > 0 }.map { $0.frame.minY - 10 }.min() ?? app.frame.maxY
             let frame = element.exists ? element.frame : .zero
-            if element.exists && (!requireHitTarget || element.isHittable) && frame.height > 0 && frame.width > 0
-                && frame.minY >= top && frame.maxY <= bottom { return }
+            // Keyboard dismissal can consume an otherwise hittable section tap. Finish editing
+            // before accepting the geometry, so the next tap actually invokes the control.
             let done = app.buttons["event-finish-editing"]
             if !reviewing && app.keyboards.firstMatch.exists && done.exists && done.isHittable { done.tap(); continue }
+            if element.exists && (!requireHitTarget || element.isHittable) && frame.height > 0 && frame.width > 0
+                && frame.minY >= top && frame.maxY <= bottom { return }
             if element.exists && frame.midY < (top + bottom) / 2 { scroll.swipeDown(velocity: .slow) }
             else { scroll.swipeUp(velocity: .slow) }
         }
+        capture("missing-control")
         XCTFail("Element is not visible: \(element)")
     }
     private func tapVisible(_ query: XCUIElementQuery) throws {
@@ -73,6 +79,49 @@ final class EventOperationsUITests: XCTestCase {
         picker.buttons[title].tap()
     }
 
+    private func selectTarget(_ name: String, in app: XCUIApplication) {
+        let menu = app.buttons["receipt-header-target"]
+        visible(menu, in: app); menu.tap()
+        app.buttons[name].tap()
+    }
+
+    func testStudioV2WholePreviewUndoRedoTabsSaveAndCancel() throws {
+        let app = launch()
+        app.buttons["Create Test Event"].tap()
+        let customize = app.buttons["event-customize-receipt"]
+        visible(customize, in: app); customize.tap()
+        app.buttons["Add Event Logo"].tap(); app.buttons["Use Synthetic Test Logo"].tap()
+        let target = app.staticTexts["receipt-editing-target"]
+        XCTAssertTrue(target.waitForExistence(timeout: 15))
+        XCTAssertEqual(target.label, "Editing: Whole Header")
+        let preview = app.descendants(matching: .any)["operator-receipt-preview"].firstMatch
+        XCTAssertTrue(preview.waitForExistence(timeout: 30))
+        XCTAssertEqual(preview.value as? String, "Zoom 100%")
+        let tools = app.scrollViews["receipt-studio-controls"]
+        XCTAssertLessThan(preview.frame.maxX, tools.frame.minX)
+        XCTAssertGreaterThan(preview.frame.width, tools.frame.width)
+        let position = app.staticTexts["receipt-position-vertical"]
+        let before = position.label
+        app.segmentedControls["receipt-movement-precision"].buttons["Fast"].tap()
+        app.buttons["Move Whole Header down"].tap()
+        XCTAssertNotEqual(position.label, before)
+        let moved = position.label
+        app.buttons["receipt-studio-undo"].tap(); XCTAssertEqual(position.label, before)
+        app.buttons["receipt-studio-redo"].tap(); XCTAssertEqual(position.label, moved)
+        preview.scrollViews.firstMatch.pinch(withScale: 2, velocity: 1)
+        let zoom = preview.value as? String
+        XCTAssertNotEqual(zoom, "Zoom 100%")
+        studioSection("Footer & QR", in: app); XCTAssertEqual(preview.value as? String, zoom)
+        studioSection("Text & Style", in: app); XCTAssertEqual(preview.value as? String, zoom)
+        studioSection("Header & Logo", in: app); XCTAssertEqual(preview.value as? String, zoom)
+        capture("v2-portrait-columns")
+        app.buttons["receipt-studio-done"].tap(); customize.tap()
+        XCTAssertEqual(position.label, moved)
+        app.buttons["Move Whole Header down"].tap(); XCTAssertNotEqual(position.label, moved)
+        app.buttons["receipt-studio-cancel"].tap(); customize.tap()
+        XCTAssertEqual(position.label, moved, "Cancelled model changes never reached Setup")
+    }
+
     func testReceiptStudioFromNewEventEditsReopensAndSavesWithoutActivation() throws {
         let app = launch()
         let originalRun = app.staticTexts["validation-run-id"].label
@@ -89,15 +138,15 @@ final class EventOperationsUITests: XCTestCase {
         app.buttons["Add Event Logo"].tap()
         app.buttons["Use Synthetic Test Logo"].tap()
         let mode = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Branding Mode,")).firstMatch
-        XCTAssertTrue(mode.waitForExistence(timeout: 15)); mode.tap()
+        app.buttons["Artwork & Composition"].tap()
+        visible(mode, in: app); XCTAssertTrue(mode.waitForExistence(timeout: 15)); mode.tap()
         app.buttons["Co-Branded"].tap()
-        XCTAssertTrue(app.buttons["Made to Keep"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["receipt-header-target"].waitForExistence(timeout: 10))
         let preview = app.descendants(matching: .any)["operator-receipt-preview"].firstMatch
         XCTAssertTrue(preview.waitForExistence(timeout: 30))
         let originalPreviewFrame = preview.frame
         for target in ["Made to Keep", "× Separator", "Event Logo"] {
-            let button = app.buttons[target]
-            visible(button, in: app); button.tap()
+            selectTarget(target, in: app)
             let down = app.buttons["Move \(target) down"]
             visible(down, in: app); XCTAssertTrue(down.isEnabled); down.tap()
             XCTAssertTrue(preview.isHittable)
@@ -119,7 +168,7 @@ final class EventOperationsUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.staticTexts["Updating preview…"])], timeout: 20), .completed)
         XCTAssertFalse(app.staticTexts["receipt-text-not-printed"].exists)
         capture("studio-text-portrait")
-        app.buttons["receipt-preview-focus"].tap(); app.buttons["Full Receipt"].tap()
+        app.buttons["receipt-fit-full"].tap()
         app.buttons["receipt-studio-print-sample"].tap()
         XCTAssertTrue(app.navigationBars["Print Display Samples"].waitForExistence(timeout: 10))
         app.navigationBars.buttons["Receipt Studio"].tap()
@@ -160,7 +209,7 @@ final class EventOperationsUITests: XCTestCase {
         app.buttons["Add Event Logo"].tap()
         XCTAssertTrue(app.buttons["Use Synthetic Test Logo"].waitForExistence(timeout: 10))
         app.buttons["Use Synthetic Test Logo"].tap()
-        XCTAssertTrue(app.buttons["Made to Keep"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["receipt-header-target"].waitForExistence(timeout: 15))
         app.buttons["receipt-studio-done"].tap()
         app.buttons["save-setup-draft"].tap()
         XCTAssertTrue(app.buttons["Reopen Saved Test Event"].waitForExistence(timeout: 15))
@@ -197,28 +246,29 @@ final class EventOperationsUITests: XCTestCase {
         app.sliders["Separator Size"].adjust(toNormalizedSliderPosition: 0.7); ready()
         let savedSeparatorSize = app.sliders["Separator Size"].value as? String
         capture("visual-separator-selected-portrait")
-        app.buttons["receipt-preview-focus"].tap(); app.buttons["Full Receipt"].tap()
+        app.buttons["receipt-fit-full"].tap()
         preview.scrollViews.firstMatch.pinch(withScale: 1.5, velocity: 1)
         preview.scrollViews.firstMatch.swipeUp()
         let manualZoom = preview.value as? String
         app.buttons["Move × Separator down"].tap(); ready()
-        XCTAssertTrue(app.buttons["receipt-preview-focus"].label.contains("Full Receipt"))
+        XCTAssertTrue(app.buttons["receipt-fit-full"].exists)
         XCTAssertEqual(preview.value as? String, manualZoom, "A small edit preserves manual full-receipt zoom")
         studioSection("Footer & QR", in: app)
         app.buttons["receipt-footer-layout"].tap(); app.buttons["Decorative Barcode Only"].tap(); ready()
         capture("visual-footer-portrait")
-        app.buttons["receipt-preview-focus"].tap(); app.buttons["Full Receipt"].tap()
+        app.buttons["receipt-fit-full"].tap()
         let wordmark = app.buttons["receipt-preview-element-studio"]
         XCTAssertTrue(wordmark.waitForExistence(timeout: 10)); wordmark.tap(); selected("Made to Keep")
         XCTAssertTrue(app.segmentedControls["receipt-studio-section"].buttons["Header"].isSelected, "Tapping artwork routes directly back to its controls")
+        app.buttons["Artwork & Composition"].tap()
         XCTAssertTrue(app.buttons["Replace Logo"].exists)
         app.buttons["receipt-studio-done"].tap(); customize.tap(); ready()
-        app.buttons["Event Logo"].tap()
+        selectTarget("Event Logo", in: app)
         XCTAssertEqual(logoSize.value as? String, savedSize)
         XCTAssertEqual(app.staticTexts["receipt-position-vertical"].label, savedLogoPosition)
-        app.buttons["Made to Keep"].tap()
+        selectTarget("Made to Keep", in: app)
         XCTAssertEqual(app.staticTexts["receipt-position-vertical"].label, savedStudioPosition)
-        app.buttons["× Separator"].tap()
+        selectTarget("× Separator", in: app)
         XCTAssertEqual(app.sliders["Separator Size"].value as? String, savedSeparatorSize)
         studioSection("Footer & QR", in: app)
         XCTAssertTrue(app.buttons["receipt-footer-layout"].label.contains("Decorative Barcode Only"))
@@ -227,7 +277,7 @@ final class EventOperationsUITests: XCTestCase {
         app.terminate(); app.launch()
         XCTAssertTrue(app.buttons["Reopen Saved Test Event"].waitForExistence(timeout: 20))
         app.buttons["Reopen Saved Test Event"].tap(); customize.tap(); ready()
-        app.buttons["Event Logo"].tap()
+        selectTarget("Event Logo", in: app)
         XCTAssertEqual(logoSize.value as? String, savedSize)
         XCTAssertEqual(app.staticTexts["receipt-position-vertical"].label, savedLogoPosition)
         capture("visual-reopened-portrait")
@@ -432,13 +482,13 @@ final class EventOperationsUITests: XCTestCase {
         XCTAssertTrue(app.buttons["View History"].isHittable)
         capture("historical-run-management-actions")
         app.buttons["Archive Run"].tap()
-        let archived = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: sameRun)
-        XCTAssertEqual(XCTWaiter.wait(for: [archived], timeout: 5), .completed)
-        // The success banner removes its top inset after six seconds. Dismiss it before
-        // locating the restored row so its disappearance cannot move the tap target.
+        // Assert and dismiss the six-second feedback before waiting on List virtualization;
+        // querying a removed row first can consume the entire banner lifetime on a busy runner.
         let archiveFeedback = app.staticTexts["Run archived. Reports are kept."]
         XCTAssertTrue(archiveFeedback.waitForExistence(timeout: 5))
         app.buttons["Dismiss message"].tap()
+        let archived = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: sameRun)
+        XCTAssertEqual(XCTWaiter.wait(for: [archived], timeout: 5), .completed)
         let feedbackDismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: archiveFeedback)
         XCTAssertEqual(XCTWaiter.wait(for: [feedbackDismissed], timeout: 5), .completed)
         let showArchived = app.switches["Show Archived Events"]
@@ -585,7 +635,11 @@ final class EventOperationsUITests: XCTestCase {
         let name = app.textFields["event-name"]
         XCTAssertTrue(name.waitForExistence(timeout: 10)); name.tap(); name.typeText("Accessible Portrait Event")
         let guest = app.buttons["event-guest-experience"]
-        visible(guest, in: app); guest.tap()
+        visible(guest, in: app)
+        XCTAssertTrue(guest.isEnabled)
+        guest.tap()
+        let expanded = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Expanded"), object: guest)
+        XCTAssertEqual(XCTWaiter.wait(for: [expanded], timeout: 5), .completed)
         let stickers = app.buttons["event-sticker-studio"]
         visible(stickers, in: app); stickers.tap()
         XCTAssertEqual(stickers.value as? String, "Enabled")
@@ -602,6 +656,7 @@ final class EventOperationsUITests: XCTestCase {
         XCTAssertEqual(app.textFields["event-name"].value as? String, "Accessible Portrait Event")
         let reopenedGuest = app.buttons["event-guest-experience"]
         visible(reopenedGuest, in: app); reopenedGuest.tap()
+        XCTAssertEqual(reopenedGuest.value as? String, "Expanded")
         let reopenedStickers = app.buttons["event-sticker-studio"]
         visible(reopenedStickers, in: app)
         XCTAssertEqual(reopenedStickers.value as? String, "Enabled")

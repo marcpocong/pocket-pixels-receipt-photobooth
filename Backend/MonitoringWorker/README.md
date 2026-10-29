@@ -29,3 +29,48 @@ Run tests from PaymentsWorker with `npm run test:monitoring`. They run the produ
 Before upgrading an existing deployment, privately export its D1, apply the additive migrations in order, then deploy the Worker. Migration `0002_notification_supersession.sql` preserves all existing rows and is compatible with the previous Worker for code rollback; do not restore an old database over newer incidents or heartbeat evidence.
 
 Limitations: keep the kiosk app foregrounded; iPadOS background suspension can produce offline alerts. This Worker detects Payments Worker failure independently but shares Cloudflare's infrastructure. A platform-wide Cloudflare outage needs an external independent observer, outside this zero-subscription deployment.
+
+## V2 owner commands (deployment is manual)
+
+Apply additive migration `0003_owner_commands.sql` before the new Worker. It adds only command
+reply/replay/rate tables and an independent payment-health observation. Existing rows remain.
+Set a distinct random `TELEGRAM_WEBHOOK_SECRET` (32–256 characters) privately through Wrangler
+stdin. Keep `TELEGRAM_CHAT_ID` a private owner user ID. Manually register Telegram's webhook
+with `secret_token` and URL `https://<monitor-worker>/v1/telegram` after validation. This task
+never registers it. Never put the bot credential, owner credential or webhook secret on iPad.
+
+The POST endpoint verifies the Telegram secret before reading a bounded 4 KiB UTF-8 body.
+It accepts only unedited, unforwarded private messages from that same owner user/chat and five
+exact commands: `/status`, `/event`, `/uploads`, `/incidents`, `/help` (optional bot suffix).
+There are no command arguments or mutation commands. Valid update IDs have durable unique
+reply records; replay cannot create a second reply. A D1 transaction limits commands to ten
+per minute, replies have atomic leases and at most five attempts. Cron drains due replies;
+replay records expire after seven days, with message dates limited to the previous 24 hours
+(rejecting timestamps more than five minutes ahead). Unknown commands are ignored. A crash
+or network timeout during Telegram delivery can make the remote send outcome uncertain;
+Telegram sendMessage has no idempotency key, so replies/alerts retain bounded at-least-once
+retry semantics. This never triggers booth, gallery, payment or print side effects.
+
+Each reply identifies report generation and heartbeat times and describes **last reported**
+state, with freshness at report time. Payment backend health has its own check timestamp.
+Unreported metrics remain unknown; no session counts or event names are invented. `/uploads`
+reports an unverified queue, uploading/verifying counts, attention and oldest/activity times.
+It never equates accepted POSTs with publicly available galleries. Queue/incident messages
+contain no customer content, QR identities, payment identifiers or secrets.
+
+Heartbeats accept additive optional `reportedAt`, `eventState`, `activityAt` and aggregated
+`uploads` (pending/uploading/verifying/attention/oldestAt/activityAt), still capped at 2 KiB.
+Legacy apps remain accepted. The new app negotiates `telemetryVersion:2` from `/health`; a
+legacy server receives only legacy fields, and a 422 after Worker rollback retries once
+using the legacy schema. Guest activity is observed in this process, never inferred from
+historical print outcomes. Missing activity after relaunch is explicitly unknown.
+
+An upload warning requires operator attention or a ten-minute backlog during an active event;
+routine idle/offline queued work alone causes no warning. Media remains on iPad. Storage and
+paid-camera block alerts are critical, other incidents warnings, and transitions recover
+explicitly. Every alert includes its transition time; use `/status` for current heartbeat age.
+
+Rollback: disable/unregister the webhook privately if reverting to the previous Worker. Leave
+additive tables and all existing evidence in place. Revert app/Worker code independently;
+never overwrite newer monitoring or customer records with an older backup. No production
+secrets, production webhook or D1 data are modified by local tests.

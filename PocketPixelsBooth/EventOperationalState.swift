@@ -79,7 +79,10 @@ final class EventOperationalState: ObservableObject {
     @Published private(set) var recoveryConfirmation = 0
     @Published private(set) var recoveryActionMessage = ""
     @Published private(set) var recoveryStorageError: String?
-    @Published var customerSessionActive = false
+    @Published private(set) var lastGuestActivityAt: Date?
+    @Published var customerSessionActive = false {
+        didSet { if oldValue != customerSessionActive { lastGuestActivityAt = Date() } }
+    }
     /// A hardware qualification print may have started without a confirmed outcome. The printer's
     /// physical state is unknown, so customers are blocked exactly like an unresolved customer print.
     @Published private(set) var qualificationPrintNeedsInspection = false
@@ -94,8 +97,7 @@ final class EventOperationalState: ObservableObject {
     private let uploadService = GoogleDriveGalleryUploadService()
     private let credentialStore = DeviceCredentialStore()
     private let recoveryStore = try? AppRecoveryStore()
-    private var retryTask: Task<Void, Never>?
-    private var retryRequested = false
+    private var galleryQueueSubscription: AnyCancellable?
     private var didStart = false
     private var printerStatusSubscription: AnyCancellable?
     private var selectedPrinterSubscription: AnyCancellable?
@@ -117,6 +119,15 @@ final class EventOperationalState: ObservableObject {
         }
 
         didStart = true
+        GalleryUploadScheduler.shared.configureRecovery { [weak self] in
+            await self?.recoverDueGalleries()
+        }
+        galleryQueueSubscription = NotificationCenter.default.publisher(for: .galleryQueueChanged)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.refreshGalleryQueue()
+                GalleryUploadScheduler.shared.requestRecovery()
+            }
         // @Published emits before mutation; deliver on the next main run-loop turn so
         // readiness reads the updated connection and discovered write characteristic.
         printerStatusSubscription = PrinterBluetoothService.shared.$jobState
@@ -233,11 +244,12 @@ final class EventOperationalState: ObservableObject {
         refresh()
         monitor.pathUpdateHandler = { [weak self] path in
             Task { @MainActor [weak self] in
+                let restored = self?.networkPathStatus != "Online" && path.status == .satisfied
                 self?.networkPathStatus = Self.networkStatusText(path.status)
-                self?.refresh()
-                if path.status == .satisfied {
-                    self?.retryPendingUploads(reason: "Network path is available.")
-                }
+                if restored { try? GalleryPendingUploadStore().requestRetry(connectivityRestored: true) }
+                GalleryUploadScheduler.shared.connectionChanged(available: path.status == .satisfied)
+                self?.refreshGalleryQueue()
+                if restored { GalleryUploadScheduler.shared.requestRecovery() }
             }
         }
         monitor.start(queue: monitorQueue)
@@ -246,16 +258,11 @@ final class EventOperationalState: ObservableObject {
     func handleScenePhaseActive() {
         start()
         refresh()
-        retryPendingUploads(reason: "App became active.")
+        GalleryUploadScheduler.shared.requestRecovery()
     }
 
     func refresh() {
-        do {
-            pendingUploads = try GalleryPendingUploadStore().summaries()
-            queueError = nil
-        } catch {
-            queueError = "Pending gallery storage needs operator inspection. Data has been retained."
-        }
+        refreshGalleryQueue()
         do {
             guard let recoveryStore else { throw AppRecoveryStoreError.unavailable }
             recoverableSession = try recoveryStore.loadChecked()
@@ -277,64 +284,46 @@ final class EventOperationalState: ObservableObject {
         cameraRestartCountThisLaunch += 1
     }
 
-    func retryPendingUploads(reason: String) {
-        guard networkPathStatus == "Online" else { return }
-        guard retryTask == nil else {
-            // Retry All during the recovery backoff wakes the existing worker, never starts a rival.
-            retryRequested = true
-            lastUploadWorkerMessage = "Retry requested; continuing recovery."
-            return
+    func refreshGalleryQueue() {
+        do {
+            pendingUploads = try GalleryPendingUploadStore().summaries()
+            queueError = nil
+        } catch {
+            queueError = "Pending gallery storage needs operator inspection. Data has been retained."
         }
-        retryRequested = false
+    }
 
-        pendingUploads = uploadService.pendingUploadSummaries()
-        guard !pendingUploads.isEmpty else {
-            lastUploadWorkerMessage = "No pending uploads."
-            return
-        }
+    func retryPendingUploads(reason: String, galleryToken: String? = nil) {
+        do { try GalleryPendingUploadStore().requestRetry(galleryToken: galleryToken) }
+        catch { queueError = "Gallery retry could not be saved. Photos are retained."; return }
+        lastUploadWorkerMessage = networkPathStatus == "Offline"
+            ? "Retry saved. Waiting for a network path; media remains on iPad."
+            : "Retry requested. Any in-flight operation finishes first; backend reachability is checked by delivery."
+        refreshGalleryQueue()
+        GalleryUploadScheduler.shared.requestRecovery()
+    }
 
+    private func recoverDueGalleries() async -> Date? {
+        refreshGalleryQueue()
+        guard !pendingUploads.isEmpty else { return nil }
         guard let deviceToken = try? credentialStore.loadDeviceToken() else {
-            lastUploadWorkerMessage = "Pending uploads are waiting for the saved device token."
-            return
+            lastUploadWorkerMessage = "Waiting for the saved device token in Gallery Setup."
+            return nil
         }
-
         isUploadWorkerRunning = true
-        lastUploadWorkerMessage = reason
-        retryTask = Task { [weak self] in
-            guard let self else { return }
-            defer {
-                self.isUploadWorkerRunning = false
-                self.retryTask = nil
-                self.refresh()
-            }
-
-            repeat {
-                do {
-                    let results = try await uploadService.retryPendingQueue(deviceToken: deviceToken, maxAttemptsPerGallery: 1)
-                    lastUploadWorkerMessage = "Ready: \(results.count). Waiting: \(uploadService.pendingUploadSummaries().count)."
-                } catch let failure as GalleryPendingQueueFailure {
-                    uploadFailuresThisLaunch += failure.failedCount
-                    lastUploadWorkerMessage = "Ready: \(failure.successfulResults.count). Needs attention / waiting: \(failure.failedCount). Photos retained."
-                } catch {
-                    lastUploadWorkerMessage = "Another upload is active or retry is unavailable. Photos retained; retrying shortly."
-                }
-                refresh()
-                guard !pendingUploads.isEmpty, networkPathStatus == "Online" else { return }
-                // Reconnection can arrive while another upload owns the worker. Keep one recovery
-                // task alive so a busy trigger or delayed public verification is not lost.
-                isUploadWorkerRunning = false
-                for _ in 0..<30 {
-                    if retryRequested {
-                        retryRequested = false
-                        break
-                    }
-                    do { try await Task.sleep(for: .seconds(1)) } catch { return }
-                }
-                guard networkPathStatus == "Online" else { return }
-                isUploadWorkerRunning = true
-            } while !Task.isCancelled
-
+        defer { isUploadWorkerRunning = false; refreshGalleryQueue() }
+        do {
+            let results = try await uploadService.retryPendingQueue(deviceToken: deviceToken, maxAttemptsPerGallery: 1)
+            lastUploadWorkerMessage = "Verified online: \(results.count). Other media remains saved on iPad."
+        } catch let failure as GalleryPendingQueueFailure {
+            uploadFailuresThisLaunch += failure.failedCount
+            lastUploadWorkerMessage = "Some deliveries are waiting or need attention. Photos remain saved on iPad."
+        } catch {
+            lastUploadWorkerMessage = "Delivery is already active. Retry is queued safely."
+            return Date().addingTimeInterval(5)
         }
+        refreshGalleryQueue()
+        return pendingUploads.filter { !$0.needsAttention }.map { $0.nextAttemptAt ?? Date().addingTimeInterval(5) }.min()
     }
 
     var hasUnresolvedPrint: Bool {

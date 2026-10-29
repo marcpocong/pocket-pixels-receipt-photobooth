@@ -94,7 +94,8 @@ final class RecentSessionsViewModel: ObservableObject {
 
     init(store: RecentSessionArchiveStore? = nil, summaryLoader: (@Sendable () throws -> [RecentSessionArchiveSummary])? = nil, verificationStore: GalleryVerificationStore? = nil, recheckSession: URLSession? = nil, photosWriter: any PhotosLibraryWriting = SystemPhotosLibraryWriter(),
         managementAuthorized: @escaping @MainActor () -> Bool = { OperatorAccessPermit.shared.isAuthorized },
-        mediaDeletionInspector: @escaping @MainActor (RecentSessionArchiveSummary) throws -> RecordCleanupDecision = { try SessionMediaOperations.sessionDeletionDecision($0) }) {
+        mediaDeletionInspector: @escaping @MainActor (RecentSessionArchiveSummary) throws -> RecordCleanupDecision = { try SessionMediaOperations.sessionDeletionDecision($0) },
+        pendingUploadPublisher: AnyPublisher<[GalleryPendingUploadSummary], Never>? = nil) {
         self.verificationStore = verificationStore ?? (try? GalleryVerificationStore())
         self.recheckSession = recheckSession
         self.photosWriter = photosWriter
@@ -110,7 +111,8 @@ final class RecentSessionsViewModel: ObservableObject {
             self.printStatuses = groups.mapValues { ArchivedPrintSummary.resolve(records: $0) }
             self.rebuildFilters()
         }.store(in: &subscriptions)
-        operations.$pendingUploads.sink { [weak self] pending in
+        let pendingUpdates = pendingUploadPublisher ?? operations.$pendingUploads.eraseToAnyPublisher()
+        pendingUpdates.sink { [weak self] pending in
             guard let self else { return }
             self.updatePendingUploadSnapshot(pending)
         }.store(in: &subscriptions)

@@ -263,31 +263,35 @@ struct RetainedRecoverySessionsView: View {
 
 struct PendingUploadsView: View {
     @StateObject private var operations = EventOperationalState.shared
+    @ObservedObject private var scheduler = GalleryUploadScheduler.shared
     var body: some View {
         List {
             Section {
-                LabeledContent("Waiting", value: "\(operations.pendingUploadCount)")
-                LabeledContent("Network", value: operations.networkPathStatus)
+                LabeledContent("Pending", value: "\(operations.pendingUploadCount)")
+                LabeledContent("Network path", value: operations.networkPathStatus)
+                Text("A network path does not confirm internet or backend availability.").font(.caption).foregroundStyle(.secondary)
+                LabeledContent("Delivering", value: scheduler.activeToken == nil ? "0" : "1")
+                LabeledContent("Needs attention", value: "\(operations.pendingUploads.filter(\.needsAttention).count)")
                 if let first = operations.pendingUploads.first { LabeledContent("Oldest waiting", value: first.createdAt) }
                 Text("Photos saved locally. Uploads wait for internet; receipt printing does not need to wait.")
                 if let error = operations.queueError { Text(error).foregroundStyle(.red) }
-                Button("Retry All") { operations.retryPendingUploads(reason: "Operator requested retry.") }
-                    .disabled(operations.isUploadWorkerRunning || operations.pendingUploads.isEmpty || operations.networkPathStatus != "Online")
-                TimelineView(.periodic(from: .now, by: 1)) { _ in
-                    Text(GoogleDriveGalleryUploadService.currentActivity).font(.caption)
-                }
-                if operations.isUploadWorkerRunning {
-                    Text("Automatic recovery is checking galleries. Photos remain saved; Retry All is available between passes.").font(.caption)
+                Button("Retry Now") { operations.retryPendingUploads(reason: "Operator requested retry.") }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(operations.pendingUploads.isEmpty)
+                    .accessibilityIdentifier("gallery-retry-now")
+                Text(scheduler.activity).font(.caption)
+                if scheduler.activeToken != nil {
+                    Text("The current delivery finishes first. Retry requests join the existing queue.").font(.caption)
                 }
                 Text(operations.lastUploadWorkerMessage).font(.caption)
             }
             ForEach(operations.pendingUploads) { upload in
                 Section(upload.sessionID) {
                     Text(upload.createdAt)
-                    Text("\(upload.deliveryState.operatorTitle) · \(upload.retryAttemptCount) attempts")
+                    Text("\(upload.needsAttention ? "Needs Attention" : (scheduler.activeToken == upload.galleryToken ? (scheduler.phase == .verifying ? "Verifying" : "Uploading") : "Queued · Saved on iPad")) · \(upload.retryAttemptCount) attempts")
                     if let last = upload.lastAttemptAt { Text("Last attempt: \(last.formatted())") }
                     if let error = upload.lastSafeError {
-                        Text("Needs attention: \(error)").font(.caption)
+                        Text(error).font(.caption)
                         Text("Photos retained on iPad.").font(.caption)
                     }
                     if upload.galleryURL.host() == "pocket-pixels-gallery.pocketpixels-ceb.workers.dev",
@@ -299,19 +303,14 @@ struct PendingUploadsView: View {
                         Link("Check Replacement Gallery", destination: replacement)
                         ShareLink("Share Replacement Link", item: replacement)
                     }
-                    NavigationLink("View Session") { RecentSessionsView(initialSearch: upload.sessionID) }
+                    if let next = upload.nextAttemptAt { Text("Scheduled retry: \(next.formatted())").font(.caption) }
+                    Button("Retry Gallery") { operations.retryPendingUploads(reason: "Operator requested gallery retry.", galleryToken: upload.galleryToken) }
+                    NavigationLink("Details / View Session") { RecentSessionsView(initialSearch: upload.sessionID) }
                 }
             }
         }.navigationTitle("Waiting Galleries")
-        .task {
-            // Refresh the operator's counts as each gallery clears, including a worker owned by
-            // the customer view model. This task observes only; it never starts another upload.
-            repeat {
-                operations.refresh()
-                do { try await Task.sleep(for: .seconds(2)) } catch { return }
-            } while !Task.isCancelled
-        }
-        .refreshable { operations.refresh() }
+        .task { operations.refreshGalleryQueue() }
+        .refreshable { operations.refreshGalleryQueue() }
     }
 }
 

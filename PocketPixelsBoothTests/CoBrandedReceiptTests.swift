@@ -346,8 +346,11 @@ final class CoBrandedReceiptTests: XCTestCase {
         let spaced = try ReceiptComposer.makeLayoutPlan(format: .solo, eventProfile: profile)
         XCTAssertEqual(spaced.coBrandSeparatorFrame!.minY - beforeSpacing.coBrandSeparatorFrame!.minY, 16, accuracy: 0.001)
         profile.receiptHeader = ReceiptComposer.resetHeaderElement(profile.receiptHeader, target: .whole)
-        XCTAssertEqual(profile.receiptHeader.coBrandedAdjustments?.studioScale, 0.6)
-        XCTAssertEqual(profile.receiptHeader.coBrandedAdjustments?.placement?.wholeX, 0)
+        XCTAssertNil(profile.receiptHeader.coBrandedAdjustments, "Whole Header reset restores all combined adjustments")
+        let reset = try ReceiptComposer.makeLayoutPlan(format: .solo, eventProfile: profile)
+        XCTAssertEqual(reset.mastheadFrames, original.mastheadFrames)
+        XCTAssertEqual(reset.customHeaderFrame, original.customHeaderFrame)
+        XCTAssertEqual(reset.coBrandSeparatorFrame, original.coBrandSeparatorFrame)
     }
 
     func testResizeClampResolvesNextMovementAndSelectedResetLeavesNeighborsAlone() throws {

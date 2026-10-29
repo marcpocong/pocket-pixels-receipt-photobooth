@@ -91,6 +91,8 @@ struct OperatorZoomableReceiptView: View {
     var focusRect: CGRect? = nil
     var focusIdentity: String = ""
     var showsSelection = true
+    var showsFitControls = false
+    @State private var fittedWidth = false
     var elementFrames: [CoBrandedHeaderTarget: CGRect] = [:]
     var selectedElement: CoBrandedHeaderTarget = .whole
     var onSelectElement: ((CoBrandedHeaderTarget) -> Void)? = nil
@@ -103,7 +105,7 @@ struct OperatorZoomableReceiptView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            ZoomableImageScrollView(image: image, rendering: rendering, controller: controller, sizing: sizing, focus: focus, focusRect: focusRect, focusIdentity: focusIdentity, showsSelection: showsSelection, elementFrames: elementFrames, selectedElement: selectedElement, onSelectElement: onSelectElement)
+            ZoomableImageScrollView(image: image, rendering: rendering, controller: controller, preservesViewportOnImageChange: showsFitControls, sizing: showsFitControls ? (fittedWidth ? .fitWidth : .wholeReceipt) : sizing, focus: focus, focusRect: focusRect, focusIdentity: focusIdentity, showsSelection: showsSelection, elementFrames: elementFrames, selectedElement: selectedElement, onSelectElement: onSelectElement)
                 .background(Color(white: 0.93))
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .overlay { RoundedRectangle(cornerRadius: 10).stroke(MadeToKeepTheme.ColorPalette.hairline) }
@@ -122,6 +124,16 @@ struct OperatorZoomableReceiptView: View {
                     @unknown default: break
                     }
                 }
+            if showsFitControls {
+                HStack(spacing: 12) {
+                    Button("Fit Full") { fittedWidth = false; controller.fit(.wholeReceipt) }
+                        .accessibilityIdentifier("receipt-fit-full")
+                    Button("Fit Width") { fittedWidth = true; controller.fit(.fitWidth) }
+                        .accessibilityIdentifier("receipt-fit-width")
+                    Spacer(minLength: 0)
+                    Text(controller.percentText).monospacedDigit().foregroundStyle(.secondary)
+                }.font(.callout).buttonStyle(.bordered).controlSize(.regular)
+            }
         }
     }
 
@@ -139,6 +151,8 @@ final class ZoomController: ObservableObject {
         scrollView?.zoom(toRelative: relative, animated: animated)
     }
 
+    func fit(_ sizing: OperatorZoomableReceiptView.Sizing) { scrollView?.fit(sizing) }
+
     func scroll(pages: CGFloat) {
         guard let view = scrollView else { return }
         let y = min(max(0, view.contentOffset.y + view.bounds.height * 0.8 * pages), max(0, view.contentSize.height - view.bounds.height))
@@ -155,6 +169,7 @@ private struct ZoomableImageScrollView: UIViewRepresentable {
     let image: UIImage
     let rendering: OperatorZoomableReceiptView.Rendering
     let controller: ZoomController
+    let preservesViewportOnImageChange: Bool
     let sizing: OperatorZoomableReceiptView.Sizing
     let focus: ReceiptPreviewFocus
     let focusRect: CGRect?
@@ -175,6 +190,7 @@ private struct ZoomableImageScrollView: UIViewRepresentable {
     func updateUIView(_ view: ReceiptZoomScrollView, context: Context) {
         controller.scrollView = view
         view.sizing = sizing
+        view.preservesViewportOnImageChange = preservesViewportOnImageChange
         view.showsSelection = showsSelection
         view.elementFrames = elementFrames
         view.selectedElement = selectedElement
@@ -190,7 +206,10 @@ private struct ZoomableImageScrollView: UIViewRepresentable {
 /// fit-whole inspectors defer to surrounding navigation until zoomed in.
 final class ReceiptZoomScrollView: UIScrollView, UIScrollViewDelegate {
     let imageView = UIImageView()
-    var sizing: OperatorZoomableReceiptView.Sizing = .wholeReceipt
+    var sizing: OperatorZoomableReceiptView.Sizing = .wholeReceipt {
+        didSet { if oldValue != sizing { fit(sizing) } }
+    }
+    var preservesViewportOnImageChange = false
     var elementFrames: [CoBrandedHeaderTarget: CGRect] = [:] { didSet { setNeedsLayout() } }
     var selectedElement: CoBrandedHeaderTarget = .whole { didSet { setNeedsLayout() } }
     var onSelectElement: ((CoBrandedHeaderTarget) -> Void)? { didSet { setNeedsLayout() } }
@@ -239,7 +258,8 @@ final class ReceiptZoomScrollView: UIScrollView, UIScrollViewDelegate {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     func display(_ image: UIImage, rendering: OperatorZoomableReceiptView.Rendering) {
-        let relative = sizing == .fitWidth ? zoomScale / max(fitScale, 0.0001) : 1
+        let preservesViewport = sizing == .fitWidth || preservesViewportOnImageChange
+        let relative = preservesViewport && imageView.image != nil ? zoomScale / max(fitScale, 0.0001) : 1
         let previousOffset = contentOffset
         self.rendering = rendering
         // Restore a neutral UIKit zoom coordinate system before replacing image dimensions.
@@ -257,7 +277,7 @@ final class ReceiptZoomScrollView: UIScrollView, UIScrollViewDelegate {
         contentSize = image.size
         lastBoundsSize = .zero
         pendingRelative = max(1, relative)
-        if sizing == .fitWidth { restoreOffset = previousOffset }
+        restoreOffset = preservesViewport ? previousOffset : nil
         onZoomChange = callback
         setNeedsLayout()
         // SwiftUI may be updating this representable. Publish the actual resulting zoom after
@@ -266,6 +286,14 @@ final class ReceiptZoomScrollView: UIScrollView, UIScrollViewDelegate {
             guard let self else { return }
             self.onZoomChange?(self.zoomScale / max(self.fitScale, 0.0001))
         }
+    }
+
+    /// Explicit operator viewport action, independent of selection and design geometry.
+    func fit(_ mode: OperatorZoomableReceiptView.Sizing) {
+        if sizing != mode { sizing = mode; return }
+        lastBoundsSize = .zero; pendingRelative = 1; restoreOffset = nil
+        needsFocus = false; geometryChanged = false
+        contentOffset = .zero; setNeedsLayout()
     }
 
     /// Fit = the largest scale at which the whole receipt is visible. Recomputed on rotation or

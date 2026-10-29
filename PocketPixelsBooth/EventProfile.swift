@@ -402,6 +402,7 @@ struct EventReceiptComposerPreview: View {
     @State private var updating = false
 
     var selection: Binding<ReceiptPreviewSelection>? = nil
+    var stableEditorViewport = false
     @State private var localSelection = ReceiptPreviewSelection()
     private var selectionBinding: Binding<ReceiptPreviewSelection> { selection ?? $localSelection }
     private var selectedFormat: BoothFormat { selectionBinding.wrappedValue.format }
@@ -487,7 +488,7 @@ struct EventReceiptComposerPreview: View {
                 Text("Black & White").tag(false)
                 Text("Thermal Raster").tag(true)
             }.pickerStyle(.segmented)
-            if let editorFocus, !inspection {
+            if let editorFocus, !inspection, !stableEditorViewport {
                 Picker("Preview Focus", selection: editorFocus) {
                     ForEach(ReceiptPreviewFocus.allCases) { Text($0.rawValue).tag($0) }
                 }.pickerStyle(.menu).accessibilityIdentifier("receipt-preview-focus")
@@ -508,11 +509,12 @@ struct EventReceiptComposerPreview: View {
                         }.buttonStyle(.plain).accessibilityLabel("Expand receipt thumbnail")
                     } else {
                         OperatorZoomableReceiptView(image: image,
-                            sizing: editorFocus == nil ? .wholeReceipt : .fitWidth,
-                            focus: inspection ? .full : (editorFocus?.wrappedValue ?? .full),
-                            focusRect: inspection ? nil : editorGeometry?.region(focus: editorFocus?.wrappedValue ?? .full, target: headerTarget?.wrappedValue ?? .whole, textTarget: textTarget),
-                            focusIdentity: inspection ? "" : editingFocusIdentity,
+                            sizing: editorFocus == nil || stableEditorViewport ? .wholeReceipt : .fitWidth,
+                            focus: inspection || stableEditorViewport ? .full : (editorFocus?.wrappedValue ?? .full),
+                            focusRect: inspection || stableEditorViewport ? nil : editorGeometry?.region(focus: editorFocus?.wrappedValue ?? .full, target: headerTarget?.wrappedValue ?? .whole, textTarget: textTarget),
+                            focusIdentity: inspection || stableEditorViewport ? "" : editingFocusIdentity,
                             showsSelection: showsHeaderSelection,
+                            showsFitControls: stableEditorViewport,
                             elementFrames: editorGeometry?.elements ?? [:],
                             selectedElement: headerTarget?.wrappedValue ?? .whole,
                             onSelectElement: inspection ? nil : headerTarget.map { binding in { binding.wrappedValue = $0 } },
@@ -553,6 +555,7 @@ struct EventReceiptComposerPreview: View {
     private func previewHeight(inspectionHeight: CGFloat?, compact: Bool) -> CGFloat {
         if let inspectionHeight { return inspectionHeight }
         guard let focus = editorFocus?.wrappedValue else { return compact ? 180 : 580 }
+        if stableEditorViewport { return editorViewportHeight }
         guard focus != .full, let region = editorGeometry?.region(focus: focus, target: headerTarget?.wrappedValue ?? .whole, textTarget: textTarget) else { return editorViewportHeight }
         // A wide, shallow header needs a wide, shallow viewport. Leave room for context,
         // instead of filling a tall inspector with unrelated photographs or empty gray space.
