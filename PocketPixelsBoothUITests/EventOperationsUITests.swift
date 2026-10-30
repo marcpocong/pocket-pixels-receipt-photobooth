@@ -72,6 +72,35 @@ final class EventOperationsUITests: XCTestCase {
         try XCTUnwrap(target).tap()
     }
 
+    private func waitForText(_ text: String, in field: XCUIElement) {
+        // Keyboard injection may finish before SwiftUI/AX publishes its last editing change.
+        // Require the complete value; never retype missing characters or accept a prefix.
+        let committed = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == true AND value == %@", text), object: field)
+        XCTAssertEqual(XCTWaiter.wait(for: [committed], timeout: 5), .completed)
+        XCTAssertEqual(field.value as? String, text)
+    }
+
+    private func finishStudio(_ action: String = "receipt-studio-done", in app: XCUIApplication) {
+        app.buttons[action].tap()
+        // Save awaits the durable workspace flush before dismissing. Do not resolve a scroll
+        // container from the outgoing editor while that transition is still in progress.
+        let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            !app.scrollViews["receipt-studio-controls"].exists
+                && app.scrollViews["event-workspace-scroll"].isHittable
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [returned], timeout: 10), .completed)
+    }
+
+    private func waitForPreview(_ preview: XCUIElement, in app: XCUIApplication) {
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            preview.exists && preview.isHittable && preview.scrollViews.firstMatch.exists
+                && (preview.value as? String)?.hasPrefix("Zoom ") == true
+                && !app.staticTexts["Updating preview…"].exists
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 30), .completed)
+    }
+
     private func studioSection(_ name: String, in app: XCUIApplication) {
         let title = name == "Header & Logo" ? "Header" : (name == "Footer & QR" ? "Footer" : "Text")
         let picker = app.segmentedControls["receipt-studio-section"]
@@ -108,17 +137,25 @@ final class EventOperationsUITests: XCTestCase {
         let moved = position.label
         app.buttons["receipt-studio-undo"].tap(); XCTAssertEqual(position.label, before)
         app.buttons["receipt-studio-redo"].tap(); XCTAssertEqual(position.label, moved)
-        preview.scrollViews.firstMatch.pinch(withScale: 2, velocity: 1)
+        waitForPreview(preview, in: app)
+        // The hosted XCTest driver generates only ~28 points of final finger separation at
+        // scale 2. Use a wider native gesture so recognition is reliable across iPad runtimes.
+        preview.scrollViews.firstMatch.pinch(withScale: 3, velocity: 1)
+        let pinched = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            guard preview.exists, let value = preview.value as? String else { return false }
+            return value.hasPrefix("Zoom ") && value != "Zoom 100%"
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [pinched], timeout: 5), .completed)
         let zoom = preview.value as? String
         XCTAssertNotEqual(zoom, "Zoom 100%")
         studioSection("Footer & QR", in: app); XCTAssertEqual(preview.value as? String, zoom)
         studioSection("Text & Style", in: app); XCTAssertEqual(preview.value as? String, zoom)
         studioSection("Header & Logo", in: app); XCTAssertEqual(preview.value as? String, zoom)
         capture("v2-portrait-columns")
-        app.buttons["receipt-studio-done"].tap(); customize.tap()
+        finishStudio(in: app); customize.tap()
         XCTAssertEqual(position.label, moved)
         app.buttons["Move Whole Header down"].tap(); XCTAssertNotEqual(position.label, moved)
-        app.buttons["receipt-studio-cancel"].tap(); customize.tap()
+        finishStudio("receipt-studio-cancel", in: app); customize.tap()
         XCTAssertEqual(position.label, moved, "Cancelled model changes never reached Setup")
     }
 
@@ -262,7 +299,7 @@ final class EventOperationsUITests: XCTestCase {
         XCTAssertTrue(app.segmentedControls["receipt-studio-section"].buttons["Header"].isSelected, "Tapping artwork routes directly back to its controls")
         app.buttons["Artwork & Composition"].tap()
         XCTAssertTrue(app.buttons["Replace Logo"].exists)
-        app.buttons["receipt-studio-done"].tap(); customize.tap(); ready()
+        finishStudio(in: app); customize.tap(); ready()
         selectTarget("Event Logo", in: app)
         XCTAssertEqual(logoSize.value as? String, savedSize)
         XCTAssertEqual(app.staticTexts["receipt-position-vertical"].label, savedLogoPosition)
@@ -439,7 +476,7 @@ final class EventOperationsUITests: XCTestCase {
         app.buttons["Create Test Event"].tap()
         let name = app.textFields["event-name"]
         XCTAssertTrue(name.waitForExistence(timeout: 10)); name.tap(); name.typeText("Unfinished Workspace")
-        XCTAssertEqual(name.value as? String, "Unfinished Workspace")
+        waitForText("Unfinished Workspace", in: name)
         let saved = app.descendants(matching: .any).matching(identifier: "event-draft-status").firstMatch
         let committed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", "Saved on this iPad"), object: saved)
         XCTAssertEqual(XCTWaiter.wait(for: [committed], timeout: 5), .completed)
@@ -604,7 +641,7 @@ final class EventOperationsUITests: XCTestCase {
         let inspectorDone = app.buttons["receipt-inspector-done"]
         XCTAssertTrue(inspectorDone.waitForExistence(timeout: 5))
         try tapVisible(app.buttons.matching(identifier: "receipt-inspector-done"))
-        app.buttons["receipt-studio-done"].tap()
+        finishStudio(in: app)
         XCTAssertFalse(app.otherElements["event-pinned-preview"].exists)
         let guest = app.buttons["event-guest-experience"]
         visible(guest, in: app); guest.tap()
