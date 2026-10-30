@@ -71,13 +71,24 @@ import XCTest
         try await Task.sleep(for: .milliseconds(300))
         XCTAssertEqual(workspace.snapshot.regularBoothDraft?.profile.receiptDesign.editorialCaption, "LATEST FOOTER", "Returning to the parent form cannot overwrite the footer with stale state")
         workspace.select(.events); workspace.path = [.regularBooth]
-        try await Task.sleep(for: .milliseconds(300))
+        try await waitForRoot(.booth, in: workspace)
         XCTAssertEqual(workspace.primaryDestination, .booth)
         XCTAssertTrue(workspace.path.isEmpty)
         workspace.select(.reports); workspace.path = [.recentSessions]
-        try await Task.sleep(for: .milliseconds(300))
+        try await waitForRoot(.sessions, in: workspace)
         XCTAssertEqual(workspace.primaryDestination, .sessions)
         XCTAssertTrue(workspace.path.isEmpty)
+    }
+
+    /// Navigation destinations redirect from their SwiftUI task after presentation. Hosted CI
+    /// can take longer than the animation's nominal duration; keep the same state assertions
+    /// and fail after a bounded wait if the redirect never happens.
+    private func waitForRoot(_ destination: OperatorPrimaryDestination, in workspace: OperatorWorkspace) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while workspace.primaryDestination != destination || !workspace.path.isEmpty {
+            guard ContinuousClock.now < deadline else { return }
+            try await Task.sleep(for: .milliseconds(20))
+        }
     }
 
     func testThumbnailCancellationBoundsConcurrentReadersAndMemoryWarningEviction() async throws {

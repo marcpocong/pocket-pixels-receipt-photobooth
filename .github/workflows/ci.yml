@@ -160,5 +160,7 @@ jobs:
       - name: Gallery Worker tests
         working-directory: Backend/CloudflareGalleryProxy
         run: npm test
-      - name: Apps Script pure checks
-        run: node Backend/GoogleAppsScript/GridSixValidation.test.cjs
+      - name: Apps Script pure checks and isolated Drive experiment contract
+        run: |
+          node Backend/GoogleAppsScript/GridSixValidation.test.cjs
+          node --test Tools/GalleryPerformance/isolated-drive-contract.test.cjs

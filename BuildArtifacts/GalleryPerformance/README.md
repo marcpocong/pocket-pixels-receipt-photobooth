@@ -8,4 +8,4 @@
 
 In this controlled backlog model, 20-guest queue drain time improves 62–66%, with identical request byte counts. This is not a live-service latency prediction. Actual Drive API comparisons, browser first paint and hardware checks remain unmeasured; rejected alternatives and on-device checks are explicit in the report.
 
-Google Drive remains permanent storage. No deployment, remote push, production gallery/payment, production media change, dependency, credential or project signing change was performed.
+Google Drive remains permanent storage. The local validation snapshot involved no deployment or remote push. The owner subsequently requested publication to GitHub `main` and CI validation; see the report’s follow-up section and final handoff. No production gallery/payment, production media change, dependency, credential or project signing change was performed.

@@ -141,12 +141,13 @@ import UIKit
         let scheduler = GalleryUploadScheduler()
         let two = expectation(description: "two bounded public reads")
         two.expectedFulfillmentCount = 2
-        var active = 0, peak = 0, releases: [CheckedContinuation<Void, Never>] = []
+        var active = 0, peak = 0, started = 0, releases: [CheckedContinuation<Void, Never>] = []
         let jobs = (0..<5).map { index in Task {
             try await scheduler.perform(token: "bounded-\(index)") {
                 await scheduler.beginVerification(token: "bounded-\(index)")
                 active += 1; peak = max(peak, active)
-                if index < 2 { two.fulfill() }
+                started += 1
+                if started <= 2 { two.fulfill() }
                 await withCheckedContinuation { releases.append($0) }
                 active -= 1
                 if index == 0 { throw GalleryUploadError.deliveryUnknown }
