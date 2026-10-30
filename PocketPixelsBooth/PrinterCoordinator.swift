@@ -139,6 +139,7 @@ final class PrinterCoordinator: ObservableObject {
     @Published private(set) var fallbackReason: String?
     @Published private(set) var wifiCheckMessage = "Reconnect to check the Wi-Fi printer."
     @Published private(set) var checkingWiFi = false
+    private var wifiMonitoringCheck: (at: Date, connected: Bool, endpoint: String)?
     private var wifiCheckedAt: Date?
     private var wifiCheckedEndpoint: String?
     @Published var receiptBluetoothTransferMode: ReceiptBluetoothTransferMode {
@@ -257,7 +258,14 @@ final class PrinterCoordinator: ObservableObject {
         guard let wifiCheckedAt else { return false }
         return wifiCheckedEndpoint == wifiEndpoint && wifiCheckedAt <= Date()
     }
+    /// Passive monitoring never opens a socket. An old check cannot establish current readiness.
+    var monitoringWiFiConnection: PrinterMonitoringObservation.Connection {
+        guard let check = wifiMonitoringCheck, check.endpoint == wifiEndpoint,
+              (0..<300).contains(Date().timeIntervalSince(check.at)) else { return .unknown }
+        return check.connected && wifiConnectionVerified ? .connected : .disconnected
+    }
     func invalidateWiFiConnectionCheck() {
+        wifiMonitoringCheck = nil
         objectWillChange.send()
         wifiCheckedAt = nil
     }
@@ -310,10 +318,12 @@ final class PrinterCoordinator: ObservableObject {
                     guard let self else { continuation.resume(returning: false); return }
                     if case .success = result, endpoint == self.wifiEndpoint {
                         self.wifiCheckedAt = Date(); self.wifiCheckedEndpoint = endpoint
+                        self.wifiMonitoringCheck = (Date(), true, endpoint)
                         self.wifiCheckMessage = "Wi-Fi connected. Check paper; connection alone cannot confirm a printed receipt."
                         continuation.resume(returning: true)
                     } else {
                         self.wifiCheckedAt = nil
+                        self.wifiMonitoringCheck = (Date(), false, endpoint)
                         self.wifiCheckMessage = "Wi-Fi printer unavailable. Check its power, network and address in Advanced."
                         continuation.resume(returning: false)
                     }

@@ -1,3 +1,4 @@
+import AVFoundation
 import Combine
 import Foundation
 import Security
@@ -16,10 +17,95 @@ nonisolated struct BoothTelemetry: Codable, Equatable, Sendable {
     var activityAt: String? = nil
     var uploads: GalleryQueueTelemetry? = nil
 
+    var telemetryVersion: Int? = nil
+    var printerObservation: PrinterMonitoringObservation? = nil
+    var camera: CameraMonitoringState? = nil
+    var guest: GuestMonitoringState? = nil
+
+    func compatible(version: Int) -> Self {
+        var value = self
+        if version < 3 { if value.eventState == "unknown" { value.eventState = nil }; value.telemetryVersion = nil; value.printerObservation = nil; value.camera = nil; value.guest = nil }
+        return version < 2 ? value.legacy() : value
+    }
+
     func legacy() -> Self {
         var value = self
+        value.telemetryVersion = nil; value.printerObservation = nil; value.camera = nil; value.guest = nil
         value.reportedAt = nil; value.eventState = nil; value.activityAt = nil; value.uploads = nil
         return value
+    }
+}
+
+/// Transport/readiness are observations, never a claim of physical paper output.
+nonisolated struct PrinterMonitoringObservation: Codable, Equatable, Sendable {
+    enum Connection: String, Codable, Sendable { case connected, disconnected, connecting, unknown }
+    enum Readiness: String, Codable, Sendable {
+        case ready, busy, diagnosticRequired = "diagnostic_required", recoveryRequired = "recovery_required", unavailable, unknown
+    }
+    enum Evidence: String, Codable, Sendable { case clear, unresolved, unknown }
+    enum Transport: String, Codable, Sendable { case bluetooth, wifi, auto, unknown }
+    var transport: Transport
+    var connection: Connection
+    var readiness: Readiness
+    var evidence: Evidence
+
+    static func resolve(mode: PrinterConnectionMode, bluetoothConnected: Bool, bluetoothConnecting: Bool,
+                        diagnostic: Bool, wifiConnection: Connection, busy: Bool, recovery: Bool,
+                        unresolved: Bool, evidenceReadable: Bool) -> Self {
+        let usesBluetooth = mode == .bluetooth || (mode == .auto && bluetoothConnected)
+        let connection: Connection = usesBluetooth ? (bluetoothConnected ? .connected : (bluetoothConnecting ? .connecting : .disconnected))
+            : (wifiConnection == .unknown && mode == .auto && bluetoothConnecting ? .connecting : wifiConnection)
+        let readiness: Readiness = recovery ? .recoveryRequired : (busy ? .busy :
+            (connection == .connected ? (usesBluetooth && diagnostic ? .diagnosticRequired : .ready) :
+                (connection == .disconnected ? .unavailable : .unknown)))
+        return Self(transport: usesBluetooth ? .bluetooth : (mode == .wifi || wifiConnection != .unknown ? .wifi : .auto),
+                    connection: connection, readiness: readiness,
+                    evidence: unresolved ? .unresolved : (evidenceReadable && !busy ? .clear : .unknown))
+    }
+
+    var legacyPrinter: String {
+        if evidence == .unresolved { return "uncertain" }
+        switch readiness {
+        case .recoveryRequired: return "recovery"
+        case .ready, .busy: return "ready"
+        default: return "unavailable"
+        }
+    }
+}
+
+nonisolated enum EventMonitoringState: String, Codable, Sendable {
+    case active, idle, paused, recovery, unknown
+    static func resolve(readable: Bool, hasRun: Bool, paused: Bool, recovering: Bool) -> Self {
+        if recovering { return .recovery }
+        guard readable else { return .unknown }
+        guard hasRun else { return .idle }
+        return paused ? .paused : .active
+    }
+}
+
+nonisolated enum CameraMonitoringState: String, Codable, Sendable {
+    case ready, initializing, unavailable, permissionDenied = "permission_denied", interrupted, recoveryRequired = "recovery_required", unknown
+    static func resolve(permissionDenied: Bool, running: Bool, unavailable: Bool, initializing: Bool, interrupted: Bool, recoveryRequired: Bool = false) -> Self {
+        if recoveryRequired { return .recoveryRequired }
+        if permissionDenied { return .permissionDenied }
+        if interrupted { return .interrupted }
+        if running { return .ready }
+        if unavailable { return .unavailable }
+        return initializing ? .initializing : .unknown
+    }
+}
+
+nonisolated enum GuestMonitoringState: String, Codable, Sendable {
+    case idle, guestInProgress = "guest_in_progress", captureWaiting = "capture_waiting", printing
+    case recoveryRequired = "recovery_required", unknown
+    static func resolve(_ state: BoothSessionState) -> Self {
+        switch state {
+        case .welcome, .choosingFormat, .thankYou: return .idle
+        case .preparingCamera, .cameraReady, .countdown, .capturing, .betweenPhotos, .retaking: return .captureWaiting
+        case .connectingToPrinter, .printing: return .printing
+        case .recoveryRequired, .error: return .recoveryRequired
+        default: return .guestInProgress
+        }
     }
 }
 
@@ -49,7 +135,7 @@ nonisolated struct GalleryQueueTelemetry: Codable, Equatable, Sendable {
     @Published private(set) var lastHeartbeat: Date?
     private var task: Task<Void, Never>?
     private var sending = false
-    private var supportsV2: Bool?
+    private var supportedVersion: Int?
     private let credentialService = "com.pocketpixels.booth-monitoring"
     var endpoint: String { UserDefaults.standard.string(forKey: "pocketPixels.monitoring.endpoint") ?? "" }
 
@@ -63,7 +149,7 @@ nonisolated struct GalleryQueueTelemetry: Codable, Equatable, Sendable {
         if status == errSecItemNotFound { status = SecItemAdd(key.merging(value) { _,new in new } as CFDictionary,nil) }
         guard status == errSecSuccess else { throw SetupFailure("Monitoring credential could not be saved in Keychain.") }
         UserDefaults.standard.set(url.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn:"/")),forKey:"pocketPixels.monitoring.endpoint")
-        supportsV2 = nil
+        supportedVersion = nil
         lastResult = "Configured. A heartbeat will verify the connection."
     }
     private func token() -> String? {
@@ -90,32 +176,25 @@ nonisolated struct GalleryQueueTelemetry: Codable, Equatable, Sendable {
     func sendHeartbeat() async {
         guard !sending, let token=token(), let base=URL(string:endpoint), !endpoint.isEmpty else { return }
         sending=true; defer { sending=false }
-        let printer = PrinterCoordinator.shared
-        // Refresh Wi-Fi observations before an idle owner heartbeat. An unused Bluetooth
-        // radio is not evidence of printer failure; never interrupt a guest to probe a socket.
-        if printer.preferredMode != .bluetooth, !PrinterBluetoothService.shared.isConnectedAndReady || printer.preferredMode == .wifi,
-           !printer.isWorking, !printer.requiresRecovery, !EventOperationalState.shared.customerSessionActive {
-            _ = await printer.checkWiFiConnection()
-        }
         var request=URLRequest(url:base.appendingPathComponent("v1/heartbeat"),timeoutInterval:10)
         request.httpMethod="POST";request.setValue("Bearer "+token,forHTTPHeaderField:"Authorization")
         request.setValue("application/json",forHTTPHeaderField:"Content-Type")
         do {
-            if supportsV2 == nil {
+            if supportedVersion == nil {
                 // Old deployed Workers allowlist the legacy schema. Negotiate before adding fields.
                 let healthRequest = URLRequest(url: base.appendingPathComponent("health"), timeoutInterval: 8)
                 if let (data, response) = try? await URLSession.shared.data(for: healthRequest),
                    (response as? HTTPURLResponse)?.statusCode == 200,
                    let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    supportsV2 = (body["telemetryVersion"] as? Int ?? 1) >= 2
+                    supportedVersion = min(3, max(1, body["telemetryVersion"] as? Int ?? 1))
                 }
             }
             let telemetry = snapshot()
-            request.httpBody=try JSONEncoder().encode(supportsV2 == true ? telemetry : telemetry.legacy())
+            request.httpBody=try JSONEncoder().encode(telemetry.compatible(version: supportedVersion ?? 1))
             var (_,response)=try await URLSession.shared.data(for:request)
-            if (response as? HTTPURLResponse)?.statusCode == 422, supportsV2 == true {
+            if (response as? HTTPURLResponse)?.statusCode == 422, (supportedVersion ?? 1) > 1 {
                 // Code rollback to a legacy Worker cannot silently stop heartbeat enrollment.
-                supportsV2 = false
+                supportedVersion = 1
                 request.httpBody = try JSONEncoder().encode(telemetry.legacy())
                 (_,response) = try await URLSession.shared.data(for: request)
             }
@@ -141,10 +220,24 @@ nonisolated struct GalleryQueueTelemetry: Codable, Equatable, Sendable {
             }
         }
         // Old uncertain outcomes remain evidence, not a new incident on every heartbeat.
-        let uncertain=operations.hasUnresolvedPrint || printer.requiresRecovery
-        if uncertain { incidents.append("uncertain_print") }
-        if printer.operatorState == .unresolved || printer.operatorState == .disconnected || printer.operatorState == .awaitingTest { incidents.append("printer") }
-        let storage=acceptance.storageError != nil || runs.storageError != nil || operations.queueError != nil
+        // The pre-send checkpoint deliberately says printStatusUnknown while a normal send is
+        // running. It is not itself an operator-review incident. Durable inspection stays visible.
+        let explicitReview = operations.qualificationPrintNeedsInspection
+            || PrintOutcomeOutbox.shared?.inspectionEntryIDs.isEmpty == false
+            || !recovery.receiptCheckIDs.isEmpty || (!printer.isWorking && operations.hasUnresolvedPrint)
+        let bluetooth = PrinterBluetoothService.shared
+        let evidenceReadable = operations.recoveryStorageError == nil && PrintOutcomeOutbox.shared != nil
+            && PrintOutcomeOutbox.shared?.integrityFault == nil && PrintOutcomeOutbox.shared?.persistenceFailure == nil
+            && CheckoutCheckpointStore.shared != nil && CheckoutCheckpointStore.shared?.integrityFault == nil
+        let observation = PrinterMonitoringObservation.resolve(mode: printer.preferredMode,
+            bluetoothConnected: bluetooth.isConnectedAndReady, bluetoothConnecting: bluetooth.jobState.isWorking && !bluetooth.isTransmitting,
+            diagnostic: bluetooth.needsDiagnosticTextTest, wifiConnection: printer.monitoringWiFiConnection,
+            busy: printer.isWorking, recovery: printer.requiresRecovery, unresolved: explicitReview,
+            evidenceReadable: evidenceReadable)
+        if observation.evidence == .unresolved || printer.requiresRecovery { incidents.append("uncertain_print") }
+        // Legacy servers still receive their supported vocabulary; no duplicate recovery cause.
+        if observation.readiness == .unavailable || observation.readiness == .diagnosticRequired { incidents.append("printer") }
+        let storage = !evidenceReadable || acceptance.storageError != nil || runs.storageError != nil || operations.queueError != nil
             || CheckoutCheckpointStore.shared?.integrityFault != nil || PrintOutcomeOutbox.shared?.integrityFault != nil
             || CheckoutCheckpointStore.shared == nil || PrintOutcomeOutbox.shared == nil
         if storage { incidents.append("storage") }
@@ -153,11 +246,21 @@ nonisolated struct GalleryQueueTelemetry: Codable, Equatable, Sendable {
         if CommercialPolicySource.load() == .serverManaged, operations.networkPathStatus != "Online" { payment="unavailable" }
         var value = BoothTelemetry(mode:runs.pendingTransition != nil ? "recovery" : (paused ? "paused" : (RegularBoothMode.isEnabled ? "regular" : "event")),
             network:operations.networkPathStatus=="Online" ? "online" : (operations.networkPathStatus=="Offline" ? "offline" : "unknown"),
-            payment:payment,printer:uncertain ? "uncertain" : (printer.requiresRecovery ? "recovery" : printer.operatorState.telemetryValue),storage:storage ? "error" : "ready",
+            payment:payment,printer:observation.legacyPrinter,storage:storage ? "error" : "ready",
             incidents:Array(Set(incidents)).sorted(),eventReference:runs.operational?.id)
+        value.telemetryVersion = 3
+        value.printerObservation = observation
+        let guestModel = ActiveGuestInteraction.model
+        value.guest = guestModel.map { GuestMonitoringState.resolve($0.state) } ?? (operations.customerSessionActive ? .guestInProgress : .unknown)
+        let permission = AVCaptureDevice.authorizationStatus(for: .video)
+        value.camera = CameraMonitoringState.resolve(permissionDenied: permission == .denied || permission == .restricted,
+            running: guestModel?.isCameraRunning == true, unavailable: guestModel?.isCameraUnavailable == true,
+            initializing: guestModel?.state == .preparingCamera, interrupted: guestModel?.monitoringCameraInterrupted == true,
+            recoveryRequired: guestModel?.monitoringCameraRecoveryRequired == true)
         let scheduler = GalleryUploadScheduler.shared
         value.reportedAt = ISO8601DateFormatter().string(from: Date())
-        value.eventState = runs.pendingTransition != nil ? "recovery" : (runs.operational == nil ? "idle" : (paused || runs.operational?.status == .paused ? "paused" : "active"))
+        value.eventState = EventMonitoringState.resolve(readable: runs.storageError == nil && acceptance.storageError == nil,
+            hasRun: runs.operational != nil, paused: paused || runs.operational?.status == .paused, recovering: runs.pendingTransition != nil).rawValue
         value.activityAt = operations.lastGuestActivityAt.map { ISO8601DateFormatter().string(from: $0) }
         // Re-read metadata only; no photographs are loaded for monitoring.
         do {
@@ -193,7 +296,7 @@ struct BoothMonitoringView: View {
                 if let date=monitor.lastHeartbeat { LabeledContent("Last received",value:date.formatted()) }
                 if !message.isEmpty { Text(message) }
             }
-            Section("Timing") { Text("A heartbeat is sent every five minutes while the app runs in the foreground. After fifteen minutes without one, the server raises an offline incident on its next scheduled check. iPadOS may suspend background apps; keep Carlo open for booth operation.") }
+            Section("Timing") { Text("A heartbeat is sent every five minutes while the app runs in the foreground. The server checks for overdue contact after ten minutes during a last-reported active event or fifteen minutes while idle, on its next five-minute scheduled check. iPadOS may suspend background apps; keep Carlo open for booth operation.") }
         }.navigationTitle("Remote Monitoring").onAppear { endpoint=monitor.endpoint }
     }
 }

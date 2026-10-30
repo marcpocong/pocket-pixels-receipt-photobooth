@@ -26,6 +26,9 @@
 - [Recovery friction prevention](recovery-friction-prevention.md)
 - [Event runs and reports](event-runs-and-reports-2026-10-16.md)
 - [Payments Worker setup](../Backend/PaymentsWorker/README.md)
+- [Monitoring V3 architecture and classification](monitoring-v3/ENGINEERING.md)
+- [Monitoring V3 manual rollout and rollback](monitoring-v3/ROLLOUT.md)
+- [Monitoring V3 validation](monitoring-v3/VALIDATION.md)
 - [Monitoring Worker setup](../Backend/MonitoringWorker/README.md)
 
 ## Receipt and gallery delivery

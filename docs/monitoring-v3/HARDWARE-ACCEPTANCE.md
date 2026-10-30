@@ -1,0 +1,29 @@
+# Deferred hardware/live acceptance — NOT YET VERIFIED
+
+Carlo and the VOZY G80 were unavailable. No item below passed during offline development.
+Use a controlled test event, with no live customer payment or ambiguous historical resend.
+Preserve original records and perform local recovery only after physically inspecting output.
+A failure stops rollout acceptance; it does not authorize clearing evidence or automatic retry.
+
+| Check / safe procedure | Expected result | Evidence required / failure | Physical paper output? |
+|---|---|---|---|
+| Snapshot app data; install validated main in place with matching bundle/team | Existing app and Keychain access preserved | Build SHA/signature, before/after record hashes/counts; fail on loss, reset or changed identity | No |
+| Inspect saved events, payments, audit, recent sessions, pending galleries and frozen QR identities | All retained unchanged by upgrade | Private manifests and local screens; any missing/altered original is failure | No |
+| Connect selected BLE printer through existing local controls | Connection connected, readiness truthful; output unverified | Dated local and /status observations; connected treated as physical delivery is failure | No |
+| Idle disconnect, then reconnect normally | Command observes disconnect; no urgent idle storm; uncertainty survives reconnect | Accepted sample times, messages and local recovery evidence; duplicate/noisy warnings or false recovery fail | No |
+| Repeat disconnect during controlled active event, then sustain beyond two reports | One contextual warning; brief reconnect remains quiet | Sample timeline and delivery history; immediate transient storm or suppressed sustained outage fails | No |
+| Existing diagnostic-required workflow | Says diagnostic required, not mechanical failure; proper local gate remains | Local readiness plus /status, then explicit diagnostic result; bypassed test or false failure diagnosis fails | Yes, for diagnostic completion |
+| Make one new controlled receipt using each supported selected transport | Normal busy state, correct receipt, no spurious uncertainty; no unused-transport alarm | Actual receipt and batch/audit evidence privately; missing/corrupt/duplicate paper or wrong transport fails | Yes |
+| Controlled new print with safe paper-out or interruption per printer procedure | Prompt uncertainty/recovery, one coherent message, original receipt retained | Paper/output inspection, local durable journal and Telegram timeline; silence, false success or automatic resend fails | Yes, observe whether partial/no output occurred |
+| Reconnect while that uncertainty remains | No full recovery yet | Local inspection requirement and new accepted sample; reconnect-only recovered message fails | No additional output |
+| Inspect original; acknowledge through existing local Equipment & Recovery; relaunch | Only explicit durable resolution clears issue; audit remains | Before/after journal, acknowledgment and one recovery message; lost evidence or uncleared current gate fails | Inspect original paper; no new print required |
+| Start next guest and next event after acknowledgment/relaunch | Old acknowledged record does not lock new work or print again | Retained old journal, separate new identities, screens; old auto-reprint/old-record lock fails | Yes, one intentional new guest print |
+| Select Wi-Fi while BLE off, then BLE while Wi-Fi unavailable | Only selected transport considered; old Wi-Fi check expires to unknown | Settings and timed reports; unused radio warning or passive monitoring probe fails | No |
+| Camera permission denied, enable locally, preflight, then real guest preview/capture | Denied/unknown/initializing/ready reflect actual state; no monitoring activation | Local preview/permission and accepted reports; historical preflight presented as current ready or disrupted capture fails | No |
+| Camera interruption/recovery in a controlled guest flow using existing controls | Passive observation, existing local watchdog owns recovery, no remote restart | Local flow and coarse telemetry timeline; capture interruption caused by monitoring or false ready fails | No |
+| Leave legitimate payment/review/sticker/signature interaction open | Guest in progress; no invented stall; monitoring cannot reset flow | Timed local screens, /event and preserved guest state; reset/stall alarm without deterministic evidence fails | No |
+| Weak/offline venue Wi-Fi, then restore | App remains usable under its existing rules; contact overdue is not equipment failure | Device sample/contact times, message sequence, original queued media; false equipment recovery/data loss fails | No |
+| Background/suspend/foreground Carlo across thresholds | Last-known active 10-minute / idle 15-minute contact policy at next Cron; one restored-contact message on fresh sample | iPad lifecycle and Worker timestamps; exact-second promises or stale equipment-health recovery fail | No |
+| New controlled pending gallery, accepted POST then public verification | Still pending after POST; only public proof establishes availability; original identity/media retained | Queue counts, original QR and public proof privately; premature Available/deletion/changed QR fails | Optional, only if testing a printed new QR |
+| Verify production /health, webhook and owner commands after separate authorization | V3 release identity, exactly five read-only commands, private owner only | Redacted health/overview, webhook status and actual owner reply; wrong release, leaked data or mutation command fails | No |
+| One authorized real Telegram alert/recovery exercise on controlled state | Coherent issue/action/times; no duplicate printer recovery storm | Actual Telegram delivery and Worker delivery records; mocked sends never satisfy this item | Only if exercising a real print uncertainty |

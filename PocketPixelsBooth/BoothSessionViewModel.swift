@@ -36,8 +36,12 @@ final class BoothSessionViewModel: ObservableObject {
     @Published var uploadStatusMessage = "Gallery upload has not started."
     @Published var pendingUploadSummaries: [GalleryPendingUploadSummary] = []
     @Published var printerState = PrinterConnectionState.disconnected
+    private(set) var monitoringCameraRecoveryRequired = false
+    private(set) var monitoringCameraInterrupted = false
     @Published var isCameraUnavailable = false
-    @Published var isCameraRunning = false
+    @Published var isCameraRunning = false {
+        didSet { if isCameraRunning { monitoringCameraInterrupted = false; monitoringCameraRecoveryRequired = false } }
+    }
     @Published var samplePhotoCount = 0
     @Published var selectedBoothFormat: BoothFormat?
     @Published private(set) var commercialEvent = CommercialEventRunStore.load()
@@ -2935,16 +2939,19 @@ final class BoothSessionViewModel: ObservableObject {
     private func handleCameraEvent(_ event: CameraServiceEvent) {
         switch event {
         case .interrupted:
+            monitoringCameraInterrupted = true
             operationalState.invalidateCameraCheck(message: "Camera interrupted. Run preflight after the customer session.")
             if state == .cameraReady || isCameraRunning {
                 isCameraRunning = false
                 statusMessage = "Camera is getting ready..."
             }
         case .interruptionEnded:
+            monitoringCameraInterrupted = false
             if state == .cameraReady || state == .preparingCamera {
                 restartCameraForOperator()
             }
         case .runtimeError(_, let shouldRestart):
+            monitoringCameraRecoveryRequired = true
             operationalState.invalidateCameraCheck(message: "Camera needs attention. Run preflight after the customer session.")
             isCameraRunning = false
             if shouldRestart, state == .cameraReady || state == .preparingCamera {
