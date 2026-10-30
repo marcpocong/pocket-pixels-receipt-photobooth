@@ -39,6 +39,17 @@ final class OperatorWorkspaceV41UITests: XCTestCase {
         XCTAssertTrue(button.isHittable)
         button.tap()
     }
+    private func dismissFeedback(_ prefix: String, in app: XCUIApplication) throws {
+        let message = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
+        XCTAssertTrue(message.waitForExistence(timeout: 5))
+        let dismiss = try hittableElement(in: app.buttons.matching(identifier: "Dismiss message"))
+        dismiss.tap()
+        let cleared = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            !message.exists && !app.buttons["Dismiss message"].exists
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [cleared], timeout: 5), .completed)
+    }
+
     func testSessionMenusSelectionReceiptFitAndZoom() throws {
         let app = launch()
         let manage = app.buttons["Manage session"].firstMatch
@@ -96,6 +107,7 @@ final class OperatorWorkspaceV41UITests: XCTestCase {
         let app = launch("Events")
         tapVisibleMenu(app.buttons["Manage Garden Celebration"], in: app)
         app.buttons["Archive"].tap()
+        try dismissFeedback("Design archived.", in: app)
         XCTAssertFalse(app.buttons["Manage Garden Celebration"].exists)
         let archived = app.switches["Show Archived Events"]
         XCTAssertTrue(archived.exists)
@@ -105,6 +117,9 @@ final class OperatorWorkspaceV41UITests: XCTestCase {
         try capture("event-archived-design")
         tapVisibleMenu(app.buttons["Manage Garden Celebration"], in: app)
         app.buttons["Restore"].tap()
+        // Finish each observable operation before opening the next sheet. The six-second
+        // restored banner otherwise expires while the removal confirmation is being tapped.
+        try dismissFeedback("Design restored to the reusable library.", in: app)
         try capture("event-restored-design")
         tapVisibleMenu(app.buttons["Manage Garden Celebration"], in: app)
         app.buttons["Remove Event"].tap()

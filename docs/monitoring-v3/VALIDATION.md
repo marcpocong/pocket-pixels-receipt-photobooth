@@ -156,3 +156,24 @@ The production app debug dylib hash before/after that build is identical:
 The 980-test final production pass therefore still covers the unchanged production binary;
 no redundant local production rerun is needed for a UI-test navigation-only correction.
 The normal hosted gate will run both complete suites again on the corrective main commit.
+
+## Hosted Gate #168: separate historical-event feedback sequencing
+
+The bounded Review-sheet navigation passed on hosted iOS 26.2 in
+[Gate #168](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/41032421373).
+Its backend and complete production jobs passed. Its native suite passed 27/28; a different existing case,
+OperatorWorkspaceV41UITests/testHistoricalRemovalAndArchiveRestoreKeepOccurrence,
+failed waiting for the removal success banner (results/ci168-native-ui.json).
+The [captured removal review](results/ci168-feedback-before-removal.png) shows the previous
+restore banner still active behind the sheet. Its six-second deadline coincides with the
+next Remove Event tap in the XCTest log; the test had not finished the prior feedback phase.
+This timing evidence does not establish a monitoring or event-durability regression.
+
+The test now requires archive and restore success feedback, dismisses it through the existing
+visible control, and waits for that prior feedback to disappear before the next action.
+All original removal-success, missing-design and hidden-linked-occurrence assertions remain;
+archive/restore feedback assertions are additional. There is no production change, timeout
+increase, blind retry or disabled assertion. The existing iOS 26.5 simulator passed the three
+focused cases: historical archive/restore/removal, successful removal across relaunch, and
+storage-failure preservation (results/ci168-fix-focused.json). Build-for-testing passed and
+the production debug dylib hash remains unchanged. The final complete native suite passed **28/28**, zero failures/skips on iOS 26.5 (results/native-final26.json), before the next minimal test-only corrective commit. Both earlier hosted attempts passed backend and complete production jobs; their separate UI failures are retained in results/ci167-jobs.json and results/ci168-jobs.json. The next normal gate validates the final test-only correction.
