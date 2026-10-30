@@ -524,3 +524,39 @@ test('readiness schedules public HTML warming outside the completion response',a
   assert.equal(new URL(calls[1].url).searchParams.get('proxy'),'raw');
  });
 });
+
+test('completed response returns while noncritical cache write is blocked', async () => {
+ const previous=globalThis.caches, tasks=[];let release;
+ const blocked=new Promise(resolve=>{release=resolve;});let stored;
+ globalThis.caches={default:{match:async()=>undefined,put:async(_key,value)=>{await blocked;stored=value;}}};
+ try {
+  await withMockFetch([completedGalleryResponse()],async()=>{
+   const response=await worker.fetch(new Request(`https://gallery.example.com/?g=${token}`),env,{waitUntil:p=>tasks.push(p)});
+   assert.equal(response.status,200);assert.equal(tasks.length,1);assert.equal(stored,undefined);
+   assert.match(await response.text(),/your photos are ready/);
+   assert.match(response.headers.get('Server-Timing'),/cacheLookupMs;dur=\d+\.\d+/);
+   assert.ok(!response.headers.get('Server-Timing').includes(token));
+   release();await Promise.all(tasks);assert.ok(stored);
+  });
+ } finally {release();await Promise.all(tasks);globalThis.caches=previous;}
+});
+
+test('failed cache writes or reads cannot turn a valid gallery into an error', async()=>{
+ const previous=globalThis.caches,tasks=[];
+ globalThis.caches={default:{match:async()=>{throw Error('synthetic');},put:async()=>{throw Error('synthetic');}}};
+ try {await withMockFetch([completedGalleryResponse()],async()=>{
+  const response=await worker.fetch(new Request(`https://gallery.example.com/?g=${token}`),env,{waitUntil:p=>tasks.push(p)});
+  assert.equal(response.status,200);await Promise.all(tasks);
+ });} finally {globalThis.caches=previous;}
+});
+
+test('quoted, commented and truncated completion markers never enter completed cache',async()=>{
+ for(const html of [
+  '<title>Made to Keep Studios</title><!-- <main data-pocket-pixels-gallery-status="complete"></main> -->',
+  '<title>Made to Keep Studios</title><script>const marker=\'<main data-pocket-pixels-gallery-status="complete"></main>\';</script>',
+  '<title>Made to Keep Studios</title><main data-pocket-pixels-gallery-status="complete">truncated'
+ ]) await withMemoryCache(async entries=>{await withMockFetch([new Response(html)],async()=>{
+  const response=await worker.fetch(new Request(`https://gallery.example.com/?g=${token}`),env);
+  assert.equal(response.headers.get('X-Pocket-Pixels-Cache'),'BYPASS');assert.equal(entries.size,0);
+ });});
+});

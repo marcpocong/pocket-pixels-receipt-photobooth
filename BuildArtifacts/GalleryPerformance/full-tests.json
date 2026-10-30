@@ -1,0 +1,109 @@
+{
+  "devicesAndConfigurations" : [
+    {
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "643C1CF2-771A-4553-B562-869E09E571B1",
+        "deviceName" : "PocketPixels Gallery Validation",
+        "modelName" : "iPad Pro (11-inch) (4th generation)",
+        "osBuildNumber" : "23F77",
+        "osVersion" : "26.5",
+        "platform" : "iOS Simulator"
+      },
+      "expectedFailures" : 0,
+      "failedTests" : 6,
+      "passedTests" : 1015,
+      "skippedTests" : 0,
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Test Scheme Action"
+      }
+    }
+  ],
+  "environmentDescription" : "PocketPixelsBooth · Built with macOS 27.0.1",
+  "expectedFailures" : 0,
+  "failedTests" : 6,
+  "finishTime" : 1793361637.213,
+  "passedTests" : 980,
+  "result" : "Failed",
+  "runtimeWarnings" : [
+
+  ],
+  "skippedTests" : 0,
+  "startTime" : 1793360800.042,
+  "statistics" : [
+    {
+      "subtitle" : "42 test runs",
+      "title" : "7 tests ran with dynamic parameters"
+    }
+  ],
+  "testFailures" : [
+    {
+      "failureText" : "Caught error: .unauthorized",
+      "targetName" : "PocketPixelsBoothTests",
+      "testIdentifier" : 899,
+      "testIdentifierString" : "OperatorAuthenticationTests/existingTestCredentialRequiresOperatorAuthentication()",
+      "testIdentifierURL" : "test://com.apple.xcode/PocketPixelsBooth/PocketPixelsBoothTests/OperatorAuthenticationTests/existingTestCredentialRequiresOperatorAuthentication()",
+      "testName" : "existingTestCredentialRequiresOperatorAuthentication()"
+    },
+    {
+      "failureText" : "Expectation failed: authentication.isUnlocked\nauthentication → PocketPixelsBooth.OperatorAuthentication\nisUnlocked → false",
+      "targetName" : "PocketPixelsBoothTests",
+      "testIdentifier" : 901,
+      "testIdentifierString" : "OperatorAuthenticationTests/keypadSubmitsOnceDeletesClearsAndRetriesThroughSecureAuthentication()",
+      "testIdentifierURL" : "test://com.apple.xcode/PocketPixelsBooth/PocketPixelsBoothTests/OperatorAuthenticationTests/keypadSubmitsOnceDeletesClearsAndRetriesThroughSecureAuthentication()",
+      "testName" : "keypadSubmitsOnceDeletesClearsAndRetriesThroughSecureAuthentication()"
+    },
+    {
+      "failureText" : "Caught error: .unauthorized",
+      "targetName" : "PocketPixelsBoothTests",
+      "testIdentifier" : 898,
+      "testIdentifierString" : "OperatorAuthenticationTests/liveAdministrationCannotReuseBoothCredential()",
+      "testIdentifierURL" : "test://com.apple.xcode/PocketPixelsBooth/PocketPixelsBoothTests/OperatorAuthenticationTests/liveAdministrationCannotReuseBoothCredential()",
+      "testName" : "liveAdministrationCannotReuseBoothCredential()"
+    },
+    {
+      "failureText" : "Caught error: .unauthorized",
+      "targetName" : "PocketPixelsBoothTests",
+      "testIdentifier" : 912,
+      "testIdentifierString" : "OperatorWorkspaceTests/lockBlocksNewPrivilegedMutationDespiteRetainedWorkspace()",
+      "testIdentifierURL" : "test://com.apple.xcode/PocketPixelsBooth/PocketPixelsBoothTests/OperatorWorkspaceTests/lockBlocksNewPrivilegedMutationDespiteRetainedWorkspace()",
+      "testName" : "lockBlocksNewPrivilegedMutationDespiteRetainedWorkspace()"
+    },
+    {
+      "failureText" : "Expectation failed: authentication.isUnlocked && permit.isAuthorized\nauthentication.isUnlocked → false\npermit.isAuthorized → <not evaluated>",
+      "targetName" : "PocketPixelsBoothTests",
+      "testIdentifier" : 902,
+      "testIdentifierString" : "OperatorAuthenticationTests/operatorPINDefaultChangePersistenceAndGuessingDelay()",
+      "testIdentifierURL" : "test://com.apple.xcode/PocketPixelsBooth/PocketPixelsBoothTests/OperatorAuthenticationTests/operatorPINDefaultChangePersistenceAndGuessingDelay()",
+      "testName" : "operatorPINDefaultChangePersistenceAndGuessingDelay()"
+    },
+    {
+      "failureText" : "Caught error: SetupFailure(message: \"Operator passcode storage is unavailable (-34018). Unlock the iPad and try again.\")",
+      "targetName" : "PocketPixelsBoothTests",
+      "testIdentifier" : 903,
+      "testIdentifierString" : "OperatorAuthenticationTests/unreadablePINStorageNeverReinstallsDefaultAndOwnerCanRecover()",
+      "testIdentifierURL" : "test://com.apple.xcode/PocketPixelsBooth/PocketPixelsBoothTests/OperatorAuthenticationTests/unreadablePINStorageNeverReinstallsDefaultAndOwnerCanRecover()",
+      "testName" : "unreadablePINStorageNeverReinstallsDefaultAndOwnerCanRecover()"
+    }
+  ],
+  "title" : "Test - PocketPixelsBooth",
+  "topInsights" : [
+    {
+      "category" : "Common Failures",
+      "impact" : "50% of failures",
+      "text" : "3 runs of 3 tests failed with Caught error: .unauthorized"
+    },
+    {
+      "category" : "Common Failures",
+      "impact" : "33% of failures",
+      "text" : "2 runs of 2 tests failed with Caught error: SetupFailure(message: \"Operator passcode storage is unavailable (-34018). Unlock the iPad and try again.\")"
+    },
+    {
+      "category" : "Longest Test Runs",
+      "impact" : "54% of duration",
+      "text" : "16 longest test runs with outlier durations exceeding 13.23s (three standard deviations)"
+    }
+  ],
+  "totalTestCount" : 986
+}

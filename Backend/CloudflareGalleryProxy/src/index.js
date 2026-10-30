@@ -23,6 +23,19 @@ export function isRecognisedGalleryHTML(html) {
 
 const galleryWorker = {
   async fetch(request, env, context) {
+    const started = performance.now();
+    const metrics = {};
+    const response = await serveGallery(request, env, context, metrics);
+    metrics.totalMs = performance.now() - started;
+    const headers = new Headers(response.headers);
+    headers.set("Server-Timing", Object.entries(metrics).map(([key, value]) => `${key};dur=${value.toFixed(2)}`).join(", "));
+    // Numeric timing and fixed cache/status classifications only; never log URLs or identities.
+    console.log("Gallery response performance: " + JSON.stringify({...metrics, status:response.status, cache:headers.get("X-Pocket-Pixels-Cache") || "BYPASS"}));
+    return new Response(response.body, {status:response.status, statusText:response.statusText, headers});
+  },
+};
+
+async function serveGallery(request, env, context, metrics) {
     const requestURL = new URL(request.url);
 
     // Safe proxy health check. Does not require or expose a gallery token.
@@ -57,7 +70,11 @@ const galleryWorker = {
     const cache = globalThis.caches && globalThis.caches.default;
     const cacheKey = canonicalCacheRequest(requestURL, token);
     if (cache) {
-      const cached = await cache.match(cacheKey);
+      const cacheStarted = performance.now();
+      let cached;
+      try { cached = await cache.match(cacheKey); }
+      catch { console.log("Gallery cache lookup deferred."); }
+      metrics.cacheLookupMs = performance.now() - cacheStarted;
       if (cached) {
         return responseForMethod(cached, request.method, "HIT");
       }
@@ -79,6 +96,7 @@ const galleryWorker = {
     upstreamURL.searchParams.set("g", token);
 
     let fetched;
+    const originStarted = performance.now();
     try {
       fetched = await fetchGoogleWithSafeRedirects(upstreamURL.toString());
     } catch (error) {
@@ -86,6 +104,7 @@ const galleryWorker = {
       return temporaryError(request.method, "UPSTREAM_FETCH_FAILED");
     }
 
+    metrics.upstreamMs = performance.now() - originStarted;
     if (!fetched.ok) {
       console.log(
         "Pocket Pixels proxy: upstream failed code=" +
@@ -97,12 +116,14 @@ const galleryWorker = {
     }
 
     let html;
+    const bodyStarted = performance.now();
     try {
       html = await fetched.response.text();
     } catch (error) {
       return temporaryError(request.method, "UPSTREAM_BODY_READ_FAILED");
     }
 
+    metrics.bodyReadMs = performance.now() - bodyStarted;
     // Do not proxy a Google login/error page as if it were the gallery.
     if (!isRecognisedGalleryHTML(html)) {
       console.log(
@@ -114,7 +135,7 @@ const galleryWorker = {
       return temporaryError(request.method, "UNEXPECTED_UPSTREAM_PAGE");
     }
 
-    const isCompletedGallery = html.includes(COMPLETED_GALLERY_MARKER);
+    const isCompletedGallery = isCompletedGalleryHTML(html);
     const headers = securityHeaders(isCompletedGallery);
     headers.set("Content-Type", "text/html; charset=utf-8");
     headers.set("X-Pocket-Pixels-Proxy", "ok");
@@ -126,14 +147,28 @@ const galleryWorker = {
     });
 
     if (isCompletedGallery && cache) {
-      await cache.put(cacheKey, response.clone());
+      const write = async () => {
+        const started = performance.now();
+        let succeeded = false;
+        try { await cache.put(cacheKey, response.clone()); succeeded = true; }
+        catch { console.log("Gallery cache write deferred."); }
+        finally { console.log("Gallery cache performance: " + JSON.stringify({cacheWriteMs:performance.now()-started, succeeded})); }
+      };
+      // Cache availability is not delivery evidence. Failure cannot invalidate a valid page.
+      if (context?.waitUntil) context.waitUntil(write());
+      else await write();
     }
 
     return responseForMethod(response, request.method, headers.get("X-Pocket-Pixels-Cache"));
-  },
-};
+}
 
 export default galleryWorker;
+
+function isCompletedGalleryHTML(html) {
+  // Completion must be markup, not a marker quoted in a script or comment on an error page.
+  const markup = html.replace(/<!--[\s\S]*?-->/g, "").replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "");
+  return /<main\b[^>]*\sdata-pocket-pixels-gallery-status="complete"[^>]*>[\s\S]*?<\/main\s*>/i.test(markup);
+}
 
 async function galleryReadiness(request, env, token, context) {
   const origin = validateOrigin(env.APPS_SCRIPT_GALLERY_ORIGIN);

@@ -7,13 +7,13 @@
 
 import Foundation
 
-struct GalleryUploadImage: Codable, Sendable {
+nonisolated struct GalleryUploadImage: Codable, Sendable {
     let filename: String
     let mimeType: String
     let base64Data: String
 }
 
-struct GalleryUploadRequest: Codable, Sendable {
+nonisolated struct GalleryUploadRequest: Codable, Sendable {
     let schemaVersion: Int
     let deviceToken: String
     let galleryToken: String
@@ -129,6 +129,8 @@ enum GalleryUploadPhase: Equatable {
     case checkingInternet
     case preparing
     case uploading
+    case processing
+    case verifying
     case success(URL)
     case pendingNoInternet
     case deliveryUnknown
@@ -139,7 +141,7 @@ enum GalleryUploadPhase: Equatable {
 
     var isWorking: Bool {
         switch self {
-        case .checkingInternet, .preparing, .uploading:
+        case .checkingInternet, .preparing, .uploading, .processing, .verifying:
             true
         case .idle, .success, .pendingNoInternet, .deliveryUnknown, .unauthorized, .serverRejected, .retryAvailable, .failed:
             false
@@ -156,8 +158,12 @@ enum GalleryUploadPhase: Equatable {
             "Preparing"
         case .uploading:
             "Uploading"
+        case .processing:
+            "Processing"
+        case .verifying:
+            "Verifying"
         case .success:
-            "Upload successful"
+            "Ready"
         case .pendingNoInternet:
             "Pending: no internet"
         case .deliveryUnknown:

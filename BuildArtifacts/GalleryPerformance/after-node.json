@@ -1,0 +1,365 @@
+{
+  "environment": "Node local VM, no network or Drive; Worker mock origin 15ms / cache put 25ms. Bytes are signature-valid deterministic synthetic buffers, not JPEG fidelity fixtures.",
+  "rows": [
+    {
+      "photos": 1,
+      "guests": 1,
+      "postLocalCPUms": {
+        "p50": 10.372208,
+        "p95": 10.372208,
+        "max": 10.372208
+      },
+      "readinessLocalCPUms": {
+        "p50": 0.4167500000000004,
+        "p95": 0.4167500000000004,
+        "max": 0.4167500000000004
+      },
+      "coldPageMs": {
+        "p50": 26.070833000000007,
+        "p95": 26.070833000000007,
+        "max": 26.070833000000007
+      },
+      "warmPageMs": {
+        "p50": 0.588292000000024,
+        "p95": 0.588292000000024,
+        "max": 0.588292000000024
+      },
+      "totalMs": 90.55841699999999,
+      "transferBytes": 640482,
+      "htmlBytes": 694354,
+      "counts": {
+        "propertyRead": 5,
+        "propertyWrite": 0,
+        "folderLookup": 1,
+        "folderByID": 5,
+        "folderCreate": 1,
+        "imageCreate": 2,
+        "manifestCreate": 1,
+        "inspection": 3,
+        "manifestRead": 2,
+        "imageRead": 2,
+        "fileSize": 2
+      }
+    },
+    {
+      "photos": 1,
+      "guests": 5,
+      "postLocalCPUms": {
+        "p50": 7.777791999999977,
+        "p95": 8.109417000000008,
+        "max": 8.109417000000008
+      },
+      "readinessLocalCPUms": {
+        "p50": 0.056791999999973086,
+        "p95": 0.08412500000000023,
+        "max": 0.08412500000000023
+      },
+      "coldPageMs": {
+        "p50": 22.088292000000024,
+        "p95": 23.056791999999973,
+        "max": 23.056791999999973
+      },
+      "warmPageMs": {
+        "p50": 0.47716700000000856,
+        "p95": 0.5015839999999798,
+        "max": 0.5015839999999798
+      },
+      "totalMs": 283.266292,
+      "transferBytes": 3202410,
+      "htmlBytes": 3471770,
+      "counts": {
+        "propertyRead": 25,
+        "propertyWrite": 0,
+        "folderLookup": 5,
+        "folderByID": 25,
+        "folderCreate": 5,
+        "imageCreate": 10,
+        "manifestCreate": 5,
+        "inspection": 15,
+        "manifestRead": 10,
+        "imageRead": 10,
+        "fileSize": 10
+      }
+    },
+    {
+      "photos": 1,
+      "guests": 20,
+      "postLocalCPUms": {
+        "p50": 7.23433399999999,
+        "p95": 9.30095799999998,
+        "max": 10.290666999999985
+      },
+      "readinessLocalCPUms": {
+        "p50": 0.0369580000001406,
+        "p95": 0.0496250000001055,
+        "max": 0.07170899999999847
+      },
+      "coldPageMs": {
+        "p50": 21.539250000000038,
+        "p95": 22.593583999999964,
+        "max": 22.681625000000054
+      },
+      "warmPageMs": {
+        "p50": 0.38704200000006495,
+        "p95": 0.8957910000000311,
+        "max": 1.5246660000000247
+      },
+      "totalMs": 1129.383834,
+      "transferBytes": 12809640,
+      "htmlBytes": 13887080,
+      "counts": {
+        "propertyRead": 100,
+        "propertyWrite": 0,
+        "folderLookup": 20,
+        "folderByID": 100,
+        "folderCreate": 20,
+        "imageCreate": 40,
+        "manifestCreate": 20,
+        "inspection": 60,
+        "manifestRead": 40,
+        "imageRead": 40,
+        "fileSize": 40
+      }
+    },
+    {
+      "photos": 3,
+      "guests": 1,
+      "postLocalCPUms": {
+        "p50": 16.84937500000001,
+        "p95": 16.84937500000001,
+        "max": 16.84937500000001
+      },
+      "readinessLocalCPUms": {
+        "p50": 0.1424170000000231,
+        "p95": 0.1424170000000231,
+        "max": 0.1424170000000231
+      },
+      "coldPageMs": {
+        "p50": 25.857666999999992,
+        "p95": 25.857666999999992,
+        "max": 25.857666999999992
+      },
+      "warmPageMs": {
+        "p50": 0.6345830000000205,
+        "p95": 0.6345830000000205,
+        "max": 0.6345830000000205
+      },
+      "totalMs": 71.66162499999996,
+      "transferBytes": 1440618,
+      "htmlBytes": 1497069,
+      "counts": {
+        "propertyRead": 5,
+        "propertyWrite": 0,
+        "folderLookup": 1,
+        "folderByID": 5,
+        "folderCreate": 1,
+        "imageCreate": 4,
+        "manifestCreate": 1,
+        "inspection": 3,
+        "manifestRead": 2,
+        "imageRead": 4,
+        "fileSize": 4
+      }
+    },
+    {
+      "photos": 3,
+      "guests": 5,
+      "postLocalCPUms": {
+        "p50": 16.053499999999985,
+        "p95": 17.597667,
+        "max": 17.597667
+      },
+      "readinessLocalCPUms": {
+        "p50": 0.04345899999998437,
+        "p95": 0.07945900000004258,
+        "max": 0.07945900000004258
+      },
+      "coldPageMs": {
+        "p50": 27.487041999999974,
+        "p95": 29.45333400000004,
+        "max": 29.45333400000004
+      },
+      "warmPageMs": {
+        "p50": 0.686542000000145,
+        "p95": 0.718791999999894,
+        "max": 0.718791999999894
+      },
+      "totalMs": 358.2877920000001,
+      "transferBytes": 7203090,
+      "htmlBytes": 7485345,
+      "counts": {
+        "propertyRead": 25,
+        "propertyWrite": 0,
+        "folderLookup": 5,
+        "folderByID": 25,
+        "folderCreate": 5,
+        "imageCreate": 20,
+        "manifestCreate": 5,
+        "inspection": 15,
+        "manifestRead": 10,
+        "imageRead": 20,
+        "fileSize": 20
+      }
+    },
+    {
+      "photos": 3,
+      "guests": 20,
+      "postLocalCPUms": {
+        "p50": 16.590582999999697,
+        "p95": 17.82724999999982,
+        "max": 18.34920800000009
+      },
+      "readinessLocalCPUms": {
+        "p50": 0.045208999999886146,
+        "p95": 0.07783400000016627,
+        "max": 0.08716699999990851
+      },
+      "coldPageMs": {
+        "p50": 27.70291700000007,
+        "p95": 29.039166000000023,
+        "max": 29.585833000000093
+      },
+      "warmPageMs": {
+        "p50": 0.5012919999999212,
+        "p95": 0.6319170000001577,
+        "max": 0.6655000000000655
+      },
+      "totalMs": 1444.367667,
+      "transferBytes": 28812360,
+      "htmlBytes": 29941380,
+      "counts": {
+        "propertyRead": 100,
+        "propertyWrite": 0,
+        "folderLookup": 20,
+        "folderByID": 100,
+        "folderCreate": 20,
+        "imageCreate": 80,
+        "manifestCreate": 20,
+        "inspection": 60,
+        "manifestRead": 40,
+        "imageRead": 80,
+        "fileSize": 80
+      }
+    },
+    {
+      "photos": 6,
+      "guests": 1,
+      "postLocalCPUms": {
+        "p50": 31.7821670000003,
+        "p95": 31.7821670000003,
+        "max": 31.7821670000003
+      },
+      "readinessLocalCPUms": {
+        "p50": 0.13837499999999636,
+        "p95": 0.13837499999999636,
+        "max": 0.13837499999999636
+      },
+      "coldPageMs": {
+        "p50": 36.41491700000006,
+        "p95": 36.41491700000006,
+        "max": 36.41491700000006
+      },
+      "warmPageMs": {
+        "p50": 0.9442920000001322,
+        "p95": 0.9442920000001322,
+        "max": 0.9442920000001322
+      },
+      "totalMs": 97.66699999999992,
+      "transferBytes": 2640822,
+      "htmlBytes": 2700987,
+      "counts": {
+        "propertyRead": 5,
+        "propertyWrite": 0,
+        "folderLookup": 1,
+        "folderByID": 5,
+        "folderCreate": 1,
+        "imageCreate": 7,
+        "manifestCreate": 1,
+        "inspection": 3,
+        "manifestRead": 2,
+        "imageRead": 7,
+        "fileSize": 7
+      }
+    },
+    {
+      "photos": 6,
+      "guests": 5,
+      "postLocalCPUms": {
+        "p50": 30.462666999999783,
+        "p95": 34.25133400000004,
+        "max": 34.25133400000004
+      },
+      "readinessLocalCPUms": {
+        "p50": 0.05675000000019281,
+        "p95": 0.0906249999998181,
+        "max": 0.0906249999998181
+      },
+      "coldPageMs": {
+        "p50": 36.69808299999977,
+        "p95": 36.947749999999814,
+        "max": 36.947749999999814
+      },
+      "warmPageMs": {
+        "p50": 0.9280840000001263,
+        "p95": 1.4025420000002669,
+        "max": 1.4025420000002669
+      },
+      "totalMs": 483.6165839999999,
+      "transferBytes": 13204110,
+      "htmlBytes": 13504935,
+      "counts": {
+        "propertyRead": 25,
+        "propertyWrite": 0,
+        "folderLookup": 5,
+        "folderByID": 25,
+        "folderCreate": 5,
+        "imageCreate": 35,
+        "manifestCreate": 5,
+        "inspection": 15,
+        "manifestRead": 10,
+        "imageRead": 35,
+        "fileSize": 35
+      }
+    },
+    {
+      "photos": 6,
+      "guests": 20,
+      "postLocalCPUms": {
+        "p50": 30.651834000000235,
+        "p95": 32.68958300000031,
+        "max": 34.1411250000001
+      },
+      "readinessLocalCPUms": {
+        "p50": 0.05049999999937427,
+        "p95": 0.062124999999468855,
+        "max": 0.17399999999997817
+      },
+      "coldPageMs": {
+        "p50": 36.59091600000011,
+        "p95": 38.714750000000095,
+        "max": 51.653832999999395
+      },
+      "warmPageMs": {
+        "p50": 0.7551249999996799,
+        "p95": 1.2511670000003505,
+        "max": 3.124249999999847
+      },
+      "totalMs": 1953.088667,
+      "transferBytes": 52816440,
+      "htmlBytes": 54019740,
+      "counts": {
+        "propertyRead": 100,
+        "propertyWrite": 0,
+        "folderLookup": 20,
+        "folderByID": 100,
+        "folderCreate": 20,
+        "imageCreate": 140,
+        "manifestCreate": 20,
+        "inspection": 60,
+        "manifestRead": 40,
+        "imageRead": 140,
+        "fileSize": 140
+      }
+    }
+  ]
+}

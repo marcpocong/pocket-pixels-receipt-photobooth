@@ -319,6 +319,9 @@ final class BoothSessionViewModel: ObservableObject {
         self.captureConfirmationPause = captureConfirmationPause ?? {
             try? await Task.sleep(for: .seconds(BoothConfiguration.capturedPhotoDisplayDuration))
         }
+        uploadService.onStageChange = { [weak self] token, phase in
+            self?.setUploadPhase(phase, message: phase.title, for: token)
+        }
         cameraService.onSessionMessage = { [weak self] message in
             self?.statusMessage = message
         }
@@ -3206,7 +3209,6 @@ final class BoothSessionViewModel: ObservableObject {
                     return
                 }
 
-                setUploadPhase(.uploading, message: "Uploading your photos...", for: payload.galleryToken)
                 let result = try await uploadService.uploadPendingGallery(galleryToken: payload.galleryToken, deviceToken: deviceToken)
                 setUploadPhase(.success(result.galleryURL), message: "Your photos are ready.", for: result.galleryToken)
                 refreshPendingUploads()

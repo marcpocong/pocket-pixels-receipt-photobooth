@@ -531,3 +531,61 @@ console.log('Fast upload schema 4/readiness passed: six footer/default cases, si
  assert.equal(JSON.parse(context.doGet({parameter:{g:p.galleryToken,galleryStatus:'1'}}).text).status,'pending');
 }
 console.log('Readiness integration passed: single folder scan, no image blob reads, unknown files rejected.');
+
+// Ephemeral indexing: no new permanent gallery properties; eviction and legacy entries are safe.
+{
+ const cache=new Map();let puts=0,writes=0;
+ context.CacheService={getScriptCache:()=>({get:k=>cache.get(k)||null,put:(k,v)=>{puts++;cache.set(k,v);},remove:k=>cache.delete(k)})};
+ const previous=context.PropertiesService.getScriptProperties;
+ context.PropertiesService.getScriptProperties=()=>({...previous(),setProperty:()=>{writes++;throw Error('No permanent indexing');}});
+ const token='8'.repeat(64);
+ context.saveGalleryFolderIndex_(token,'synthetic-folder');context.saveGalleryFolderIndex_(token,'synthetic-folder');
+ assert.equal(puts,1);assert.equal(writes,0);
+ let calls=0;context.DriveApp={getFolderById:id=>{calls++;return {id};}};
+ assert.equal(context.loadIndexedGalleryFolder_(token).id,'synthetic-folder');assert.equal(calls,1);
+ cache.clear();assert.equal(context.loadIndexedGalleryFolder_(token),null,'Evicted index falls back to folder-name lookup');
+ scriptProperties.set('POCKET_PIXELS_GALLERY_FOLDER_'+token,'legacy-folder');
+ assert.equal(context.loadIndexedGalleryFolder_(token).id,'legacy-folder');
+ assert.equal(context.loadIndexedGalleryFolder_(token).id,'legacy-folder');assert.equal(writes,0);
+ context.CacheService={getScriptCache:()=>{throw Error('cache unavailable');}};
+ assert.doesNotThrow(()=>context.saveGalleryFolderIndex_(token,'another-folder'));
+ assert.equal(context.loadIndexedGalleryFolder_(token).id,'legacy-folder');
+ context.PropertiesService.getScriptProperties=previous;
+}
+
+// Failed/incomplete manifest validation reads the same initial blob once; repair still reinspects.
+{
+ const p=context.makeSelfTestPayload_(1);delete p.gif;const root=driveRoot(),folder=root.createFolder('gallery-'+p.galleryToken);
+ context.saveExpectedImages_(folder,p,{});
+ const manifest={...context.makeCompleteManifest_(p),status:'pending'};
+ const file=folder.createFile('manifest.json',JSON.stringify(manifest));let reads=0;
+ file.getBlob=()=>{reads++;return {getDataAsString:()=>JSON.stringify(manifest)};};
+ assert.throws(()=>context.createOrReturnGallery_(root,p),/Incomplete manifest/);
+ assert.equal(reads,2,'Initial validation plus independent post-repair validation; no duplicate initial read');
+ const timing={};context.measureGalleryOperation_(timing,'syntheticMs',()=>{});
+ assert.equal(timing.syntheticMsCount,1);assert.ok(timing.syntheticMs>=0);
+}
+console.log('Performance/index regression checks passed: bounded disposable index, legacy compatibility, cache failure, manifest reuse.');
+
+// Exercise the real POST entry point, global lock and privacy-safe numeric operation timings.
+{
+ scriptProperties.set('MADE_TO_KEEP_CUSTOMER_GALLERY_BASE_URL','https://gallery.example.test/');
+ const root=driveRoot(), token='9'.repeat(64), p=context.makeSelfTestPayload_(3);
+ p.galleryToken=token;p.deviceToken='correct-device-token-value';
+ let held=false,releases=0,acquisitions=0;
+ context.DriveApp={getFolderById:id=>id==='root'?root:root.folders.find(f=>f.getId()===id)};
+ context.LockService={getScriptLock:()=>({tryLock(){acquisitions++;assert.equal(held,false);held=true;return true;},releaseLock(){assert.equal(held,true);held=false;releases++;}})};
+ context.CacheService={getScriptCache:()=>({get:()=>null,put(){},remove(){}})};
+ scriptProperties.set('POCKET_PIXELS_ROOT_FOLDER_ID','root');
+ const event={postData:{contents:JSON.stringify(p)}};
+ const created=JSON.parse(context.doPost(event).text),duplicate=JSON.parse(context.doPost(event).text);
+ assert.equal(created.status,'created',JSON.stringify(created));assert.equal(duplicate.status,'existingComplete',JSON.stringify(duplicate));assert.equal(root.folders.length,1);
+ assert.equal(acquisitions,2);assert.equal(releases,2);assert.equal(held,false);
+ for(const key of ['validationMs','lockWaitMs','folderLookupMs','folderCreateMs','folderInspectionMs','manifestCreateMs','imageCreate0Ms','driveWriteMs','totalMs'])assert.equal(typeof created.serverTiming[key],'number',key);
+ assert.ok(Object.values(created.serverTiming).every(v=>Number.isFinite(v)&&v>=0));
+ assert.equal(duplicate.serverTiming.manifestReadMsCount,1);
+ const malformed=JSON.parse(context.doPost({postData:{contents:'{malformed'}}).text);assert.equal(malformed.ok,false);assert.equal(malformed.errorCode,'MALFORMED_JSON');
+ context.LockService={getScriptLock:()=>({tryLock:()=>false,releaseLock(){throw Error('Unowned lock release');}})};
+ assert.equal(JSON.parse(context.doPost(event).text).errorCode,'UPLOAD_SERVICE_BUSY');
+}
+console.log('POST performance contract passed: validation, lock ownership, individual writes, manifest, duplicate idempotency and malformed/busy responses.');

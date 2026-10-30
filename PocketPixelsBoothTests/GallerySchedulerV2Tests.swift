@@ -111,6 +111,61 @@ import UIKit
         XCTAssertEqual(calls, 1)
     }
 
+    func testVerificationOverlapsNextTransmissionAndDuplicateCallerJoinsTokenLease() async throws {
+        let scheduler = GalleryUploadScheduler()
+        let verifying = expectation(description: "first public check started")
+        let next = expectation(description: "next POST while first verification waits")
+        var release: CheckedContinuation<Void, Never>?
+        var duplicateRan = false
+        let first = Task { try await scheduler.perform(token: "first") {
+            await scheduler.beginVerification(token: "first")
+            verifying.fulfill()
+            await withCheckedContinuation { release = $0 }
+            return self.result("first")
+        } }
+        await fulfillment(of: [verifying])
+        let duplicate = Task { try await scheduler.perform(token: "first") {
+            duplicateRan = true; return self.result("first")
+        } }
+        let second = Task { try await scheduler.perform(token: "second") { next.fulfill(); return self.result("second") } }
+        await fulfillment(of: [next], timeout: 2)
+        first.cancel() // Customer navigation must not release a verifying token.
+        for _ in 0..<5 { await Task.yield() }
+        XCTAssertFalse(duplicateRan)
+        release?.resume()
+        _ = try await first.value; _ = try await duplicate.value; _ = try await second.value
+        XCTAssertFalse(duplicateRan)
+    }
+
+    func testVerificationConcurrencyIsBoundedAndFailureReleasesCapacity() async throws {
+        let scheduler = GalleryUploadScheduler()
+        let two = expectation(description: "two bounded public reads")
+        two.expectedFulfillmentCount = 2
+        var active = 0, peak = 0, releases: [CheckedContinuation<Void, Never>] = []
+        let jobs = (0..<5).map { index in Task {
+            try await scheduler.perform(token: "bounded-\(index)") {
+                await scheduler.beginVerification(token: "bounded-\(index)")
+                active += 1; peak = max(peak, active)
+                if index < 2 { two.fulfill() }
+                await withCheckedContinuation { releases.append($0) }
+                active -= 1
+                if index == 0 { throw GalleryUploadError.deliveryUnknown }
+                return self.result("bounded-\(index)")
+            }
+        } }
+        await fulfillment(of: [two], timeout: 2)
+        XCTAssertEqual(peak, 2)
+        // Drain one held verification at a time; pending jobs must continue after a failure.
+        for _ in 0..<5 {
+            while releases.isEmpty { await Task.yield() }
+            releases.removeFirst().resume()
+            for _ in 0..<20 { await Task.yield() }
+        }
+        for job in jobs { _ = try? await job.value }
+        XCTAssertEqual(peak, 2)
+        XCTAssertEqual(active, 0)
+    }
+
     func testRetryClassificationAndBoundedBackoff() {
         XCTAssertEqual(GalleryRetryCategory.classify(GalleryUploadError.pendingNoInternet, state: .notStarted), .offline)
         XCTAssertEqual(GalleryRetryCategory.classify(GalleryUploadError.backendUnreachable(.noNetworkPath), state: .notStarted), .backendUnavailable)

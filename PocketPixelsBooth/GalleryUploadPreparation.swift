@@ -5,6 +5,7 @@
 
 import Foundation
 import UIKit
+import OSLog
 
 nonisolated struct GalleryUploadTimingMetrics: Codable, Equatable, Sendable {
     let imagePreparationDuration: TimeInterval
@@ -155,5 +156,23 @@ extension UIImage {
             context.fill(CGRect(origin: .zero, size: safeSize))
             draw(in: CGRect(origin: .zero, size: safeSize))
         }
+    }
+}
+
+/// Fixed stage names and numeric values only. No tokens, paths, URLs, session IDs or image data.
+nonisolated enum GalleryPerformance {
+    enum Stage: String, Sendable {
+        case imagePreparation, durablePersistence, diskLoad, metadataWrite, queueWaiting
+        case base64Encoding, jsonEncoding, networkPOST, responseValidation, publicVerification, totalDelivery
+    }
+    private static let logger = Logger(subsystem: "com.pocketpixels.PocketPixelsBooth", category: "GalleryPerformance")
+    static func record(_ stage: Stage, since start: TimeInterval, bytes: Int = 0, succeeded: Bool = true) {
+        let elapsed = (ProcessInfo.processInfo.systemUptime - start) * 1000
+        logger.info("stage=\(stage.rawValue, privacy: .public) elapsedMs=\(elapsed) bytes=\(bytes) succeeded=\(succeeded)")
+    }
+    static func measure<T>(_ stage: Stage, operation: () throws -> T) rethrows -> T {
+        let start = ProcessInfo.processInfo.systemUptime
+        do { let value = try operation(); record(stage, since: start); return value }
+        catch { record(stage, since: start, succeeded: false); throw error }
     }
 }

@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import OSLog
 
 /// One process-wide owner of delivery work. Requests join by durable gallery identity.
 /// Two fresh guests may pass recovery work; the next slot belongs to the oldest recovery.
@@ -18,10 +19,15 @@ final class GalleryUploadScheduler: ObservableObject {
         var priority: Priority
         let operation: @MainActor () async throws -> GalleryUploadResult
         var waiters: [CheckedContinuation<GalleryUploadResult, Error>]
+        let enqueuedAt: TimeInterval
     }
     private var jobs: [Job] = []
-    private var activeWaiters: [CheckedContinuation<GalleryUploadResult, Error>] = []
-    private var worker: Task<Void, Never>?
+    private var activeWaiters: [String: [CheckedContinuation<GalleryUploadResult, Error>]] = [:]
+    private var owners: [String: Task<Void, Never>] = [:]
+    private var verifyingTokens: Set<String> = []
+    private var verificationCapacity: CheckedContinuation<Void, Never>?
+    // Bound public reads and retained payload memory. One additional POST can run concurrently.
+    private let maximumVerifications = 2
     private var freshSlots = 0
     private var recoveryTask: Task<Void, Never>?
     private var recoveryWake: Task<Void, Never>?
@@ -32,12 +38,12 @@ final class GalleryUploadScheduler: ObservableObject {
     func perform(token: String, priority: Priority = .guest,
                  operation: @escaping @MainActor () async throws -> GalleryUploadResult) async throws -> GalleryUploadResult {
         try await withCheckedThrowingContinuation { continuation in
-            if activeToken == token { activeWaiters.append(continuation); return }
+            if activeWaiters[token] != nil { activeWaiters[token]!.append(continuation); return }
             if let index = jobs.firstIndex(where: { $0.token == token }) {
                 jobs[index].waiters.append(continuation)
                 if priority == .guest { jobs[index].priority = .guest }
             } else {
-                jobs.append(Job(token: token, priority: priority, operation: operation, waiters: [continuation]))
+                jobs.append(Job(token: token, priority: priority, operation: operation, waiters: [continuation], enqueuedAt: ProcessInfo.processInfo.systemUptime))
             }
             startWorker()
         }
@@ -49,31 +55,47 @@ final class GalleryUploadScheduler: ObservableObject {
         lastActivityAt = Date()
     }
 
+    /// Release only the transmission lane; the token lease and all joined callers remain owned.
+    /// Call only when the operation will perform no further POST (accepted or read-only work).
+    func beginVerification(token: String) async {
+        guard activeToken == token else { return }
+        if verifyingTokens.count >= maximumVerifications {
+            await withCheckedContinuation { verificationCapacity = $0 }
+        }
+        verifyingTokens.insert(token)
+        activeToken = nil
+        startWorker()
+    }
+
     private func startWorker() {
-        guard worker == nil else { return }
-        worker = Task {
-            while !jobs.isEmpty {
-                let recoveryIndex = jobs.firstIndex { $0.priority == .recovery }
-                let freshIndex = jobs.firstIndex { $0.priority == .guest }
-                let index = freshSlots >= 2 ? (recoveryIndex ?? freshIndex!) : (freshIndex ?? recoveryIndex!)
-                let job = jobs.remove(at: index)
-                freshSlots = job.priority == .guest ? min(2, freshSlots + 1) : 0
-                activeToken = job.token
-                activeWaiters = job.waiters
-                let result: Result<GalleryUploadResult, Error>
-                do { result = .success(try await job.operation()) }
-                catch { result = .failure(error) }
-                let waiters = activeWaiters
-                activeWaiters = []
-                activeToken = nil
-                for waiter in waiters { waiter.resume(with: result) }
-                // Let a completed recovery submit its next durable item before fast cached jobs
-                // consume every remaining slot. No in-flight network operation is interrupted.
-                await Task.yield()
+        guard activeToken == nil, !jobs.isEmpty else { return }
+        let recoveryIndex = jobs.firstIndex { $0.priority == .recovery }
+        let freshIndex = jobs.firstIndex { $0.priority == .guest }
+        let index = freshSlots >= 2 ? (recoveryIndex ?? freshIndex!) : (freshIndex ?? recoveryIndex!)
+        let job = jobs.remove(at: index)
+        freshSlots = job.priority == .guest ? min(2, freshSlots + 1) : 0
+        activeToken = job.token
+        activeWaiters[job.token] = job.waiters
+        GalleryPerformance.record(.queueWaiting, since: job.enqueuedAt)
+        owners[job.token] = Task {
+            let result: Result<GalleryUploadResult, Error>
+            do { result = .success(try await job.operation()) }
+            catch { result = .failure(error) }
+            let waiters = activeWaiters.removeValue(forKey: job.token) ?? []
+            owners[job.token] = nil
+            if activeToken == job.token { activeToken = nil }
+            if verifyingTokens.remove(job.token) != nil, let capacity = verificationCapacity {
+                verificationCapacity = nil
+                capacity.resume()
             }
-            worker = nil
-            report("Delivery pass finished. Unverified galleries remain saved on iPad.")
-            NotificationCenter.default.post(name: .galleryQueueChanged, object: nil)
+            for waiter in waiters { waiter.resume(with: result) }
+            // Sequential recovery can submit its next oldest durable item before fresh jobs drain.
+            await Task.yield()
+            startWorker()
+            if activeWaiters.isEmpty && jobs.isEmpty {
+                report("Delivery pass finished. Unverified galleries remain saved on iPad.")
+                NotificationCenter.default.post(name: .galleryQueueChanged, object: nil)
+            }
         }
     }
 
@@ -111,7 +133,7 @@ final class GalleryUploadScheduler: ObservableObject {
 }
 
 extension Notification.Name {
-    static let galleryQueueChanged = Notification.Name("pocketPixels.galleryQueueChanged")
+    nonisolated static let galleryQueueChanged = Notification.Name("pocketPixels.galleryQueueChanged")
 }
 
 nonisolated enum GalleryRetryCategory: String, Codable, Sendable {

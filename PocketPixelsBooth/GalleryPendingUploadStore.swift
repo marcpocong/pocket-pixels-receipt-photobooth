@@ -5,7 +5,7 @@
 
 import Foundation
 
-struct GalleryPendingUploadSummary: Equatable, Sendable, Identifiable {
+nonisolated struct GalleryPendingUploadSummary: Equatable, Sendable, Identifiable {
     var id: String { galleryToken }
     let galleryToken: String
     let galleryURL: URL
@@ -22,12 +22,15 @@ struct GalleryPendingUploadSummary: Equatable, Sendable, Identifiable {
     var needsAttention: Bool { retryCategory?.needsAttention == true }
 }
 
-struct GalleryPendingUploadStore: Sendable {
+nonisolated struct GalleryPendingUploadStore: @unchecked Sendable {
+    // Also serializes legacy synchronous operator readers with background delivery mutations.
+    private static let lock = NSRecursiveLock()
     private let fileManager: FileManager
     private let directoryURL: URL
     private let legacyDirectoryURL: URL
 
     init(fileManager: FileManager = .default, directoryURL: URL? = nil) throws {
+        Self.lock.lock(); defer { Self.lock.unlock() }
         self.fileManager = fileManager
         if let directoryURL {
             self.directoryURL = directoryURL
@@ -46,12 +49,14 @@ struct GalleryPendingUploadStore: Sendable {
     }
 
     func save(_ payload: GalleryPreparedUploadPayload, lastSafeError: String? = nil) throws {
+        Self.lock.lock(); defer { Self.lock.unlock() }
         guard GalleryTokenGenerator.isValidGalleryToken(payload.galleryToken) else {
             throw GalleryUploadError.invalidGalleryToken
         }
 
         try ensureQueueDirectory()
         let finalURL = payloadDirectoryURL(for: payload.galleryToken)
+        let existing = existingMetadata(for: payload.galleryToken)
         let metadata = GalleryPendingUploadMetadata(
             schemaVersion: payload.schemaVersion,
             galleryToken: payload.galleryToken,
@@ -63,13 +68,13 @@ struct GalleryPendingUploadStore: Sendable {
             thermalReceiptFilename: payload.thermalReceipt?.filename,
             gifFilename: payload.gif?.filename,
             metrics: payload.metrics,
-            deliveryState: existingMetadata(for: payload.galleryToken)?.deliveryState ?? payload.deliveryState,
-            retryAttemptCount: existingRetryAttemptCount(for: payload.galleryToken),
-            lastAttemptAt: existingLastAttemptAt(for: payload.galleryToken),
+            deliveryState: existing?.deliveryState ?? payload.deliveryState,
+            retryAttemptCount: existing?.retryAttemptCount ?? 0,
+            lastAttemptAt: existing?.lastAttemptAt,
             lastSafeError: lastSafeError,
             shareColorReceiptFilename: payload.shareColorReceipt?.filename, receiptVariants: payload.receiptVariants,
-            retryCategory: existingMetadata(for: payload.galleryToken)?.retryCategory,
-            nextAttemptAt: existingMetadata(for: payload.galleryToken)?.nextAttemptAt
+            retryCategory: existing?.retryCategory,
+            nextAttemptAt: existing?.nextAttemptAt
         )
 
         if fileManager.fileExists(atPath: finalURL.path) {
@@ -104,6 +109,7 @@ struct GalleryPendingUploadStore: Sendable {
     }
 
     func load() throws -> GalleryPreparedUploadPayload? {
+        Self.lock.lock(); defer { Self.lock.unlock() }
         guard let token = try oldestQueuedToken() else {
             return nil
         }
@@ -111,6 +117,7 @@ struct GalleryPendingUploadStore: Sendable {
     }
 
     func load(galleryToken: String) throws -> GalleryPreparedUploadPayload? {
+        Self.lock.lock(); defer { Self.lock.unlock() }
         let metadataURL = payloadDirectoryURL(for: galleryToken).appendingPathComponent(Self.metadataFilename)
         guard fileManager.fileExists(atPath: metadataURL.path) else {
             return nil
@@ -148,6 +155,7 @@ struct GalleryPendingUploadStore: Sendable {
     }
 
     func summaries() throws -> [GalleryPendingUploadSummary] {
+        Self.lock.lock(); defer { Self.lock.unlock() }
         return try queuedTokenDirectories().compactMap { directory in
             let metadataURL = directory.appendingPathComponent(Self.metadataFilename)
             guard fileManager.fileExists(atPath: metadataURL.path) else { return nil }
@@ -171,10 +179,12 @@ struct GalleryPendingUploadStore: Sendable {
     }
 
     func summary() throws -> GalleryPendingUploadSummary? {
-        try summaries().first
+        Self.lock.lock(); defer { Self.lock.unlock() }
+        return try summaries().first
     }
 
     func updateDeliveryState(_ deliveryState: GalleryDeliveryState, galleryToken: String? = nil, lastSafeError: String? = nil) throws {
+        Self.lock.lock(); defer { Self.lock.unlock() }
         let token = try galleryToken ?? oldestQueuedToken()
         guard let token else { return }
         try updateMetadata(token) { metadata in
@@ -184,6 +194,7 @@ struct GalleryPendingUploadStore: Sendable {
     }
 
     func recordFailure(galleryToken: String, error: Error, now: Date = Date()) throws {
+        Self.lock.lock(); defer { Self.lock.unlock() }
         try updateMetadata(galleryToken) { metadata in
             let category = GalleryRetryCategory.classify(error, state: metadata.deliveryState)
             metadata.retryCategory = category
@@ -200,6 +211,7 @@ struct GalleryPendingUploadStore: Sendable {
     }
 
     func requestRetry(galleryToken: String? = nil, now: Date = Date(), connectivityRestored: Bool = false) throws {
+        Self.lock.lock(); defer { Self.lock.unlock() }
         for summary in try summaries() where galleryToken == nil || summary.galleryToken == galleryToken {
             // A connection signal cannot fix credentials or bypass a server rate limit.
             if connectivityRestored && (summary.needsAttention || summary.retryCategory == .rateLimited) { continue }
@@ -209,6 +221,20 @@ struct GalleryPendingUploadStore: Sendable {
                 if !connectivityRestored { metadata.retryCategory = nil }
             }
         }
+    }
+
+    /// Metadata-only recovery: accepted galleries never need to reopen photograph files.
+    func delivery(galleryToken: String) throws -> (target: GalleryVerificationTarget, state: GalleryDeliveryState)? {
+        Self.lock.lock(); defer { Self.lock.unlock() }
+        let url = payloadDirectoryURL(for: galleryToken).appendingPathComponent(Self.metadataFilename)
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        guard !isLegacyMetadata(at: url) else { throw GalleryUploadError.stalePendingUpload }
+        let decoded = try JSONDecoder().decode(GalleryPendingUploadMetadata.self, from: Data(contentsOf: url))
+        let metadata = try migrateDebugGalleryURLIfNeeded(decoded, metadataURL: url)
+        guard metadata.galleryToken == galleryToken else { throw GalleryUploadError.deliveryUnknown }
+        let count = metadata.photoFilenames.count + 2 + [metadata.thermalReceiptFilename, metadata.gifFilename, metadata.shareColorReceiptFilename].compactMap { $0 }.count
+        return (GalleryVerificationTarget(sessionID: metadata.sessionID, token: metadata.galleryToken, url: metadata.galleryURL,
+            photoCount: metadata.photoFilenames.count, schemaVersion: metadata.schemaVersion, fileCount: count), metadata.deliveryState)
     }
 
     private func existingMetadata(for token: String) -> GalleryPendingUploadMetadata? {
@@ -225,6 +251,7 @@ struct GalleryPendingUploadStore: Sendable {
     }
 
     func recordAttempt(galleryToken: String) throws {
+        Self.lock.lock(); defer { Self.lock.unlock() }
         let metadataURL = payloadDirectoryURL(for: galleryToken).appendingPathComponent(Self.metadataFilename)
         guard fileManager.fileExists(atPath: metadataURL.path) else {
             return
@@ -236,18 +263,21 @@ struct GalleryPendingUploadStore: Sendable {
     }
 
     func clear(galleryToken: String) throws {
+        Self.lock.lock(); defer { Self.lock.unlock() }
         let url = payloadDirectoryURL(for: galleryToken)
         guard fileManager.fileExists(atPath: url.path) else { return }
         try fileManager.removeItem(at: url)
     }
 
     func clear() throws {
+        Self.lock.lock(); defer { Self.lock.unlock() }
         guard let token = try oldestQueuedToken() else { return }
         try clear(galleryToken: token)
     }
 
 #if DEBUG
     func discardLocalPendingUpload() throws {
+        Self.lock.lock(); defer { Self.lock.unlock() }
         guard let token = try oldestQueuedToken() else {
             return
         }
@@ -257,7 +287,8 @@ struct GalleryPendingUploadStore: Sendable {
 #endif
 
     func hasLegacyPendingUpload() -> Bool {
-        isLegacyMetadata(at: legacyDirectoryURL.appendingPathComponent(Self.metadataFilename))
+        Self.lock.lock(); defer { Self.lock.unlock() }
+        return isLegacyMetadata(at: legacyDirectoryURL.appendingPathComponent(Self.metadataFilename))
     }
 
     private func ensureQueueDirectory() throws {
@@ -332,26 +363,6 @@ struct GalleryPendingUploadStore: Sendable {
         return total
     }
 
-    private func existingRetryAttemptCount(for galleryToken: String) -> Int {
-        guard let metadata = try? JSONDecoder().decode(
-            GalleryPendingUploadMetadata.self,
-            from: Data(contentsOf: payloadDirectoryURL(for: galleryToken).appendingPathComponent(Self.metadataFilename))
-        ) else {
-            return 0
-        }
-        return metadata.retryAttemptCount
-    }
-
-    private func existingLastAttemptAt(for galleryToken: String) -> Date? {
-        guard let metadata = try? JSONDecoder().decode(
-            GalleryPendingUploadMetadata.self,
-            from: Data(contentsOf: payloadDirectoryURL(for: galleryToken).appendingPathComponent(Self.metadataFilename))
-        ) else {
-            return nil
-        }
-        return metadata.lastAttemptAt
-    }
-
     private func applyStorageAttributes(to url: URL) throws {
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
@@ -416,7 +427,7 @@ struct GalleryPendingUploadStore: Sendable {
     private static let metadataFilename = "metadata.json"
 }
 
-private struct GalleryPendingUploadMetadata: Codable {
+nonisolated private struct GalleryPendingUploadMetadata: Codable {
     let schemaVersion: Int
     let galleryToken: String
     let galleryURL: URL
@@ -510,4 +521,10 @@ private struct GalleryPendingUploadMetadata: Codable {
         retryCategory = try container.decodeIfPresent(GalleryRetryCategory.self, forKey: .retryCategory)
         nextAttemptAt = try container.decodeIfPresent(Date.self, forKey: .nextAttemptAt)
     }
+}
+
+/// One utility executor for blocking gallery I/O, shared across service instances.
+actor GalleryDiskIO {
+    static let shared = GalleryDiskIO()
+    func run<T: Sendable>(_ operation: @Sendable () throws -> T) throws -> T { try operation() }
 }

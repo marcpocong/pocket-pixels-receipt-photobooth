@@ -39,7 +39,7 @@ const MAX_GALLERY_DECODED_BYTES = 6 * 1024 * 1024;
 
 const MAX_GALLERY_BASE64_CHARS = 9 * 1024 * 1024;
 
-const BACKEND_VERSION = 'made-to-keep-gallery-v8-fast-upload-20261020';
+const BACKEND_VERSION = 'made-to-keep-gallery-v9-instrumented-20261030';
 
 // Customer-visible Made to Keep Studios identity. Script Property names, the completed-gallery
 // marker and self-test entry points keep their legacy Pocket Pixels identifiers for compatibility.
@@ -96,13 +96,14 @@ function doPost(e) {
 
     // Read-only lookup does not need the global mutation lock.
     stage = 'GET_ROOT_FOLDER';
-    const root = getRootFolder_();
+    const root = measureGalleryOperation_(serverTiming, 'rootFolderLookupMs', function() { return getRootFolder_(); });
 
     // Serialize only the Drive/idempotency mutation section.
     stage = 'ACQUIRE_GALLERY_LOCK';
     const lockStartedAt = Date.now();
     lock = LockService.getScriptLock();
     if (!lock.tryLock(20000)) {
+      serverTiming.lockWaitMs = Date.now() - lockStartedAt;
       return jsonResponse(429, {
         ok: false,
         schemaVersion: SCHEMA_VERSION,
@@ -116,9 +117,7 @@ function doPost(e) {
     serverTiming.lockWaitMs = Date.now() - lockStartedAt;
 
     stage = 'CREATE_OR_RETURN_GALLERY';
-    const writeStartedAt = Date.now();
-    const result = createOrReturnGallery_(root, body);
-    serverTiming.driveWriteMs = Date.now() - writeStartedAt;
+    const result = measureGalleryOperation_(serverTiming, 'driveWriteMs', function() { return createOrReturnGallery_(root, body, serverTiming); });
 
     // Release before URL construction/response work so a configuration
     // error cannot unnecessarily block the next upload.
@@ -127,7 +126,6 @@ function doPost(e) {
 
     stage = 'MAKE_SUCCESS_RESPONSE';
     serverTiming.totalMs = Date.now() - requestStartedAt;
-    console.log('Upload server timing: ' + JSON.stringify(serverTiming));
     return jsonResponse(200, {
       ok: true,
       schemaVersion: body.schemaVersion,
@@ -150,11 +148,13 @@ function doPost(e) {
       detail: safeError.detail
     });
   } finally {
+    serverTiming.totalMs = Date.now() - requestStartedAt;
+    console.log('Gallery upload performance: ' + JSON.stringify(serverTiming));
     if (lockHeld && lock) {
       try {
         lock.releaseLock();
       } catch (releaseError) {
-        console.error('Failed to release upload lock: ' + safeErrorMessage_(releaseError));
+        console.error('Gallery upload lock release failed.');
       }
     }
   }
@@ -252,9 +252,7 @@ function renderRawGalleryResponse_(e) {
 
   const rawHTML = htmlOutput.getContent();
 
-  console.log('Raw gallery proxy response generated. token=' +
-    redactToken_(token) +
-    ' htmlCharacters=' + rawHTML.length);
+  console.log('Gallery raw response: htmlCharacters=' + rawHTML.length + ' elapsedMs=' + (Date.now() - startedAt));
 
   return ContentService
     .createTextOutput(rawHTML)
@@ -877,17 +875,17 @@ function validateImage_(image, expectedFilename, field, expectedMimeType) {
 
 }
 
-function createOrReturnGallery_(root, body) {
+function createOrReturnGallery_(root, body, timings) {
 
   const folderName = 'gallery-' + body.galleryToken;
   const expected = expectedFilenames_(body.photos.length, body.schemaVersion, !!body.gif, !!body.shareColorReceipt);
   const expectedFileCount = expected.length + 1;
 
-  const folders = collectFoldersByName_(root, folderName);
+  const folders = measureGalleryOperation_(timings, 'folderLookupMs', function() { return collectFoldersByName_(root, folderName); });
 
   if (folders.length > 1) {
 
-    console.error('Multiple gallery folders found for token ' + redactToken_(body.galleryToken) + '. Manual inspection required.');
+    console.error('Multiple gallery folders require manual inspection.');
 
     throw publicError_(409, 'Multiple matching galleries require manual inspection.', 'manualInspectionRequired', 'MANUAL_INSPECTION_REQUIRED');
 
@@ -895,11 +893,11 @@ function createOrReturnGallery_(root, body) {
 
   if (folders.length === 0) {
 
-    const folder = createGalleryFolder_(root, folderName);
+    const folder = measureGalleryOperation_(timings, 'folderCreateMs', function() { return createGalleryFolder_(root, folderName); });
 
-    saveExpectedImages_(folder, body, {});
+    saveExpectedImages_(folder, body, {}, timings);
 
-    const inspection = inspectGalleryFolder_(folder, expected);
+    const inspection = inspectGalleryFolder_(folder, expected, timings);
 
     if (!inspection.safe || !hasExactlyExpectedImages_(inspection, expected)) {
 
@@ -907,11 +905,10 @@ function createOrReturnGallery_(root, body) {
 
     }
 
-    createManifestFile_(folder, body);
+    createManifestFile_(folder, body, timings);
 
     saveGalleryFolderIndex_(body.galleryToken, folder.getId());
 
-    console.log('Created Pocket Pixels gallery for session ' + body.sessionID + ' with token ' + redactToken_(body.galleryToken));
 
     return { status: 'created', fileCount: expectedFileCount };
 
@@ -919,11 +916,11 @@ function createOrReturnGallery_(root, body) {
 
   const folder = folders[0];
 
-  const inspection = inspectGalleryFolder_(folder, expected);
+  const inspection = inspectGalleryFolder_(folder, expected, timings);
 
   if (!inspection.safe) {
 
-    console.error('Conflicting files found for token ' + redactToken_(body.galleryToken) + '. Manual inspection required.');
+    console.error('Conflicting gallery files require manual inspection.');
 
     throw publicError_(409, 'Conflicting gallery files require manual inspection.', 'manualInspectionRequired', 'MANUAL_INSPECTION_REQUIRED');
 
@@ -935,15 +932,15 @@ function createOrReturnGallery_(root, body) {
 
   }
 
-  if (inspection.manifests.length === 1) {
+  const existingManifest = inspection.manifests.length === 1 ? readManifest_(inspection.manifests[0], timings) : null;
+  if (existingManifest) {
 
-    const manifest = readManifest_(inspection.manifests[0]);
+    const manifest = existingManifest;
 
     if (manifest.status === 'complete') {
 
       if (manifest.galleryToken === body.galleryToken && manifest.sessionID === body.sessionID && manifest.schemaVersion === body.schemaVersion && (body.schemaVersion < 3 || (manifest.receiptVariants && manifest.receiptVariants.originalFooterStyle === body.receiptVariants.originalFooterStyle && manifest.receiptVariants.defaultStyle === body.receiptVariants.defaultStyle)) && manifestHasExpectedFiles_(manifest, body.photos.length) && hasExactlyExpectedImages_(inspection, expected)) {
 
-        console.log('Returned existing Pocket Pixels gallery for session ' + body.sessionID + ' with token ' + redactToken_(body.galleryToken));
 
         saveGalleryFolderIndex_(body.galleryToken, folder.getId());
 
@@ -959,7 +956,7 @@ function createOrReturnGallery_(root, body) {
 
   if (inspection.manifests.length === 1) {
 
-    const manifest = readManifest_(inspection.manifests[0]);
+    const manifest = existingManifest;
 
     if (manifest.galleryToken && manifest.galleryToken !== body.galleryToken) {
 
@@ -975,9 +972,9 @@ function createOrReturnGallery_(root, body) {
 
   }
 
-  saveExpectedImages_(folder, body, inspection.fileCounts);
+  saveExpectedImages_(folder, body, inspection.fileCounts, timings);
 
-  const repairedInspection = inspectGalleryFolder_(folder, expected);
+  const repairedInspection = inspectGalleryFolder_(folder, expected, timings);
 
   if (!repairedInspection.safe || !hasExactlyExpectedImages_(repairedInspection, expected) || repairedInspection.manifests.length > 1) {
 
@@ -987,11 +984,11 @@ function createOrReturnGallery_(root, body) {
 
   if (repairedInspection.manifests.length === 0) {
 
-    createManifestFile_(folder, body);
+    createManifestFile_(folder, body, timings);
 
   } else {
 
-    const manifest = readManifest_(repairedInspection.manifests[0]);
+    const manifest = readManifest_(repairedInspection.manifests[0], timings);
 
     if (manifest.status !== 'complete') {
 
@@ -1001,7 +998,6 @@ function createOrReturnGallery_(root, body) {
 
   }
 
-  console.log('Completed pending Pocket Pixels gallery for session ' + body.sessionID + ' with token ' + redactToken_(body.galleryToken));
 
   saveGalleryFolderIndex_(body.galleryToken, folder.getId());
 
@@ -1009,7 +1005,7 @@ function createOrReturnGallery_(root, body) {
 
 }
 
-function saveExpectedImages_(folder, body, existingCounts) {
+function saveExpectedImages_(folder, body, existingCounts, timings) {
 
   const images = body.schemaVersion >= 2
     ? body.photos.concat([body.colorReceipt].concat(body.schemaVersion === 4 ? [] : [body.thermalReceipt])).concat(body.gif ? [body.gif] : []).concat(body.shareColorReceipt ? [body.shareColorReceipt] : [])
@@ -1031,7 +1027,7 @@ function saveExpectedImages_(folder, body, existingCounts) {
 
     if (count === 0) {
 
-      createImageFile_(folder, validatedImages[i] || image);
+      measureGalleryOperation_(timings, 'imageCreate' + i + 'Ms', function() { return createImageFile_(folder, validatedImages[i] || image); });
 
     }
 
@@ -1069,11 +1065,11 @@ function createImageFile_(folder, image) {
 
 }
 
-function createManifestFile_(folder, body) {
+function createManifestFile_(folder, body, timings) {
 
   try {
 
-    folder.createFile(MANIFEST_FILENAME, JSON.stringify(makeCompleteManifest_(body), null, 2), 'application/json');
+    measureGalleryOperation_(timings, 'manifestCreateMs', function() { return folder.createFile(MANIFEST_FILENAME, JSON.stringify(makeCompleteManifest_(body), null, 2), 'application/json'); });
 
   } catch (error) {
 
@@ -1083,7 +1079,13 @@ function createManifestFile_(folder, body) {
 
 }
 
-function inspectGalleryFolder_(folder, expected) {
+function inspectGalleryFolder_(folder, expected, timings) {
+  const started = Date.now();
+  try { return inspectGalleryFolderContents_(folder, expected); }
+  finally { addGalleryTiming_(timings, 'folderInspectionMs', Date.now() - started); }
+}
+
+function inspectGalleryFolderContents_(folder, expected) {
 
   expected = expected || expectedFilenames_(3);
 
@@ -1167,7 +1169,8 @@ function hasExactlyExpectedImages_(inspection, expected) {
 
 }
 
-function readManifest_(file) {
+function readManifest_(file, timings) {
+  const started = Date.now();
 
   try {
 
@@ -1177,7 +1180,7 @@ function readManifest_(file) {
 
     throw publicError_(409, 'Manifest requires manual inspection.', 'manualInspectionRequired', 'MANUAL_INSPECTION_REQUIRED');
 
-  }
+  } finally { addGalleryTiming_(timings, 'manifestReadMs', Date.now() - started); }
 
 }
 
@@ -1313,7 +1316,7 @@ function findCompleteGalleryByToken_(token, timings) {
 
   }
 
-  saveGalleryFolderIndex_(token, folder.getId());
+  if (!indexedFolder) saveGalleryFolderIndex_(token, folder.getId());
 
   return { folder: folder, manifest: manifest, filesByName: exactInspection.filesByName };
 
@@ -1328,44 +1331,64 @@ function restrictGalleryInspection_(inspection, expected) {
 
 function galleryStatusResponse_(e) {
   const startedAt = Date.now();
+  const timings = {};
+  try {
   const token = String((e && e.parameter && e.parameter.g) || '');
   if (!GALLERY_TOKEN_PATTERN.test(token)) return jsonResponse(200, {ok:false, status:'invalid', statusVersion:1});
-  const gallery = findCompleteGalleryByToken_(token);
+  const gallery = findCompleteGalleryByToken_(token, timings);
   if (!gallery) return jsonResponse(200, {ok:false, status:'pending', statusVersion:1});
   let decodedBytes = 0, base64Chars = 0;
   const names = expectedFilenames_(gallery.manifest.photos.length, gallery.manifest.schemaVersion, !!gallery.manifest.gif, !!gallery.manifest.shareColorReceipt);
   for (let i = 0; i < names.length; i++) {
-    const bytes = gallery.filesByName[names[i]].getSize();
+    const bytes = measureGalleryOperation_(timings, 'fileSize' + i + 'Ms', function() { return gallery.filesByName[names[i]].getSize(); });
     if (bytes <= 0 || bytes > MAX_IMAGE_DECODED_BYTES) return jsonResponse(200, {ok:false, status:'unavailable', statusVersion:1});
     decodedBytes += bytes; base64Chars += Math.ceil(bytes / 3) * 4;
   }
   if (decodedBytes > MAX_GALLERY_DECODED_BYTES || base64Chars > MAX_GALLERY_BASE64_CHARS) return jsonResponse(200, {ok:false, status:'unavailable', statusVersion:1});
   return jsonResponse(200, {ok:true, status:'complete', statusVersion:1, galleryToken:token, sessionID:gallery.manifest.sessionID, schemaVersion:gallery.manifest.schemaVersion, fileCount:names.length+1, verificationMs:Date.now()-startedAt});
+  } finally {
+    console.log('Gallery verification performance: ' + JSON.stringify(timings) + ' totalMs=' + (Date.now() - startedAt));
+  }
 }
 
 function galleryFolderIndexKey_(token) {
   return GALLERY_FOLDER_INDEX_PREFIX + token;
 }
 
+// This is a disposable acceleration index. Drive folder names and manifests remain authoritative.
+// New galleries never consume permanent Script Properties space. Legacy entries stay readable.
+function galleryFolderCache_() {
+  try { return CacheService.getScriptCache(); } catch (_) { return null; }
+}
+
 function saveGalleryFolderIndex_(token, folderID) {
-  if (GALLERY_TOKEN_PATTERN.test(String(token || '')) && folderID) {
-    PropertiesService.getScriptProperties().setProperty(galleryFolderIndexKey_(token), String(folderID));
-  }
+  if (!GALLERY_TOKEN_PATTERN.test(String(token || '')) || !folderID) return;
+  const cache = galleryFolderCache_();
+  if (!cache) return;
+  try {
+    const key = galleryFolderIndexKey_(token);
+    if (cache.get(key) !== String(folderID)) cache.put(key, String(folderID), 21600);
+  } catch (_) { console.log('Gallery lookup cache write deferred.'); }
 }
 
 function removeGalleryFolderIndex_(token) {
+  const cache = galleryFolderCache_();
+  if (cache) { try { cache.remove(galleryFolderIndexKey_(token)); } catch (_) {} }
+  // Only obsolete acceleration entries are removed; gallery/media/configuration are never touched.
   PropertiesService.getScriptProperties().deleteProperty(galleryFolderIndexKey_(token));
 }
 
 function loadIndexedGalleryFolder_(token) {
-  const folderID = PropertiesService.getScriptProperties().getProperty(galleryFolderIndexKey_(token));
-  if (!folderID) {
-    return null;
-  }
-
+  const cache = galleryFolderCache_();
+  let cached = null;
+  if (cache) { try { cached = cache.get(galleryFolderIndexKey_(token)); } catch (_) {} }
+  const folderID = cached || PropertiesService.getScriptProperties().getProperty(galleryFolderIndexKey_(token));
+  if (!folderID) return null;
   try {
-    return DriveApp.getFolderById(folderID);
-  } catch (error) {
+    const folder = DriveApp.getFolderById(folderID);
+    if (!cached) saveGalleryFolderIndex_(token, folderID);
+    return folder;
+  } catch (_) {
     removeGalleryFolderIndex_(token);
     return null;
   }
@@ -1554,7 +1577,7 @@ function renderGalleryPage_(gallery, timings, startedAt) {
 
   const assetStartedAt = Date.now();
 
-  const assets = loadGalleryAssets_(gallery.filesByName, gallery.manifest, false);
+  const assets = loadGalleryAssets_(gallery.filesByName, gallery.manifest, false, timings);
   assets.thermalReceipt = customerMonochromeReceipt_(assets.thermalReceipt, assets.receipt);
 
   if (timings) {
@@ -1635,7 +1658,7 @@ function renderGalleryPage_(gallery, timings, startedAt) {
 
     timings.totalDoGetRenderMs = Date.now() - startedAt;
 
-    console.log('Gallery render timings for token ' + redactToken_(gallery.manifest.galleryToken) + ': ' + JSON.stringify(timings) + ' decodedBytes=' + sizeCheck.decodedBytes + ' base64Chars=' + sizeCheck.base64Chars);
+    console.log('Gallery render timings: ' + JSON.stringify(timings) + ' decodedBytes=' + sizeCheck.decodedBytes + ' base64Chars=' + sizeCheck.base64Chars);
 
   }
 
@@ -1667,13 +1690,17 @@ function pageShell_(body, script) {
 
 }
 
-function loadGalleryAssets_(filesByName, manifest, includeGIF) {
+function loadGalleryAssets_(filesByName, manifest, includeGIF, timings) {
+  let assetIndex = 0;
+  function load(filename, role) {
+    return measureGalleryOperation_(timings, 'assetReadBase64' + (assetIndex++) + 'Ms', function() { return loadGalleryAsset_(filesByName, filename, role); });
+  }
 
   const photos = [];
 
   for (let i = 0; i < manifest.photos.length; i++) {
 
-    photos.push(loadGalleryAsset_(filesByName, manifest.photos[i], 'photo'));
+    photos.push(load(manifest.photos[i], 'photo'));
 
   }
 
@@ -1681,10 +1708,10 @@ function loadGalleryAssets_(filesByName, manifest, includeGIF) {
 
     photos: photos,
 
-    receipt: loadGalleryAsset_(filesByName, manifest.schemaVersion >= 2 ? manifest.colorReceipt : manifest.receipt, 'colorReceipt'),
-    thermalReceipt: manifest.schemaVersion === 4 ? {filename: THERMAL_RECEIPT_FILENAME, role: 'thermalReceipt', mimeType: 'image/png', deriveFrom: manifest.colorReceipt} : manifest.schemaVersion >= 2 ? loadGalleryAsset_(filesByName, manifest.thermalReceipt, 'thermalReceipt') : null,
-    shareColorReceipt: manifest.schemaVersion >= 3 && manifest.shareColorReceipt ? loadGalleryAsset_(filesByName, manifest.shareColorReceipt, 'colorReceipt') : null,
-    gif: includeGIF !== false && manifest.schemaVersion >= 2 && manifest.gif ? loadGalleryAsset_(filesByName, manifest.gif, 'gif') : null
+    receipt: load(manifest.schemaVersion >= 2 ? manifest.colorReceipt : manifest.receipt, 'colorReceipt'),
+    thermalReceipt: manifest.schemaVersion === 4 ? {filename: THERMAL_RECEIPT_FILENAME, role: 'thermalReceipt', mimeType: 'image/png', deriveFrom: manifest.colorReceipt} : manifest.schemaVersion >= 2 ? load(manifest.thermalReceipt, 'thermalReceipt') : null,
+    shareColorReceipt: manifest.schemaVersion >= 3 && manifest.shareColorReceipt ? load(manifest.shareColorReceipt, 'colorReceipt') : null,
+    gif: includeGIF !== false && manifest.schemaVersion >= 2 && manifest.gif ? load(manifest.gif, 'gif') : null
 
   };
 
@@ -2269,55 +2296,23 @@ function jsonResponse(statusCode, body) {
 }
 
 function logSanitizedRequest_(body, bodyCharacterCount) {
+  console.log('Gallery request sizes: ' + JSON.stringify({
+    bodyCharacters: bodyCharacterCount,
+    photoCount: Array.isArray(body && body.photos) ? body.photos.length : 0,
+    supportedSchema: !!body && [1,2,3,4].indexOf(body.schemaVersion) !== -1
+  }));
+}
 
-  try {
+function addGalleryTiming_(timings, key, elapsed) {
+  if (!timings) return;
+  timings[key] = (timings[key] || 0) + Math.max(0, elapsed);
+  timings[key + 'Count'] = (timings[key + 'Count'] || 0) + 1;
+}
 
-    const photos = Array.isArray(body.photos) ? body.photos : [];
-
-    const summary = {
-
-      topLevelKeys: Object.keys(body || {}).sort(),
-
-      topLevelTypes: topLevelTypes_(body),
-
-      bodyCharacterCount: bodyCharacterCount,
-
-      schemaVersion: body && body.schemaVersion,
-
-      deviceTokenPresent: !!(body && body.deviceToken),
-
-      galleryTokenLength: body && typeof body.galleryToken === 'string' ? body.galleryToken.length : 0,
-
-      galleryTokenFormatValid: body && typeof body.galleryToken === 'string' && GALLERY_TOKEN_PATTERN.test(body.galleryToken),
-
-      sessionID: body && body.sessionID,
-
-      createdAt: body && body.createdAt,
-
-      photoCount: photos.length,
-
-      photoFilenames: photos.map(function(photo) { return photo && photo.filename; }),
-
-      photoMimeTypes: photos.map(function(photo) { return photo && photo.mimeType; }),
-
-      photoBase64CharacterCounts: photos.map(function(photo) { return photo && typeof photo.base64Data === 'string' ? photo.base64Data.length : 0; }),
-
-      receiptFilename: body && body.receipt && body.receipt.filename,
-
-      receiptMimeType: body && body.receipt && body.receipt.mimeType,
-
-      receiptBase64CharacterCount: body && body.receipt && typeof body.receipt.base64Data === 'string' ? body.receipt.base64Data.length : 0
-
-    };
-
-    console.log('Sanitized upload request: ' + JSON.stringify(summary));
-
-  } catch (error) {
-
-    console.error('Sanitized upload request logging failed: ' + safeErrorMessage_(error));
-
-  }
-
+function measureGalleryOperation_(timings, key, operation) {
+  const started = Date.now();
+  try { return operation(); }
+  finally { addGalleryTiming_(timings, key, Date.now() - started); }
 }
 
 function topLevelTypes_(body) {
@@ -2419,25 +2414,7 @@ function classifyUnexpectedError_(error, stage) {
 }
 
 function logUnexpectedError_(error, safeError, stage) {
-
-  const details = {
-
-    errorCode: safeError.code,
-
-    stage: stage || 'UNKNOWN',
-
-    publicDetail: safeError.detail || '',
-
-    name: error && error.name,
-
-    message: safeErrorMessage_(error),
-
-    stack: error && error.stack ? safeErrorMessage_({ message: error.stack }) : ''
-
-  };
-
-  console.error('Upload failed: ' + JSON.stringify(details));
-
+  console.error('Gallery upload failed: code=' + safeError.code + ' stage=' + (stage || 'UNKNOWN'));
 }
 
 function sanitizeExceptionDetail_(error) {

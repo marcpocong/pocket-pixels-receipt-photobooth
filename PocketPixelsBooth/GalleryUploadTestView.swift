@@ -491,7 +491,7 @@ struct GalleryUploadTestView: View {
         switch uploadPhase {
         case .idle:
             .secondary
-        case .checkingInternet, .preparing, .uploading:
+        case .checkingInternet, .preparing, .uploading, .processing, .verifying:
             .orange
         case .success:
             .green

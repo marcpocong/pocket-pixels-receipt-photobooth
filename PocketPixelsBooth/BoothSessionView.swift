@@ -1662,6 +1662,10 @@ struct BoothSessionView: View {
             "Preparing your gallery..."
         case .checkingInternet, .uploading:
             "Uploading your photos..."
+        case .processing:
+            "Processing your gallery..."
+        case .verifying:
+            "Verifying your gallery..."
         case .success:
             "Your photos are ready."
         case .pendingNoInternet, .deliveryUnknown, .retryAvailable:
@@ -1679,7 +1683,7 @@ struct BoothSessionView: View {
             "Your photos are still uploading. Your QR will stay the same."
         case .unauthorized, .serverRejected, .failed:
             "Your gallery needs operator attention."
-        case .idle, .preparing, .checkingInternet, .uploading:
+        case .idle, .preparing, .checkingInternet, .uploading, .processing, .verifying:
             "Your photos are still uploading. Your QR will stay the same."
         }
     }
@@ -1694,6 +1698,10 @@ struct BoothSessionView: View {
             "Waiting for a connection. Your QR will stay the same."
         case .uploading:
             "Uploading your photos. Your QR will stay the same."
+        case .processing:
+            "Processing your gallery. Your QR will stay the same."
+        case .verifying:
+            "Verifying your gallery. Your QR will stay the same."
         case .pendingNoInternet, .deliveryUnknown, .retryAvailable:
             "Still uploading — your QR will remain the same."
         case .unauthorized, .serverRejected, .failed:
