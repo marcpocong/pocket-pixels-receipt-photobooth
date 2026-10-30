@@ -129,3 +129,30 @@ not promised. Free-plan API request headroom is locally checked; actual account-
 CPU/runtime behavior and live webhook health still need authorized deployment observation.
 Automated guest stall detection is intentionally deferred because no trustworthy global
 transition deadline exists. See HARDWARE-ACCEPTANCE.md and ROLLOUT.md.
+
+## Hosted Gate #167 and the corrective UI-test navigation change
+
+Source release edf18424dc7c286831dbce4c4f2e176c9112c31d was pushed directly to main once.
+[Production Gate #167](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/41026590705)
+passed backend and complete production checks, but its native UI suite passed 27/28. The overall gate therefore failed solely on that UI visibility precondition (results/ci167-jobs.json). The failure was
+EventOperationsUITests/testPortraitInlineControlsPreviewAndStickerReview: its existing
+visibility helper could not reach review-sticker-status before the unchanged Enabled-value
+assertion. The hosted iPad Pro 11-inch M5 ran iOS 26.2. The prior local complete native suite
+passed on iOS 27.0; this hosted failure is retained separately in results/ci167-native-ui.json.
+
+The downloaded [failure screenshot](results/ci167-review-scroll.png) shows the Review sheet
+with the target below its visible Form content. The XCTest activity log shows twelve full
+swipes alternating up/down without positioning the short row inside the header/action-bar
+bounds. The test now drags only the measured overflow, bounded to one third of the actual
+visible viewport, when an existing Review row is outside those bounds. Other scrolling,
+the iteration bound, complete visibility requirement and Enabled-value assertion remain.
+No sleep, blind test retry, disabled assertion, product layout or production flow change.
+
+Build-for-testing passed after this test-only correction. Both focused UI flows passed on
+iOS 27.0 (results/ci-fix-focused27.json), including the exact failed flow and accessibility
+save/relaunch/reopen. The complete native suite on the existing iOS 26.5 simulator passed **28/28**, zero failures/skips (results/ci-fix-native26.json), before the corrective commit. No new simulator was created.
+The production app debug dylib hash before/after that build is identical:
+21b18fd2a7abb34074e853d2375779a3dec43c63e9b2dc782ae772d5494bb79f.
+The 980-test final production pass therefore still covers the unchanged production binary;
+no redundant local production rerun is needed for a UI-test navigation-only correction.
+The normal hosted gate will run both complete suites again on the corrective main commit.

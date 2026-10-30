@@ -54,7 +54,17 @@ final class EventOperationsUITests: XCTestCase {
             if !reviewing && app.keyboards.firstMatch.exists && done.exists && done.isHittable { done.tap(); continue }
             if element.exists && (!requireHitTarget || element.isHittable) && frame.height > 0 && frame.width > 0
                 && frame.minY >= top && frame.maxY <= bottom { return }
-            if element.exists && frame.midY < (top + bottom) / 2 { scroll.swipeDown(velocity: .slow) }
+            if reviewing && element.exists && frame.height > 0 && bottom > top {
+                // A full Form swipe can move a short passive summary row from below the
+                // action bar to above the navigation bar, then back again on the next swipe.
+                // Move only the measured overflow; keep the gesture inside the visible Form.
+                let overflow = frame.minY < top ? top - frame.minY : frame.maxY - bottom
+                let distance = min(max(overflow + 12, 44), (bottom - top) / 3)
+                let start = app.coordinate(withNormalizedOffset: .zero)
+                    .withOffset(CGVector(dx: scroll.frame.midX, dy: (top + bottom) / 2))
+                let end = start.withOffset(CGVector(dx: 0, dy: frame.minY < top ? distance : -distance))
+                start.press(forDuration: 0.05, thenDragTo: end)
+            } else if element.exists && frame.midY < (top + bottom) / 2 { scroll.swipeDown(velocity: .slow) }
             else { scroll.swipeUp(velocity: .slow) }
         }
         capture("missing-control")
