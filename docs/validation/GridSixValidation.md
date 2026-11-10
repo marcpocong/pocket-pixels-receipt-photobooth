@@ -65,6 +65,6 @@ No physical iPad camera or VOZY G80 validation was performed.
 - `PocketPixelsBoothTests/SessionIsolationAndRecoveryTests.swift`
 - `Backend/GoogleAppsScript/Code.gs`
 - `Backend/GoogleAppsScript/GridSixValidation.test.cjs`
-- `GridSixValidation.md`
+- `docs/validation/GridSixValidation.md`
 
 The initial tree was clean and local/main matched `e3ef79a`. Bundle ID, signing, dependencies, camera implementation and print transport files were not changed.

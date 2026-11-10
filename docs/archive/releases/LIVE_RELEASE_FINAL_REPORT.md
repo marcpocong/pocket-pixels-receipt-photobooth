@@ -51,14 +51,14 @@ October 14, 2026 · Manila time
 - **PASS:** installed app, deployed Worker, genuine staff-confirmed cash, restart recovery, receipt output, cash reconciliation and retained customer data verified under supervision.
 - Recommendation: retain attended operation while finishing follow-up CI and completing the separate hardware checklist. Provisioning covers the October 16 event and needs renewal before October 19. Normal commercial activation remains under owner control. Do not call this full production qualification.
 
-For chronological evidence and checkpoint limitations, see [LIVE_RELEASE_READINESS_REPORT.md](LIVE_RELEASE_READINESS_REPORT.md). Current cash/recovery instructions are in [docs/payment-operations.md](docs/payment-operations.md).
+For chronological evidence and checkpoint limitations, see [LIVE_RELEASE_READINESS_REPORT.md](LIVE_RELEASE_READINESS_REPORT.md). Current cash/recovery instructions are in [docs/payment-operations.md](../../payment-operations.md).
 
 ## October 15 printer endurance follow-up
 
-The earlier NOT TESTED status for physical printer endurance is superseded by [Carlo Mode B evidence](docs/hardware-qualification/2026-10-15/REPORT.md): 100 sessions passed and 125 receipts printed and operator-confirmed, with zero recorded violations. Original UNVERIFIED was caused by out-of-scope checks always blocking PASS; the updated app reports PASS specifically for printer endurance. Live-camera Mode C, ambiguous-print fault drills and multi-hour operation remain outstanding. The tested build did not record its commit SHA.
+The earlier NOT TESTED status for physical printer endurance is superseded by [Carlo Mode B evidence](../../hardware-qualification/2026-10-15/REPORT.md): 100 sessions passed and 125 receipts printed and operator-confirmed, with zero recorded violations. Original UNVERIFIED was caused by out-of-scope checks always blocking PASS; the updated app reports PASS specifically for printer endurance. Live-camera Mode C, ambiguous-print fault drills and multi-hour operation remain outstanding. The tested build did not record its commit SHA.
 
 The hands-free/scoped-verdict update from source `1ce96e6` was subsequently installed and launched successfully on Carlo. Bundle/signing/version were preserved; SHA-256 comparison verified all 2,185 protected app-data files unchanged, including the four original qualification reports. See the linked hardware report for build validation and installation evidence.
 
 ## Completed Mode C follow-up — October 15
 
-Mode C run `7A09A919` completed 100 live-camera sessions and 125 print jobs with zero recorded violations. The owner subsequently verified the physical output; the updated [hardware evidence report](docs/hardware-qualification/2026-10-15/REPORT.md) records a scoped Mode C PASS with 125 post-run confirmed receipts. The original automated UNVERIFIED evidence is retained. Hands-free skipped recovery drills, manual Photo Pass interaction and broader release checks remain explicitly outside this result.
+Mode C run `7A09A919` completed 100 live-camera sessions and 125 print jobs with zero recorded violations. The owner subsequently verified the physical output; the updated [hardware evidence report](../../hardware-qualification/2026-10-15/REPORT.md) records a scoped Mode C PASS with 125 post-run confirmed receipts. The original automated UNVERIFIED evidence is retained. Hands-free skipped recovery drills, manual Photo Pass interaction and broader release checks remain explicitly outside this result.

@@ -6,6 +6,8 @@
 - [Receipt printing investigation and implementation](receipt-footer-first-printing.md): chronological measurements, code changes, retired paper-return probe and physical findings.
 - [Portrait delivery record](../BuildArtifacts/PortraitWorkspace/delivery-report.md) and [curated evidence index](../BuildArtifacts/PortraitWorkspace/README.md).
 - [Repository rules](../AGENTS.md) and [project overview](../README.md).
+- [Repository organization and cleanup](repository-maintenance.md), [historical reports](archive/README.md)
+  and [validation checklists](validation/README.md).
 
 ## Operator workspace and event lifecycle
 
@@ -19,6 +21,7 @@
 
 ## Payments, recovery and reporting
 
+- [11 November D1 read alert investigation and live fix](d1-idle-read-audit-2026-11-11.md)
 - [Payment operations](payment-operations.md)
 - [Payment Phase 2 architecture](payments-phase2-architecture.md)
 - [Payment Phase 4 audit](payments-phase4-audit.md)

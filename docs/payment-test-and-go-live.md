@@ -24,4 +24,4 @@ Live requires a separate live Worker, D1, domain, API key, webhook secret/endpoi
 
 ## Production activation remains a separate owner checkpoint
 
-The owner approved isolated LIVE infrastructure provisioning on 2026-10-13 (Asia/Manila). The deployment is inert and does not authorize real QR payment or gallery routing changes. See `PAYMONGO_PRODUCTION_RELEASE_REPORT.md` for current evidence. PayMongo account activation and wallet enablement are separate: QR Ph can be active while external payout access remains restricted. Do not require extra payment methods for a QR-only pilot, or equate a successful payment with withdrawn funds.
+The owner approved isolated LIVE infrastructure provisioning on 2026-10-13 (Asia/Manila). The deployment is inert and does not authorize real QR payment or gallery routing changes. See `docs/archive/releases/PAYMONGO_PRODUCTION_RELEASE_REPORT.md` for current evidence. PayMongo account activation and wallet enablement are separate: QR Ph can be active while external payout access remains restricted. Do not require extra payment methods for a QR-only pilot, or equate a successful payment with withdrawn funds.

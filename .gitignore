@@ -18,6 +18,7 @@ Products/
 *.dSYM.zip
 
 # Xcode test results and coverage output
+/TestResults/
 *.xcresult/
 *.xctestrun
 *.xcactivitylog
@@ -60,6 +61,15 @@ id_ed25519
 
 # Dependency folders for auxiliary tooling
 node_modules/
+
+# Wrangler packages/account caches and local state belong on each machine.
+.wrangler/
+.dev.vars*
+
+# Raw test captures are disposable. Existing tracked evidence remains versioned;
+# explicitly use git add -f for new curated screenshots/summaries after review.
+/BuildArtifacts/**
+!/BuildArtifacts/README.md
 
 # Machine-local agent permissions and uncurated device/build validation output.
 /.claude/

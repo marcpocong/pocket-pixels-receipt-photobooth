@@ -12,6 +12,8 @@ Start with [the 27 October development handoff](docs/development-handoff-2026-10
 - The iPad app uses Apple frameworks. Do not add dependencies or change bundle ID/signing without explicit authorization.
 - Build after meaningful changes. [AGENTS.md](AGENTS.md) contains the repository's working rules.
 - Payments Worker development uses its pinned npm dependencies; the production gate selects Node.js 22. No cloud deployment is part of an iPad build.
+- [Repository maintenance](docs/repository-maintenance.md) describes where reports and evidence live
+  and how to remove generated local output safely.
 
 Build the simulator app:
 
