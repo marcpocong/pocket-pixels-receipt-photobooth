@@ -1,8 +1,29 @@
 # Made to Keep Studios — Google Drive gallery performance
 
-Validation date: October 30, 2026 (Asia/Manila). Repository: `marcpocong/pocket-pixels-receipt-photobooth`, local `main`. Baseline: `dd209cc` (before production source edits). The implementation commit is `c0c84f4bea979eeb4c9276097011f25bde419037`. Measurements below belong to that implementation. It was subsequently pushed to GitHub `main` at the owner's request, with a CI follow-up described below. No live service was deployed.
+Validation date: October 30, 2026 (Asia/Manila). Repository: `marcpocong/pocket-pixels-receipt-photobooth`, local `main`. Baseline: `dd209cc` (before production source edits). The implementation commit is `c0c84f4bea979eeb4c9276097011f25bde419037`. Measurements below belong to that implementation. It was subsequently pushed to GitHub `main` at the owner's request, with a CI follow-up described below, then deployed to the existing Apps Script and Cloudflare services as recorded here.
 
 Google Drive remains the permanent storage backend. No R2, storage migration, new dependency, production gallery/payment, media deletion, credential change, signing change, bundle-ID change or PR was introduced. All generated photos and files are synthetic and local. The separate Drive API experiment has not been run against Google.
+
+## Production deployment — October 30, 2026
+
+The owner authorized production deployment of `19e0d058a2571e17ec8f3c46c18f381b7d60e82d`. Its [Production Gate](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/41055765398) passed for that exact commit. The validated source was deployed without another implementation commit or repeated CI suites.
+
+| Service | Previous version | Active version |
+| --- | --- | --- |
+| Pocket Pixels Gallery Backend | Apps Script 29 | **30**, October 30 at 11:37:04 PM Manila |
+| Existing Cloudflare `gallery` Worker | `3b3bf21d-d108-413d-be07-732108a3d0df` | **`2b10f3ca-e7d4-4ed4-808d-945991b32c73`**, 100%, October 30 at 11:37:51 PM Manila |
+
+Cloudflare's deployed code includes the performance changes in `Backend/CloudflareGalleryProxy/src/index.js`: background completed-page cache writes through `waitUntil`, resilient cache handling, structural completion checks, and safe timing headers/logs. The live main module was downloaded through the Cloudflare API and matched the validated Wrangler build exactly (SHA-256 `0e78466fc464bfa1691bf2bdf7ffdec5ff26b72753f1fa524283d23ff6cf2e41`).
+
+Apps Script's complete saved and versioned source matched repository `Code.gs` exactly: 123,815 UTF-8 bytes, SHA-256 `2fcc862902b3cb866a3cf46eeef5eeaf48b547bc14497a6eecf3c2b14dcdc252`. The correct Pocket Pixels account was verified. API writes were enabled after the owner's explicit confirmation. The existing Web App deployment ID and `/exec` URL, execution identity, access, manifest and unrelated files were preserved.
+
+The public hostname remains `https://gallery.madetokeepstudios.workers.dev/`. Its origin remains the same Apps Script `/exec` deployment. Wrangler used the existing account and `gallery` Worker with `--keep-vars`; bindings, compatibility settings, observability and workers.dev settings were independently compared and preserved. No payment or monitoring Worker changed.
+
+Direct Apps Script and public proxy diagnostics report healthy `made-to-keep-gallery-v9-instrumented-20261030`. Invalid tokens, unknown/pending galleries, uncached readiness and completed-page cache behavior passed live checks. An authorized private historical schema-2 gallery matched its identity and seven-file count; Chrome opened its photo and both receipt viewers. No customer token, private URL or imagery is included here.
+
+Individual live samples: direct readiness 3.238 s with `verificationMs=1520`; public readiness 3.173 s; raw origin gallery 9.252 s; fresh private cache-path MISS 11.401 s, then HIT 0.336 s. The full HTML body was consumed. These are uncontrolled network samples, not a measured before/after release speedup. A synthetic production POST was not performed because no safe existing upload credential/workflow was available; no synthetic production artifacts were created.
+
+Rollback references are Apps Script **29** on the same deployment and Worker **`3b3bf21d-d108-413d-be07-732108a3d0df`**. Both retain schema-4 compatibility. No rollback was needed; customer media, Drive storage, current QR URLs, payment and printing systems were preserved.
 
 ## Measured native results
 
@@ -101,7 +122,7 @@ Coverage includes offline/lost connection, timeout/ambiguous response, cancellat
 
 ## Remaining checks and limits
 
-No live Apps Script or Worker was deployed or edited, and no production gallery or payment was created. Actual Drive file-operation/lock timings, real cold/warm customer loads, first visual paint, image decoding, first-scan cache-warm races and Advanced Drive versus DriveApp performance remain unmeasured. No production improvement in seconds is promised. One-run simulator/mock percentiles are local evidence only.
+The implementation validation originally used local services only; the subsequent live deployment and smoke checks are recorded above. No production gallery or payment was created. Actual upload/Drive-write/lock timings, controlled customer-load comparisons, first visual paint, instrumented image decoding, first-scan cache-warm races and Advanced Drive versus DriveApp performance remain unmeasured. A deliberately incomplete live manifest and completed schema-1/3/4 galleries were not exercised. No production improvement in seconds is promised. One-run simulator/mock percentiles are local evidence only.
 
 On the physical iPad: measure capture/receipt preparation and main-thread responsiveness under 1/3/6-photo sessions, memory/thermal behavior with a 20-session backlog, offline → relaunch → reconnect, lost POST acknowledgement, bounded verification overlap and old pending fairness on event Wi-Fi. Confirm old guest stages never overwrite the next guest/event, and verify the actual printed frozen QR opens the correct historical/current gallery. Confirm printed photo/receipt fidelity and acknowledge → relaunch → next guest/event with the printer attached, including an uncertain physical copy that must never automatically resend. Check real iOS/Android Save/Share, first paint and decoded image display. These checks cannot be qualified by an unavailable camera/printer or a synthetic network.
 
