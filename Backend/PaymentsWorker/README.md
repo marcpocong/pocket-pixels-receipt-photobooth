@@ -70,6 +70,9 @@ Route tests run the real Worker module in `workerd` against a freshly migrated l
 
 See `docs/payments-test-staging-runbook.md`. Nothing in this repository deploys, migrates remote D1, or sets secrets automatically.
 
+For the idle D1 read alert investigation and the prepared index-only migration 0008,
+see [the 11 November audit](../../docs/d1-idle-read-audit-2026-11-11.md).
+
 ## Isolated LIVE deployment
 
 The owner-approved HTTPS hostname is `https://pocket-pixels-payments-live.madetokeepstudios.workers.dev`. Its D1 database is independent of TEST and has migrations 0001–0005. Keep the checked-in `LIVE_PAYMENTS_ENABLED=false` until the separate pre-activation assessment and explicit financial authorization. Secret values are entered directly with `wrangler secret put <name> --env live`; never pass them as command arguments or commit them. The presence of secret names does not prove provider authentication, webhook delivery, payment success or payout.

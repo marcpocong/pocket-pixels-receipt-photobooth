@@ -12,7 +12,53 @@ import { createHarness, applyMigrations, migrationFiles, splitSQL } from "./supp
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 test("migration files are ordered and contiguous", () => {
-    assert.deepEqual(migrationFiles().map(name => name.slice(0, 4)), ["0001", "0002", "0003", "0004", "0005", "0006", "0007"]);
+    assert.deepEqual(migrationFiles().map(name => name.slice(0, 4)), ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008"]);
+});
+
+test("health index upgrade preserves history and bounds reads as reconciliation history grows", async () => {
+    const time = Date.parse("2026-11-11T00:00:00.000Z");
+    const monitorToken = "monitor-read-test-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    const h = await createHarness({ migrateUpTo: 7, fixedTime: time, bindings: { MONITOR_READ_TOKEN: monitorToken } });
+    try {
+        await h.db.prepare(`WITH RECURSIVE history(n) AS (
+            SELECT 1 UNION ALL SELECT n+1 FROM history WHERE n<10000
+        ) INSERT INTO reconciliation_runs(id,environment,started_at,finished_at)
+          SELECT 'history-' || n,CASE WHEN n%2=0 THEN 'test' ELSE 'live' END,
+            strftime('%Y-%m-%dT%H:%M:%fZ',? + n*300,'unixepoch'),
+            strftime('%Y-%m-%dT%H:%M:%fZ',? + n*300+1,'unixepoch') FROM history`)
+            .bind(time/1000-4000000, time/1000-4000000).run();
+        const sql = "SELECT finished_at FROM reconciliation_runs WHERE environment=? ORDER BY started_at DESC LIMIT 1";
+        const before = await h.db.prepare(sql).bind("test").all();
+        assert.ok(before.meta.rows_read >= 10000, "reproduces the full-history scan before upgrade");
+        await applyMigrations(h.db, ["0008_reconciliation_health_index.sql"]);
+        const after = await h.db.prepare(sql).bind("test").all();
+        assert.deepEqual(after.results, before.results, "latest-run result is unchanged");
+        assert.ok(after.meta.rows_read <= 2, `indexed lookup read ${after.meta.rows_read} rows`);
+        const plan = await h.all(`EXPLAIN QUERY PLAN ${sql}`, "test");
+        assert.ok(plan.some(row => /SEARCH.*COVERING INDEX reconciliation_runs_environment_started_idx/.test(row.detail)));
+        assert.ok(plan.every(row => !/SCAN reconciliation_runs|TEMP B-TREE/.test(row.detail)));
+        assert.equal((await h.one("SELECT COUNT(*) c FROM reconciliation_runs")).c, 10000, "all history retained");
+
+        const health = async () => {
+            const response = await h.request("GET", "/v1/monitor-health", { token: monitorToken });
+            assert.equal(response.status, 200);
+            return response.json.reconciliationFresh;
+        };
+        assert.equal((await h.request("GET", "/v1/monitor-health", { token: null })).status, 401);
+        assert.equal(await health(), false, "old completed history is stale");
+        await h.db.prepare("INSERT INTO reconciliation_runs(id,environment,started_at,finished_at) VALUES('recent-test','test',?,?)")
+            .bind(new Date(time-60000).toISOString(), new Date(time-30000).toISOString()).run();
+        assert.equal(await health(), true, "a recent completed run is fresh");
+        await h.db.prepare("INSERT INTO reconciliation_runs(id,environment,started_at) VALUES('unfinished-test','test',?)")
+            .bind(new Date(time-10000).toISOString()).run();
+        assert.equal(await health(), false, "newest unfinished run is not hidden by an older success");
+        await h.db.prepare("UPDATE reconciliation_runs SET finished_at=? WHERE id='unfinished-test'")
+            .bind(new Date(time).toISOString()).run();
+        await h.db.prepare("INSERT INTO reconciliation_runs(id,environment,started_at) VALUES('unfinished-live','live',?)")
+            .bind(new Date(time+10000).toISOString()).run();
+        assert.equal(await health(), true, "another environment cannot mask this environment's latest completion");
+        assert.equal((await h.all("PRAGMA foreign_key_check")).length, 0);
+    } finally { await h.dispose(); }
 });
 
 test("SQL splitter keeps trigger bodies intact", () => {
