@@ -201,3 +201,9 @@ Private raw logs, result bundle, database export and app-data snapshots reside o
 Git under `/Users/marc/.codex/private/monitoring-v3-20261112/`.
 Production observations and remaining acceptance belong in ROLLOUT.md; these local
 results alone do not prove Telegram receipt, device acceptance or physical paper output.
+
+The final passive gallery-read correction rebuilt successfully for both simulator and
+signed Carlo. The affected telemetry/scheduler suites then passed **26/26**, zero failures
+or skips, adding the absent-directory and frozen-placeholder-metadata regression. This
+rerun was required by the additional native source change; the unchanged Worker was not
+rerun redundantly. Existing gallery migration/delivery checks are recorded in ROLLOUT.md.

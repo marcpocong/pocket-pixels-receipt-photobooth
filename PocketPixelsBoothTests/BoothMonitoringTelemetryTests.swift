@@ -26,6 +26,25 @@ import UIKit
         XCTAssertEqual(try store.summaries().count, 3, "Monitoring cannot clear or deliver a gallery")
     }
 
+    func testMonitoringQueueReadDoesNotCreateStorageOrMigratePlaceholderURLs() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        XCTAssertEqual(try GalleryPendingUploadStore.monitoringSummaries(directoryURL: directory), [])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+        let store = try GalleryPendingUploadStore(directoryURL: directory)
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { _ in }
+        let token = String(repeating: "d", count: 64)
+        let payload = try GoogleDriveGalleryUploadService.preparePayload(photos: [image], composedReceipt: image,
+            sessionID: "PP-PRIVATE", createdAt: Date(), galleryToken: token,
+            customerGalleryBaseURL: URL(string: "https://gallery.example.com")!)
+        try store.save(payload)
+        let metadata = directory.appendingPathComponent(token).appendingPathComponent("metadata.json")
+        let before = try Data(contentsOf: metadata)
+        let summaries = try GalleryPendingUploadStore.monitoringSummaries(directoryURL: directory)
+        XCTAssertEqual(summaries.first?.galleryURL.host(), "gallery.example.com")
+        XCTAssertEqual(try Data(contentsOf: metadata), before, "Monitoring cannot rewrite a frozen gallery identity")
+    }
+
     func testLegacySchemaCanBeUsedAgainstPreviousMonitoringWorker() throws {
         var value = BoothTelemetry(mode: "event", network: "offline", payment: "ready", printer: "uncertain", storage: "ready", incidents: ["uncertain_print"], eventReference: "evt-synthetic")
         value.reportedAt = ISO8601DateFormatter().string(from: Date()); value.eventState = "active"

@@ -31,7 +31,7 @@ nonisolated struct GalleryPendingUploadStore: @unchecked Sendable {
     private let directoryURL: URL
     private let legacyDirectoryURL: URL
 
-    init(fileManager: FileManager = .default, directoryURL: URL? = nil) throws {
+    init(fileManager: FileManager = .default, directoryURL: URL? = nil, prepareDirectory: Bool = true) throws {
         Self.lock.lock(); defer { Self.lock.unlock() }
         self.fileManager = fileManager
         if let directoryURL {
@@ -42,12 +42,12 @@ nonisolated struct GalleryPendingUploadStore: @unchecked Sendable {
                 for: .applicationSupportDirectory,
                 in: .userDomainMask,
                 appropriateFor: nil,
-                create: true
+                create: prepareDirectory
             )
             self.directoryURL = supportURL.appendingPathComponent("PendingGalleryUploadQueueV3", isDirectory: true)
             self.legacyDirectoryURL = supportURL.appendingPathComponent("PendingGalleryUpload", isDirectory: true)
         }
-        try ensureQueueDirectory()
+        if prepareDirectory { try ensureQueueDirectory() }
     }
 
     func save(_ payload: GalleryPreparedUploadPayload, lastSafeError: String? = nil) throws {
@@ -156,13 +156,23 @@ nonisolated struct GalleryPendingUploadStore: @unchecked Sendable {
         )
     }
 
+    /// Passive metadata reads never create storage or migrate a saved gallery URL.
+    static func monitoringSummaries(fileManager: FileManager = .default, directoryURL: URL? = nil) throws -> [GalleryPendingUploadSummary] {
+        try GalleryPendingUploadStore(fileManager: fileManager, directoryURL: directoryURL, prepareDirectory: false)
+            .queueSummaries(migrateDebugURLs: false)
+    }
+
     func summaries() throws -> [GalleryPendingUploadSummary] {
+        try queueSummaries(migrateDebugURLs: true)
+    }
+
+    private func queueSummaries(migrateDebugURLs: Bool) throws -> [GalleryPendingUploadSummary] {
         Self.lock.lock(); defer { Self.lock.unlock() }
         return try queuedTokenDirectories().compactMap { directory in
             let metadataURL = directory.appendingPathComponent(Self.metadataFilename)
             guard fileManager.fileExists(atPath: metadataURL.path) else { return nil }
             let decodedMetadata = try JSONDecoder().decode(GalleryPendingUploadMetadata.self, from: Data(contentsOf: metadataURL))
-            let metadata = try migrateDebugGalleryURLIfNeeded(decodedMetadata, metadataURL: metadataURL)
+            let metadata = try (migrateDebugURLs ? migrateDebugGalleryURLIfNeeded(decodedMetadata, metadataURL: metadataURL) : decodedMetadata)
             let transfer = try transferJournal(galleryToken: metadata.galleryToken)
             return GalleryPendingUploadSummary(
                 galleryToken: metadata.galleryToken,

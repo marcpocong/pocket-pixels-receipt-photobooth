@@ -288,7 +288,7 @@ nonisolated struct GalleryQueueTelemetry: Codable, Equatable, Sendable {
         value.activityAt = operations.lastGuestActivityAt.map { ISO8601DateFormatter().string(from: $0) }
         // Re-read metadata only; no photographs are loaded for monitoring.
         do {
-            let queue = try GalleryPendingUploadStore().summaries()
+            let queue = try GalleryPendingUploadStore.monitoringSummaries()
             value.uploads = GalleryQueueTelemetry(summaries: queue, transmittingCount: scheduler.transmittingCount,
                 verifyingCount: scheduler.verifyingCount, lastActivityAt: scheduler.lastActivityAt)
         } catch {

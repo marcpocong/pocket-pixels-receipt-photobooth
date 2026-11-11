@@ -184,3 +184,10 @@ The Worker supplies Retry-After for its existing 30-second cooldown. Equal obser
 times are duplicates; older and already-stale samples are rejected without replacing
 accepted evidence or restoring contact. Event-aware 10/15-minute thresholds, five-minute
 foreground periodic reporting and foreground-resume reporting remain unchanged.
+
+A final read-only audit also found that the general gallery summaries API can migrate
+DEBUG placeholder URLs, and ordinary store construction creates storage. Monitoring now
+uses a separate passive metadata read that does neither; normal gallery readers retain
+their existing migration behavior. A regression verifies absent-directory preservation
+and byte-for-byte preservation of saved placeholder metadata. Carlo's queue was empty
+during initial verification, so no live saved gallery was affected by this finding.
