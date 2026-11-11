@@ -3,9 +3,10 @@
 ## Release status
 
 Implemented against fetched, clean `main` at
-`9a2f9b574d00c00206bc9e6d6533b57500342e6e`. This is an engineering candidate,
-not a completed physical-device or production transport rollout. See the
-release ledger at the end for the exact integrated commit, tests and deployments.
+`9a2f9b574d00c00206bc9e6d6533b57500342e6e`. The backend transport is deployed and
+live synthetic checks passed. Installing and qualifying the app on Carlo remains
+blocked by the missing original Xcode developer account/profile. See the release
+ledger for the exact integrated commit, tests and deployments.
 
 ## What was wrong
 
@@ -102,6 +103,7 @@ controlled single runs, not venue service-level guarantees.
 | Local TCP improves from 0.25 Mbps to unrestricted at 4 s, 20 galleries | JSON 4.487 s; forced binary 6.284 s | Automatic follow-up 4.792 s |
 | Lost chunk acknowledgment, 50-gallery local TCP backlog | Server accepts chunk, drops response | 4.055 s; zero accepted media retransmitted; zero duplicate publications |
 | Real Google Drive HTTPS, 1 MiB synthetic binary, probe at 256 KiB | Single unpaced sample: init 0.957 s, total 2.845 s | Paced 0.25 / 0.5 Mbps: 34.547 / 17.785 s; exact SHA-256; zero unnecessary media bytes |
+| Real staged Apps Script 31 → scoped Drive → actual Worker/page, two synthetic JPEG assets | 1,883,288 media bytes; repeated init/finalize; ignored first chunk ACK | 53.726 s total; resumed at 262,144 B; exact stored hashes; zero unnecessary retransmission or duplicate files; publicly ready |
 
 The TCP matrix uses actual app preparation, disk queue and recovery with synthetic
 Google/public endpoints bridged to loopback. It excludes Google execution/Drive
@@ -112,10 +114,16 @@ resident memory was approximately 349 MB. Main-actor heartbeat gaps were mostly
 18–29 ms; the interrupted case peaked at 119.85 ms. These are simulator observations,
 not physical capture/printing qualifications.
 
-The live Drive microexperiments were private non-image files. They validate the
-underlying resumable mechanism and scoped access, not the Apps Script runtime,
-complete gallery publication, venue throughput or Carlo installation. No full
-production transport timing has yet been established.
+The earlier Drive microexperiments used private non-image files. The final live
+backend check used two valid synthetic JPEG assets and the real staged Apps
+Script/Drive/public Worker lifecycle. It exercised repeated initialization,
+discarded a chunk acknowledgment, confirmed the persisted offset, verified remote
+hashes, finalized twice and verified readiness plus the complete public HTML.
+Its 53.726 s includes repeated coordination requests: initialization pair 11.470 s,
+binary phase 8.229 s, finalization pair 13.213 s. These are owner-script initiated
+server-to-server transfers, not a measured iPad venue drain time or a comparative
+live speed claim. Real Apps Script round trips remain material on this sample;
+automatic fast-path JSON retention avoids imposing them on every fresh gallery.
 
 A read-only live check against an existing completed schema-4 gallery returned
 HTTP 200, `status=complete`, the matching token and six files through the existing
@@ -162,7 +170,8 @@ hostname. This change does not rewrite those receipts or falsely mark them ready
 
 ## Release ledger
 
-- Source integration: pending final gate and commit.
+- Source integration: pushed directly to `main` as
+  `3c15adda30527b9dce9594f37f88be5206cc96cf`.
 - Complete local production gate: 996 cases passed (1,031 runs including dynamic
   parameters), zero failed/skipped. Native UI: 27/28 passed initially; the receipt
   inspector visibility wait timed out, then the unchanged test passed on a focused
@@ -171,15 +180,28 @@ hostname. This change does not rewrite those receipts or falsely mark them ready
   accepted reads filling the feeder ahead of unsent work: 26 affected recovery,
   scheduler and resumable tests passed on the final source, following a reproduced
   mixed-backlog failure before the fix. Hosted Actions previously reported an
-  account billing lock. No billing settings changed.
+  account billing lock. The source commit's
+  [Actions run](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/actions/runs/42944732625)
+  could not start its jobs for that same reason. Local results above are the
+  executed evidence; hosted CI is not green. No billing settings changed.
 - Backend gate: payments, monitoring, gallery Worker, existing Apps Script,
   resumable contract and isolated Drive experiment contract all passed.
-- Apps Script: active version 30 remains unchanged; version 31 staged separately.
-  Owner authorization succeeded and staged diagnostics advertise the new transport.
-  Full live synthetic publication is being validated with a temporary owner-only
-  editor diagnostic; this tool is excluded from the production version.
-- Gallery Worker: baseline `2b10f3ca-e7d4-4ed4-808d-945991b32c73`;
-  privacy-only deployment pending.
+- Apps Script: version 31 was validated in a separate staged deployment.
+  Owner authorization and full staged live synthetic validation succeeded, then
+  the **existing production deployment was updated to version 31** with its URL,
+  anonymous access and execution identity preserved. Diagnostic:
+  `made-to-keep-gallery-v10-resumable-20261111`, both `base64-json` and
+  `drive-resumable-v1` advertised. Version 31 exactly matches the committed core
+  source. The temporary owner diagnostic was removed from HEAD and was never in
+  production version 31. The temporary staging deployment was retired after
+  activation; version 30 remains the rollback version. An existing completed
+  gallery passed live Worker readiness again after the production backend update.
+- Gallery Worker: active `ef02c41b-ca24-47aa-bf9b-8630929da2c2` at 100%,
+  deployed from `3c15add` with `--keep-vars`. The only intentional setting change
+  is query-string redaction. Origin/bindings/runtime/remaining observability
+  settings matched the saved baseline; an existing completed gallery passed a
+  live readiness check afterward. Rollback:
+  `2b10f3ca-e7d4-4ed4-808d-945991b32c73`.
 - Carlo: connected/unlocked; the owner confirms the photobooth icon is absent.
   Signed build reported Xcode “No Accounts” and no provisioning profile for the
   existing bundle/team. No app was uninstalled, erased or replaced. Owner sign-in

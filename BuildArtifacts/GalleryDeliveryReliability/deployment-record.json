@@ -1,0 +1,27 @@
+{
+  "sourceCommit": "3c15adda30527b9dce9594f37f88be5206cc96cf",
+  "appsScript": {
+    "activeVersion": 31,
+    "backendVersion": "made-to-keep-gallery-v10-resumable-20261111",
+    "originalDeploymentURLAndAccessPreserved": true,
+    "rollbackVersion": 30,
+    "temporaryOwnerDiagnosticRemoved": true,
+    "temporaryStagedDeploymentRetired": true
+  },
+  "worker": {
+    "activeVersion": "ef02c41b-ca24-47aa-bf9b-8630929da2c2",
+    "activePercentage": 100,
+    "rollbackVersion": "2b10f3ca-e7d4-4ed4-808d-945991b32c73",
+    "baselineSettingsCompared": true,
+    "onlyIntentionalSettingChange": "observability.redact_query_string=true"
+  },
+  "carlo": {
+    "ownerConfirmsAppIconAbsent": true,
+    "installation": "blocked: existing Xcode developer account/profile missing",
+    "uninstalledOrErasedByThisTask": false
+  },
+  "githubActions": {
+    "run": 42944732625,
+    "status": "jobs not started: account billing lock"
+  }
+}

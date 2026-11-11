@@ -6,10 +6,11 @@ For production updates, use the existing project and deployment described in [th
 
 ## Resumable transport update (11 November 2026)
 
-The candidate backend is `made-to-keep-gallery-v10-resumable-20261111`. Install
+The resumable backend release is `made-to-keep-gallery-v10-resumable-20261111`. Install
 **both** `Code.gs` and `ResumableUploads.gs`; preserve the existing manifest,
 properties, root folder, device token, deployment ID and access configuration.
-The version-30 production deployment remains the rollback target. Source in the
+The saved version 30 remains the rollback target; the release ledger records the
+active version. Source in the
 editor (HEAD) is separate from the active versioned deployment.
 
 Before activating this backend, the existing owner must run
@@ -68,7 +69,7 @@ transfer. See [validation and exact rollback procedure](../../docs/gallery-deliv
 24. Open the pre-upload gallery link. A valid unused token should show the branded pending state.
 25. Upload one test gallery.
 26. Confirm exactly one folder appears inside the dedicated Pocket Pixels root folder.
-27. Confirm that folder is named `gallery-{galleryToken}` and contains the sequenced photos, `receipt-color.jpg`, `receipt-bw.png`, optional `session.gif`, and `manifest.json`.
+27. Confirm that folder is named `gallery-{galleryToken}` and contains the exact assets for the uploaded schema plus `manifest.json`. Schema 4 stores the sequenced photos and `receipt-color.jpg`; earlier schemas also retain their thermal receipt, and historical payloads may include `session.gif`.
 28. Confirm `manifest.json` lists the exact stored assets and matches the uploaded schema. Current schema 4 omits the redundant thermal upload; older schemas retain their expected assets. New still-photo uploads omit the GIF; historical payloads may include `gif: "session.gif"`.
 29. Open the same Worker gallery link in Safari and confirm all gallery images appear.
 30. Tap `Retry Same Upload` in Cloud Test and confirm it returns an existing completed gallery without creating a second folder or changing the customer gallery URL.

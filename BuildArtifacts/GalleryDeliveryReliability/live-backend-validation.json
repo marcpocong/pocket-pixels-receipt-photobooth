@@ -1,0 +1,21 @@
+{
+  "environment": "Real staged Apps Script version31 + scoped Google Drive binary PUTs + active public Worker; initiated by owner-only Apps Script editor function with private synthetic JPEG; numeric report read from completed execution log. Server-to-server Google network, not iPad/venue throughput.",
+  "report": {
+    "synthetic": true,
+    "initializationMs": 11470,
+    "initializationIdempotent": true,
+    "decodedMediaBytes": 1883288,
+    "actualMediaBytesSent": 1883288,
+    "confirmedResumeOffset": 262144,
+    "binaryMs": 8229,
+    "unnecessaryRetransmittedBytes": 0,
+    "remotelyStored": true,
+    "publicationMs": 13213,
+    "finalizationIdempotent": true,
+    "publicReady": true,
+    "publicPageComplete": true,
+    "duplicateAssetFiles": 0,
+    "elapsedMs": 53726,
+    "ok": true
+  }
+}
