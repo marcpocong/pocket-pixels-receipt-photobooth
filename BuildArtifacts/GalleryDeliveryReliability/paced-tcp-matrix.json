@@ -1,0 +1,247 @@
+{
+  "environment": "iPad simulator; actual durable retryPendingQueue and byte payloads; real loopback TCP with aggregate receive pacing; scoped-Google/public requests bridged to synthetic origin; not Google server timing or venue hardware",
+  "rows": [
+    {
+      "completionMs": {
+        "max": 222.33966666681226,
+        "p50": 135.83741666661808,
+        "p95": 213.50725000047532
+      },
+      "decodedMediaBytes": 17729040,
+      "firstReadyMs": 36.50287500022387,
+      "guests": 20,
+      "maxMainActorGapMs": 17.809958332691167,
+      "origin": {
+        "actualBodyBytesRead": 23914100,
+        "controlBodyBytesRead": 0,
+        "duplicatePublications": 0,
+        "elapsedSeconds": 0.2673395830000018,
+        "publications": 20
+      },
+      "peakResidentBytes": 324812800,
+      "profile": "strong20",
+      "totalMs": 227.75916666705598,
+      "transport": "legacy-json"
+    },
+    {
+      "completionMs": {
+        "max": 1595.3349999999773,
+        "p50": 792.6351666665141,
+        "p95": 1518.6198749997857
+      },
+      "decodedMediaBytes": 17729040,
+      "firstReadyMs": 101.3144166663551,
+      "guests": 20,
+      "maxMainActorGapMs": 20.949166666468955,
+      "origin": {
+        "actualBodyBytesRead": 17757880,
+        "controlBodyBytesRead": 28840,
+        "duplicatePublications": 0,
+        "elapsedSeconds": 1.6290634170000011,
+        "publications": 20
+      },
+      "peakResidentBytes": 342065152,
+      "profile": "strong20",
+      "totalMs": 1600.3462916660283,
+      "transport": "binary-resumable"
+    },
+    {
+      "completionMs": {
+        "max": 460.94950000042445,
+        "p50": 235.1117083335339,
+        "p95": 442.67275000038353
+      },
+      "decodedMediaBytes": 44322600,
+      "firstReadyMs": 24.141750000126194,
+      "guests": 50,
+      "maxMainActorGapMs": 18.055708334031806,
+      "origin": {
+        "actualBodyBytesRead": 59785250,
+        "controlBodyBytesRead": 0,
+        "duplicatePublications": 0,
+        "elapsedSeconds": 0.5478640830000003,
+        "publications": 50
+      },
+      "peakResidentBytes": 342474752,
+      "profile": "strong50",
+      "totalMs": 463.865583333245,
+      "transport": "legacy-json"
+    },
+    {
+      "completionMs": {
+        "max": 3808.747749999384,
+        "p50": 1813.7787083333023,
+        "p95": 3658.8349166668195
+      },
+      "decodedMediaBytes": 44322600,
+      "firstReadyMs": 89.90016666666634,
+      "guests": 50,
+      "maxMainActorGapMs": 18.778166666379548,
+      "origin": {
+        "actualBodyBytesRead": 44394700,
+        "controlBodyBytesRead": 72100,
+        "duplicatePublications": 0,
+        "elapsedSeconds": 3.8800679170000016,
+        "publications": 50
+      },
+      "peakResidentBytes": 346210304,
+      "profile": "strong50",
+      "totalMs": 3813.699041666041,
+      "transport": "binary-resumable"
+    },
+    {
+      "completionMs": {
+        "max": 923.7567500003934,
+        "p50": 488.63320833334,
+        "p95": 880.6890416672104
+      },
+      "decodedMediaBytes": 88645200,
+      "firstReadyMs": 32.80462500060821,
+      "guests": 100,
+      "maxMainActorGapMs": 28.763958333001938,
+      "origin": {
+        "actualBodyBytesRead": 119570500,
+        "controlBodyBytesRead": 0,
+        "duplicatePublications": 0,
+        "elapsedSeconds": 1.08638775,
+        "publications": 100
+      },
+      "peakResidentBytes": 344129536,
+      "profile": "strong100",
+      "totalMs": 926.7886666666527,
+      "transport": "legacy-json"
+    },
+    {
+      "completionMs": {
+        "max": 7477.502041666412,
+        "p50": 3736.555041666179,
+        "p95": 7099.572291666846
+      },
+      "decodedMediaBytes": 88645200,
+      "firstReadyMs": 102.94958333270188,
+      "guests": 100,
+      "maxMainActorGapMs": 21.41866666624992,
+      "origin": {
+        "actualBodyBytesRead": 88789400,
+        "controlBodyBytesRead": 144200,
+        "duplicatePublications": 0,
+        "elapsedSeconds": 7.612792582999997,
+        "publications": 100
+      },
+      "peakResidentBytes": 346161152,
+      "profile": "strong100",
+      "totalMs": 7482.562749999488,
+      "transport": "binary-resumable"
+    },
+    {
+      "completionMs": {
+        "max": 393989.4702916663,
+        "p50": 196839.66304166644,
+        "p95": 374155.09724999993
+      },
+      "decodedMediaBytes": 17729040,
+      "firstReadyMs": 19730.85054166677,
+      "guests": 20,
+      "maxMainActorGapMs": 19.452083332907932,
+      "origin": {
+        "actualBodyBytesRead": 23914100,
+        "controlBodyBytesRead": 0,
+        "duplicatePublications": 0,
+        "elapsedSeconds": 394.035904416,
+        "publications": 20
+      },
+      "peakResidentBytes": 345669632,
+      "profile": "weak20",
+      "totalMs": 394000.3623749999,
+      "transport": "legacy-json"
+    },
+    {
+      "completionMs": {
+        "max": 288471.3814166662,
+        "p50": 144351.1876666662,
+        "p95": 274062.1430833326
+      },
+      "decodedMediaBytes": 17729040,
+      "firstReadyMs": 14481.631666666544,
+      "guests": 20,
+      "maxMainActorGapMs": 24.929833333771967,
+      "origin": {
+        "actualBodyBytesRead": 17757880,
+        "controlBodyBytesRead": 28840,
+        "duplicatePublications": 0,
+        "elapsedSeconds": 288.52896575,
+        "publications": 20
+      },
+      "peakResidentBytes": 174850048,
+      "profile": "weak20",
+      "totalMs": 288483.99141666596,
+      "transport": "binary-resumable"
+    },
+    {
+      "completionMs": {
+        "max": 4484.418125000047,
+        "p50": 4395.575208333867,
+        "p95": 4476.6285000005155
+      },
+      "decodedMediaBytes": 17729040,
+      "firstReadyMs": 4289.245958333595,
+      "guests": 20,
+      "maxMainActorGapMs": 21.812083333315968,
+      "origin": {
+        "actualBodyBytesRead": 23914100,
+        "controlBodyBytesRead": 0,
+        "duplicatePublications": 0,
+        "elapsedSeconds": 4.547134417000052,
+        "publications": 20
+      },
+      "peakResidentBytes": 158433280,
+      "profile": "improved20",
+      "totalMs": 4487.261875000513,
+      "transport": "legacy-json"
+    },
+    {
+      "completionMs": {
+        "max": 6278.847208332991,
+        "p50": 5523.604708333551,
+        "p95": 6207.810083333243
+      },
+      "decodedMediaBytes": 17729040,
+      "firstReadyMs": 4855.614166666783,
+      "guests": 20,
+      "maxMainActorGapMs": 18.887749999521475,
+      "origin": {
+        "actualBodyBytesRead": 17757880,
+        "controlBodyBytesRead": 28840,
+        "duplicatePublications": 0,
+        "elapsedSeconds": 6.310718958000052,
+        "publications": 20
+      },
+      "peakResidentBytes": 170541056,
+      "profile": "improved20",
+      "totalMs": 6283.9789999998175,
+      "transport": "binary-resumable"
+    },
+    {
+      "completionMs": {
+        "max": 4050.6069583334465,
+        "p50": 2091.1886666672217,
+        "p95": 3891.1955416670025
+      },
+      "decodedMediaBytes": 44322600,
+      "firstReadyMs": 292.0591250003781,
+      "guests": 50,
+      "maxMainActorGapMs": 119.84916666642675,
+      "origin": {
+        "actualBodyBytesRead": 44395422,
+        "controlBodyBytesRead": 72822,
+        "duplicatePublications": 0,
+        "elapsedSeconds": 4.150553500000001,
+        "publications": 50
+      },
+      "peakResidentBytes": 191447040,
+      "profile": "interrupted50",
+      "totalMs": 4054.7787499999686,
+      "transport": "binary-resumable"
+    }
+  ]
+}

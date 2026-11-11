@@ -1,0 +1,10 @@
+{
+  "result": "Failed",
+  "passedTests": 27,
+  "failedTests": 1,
+  "skippedTests": 0,
+  "totalTestCount": 28,
+  "failureTests": [
+    "EventOperationsUITests/testReceiptInspectorPinchPanAndDoubleTapFromNewEvent()"
+  ]
+}

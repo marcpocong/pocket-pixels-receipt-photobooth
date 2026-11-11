@@ -178,7 +178,7 @@ final class GalleryFrontDoorMigrationTests: XCTestCase {
         try queue.save(legacyPayload)
 
         // The app is later configured for the Made to Keep front door; a new session is queued.
-        let service = GoogleDriveGalleryUploadService(
+        let service = GoogleDriveGalleryUploadService(transportPreference: .legacy,
             customerGalleryConfigurationProvider: { try CustomerGalleryConfiguration.validate(rawValue: self.madeToKeepBase) },
             pendingStore: queue
         )
@@ -198,7 +198,7 @@ final class GalleryFrontDoorMigrationTests: XCTestCase {
         // Session minted under the legacy front door (QR already shown/printed); config now points
         // at Made to Keep before the gallery is prepared (e.g. recovery after an app update).
         let frozen = try XCTUnwrap(URL(string: "\(legacyBase)?g=\(token)"))
-        let service = GoogleDriveGalleryUploadService(
+        let service = GoogleDriveGalleryUploadService(transportPreference: .legacy,
             customerGalleryConfigurationProvider: { try CustomerGalleryConfiguration.validate(rawValue: self.madeToKeepBase) },
             pendingStore: try GalleryPendingUploadStore(directoryURL: directory)
         )
@@ -227,7 +227,7 @@ final class GalleryFrontDoorMigrationTests: XCTestCase {
         """.utf8)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [FrontDoorStubURLProtocol.self]
-        let service = GoogleDriveGalleryUploadService(
+        let service = GoogleDriveGalleryUploadService(transportPreference: .legacy,
             configurationProvider: { try GoogleDriveGalleryConfiguration.validate(rawValue: "https://script.google.com/macros/s/TEST_DEPLOYMENT/exec") },
             customerGalleryConfigurationProvider: { try CustomerGalleryConfiguration.validate(rawValue: self.madeToKeepBase) },
             urlSession: URLSession(configuration: configuration),

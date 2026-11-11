@@ -9,6 +9,7 @@ struct OperatorGallerySettingsView: View {
     @State private var checkingBackend = false
     @State private var backendStatus: String?
     @StateObject private var operations = EventOperationalState.shared
+    @ObservedObject private var transfer = GalleryTransferTelemetry.shared
     var body: some View {
         Form {
             Text(DeviceCredentialStore().hasDeviceToken() ? "Gallery credential saved on this iPad." : "Gallery credential missing. Photos can wait locally for setup.")
@@ -33,6 +34,13 @@ struct OperatorGallerySettingsView: View {
             }
             Section("Delivery diagnostics") {
                 LabeledContent("Waiting galleries", value: "\(operations.pendingUploadCount)")
+                LabeledContent("Active byte transfers", value: "\(transfer.activeTransfers)")
+                LabeledContent("Stored remotely / publishing", value: "\(operations.pendingUploads.filter { ["Remotely stored", "Publishing"].contains($0.transferStage ?? "") || $0.deliveryState == .posted }.count)")
+                LabeledContent("Media remaining", value: ByteCountFormatter.string(fromByteCount: Int64(operations.pendingUploads.reduce(0) { $0 + ($1.deliveryState == .posted ? 0 : max(0, $1.payloadSizeBytes-$1.confirmedRemoteBytes)) }), countStyle: .file))
+                LabeledContent("Verified this launch", value: "\(transfer.completedGalleries)")
+                if transfer.activeTransfers > 0 {
+                    Text("\(transfer.phase) · \(ByteCountFormatter.string(fromByteCount: Int64(transfer.bytesPerSecond), countStyle: .file))/s").font(.callout)
+                }
                 Text(operations.lastUploadWorkerMessage).font(.callout)
                 Button(checkingBackend ? "Checking backend…" : "Check Gallery Backend") {
                     checkingBackend = true

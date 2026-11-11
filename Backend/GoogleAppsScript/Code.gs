@@ -39,7 +39,7 @@ const MAX_GALLERY_DECODED_BYTES = 6 * 1024 * 1024;
 
 const MAX_GALLERY_BASE64_CHARS = 9 * 1024 * 1024;
 
-const BACKEND_VERSION = 'made-to-keep-gallery-v9-instrumented-20261030';
+const BACKEND_VERSION = 'made-to-keep-gallery-v10-resumable-20261111';
 
 // Customer-visible Made to Keep Studios identity. Script Property names, the completed-gallery
 // marker and self-test entry points keep their legacy Pocket Pixels identifiers for compatibility.
@@ -62,6 +62,8 @@ function doPost(e) {
   try {
     stage = 'PARSE_JSON';
     const body = parseJSONBody_(e);
+
+    if (body && body.transport === 'drive-resumable-v1') return resumableGalleryPost_(body);
 
     stage = 'LOG_REQUEST';
     logSanitizedRequest_(body, e.postData.contents.length);
@@ -172,6 +174,9 @@ function doGet(e) {
       schemaVersion: SCHEMA_VERSION,
 
       backendVersion: BACKEND_VERSION,
+
+      uploadTransports: typeof resumableUploadsEnabled_ === 'function' && resumableUploadsEnabled_()
+        ? ['base64-json', 'drive-resumable-v1'] : ['base64-json'],
 
       galleryTokenPattern: 'lowercase-hex-64',
 
@@ -876,6 +881,10 @@ function validateImage_(image, expectedFilename, field, expectedMimeType) {
 }
 
 function createOrReturnGallery_(root, body, timings) {
+
+  // An older client/rollback must not race reserved resumable IDs by creating
+  // replacement files. A completed public gallery remains readable normally.
+  if (typeof guardLegacyResumableMutation_ === 'function') guardLegacyResumableMutation_(body.galleryToken);
 
   const folderName = 'gallery-' + body.galleryToken;
   const expected = expectedFilenames_(body.photos.length, body.schemaVersion, !!body.gif, !!body.shareColorReceipt);

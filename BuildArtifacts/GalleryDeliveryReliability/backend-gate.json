@@ -1,0 +1,46 @@
+[
+  {
+    "suite": "payments",
+    "exit": 0,
+    "tests": 224,
+    "pass": 224,
+    "fail": 0,
+    "skipped": 0
+  },
+  {
+    "suite": "monitoring",
+    "exit": 0,
+    "tests": 57,
+    "pass": 57,
+    "fail": 0,
+    "skipped": 0
+  },
+  {
+    "suite": "gallery-worker",
+    "exit": 0,
+    "tests": 42,
+    "pass": 42,
+    "fail": 0,
+    "skipped": 0
+  },
+  {
+    "suite": "apps-script",
+    "exit": 0
+  },
+  {
+    "suite": "resumable",
+    "exit": 0,
+    "tests": 6,
+    "pass": 6,
+    "fail": 0,
+    "skipped": 0
+  },
+  {
+    "suite": "drive-experiment-contract",
+    "exit": 0,
+    "tests": 1,
+    "pass": 1,
+    "fail": 0,
+    "skipped": 0
+  }
+]

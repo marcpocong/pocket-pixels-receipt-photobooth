@@ -3,6 +3,41 @@ import UIKit
 @testable import PocketPixelsBooth
 
 @MainActor final class GallerySchedulerV2Tests: XCTestCase {
+    func testPublicReconciliationStartsWhileTransmissionIsBlocked() async throws {
+        let scheduler = GalleryUploadScheduler()
+        let sending = expectation(description: "blocked POST")
+        let reading = expectation(description: "independent public read")
+        var release: CheckedContinuation<Void, Never>?
+        let upload = Task { try await scheduler.perform(token: "sending") {
+            sending.fulfill()
+            await withCheckedContinuation { release = $0 }
+            return self.result("sending")
+        } }
+        await fulfillment(of: [sending])
+        let reconciliation = Task { try await scheduler.perform(token: "uncertain", priority: .recovery, lane: .publicRead) {
+            reading.fulfill(); return self.result("uncertain")
+        } }
+        await fulfillment(of: [reading], timeout: 2)
+        _ = try await reconciliation.value
+        XCTAssertEqual(scheduler.activeToken, "sending", "A public read does not preempt the POST or own its lane")
+        release?.resume(); _ = try await upload.value
+    }
+
+    func testOnlineInterfaceChangeWakesRecoveryButDuplicatePathSignalsDoNot() async {
+        let scheduler = GalleryUploadScheduler()
+        var calls = 0
+        scheduler.configureRecovery { calls += 1; return nil }
+        scheduler.connectionChanged(available: true, signature: "wifi-a")
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(calls, 1)
+        for _ in 0..<10 { scheduler.connectionChanged(available: true, signature: "wifi-a") }
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(calls, 1)
+        scheduler.connectionChanged(available: true, signature: "hotspot-b")
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(calls, 2)
+        XCTAssertEqual(scheduler.connectivityGeneration, 2)
+    }
     private func result(_ token: String) -> GalleryUploadResult {
         GalleryUploadResult(galleryToken: token, galleryURL: URL(string: "https://example.test/?g=\(token)")!, status: .existingComplete)
     }

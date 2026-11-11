@@ -23,7 +23,7 @@ final class GalleryDeliveryHardeningTests: XCTestCase {
             let configuration = URLSessionConfiguration.ephemeral
             configuration.protocolClasses = [DeliveryProtocol.self]
             var verifiedSessions: [String] = []
-            let service = GoogleDriveGalleryUploadService(
+            let service = GoogleDriveGalleryUploadService(transportPreference: .legacy,
                 configurationProvider: { try GoogleDriveGalleryConfiguration.validate(rawValue: "https://script.google.com/macros/s/TEST/exec") },
                 urlSession: URLSession(configuration: configuration), pendingStore: queue, onPublicGalleryVerified: { verifiedSessions.append($0) })
             do {
@@ -71,7 +71,7 @@ final class GalleryDeliveryHardeningTests: XCTestCase {
             customerGalleryBaseURL: URL(string: "https://delivery-fixture.example.test")!))
         try queue.updateDeliveryState(.deliveryUnknown, galleryToken: token)
         let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [DeliveryProtocol.self]
-        let service = GoogleDriveGalleryUploadService(urlSession: URLSession(configuration: configuration), pendingStore: queue, scheduler: GalleryUploadScheduler())
+        let service = GoogleDriveGalleryUploadService(transportPreference: .legacy, urlSession: URLSession(configuration: configuration), pendingStore: queue, scheduler: GalleryUploadScheduler())
         DeliveryProtocol.scenario = .offline; DeliveryProtocol.requests = []
         for attempt in 1...2 {
             try queue.requestRetry(galleryToken: token)
@@ -111,7 +111,7 @@ final class GalleryDeliveryHardeningTests: XCTestCase {
         HotfixProtocol.maxActivePosts = 0
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [HotfixProtocol.self]
-        let service = GoogleDriveGalleryUploadService(
+        let service = GoogleDriveGalleryUploadService(transportPreference: .legacy,
             configurationProvider: { try GoogleDriveGalleryConfiguration.validate(rawValue: "https://script.google.com/macros/s/TEST/exec") },
             urlSession: URLSession(configuration: configuration), pendingStore: queue)
         do {
@@ -152,7 +152,7 @@ final class GalleryDeliveryHardeningTests: XCTestCase {
         defer { HotfixProtocol.publicDelay = 0 }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [HotfixProtocol.self]
-        let service = GoogleDriveGalleryUploadService(
+        let service = GoogleDriveGalleryUploadService(transportPreference: .legacy,
             configurationProvider: { try GoogleDriveGalleryConfiguration.validate(rawValue: "https://script.google.com/macros/s/TEST/exec") },
             urlSession: URLSession(configuration: configuration), pendingStore: queue)
         let result = try await service.uploadPendingGallery(galleryToken: token, deviceToken: String(repeating: "x", count: 32))
@@ -178,7 +178,7 @@ final class GalleryDeliveryHardeningTests: XCTestCase {
         HotfixProtocol.postTokens = []
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [HotfixProtocol.self]
-        let service = GoogleDriveGalleryUploadService(
+        let service = GoogleDriveGalleryUploadService(transportPreference: .legacy,
             configurationProvider: { try GoogleDriveGalleryConfiguration.validate(rawValue: "https://script.google.com/macros/s/TEST/exec") },
             urlSession: URLSession(configuration: configuration), pendingStore: queue)
         do {
@@ -190,6 +190,35 @@ final class GalleryDeliveryHardeningTests: XCTestCase {
         }
         XCTAssertEqual(HotfixProtocol.postTokens, [tokens[0]], "Already-public galleries must never POST")
         XCTAssertEqual(try queue.summaries().map(\.galleryToken), [tokens[0]])
+    }
+
+    func testMixedAcceptedAndUncertainBacklogDoesNotLeaveTransmissionLaneIdle() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let queue = try GalleryPendingUploadStore(directoryURL: directory)
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 80)).image { _ in }
+        let tokens = (1...8).map { String(format: "%064x", $0) }
+        for (index, token) in tokens.enumerated() {
+            try queue.save(GoogleDriveGalleryUploadService.preparePayload(photos: [image], composedReceipt: image,
+                sessionID: "PP-MIXED-\(index)", createdAt: Date(timeIntervalSince1970: Double(index)), galleryToken: token,
+                customerGalleryBaseURL: URL(string: "https://delivery-fixture.example.test")!))
+            if index < 7 { try queue.updateDeliveryState(index == 6 ? .deliveryUnknown : .posted, galleryToken: token) }
+        }
+        HotfixProtocol.failedToken = nil
+        HotfixProtocol.publicReady = Set(tokens.prefix(7))
+        HotfixProtocol.postTokens = []
+        HotfixProtocol.firstPublicCompletionPostCount = nil
+        HotfixProtocol.publicDelay = 0.4
+        defer { HotfixProtocol.publicDelay = 0 }
+        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [HotfixProtocol.self]
+        let service = GoogleDriveGalleryUploadService(transportPreference: .legacy,
+            configurationProvider: { try GoogleDriveGalleryConfiguration.validate(rawValue: "https://script.google.com/macros/s/TEST/exec") },
+            urlSession: URLSession(configuration: configuration), pendingStore: queue, scheduler: GalleryUploadScheduler())
+        _ = try await service.retryPendingQueue(deviceToken: String(repeating: "x", count: 32))
+        XCTAssertEqual(HotfixProtocol.firstPublicCompletionPostCount, 1,
+            "Already-accepted reads must not fill the bounded feeder ahead of every unsent gallery")
+        XCTAssertEqual(HotfixProtocol.postTokens, [tokens.last!], "Accepted and publicly complete galleries remain GET-only")
+        XCTAssertTrue(try queue.summaries().isEmpty)
     }
 
     func testSimultaneousTriggersAndCancelCannotReleaseAnotherUploadLock() async throws {
@@ -211,7 +240,7 @@ final class GalleryDeliveryHardeningTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [HotfixProtocol.self]
         func makeService() -> GoogleDriveGalleryUploadService {
-            GoogleDriveGalleryUploadService(
+            GoogleDriveGalleryUploadService(transportPreference: .legacy,
                 configurationProvider: { try GoogleDriveGalleryConfiguration.validate(rawValue: "https://script.google.com/macros/s/TEST/exec") },
                 urlSession: URLSession(configuration: configuration), pendingStore: queue)
         }
@@ -298,6 +327,7 @@ private final class HotfixProtocol: URLProtocol {
     nonisolated(unsafe) static var postTokens: [String] = []
     nonisolated(unsafe) static var activePosts = 0
     nonisolated(unsafe) static var maxActivePosts = 0
+    nonisolated(unsafe) static var firstPublicCompletionPostCount: Int?
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -332,6 +362,9 @@ private final class HotfixProtocol: URLProtocol {
         }
     }
     private func finish(body: String) {
+        if request.httpMethod == "GET", Self.firstPublicCompletionPostCount == nil {
+            Self.firstPublicCompletionPostCount = Self.postTokens.count
+        }
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(body.utf8))
         client?.urlProtocolDidFinishLoading(self)

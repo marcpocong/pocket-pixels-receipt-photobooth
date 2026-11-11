@@ -14,7 +14,15 @@ The Worker fetches the private Apps Script gallery renderer server-to-server:
 https://script.google.com/macros/s/<current-deployment-id>/exec?proxy=raw&g=<token>
 ```
 
-Uploads still go directly from the iPad to Apps Script. The Worker is not an upload endpoint.
+Gallery coordination goes from the iPad to Apps Script. When the backend advertises
+`drive-resumable-v1`, media can go directly to narrowly scoped Google Drive upload
+sessions. The existing JSON upload remains available. The Worker serves public
+gallery reads and is not an upload endpoint.
+
+Invocation logging redacts query strings because customer gallery tokens are
+capabilities. Keep `observability.redact_query_string = true` when deploying.
+See the [delivery reliability release record](../../docs/gallery-delivery-reliability-2026-11-11.md)
+for transport selection, validation limits and rollback.
 
 ## Required variable
 

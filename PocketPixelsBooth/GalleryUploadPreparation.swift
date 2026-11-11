@@ -164,6 +164,7 @@ nonisolated enum GalleryPerformance {
     enum Stage: String, Sendable {
         case imagePreparation, durablePersistence, diskLoad, metadataWrite, queueWaiting
         case base64Encoding, jsonEncoding, networkPOST, responseValidation, publicVerification, totalDelivery
+        case coordination, resumableReconciliation
     }
     private static let logger = Logger(subsystem: "com.pocketpixels.PocketPixelsBooth", category: "GalleryPerformance")
     static func record(_ stage: Stage, since start: TimeInterval, bytes: Int = 0, succeeded: Bool = true) {

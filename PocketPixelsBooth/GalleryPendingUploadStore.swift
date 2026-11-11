@@ -20,6 +20,8 @@ nonisolated struct GalleryPendingUploadSummary: Equatable, Sendable, Identifiabl
     var retryCategory: GalleryRetryCategory? = nil
     var nextAttemptAt: Date? = nil
     var needsAttention: Bool { retryCategory?.needsAttention == true }
+    var transferStage: String? = nil
+    var confirmedRemoteBytes: Int = 0
 }
 
 nonisolated struct GalleryPendingUploadStore: @unchecked Sendable {
@@ -161,6 +163,7 @@ nonisolated struct GalleryPendingUploadStore: @unchecked Sendable {
             guard fileManager.fileExists(atPath: metadataURL.path) else { return nil }
             let decodedMetadata = try JSONDecoder().decode(GalleryPendingUploadMetadata.self, from: Data(contentsOf: metadataURL))
             let metadata = try migrateDebugGalleryURLIfNeeded(decodedMetadata, metadataURL: metadataURL)
+            let transfer = try transferJournal(galleryToken: metadata.galleryToken)
             return GalleryPendingUploadSummary(
                 galleryToken: metadata.galleryToken,
                 galleryURL: metadata.galleryURL,
@@ -172,7 +175,8 @@ nonisolated struct GalleryPendingUploadStore: @unchecked Sendable {
                 retryAttemptCount: metadata.retryAttemptCount,
                 lastAttemptAt: metadata.lastAttemptAt,
                 lastSafeError: metadata.lastSafeError,
-                retryCategory: metadata.retryCategory, nextAttemptAt: metadata.nextAttemptAt
+                retryCategory: metadata.retryCategory, nextAttemptAt: metadata.nextAttemptAt,
+                transferStage: transfer?.stage, confirmedRemoteBytes: transfer?.assets.values.reduce(0) { $0 + $1.confirmedBytes } ?? 0
             )
         }
         .sorted { $0.createdAt < $1.createdAt }
@@ -221,6 +225,56 @@ nonisolated struct GalleryPendingUploadStore: @unchecked Sendable {
                 if !connectivityRestored { metadata.retryCategory = nil }
             }
         }
+    }
+
+    func transferJournal(galleryToken: String) throws -> GalleryTransferJournal? {
+        Self.lock.lock(); defer { Self.lock.unlock() }
+        guard GalleryTokenGenerator.isValidGalleryToken(galleryToken) else { throw GalleryUploadError.invalidGalleryToken }
+        let url = payloadDirectoryURL(for: galleryToken).appendingPathComponent(".transfer-v1.json")
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        let data = try Data(contentsOf: url)
+        guard data.count <= 65536 else { throw GalleryUploadError.configuration("Saved transfer needs inspection. Media is retained.") }
+        let journal = try JSONDecoder().decode(GalleryTransferJournal.self, from: data)
+        guard journal.version == 1, journal.assets.count <= 10 else { throw GalleryUploadError.configuration("Saved transfer version needs inspection. Media is retained.") }
+        _ = try GoogleDriveGalleryConfiguration.validate(rawValue: journal.endpoint.absoluteString)
+        return journal
+    }
+
+    func saveTransferJournal(_ journal: GalleryTransferJournal, galleryToken: String) throws {
+        Self.lock.lock(); defer { Self.lock.unlock() }
+        guard GalleryTokenGenerator.isValidGalleryToken(galleryToken), try delivery(galleryToken: galleryToken) != nil else {
+            throw GalleryUploadError.configuration("Pending media must exist before a transfer can start.")
+        }
+        let data = try JSONEncoder().encode(journal)
+        guard data.count <= 65536 else { throw GalleryUploadError.configuration("Transfer metadata exceeds its safety limit.") }
+        let url = payloadDirectoryURL(for: galleryToken).appendingPathComponent(".transfer-v1.json")
+        try DurableFileWriter.write(data, to: url)
+        try applyStorageAttributes(to: url)
+        NotificationCenter.default.post(name: .galleryTransferProgressChanged, object: nil)
+    }
+
+    func recordTransferAsset(_ asset: GalleryTransferJournal.Asset, galleryToken: String) throws {
+        Self.lock.lock(); defer { Self.lock.unlock() }
+        guard var journal = try transferJournal(galleryToken: galleryToken), let known = journal.assets[asset.filename],
+              known.sha256 == asset.sha256, known.bytes == asset.bytes,
+              (0...asset.bytes).contains(asset.confirmedBytes) else { throw GalleryUploadError.deliveryUnknown }
+        journal.assets[asset.filename] = asset
+        journal.stage = journal.assets.values.allSatisfy(\.stored) ? "Remotely stored" : "Transferring"
+        try saveTransferJournal(journal, galleryToken: galleryToken)
+        if asset.stored {
+            try? fileManager.removeItem(at: payloadDirectoryURL(for: galleryToken).appendingPathComponent(".upload-\(asset.filename).chunk"))
+        }
+    }
+
+    func writeTransferChunk(_ data: Data, galleryToken: String, assetFilename: String) throws -> URL {
+        Self.lock.lock(); defer { Self.lock.unlock() }
+        guard GalleryTokenGenerator.isValidGalleryToken(galleryToken), data.count <= 256 * 1024,
+              !assetFilename.contains("/"), !assetFilename.contains(".."),
+              try transferJournal(galleryToken: galleryToken)?.assets[assetFilename] != nil else { throw GalleryUploadError.deliveryUnknown }
+        let url = payloadDirectoryURL(for: galleryToken).appendingPathComponent(".upload-\(assetFilename).chunk")
+        try data.write(to: url, options: .atomic)
+        try applyStorageAttributes(to: url)
+        return url
     }
 
     /// Metadata-only recovery: accepted galleries never need to reopen photograph files.

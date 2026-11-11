@@ -94,10 +94,12 @@ final class EventOperationalState: ObservableObject {
 
     private let monitor = NWPathMonitor()
     private let monitorQueue = DispatchQueue(label: "com.pocketpixels.event-network-monitor")
+    private var galleryNetworkSignature: String?
     private let uploadService = GoogleDriveGalleryUploadService()
     private let credentialStore = DeviceCredentialStore()
     private let recoveryStore = try? AppRecoveryStore()
     private var galleryQueueSubscription: AnyCancellable?
+    private var galleryProgressSubscription: AnyCancellable?
     private var didStart = false
     private var printerStatusSubscription: AnyCancellable?
     private var selectedPrinterSubscription: AnyCancellable?
@@ -128,6 +130,9 @@ final class EventOperationalState: ObservableObject {
                 self?.refreshGalleryQueue()
                 GalleryUploadScheduler.shared.requestRecovery()
             }
+        galleryProgressSubscription = NotificationCenter.default.publisher(for: .galleryTransferProgressChanged)
+            .throttle(for: .seconds(1), scheduler: RunLoop.main, latest: true)
+            .sink { [weak self] _ in self?.refreshGalleryQueue() }
         // @Published emits before mutation; deliver on the next main run-loop turn so
         // readiness reads the updated connection and discovered write characteristic.
         printerStatusSubscription = PrinterBluetoothService.shared.$jobState
@@ -243,13 +248,23 @@ final class EventOperationalState: ObservableObject {
 #endif
         refresh()
         monitor.pathUpdateHandler = { [weak self] path in
+            // Local comparison only. Never publish/log interface or gateway addresses.
+            let interfaces = path.availableInterfaces.filter { path.usesInterfaceType($0.type) }
+                .map { "\($0.type):\($0.index):\($0.name)" }.sorted().joined(separator: ",")
+            let signature = "\(interfaces)|\(path.gateways)|\(path.isExpensive)|\(path.isConstrained)|\(path.supportsDNS)|\(path.supportsIPv4)|\(path.supportsIPv6)"
             Task { @MainActor [weak self] in
                 let restored = self?.networkPathStatus != "Online" && path.status == .satisfied
+                let changed = path.status == .satisfied && self?.galleryNetworkSignature != signature
+                self?.galleryNetworkSignature = signature
+                GalleryTransferTelemetry.shared.constrainedPath = path.isExpensive || path.isConstrained
                 self?.networkPathStatus = Self.networkStatusText(path.status)
-                if restored { try? GalleryPendingUploadStore().requestRetry(connectivityRestored: true) }
-                GalleryUploadScheduler.shared.connectionChanged(available: path.status == .satisfied)
+                if restored || changed {
+                    GalleryTransferTelemetry.shared.resetPathEstimate()
+                    try? GalleryPendingUploadStore().requestRetry(connectivityRestored: true)
+                }
+                GalleryUploadScheduler.shared.connectionChanged(available: path.status == .satisfied, signature: signature)
                 self?.refreshGalleryQueue()
-                if restored { GalleryUploadScheduler.shared.requestRecovery() }
+                if restored || changed { GalleryUploadScheduler.shared.requestRecovery() }
             }
         }
         monitor.start(queue: monitorQueue)
@@ -257,6 +272,7 @@ final class EventOperationalState: ObservableObject {
 
     func handleScenePhaseActive() {
         start()
+        try? GalleryPendingUploadStore().requestRetry(connectivityRestored: true)
         refresh()
         GalleryUploadScheduler.shared.requestRecovery()
     }

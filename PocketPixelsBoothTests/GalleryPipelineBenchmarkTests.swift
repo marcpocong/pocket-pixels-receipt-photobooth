@@ -6,6 +6,51 @@ import UniformTypeIdentifiers
 
 /// Local only: URLProtocol intercepts every request. Timed delays model an origin, not Drive SLA.
 @MainActor final class GalleryPipelineBenchmarkTests: XCTestCase {
+    /// Exercise the persisted production recovery entry point, not independent guest tasks.
+    func testDurableBacklogRecovery() async throws {
+        var rows: [[String: Any]] = []
+        let photo = Self.photo(seed: 1)
+        for guests in [20, 50, 100] {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let store = try GalleryPendingUploadStore(directoryURL: root)
+            let proof = try GalleryVerificationStore(directory: root.appendingPathComponent("proof"))
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [PipelineBenchmarkProtocol.self]
+            PipelineBenchmarkProtocol.reset()
+            var completed: [Double] = []
+            var started = ProcessInfo.processInfo.systemUptime
+            let service = GoogleDriveGalleryUploadService(transportPreference: .legacy,
+                configurationProvider: { GoogleDriveGalleryConfiguration(webAppURL: URL(string: "https://script.google.com/macros/s/SYNTHETIC/exec")!) },
+                urlSession: URLSession(configuration: configuration), pendingStore: store, verificationStore: proof,
+                scheduler: GalleryUploadScheduler(), onPublicGalleryVerified: { _ in
+                    completed.append((ProcessInfo.processInfo.systemUptime - started) * 1000)
+                })
+            for guest in 0..<guests {
+                let token = String(format: "%064x", guest + 1)
+                let payload = try GoogleDriveGalleryUploadService.preparePayload(photos: [photo], composedReceipt: photo,
+                    sessionID: "PP-20261111-120000", createdAt: Date(timeIntervalSince1970: Double(guest)), galleryToken: token,
+                    customerGalleryBaseURL: URL(string: "https://benchmark.example.test/")!,
+                    receiptVariants: GalleryReceiptVariants(originalFooterStyle: .decorativeBarcodeOnly, defaultStyle: .shareFriendly))
+                try store.save(payload)
+            }
+            started = ProcessInfo.processInfo.systemUptime
+            let results = try await service.retryPendingQueue(deviceToken: "synthetic-only-placeholder-token")
+            let elapsed = (ProcessInfo.processInfo.systemUptime - started) * 1000
+            XCTAssertEqual(results.count, guests)
+            XCTAssertEqual(PipelineBenchmarkProtocol.postCount, guests)
+            XCTAssertTrue(try store.summaries().isEmpty)
+            let row: [String: Any] = ["guests": guests, "firstReadyMs": completed.first ?? 0,
+                "totalMs": elapsed, "completionMs": Self.stats(completed), "requestBytes": PipelineBenchmarkProtocol.bytes]
+            rows.append(row)
+            print("GALLERY_DURABLE_BENCHMARK \(String(data: try JSONSerialization.data(withJSONObject: row, options: [.sortedKeys]), encoding: .utf8)!)")
+        }
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("DerivedData")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: ["environment": "durable retryPendingQueue; real disk and image preparation; URLProtocol POST 20ms / public verification 80ms; simulated network", "rows": rows], options: [.prettyPrinted, .sortedKeys])
+            .write(to: directory.appendingPathComponent("gallery-durable-benchmark-latest.json"), options: .atomic)
+    }
+
     func testSyntheticConsecutiveGuestMatrix() async throws {
         var rows: [[String: Any]] = []
         for count in [1, 3, 6] {
@@ -22,7 +67,7 @@ import UniformTypeIdentifiers
                 let configuration = URLSessionConfiguration.ephemeral
                 configuration.protocolClasses = [PipelineBenchmarkProtocol.self]
                 PipelineBenchmarkProtocol.reset()
-                let service = GoogleDriveGalleryUploadService(
+                let service = GoogleDriveGalleryUploadService(transportPreference: .legacy,
                     configurationProvider: { try GoogleDriveGalleryConfiguration.validate(rawValue: "https://script.google.com/macros/s/SYNTHETIC/exec") },
                     customerGalleryConfigurationProvider: { try CustomerGalleryConfiguration.validate(rawValue: "https://benchmark.example.test/") },
                     urlSession: URLSession(configuration: configuration), pendingStore: store, verificationStore: proof,

@@ -1,0 +1,53 @@
+{
+  "environment": "iPad simulator; actual durable retryPendingQueue and byte payloads; real loopback TCP with aggregate receive pacing; scoped-Google/public requests bridged to synthetic origin; not Google server timing or venue hardware",
+  "rows": [
+    {
+      "completionMs": {
+        "max": 1864.40870833394,
+        "p50": 994.4500416668234,
+        "p95": 1766.3326250003593
+      },
+      "constrainedPath": false,
+      "decodedMediaBytes": 88649600,
+      "effectiveBytesPerSecond": 26214400,
+      "firstReadyMs": 160.34058333389112,
+      "guests": 100,
+      "maxMainActorGapMs": 19.56016666645155,
+      "origin": {
+        "actualBodyBytesRead": 119271841,
+        "controlBodyBytesRead": 1442,
+        "duplicatePublications": 0,
+        "elapsedSeconds": 2.022242457999999,
+        "publications": 100
+      },
+      "peakResidentBytes": 348831744,
+      "profile": "adaptive-strong100",
+      "totalMs": 1868.6244166674442,
+      "transport": "automatic"
+    },
+    {
+      "completionMs": {
+        "max": 4788.350625000021,
+        "p50": 4602.804208333509,
+        "p95": 4769.548041666894
+      },
+      "constrainedPath": false,
+      "decodedMediaBytes": 17729920,
+      "effectiveBytesPerSecond": 19676177.68283353,
+      "firstReadyMs": 4431.503083333155,
+      "guests": 20,
+      "maxMainActorGapMs": 18.223791666059697,
+      "origin": {
+        "actualBodyBytesRead": 23608081,
+        "controlBodyBytesRead": 1442,
+        "duplicatePublications": 0,
+        "elapsedSeconds": 4.820292041,
+        "publications": 20
+      },
+      "peakResidentBytes": 345931776,
+      "profile": "adaptive-improved20",
+      "totalMs": 4791.927708333787,
+      "transport": "automatic"
+    }
+  ]
+}

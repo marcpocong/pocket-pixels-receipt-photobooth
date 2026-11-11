@@ -1,0 +1,38 @@
+{
+  "environment": "iPad simulator; actual durable queue; controlled POST20ms/public80ms; same media as baseline; not network bandwidth or live Google latency",
+  "rows": [
+    {
+      "completionMs": {
+        "max": 1491.243833333101,
+        "p50": 875.9565833333909,
+        "p95": 1437.3962083332117
+      },
+      "firstReadyMs": 267.8992083333469,
+      "guests": 20,
+      "requestBytes": 20155340,
+      "totalMs": 1510.5290416663593
+    },
+    {
+      "completionMs": {
+        "max": 2380.325291666395,
+        "p50": 1249.1587916665594,
+        "p95": 2290.272499999901
+      },
+      "firstReadyMs": 147.2544583330091,
+      "guests": 50,
+      "requestBytes": 50388350,
+      "totalMs": 2388.199749999785
+    },
+    {
+      "completionMs": {
+        "max": 5771.913750000294,
+        "p50": 3355.275249999977,
+        "p95": 5542.575583333473
+      },
+      "firstReadyMs": 232.9262916668995,
+      "guests": 100,
+      "requestBytes": 100776700,
+      "totalMs": 5779.602500000237
+    }
+  ]
+}

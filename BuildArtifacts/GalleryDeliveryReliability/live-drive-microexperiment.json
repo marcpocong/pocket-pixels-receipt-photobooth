@@ -1,0 +1,35 @@
+{
+  "environment": "Real Google Drive HTTPS; private synthetic 1MiB non-image binary files; not complete app/Apps Script/public gallery delivery",
+  "singleSample": {
+    "synthetic": true,
+    "initMs": 957.3218340000001,
+    "totalMs": 2845.3785000000003,
+    "decodedBytes": 1048576,
+    "base64Bytes": 1398104,
+    "storedBytesConfirmedBeforeResume": 262144,
+    "resumedBytes": 786432,
+    "verifiedSize": 1048576,
+    "checksumMatch": true,
+    "oauthRequiredForDataPUT": false
+  },
+  "pacedSamples": [
+    {
+      "pacedMbps": 0.25,
+      "elapsedSeconds": 34.547100500000006,
+      "actualMediaBytesSent": 1048576,
+      "storedBytes": 1048576,
+      "resumedOffset": 262144,
+      "unnecessaryRetransmittedBytes": 0,
+      "checksumMatch": true
+    },
+    {
+      "pacedMbps": 0.5,
+      "elapsedSeconds": 17.784844334,
+      "actualMediaBytesSent": 1048576,
+      "storedBytes": 1048576,
+      "resumedOffset": 262144,
+      "unnecessaryRetransmittedBytes": 0,
+      "checksumMatch": true
+    }
+  ]
+}

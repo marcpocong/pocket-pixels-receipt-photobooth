@@ -1,0 +1,14 @@
+{
+  "environment": "Read-only live existing gallery readiness before release; no URL/token/customer identity retained",
+  "rows": [
+    {
+      "route": "existing-gallery-worker",
+      "http": 200,
+      "ok": true,
+      "status": "complete",
+      "schemaVersion": 4,
+      "fileCount": 6,
+      "identityMatches": true
+    }
+  ]
+}

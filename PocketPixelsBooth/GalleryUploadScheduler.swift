@@ -9,6 +9,7 @@ import OSLog
 final class GalleryUploadScheduler: ObservableObject {
     static let shared = GalleryUploadScheduler()
     enum Priority { case guest, recovery }
+    enum Lane { case transmission, publicRead }
     enum Phase: String { case uploading, verifying }
     @Published private(set) var phase: Phase = .uploading
     @Published private(set) var activeToken: String?
@@ -17,6 +18,7 @@ final class GalleryUploadScheduler: ObservableObject {
     private struct Job {
         let token: String
         var priority: Priority
+        let lane: Lane
         let operation: @MainActor () async throws -> GalleryUploadResult
         var waiters: [CheckedContinuation<GalleryUploadResult, Error>]
         let enqueuedAt: TimeInterval
@@ -25,7 +27,7 @@ final class GalleryUploadScheduler: ObservableObject {
     private var activeWaiters: [String: [CheckedContinuation<GalleryUploadResult, Error>]] = [:]
     private var owners: [String: Task<Void, Never>] = [:]
     private var verifyingTokens: Set<String> = []
-    private var verificationCapacity: CheckedContinuation<Void, Never>?
+    private var verificationCapacity: (token: String, continuation: CheckedContinuation<Void, Never>)?
     // Bound public reads and retained payload memory. One additional POST can run concurrently.
     private let maximumVerifications = 2
     private var freshSlots = 0
@@ -34,8 +36,11 @@ final class GalleryUploadScheduler: ObservableObject {
     private var recoveryRequested = false
     private var recovery: (@MainActor () async -> Date?)?
     private var connectionAvailable = true
+    private var pathSignature: String?
+    private(set) var connectivityGeneration = 0
+    private var lastReachabilityWake = Date.distantPast
 
-    func perform(token: String, priority: Priority = .guest,
+    func perform(token: String, priority: Priority = .guest, lane: Lane = .transmission,
                  operation: @escaping @MainActor () async throws -> GalleryUploadResult) async throws -> GalleryUploadResult {
         try await withCheckedThrowingContinuation { continuation in
             if activeWaiters[token] != nil { activeWaiters[token]!.append(continuation); return }
@@ -43,7 +48,7 @@ final class GalleryUploadScheduler: ObservableObject {
                 jobs[index].waiters.append(continuation)
                 if priority == .guest { jobs[index].priority = .guest }
             } else {
-                jobs.append(Job(token: token, priority: priority, operation: operation, waiters: [continuation], enqueuedAt: ProcessInfo.processInfo.systemUptime))
+                jobs.append(Job(token: token, priority: priority, lane: lane, operation: operation, waiters: [continuation], enqueuedAt: ProcessInfo.processInfo.systemUptime))
             }
             startWorker()
         }
@@ -58,9 +63,10 @@ final class GalleryUploadScheduler: ObservableObject {
     /// Release only the transmission lane; the token lease and all joined callers remain owned.
     /// Call only when the operation will perform no further POST (accepted or read-only work).
     func beginVerification(token: String) async {
+        if verifyingTokens.contains(token) { return }
         guard activeToken == token else { return }
         if verifyingTokens.count >= maximumVerifications {
-            await withCheckedContinuation { verificationCapacity = $0 }
+            await withCheckedContinuation { verificationCapacity = (token, $0) }
         }
         verifyingTokens.insert(token)
         activeToken = nil
@@ -68,13 +74,26 @@ final class GalleryUploadScheduler: ObservableObject {
     }
 
     private func startWorker() {
+        // Public reconciliation does not wait behind a slow POST. Admission happens
+        // before starting its closure, so it cannot occupy the transmission lane.
+        while verifyingTokens.count < maximumVerifications,
+              let index = jobs.firstIndex(where: { $0.lane == .publicRead }) {
+            let job = jobs.remove(at: index)
+            verifyingTokens.insert(job.token)
+            launch(job)
+        }
         guard activeToken == nil, !jobs.isEmpty else { return }
-        let recoveryIndex = jobs.firstIndex { $0.priority == .recovery }
-        let freshIndex = jobs.firstIndex { $0.priority == .guest }
+        let recoveryIndex = jobs.firstIndex { $0.priority == .recovery && $0.lane == .transmission }
+        let freshIndex = jobs.firstIndex { $0.priority == .guest && $0.lane == .transmission }
+        guard recoveryIndex != nil || freshIndex != nil else { return }
         let index = freshSlots >= 2 ? (recoveryIndex ?? freshIndex!) : (freshIndex ?? recoveryIndex!)
         let job = jobs.remove(at: index)
         freshSlots = job.priority == .guest ? min(2, freshSlots + 1) : 0
         activeToken = job.token
+        launch(job)
+    }
+
+    private func launch(_ job: Job) {
         activeWaiters[job.token] = job.waiters
         GalleryPerformance.record(.queueWaiting, since: job.enqueuedAt)
         owners[job.token] = Task {
@@ -86,7 +105,10 @@ final class GalleryUploadScheduler: ObservableObject {
             if activeToken == job.token { activeToken = nil }
             if verifyingTokens.remove(job.token) != nil, let capacity = verificationCapacity {
                 verificationCapacity = nil
-                capacity.resume()
+                // Reserve before resuming: a queued public read cannot steal this
+                // slot and push the verifier count above its memory/network bound.
+                verifyingTokens.insert(capacity.token)
+                capacity.continuation.resume()
             }
             for waiter in waiters { waiter.resume(with: result) }
             // Sequential recovery can submit its next oldest durable item before fresh jobs drain.
@@ -103,11 +125,21 @@ final class GalleryUploadScheduler: ObservableObject {
         recovery = handler
     }
 
-    func connectionChanged(available: Bool) {
+    func connectionChanged(available: Bool, signature: String? = nil) {
         let restored = !connectionAvailable && available
+        let changed = available && signature != nil && signature != pathSignature
+        if restored || changed { connectivityGeneration += 1 }
+        pathSignature = signature
         connectionAvailable = available
         if !available { recoveryWake?.cancel(); recoveryWake = nil }
-        if restored { requestRecovery() }
+        if restored || changed { requestRecovery() }
+    }
+
+    func backendReachabilityConfirmed(at now: Date = Date()) -> Bool {
+        guard now.timeIntervalSince(lastReachabilityWake) >= 30 else { return false }
+        lastReachabilityWake = now
+        connectivityGeneration += 1
+        return true
     }
 
     /// A single cancellable deadline, not a polling loop. Signals coalesce while recovery runs.
@@ -134,6 +166,7 @@ final class GalleryUploadScheduler: ObservableObject {
 
 extension Notification.Name {
     nonisolated static let galleryQueueChanged = Notification.Name("pocketPixels.galleryQueueChanged")
+    nonisolated static let galleryTransferProgressChanged = Notification.Name("pocketPixels.galleryTransferProgressChanged")
 }
 
 nonisolated enum GalleryRetryCategory: String, Codable, Sendable {

@@ -36,6 +36,7 @@
 
 ## Receipt and gallery delivery
 
+- [11 November gallery delivery reliability, transport and rollout](gallery-delivery-reliability-2026-11-11.md)
 - [Monochrome receipt behavior](monochrome-receipt-release.md)
 - [Receipt/footer gallery styles](qr-gallery-receipt-styles-release.md)
 - [Gallery upload performance](gallery-upload-speed-release.md)

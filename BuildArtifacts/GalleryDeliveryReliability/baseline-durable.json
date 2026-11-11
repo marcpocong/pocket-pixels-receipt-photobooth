@@ -1,0 +1,38 @@
+{
+  "environment": "durable retryPendingQueue; real disk and image preparation; URLProtocol POST 20ms / public verification 80ms; simulated network",
+  "rows": [
+    {
+      "completionMs": {
+        "max": 2854.7692500001176,
+        "p50": 1382.3969583331746,
+        "p95": 2706.4642916666344
+      },
+      "firstReadyMs": 152.19054166664137,
+      "guests": 20,
+      "requestBytes": 20155340,
+      "totalMs": 2856.961333333402
+    },
+    {
+      "completionMs": {
+        "max": 7046.147375000146,
+        "p50": 3529.4754999999896,
+        "p95": 6754.50229166654
+      },
+      "firstReadyMs": 136.54141666665964,
+      "guests": 50,
+      "requestBytes": 50388350,
+      "totalMs": 7048.941833333174
+    },
+    {
+      "completionMs": {
+        "max": 13996.610666666584,
+        "p50": 7005.063375000191,
+        "p95": 13328.462458333433
+      },
+      "firstReadyMs": 153.41504166690356,
+      "guests": 100,
+      "requestBytes": 100776700,
+      "totalMs": 13998.359083333526
+    }
+  ]
+}

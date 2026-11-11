@@ -39,7 +39,7 @@ import UIKit
         let runs = EventRunStore(directory: root.appendingPathComponent("runs"), authorized: { true }, blockingReason: { nil })
         let run = try runs.startNewRun(context: .init(designID: nil, commercialEventID: nil, serverBinding: nil, name: "Synthetic Event"))
         try runs.beginSession(id: sessionID, runID: run.id, format: "solo")
-        let service = GoogleDriveGalleryUploadService(configurationProvider: { try GoogleDriveGalleryConfiguration.validate(rawValue: "https://script.google.com/macros/s/TEST/exec") },
+        let service = GoogleDriveGalleryUploadService(transportPreference: .legacy, configurationProvider: { try GoogleDriveGalleryConfiguration.validate(rawValue: "https://script.google.com/macros/s/TEST/exec") },
             urlSession: network(), pendingStore: queue, verificationStore: evidence,
             onPublicGalleryVerified: { id in runs.updateSession(id: id) { $0.galleryVerifiedAt = Date() } })
         _ = try await service.uploadPendingGallery(galleryToken: token, deviceToken: String(repeating: "x", count: 32))
@@ -106,7 +106,7 @@ import UIKit
         let bad = try GalleryVerificationStore(directory: root.appendingPathComponent("evidence"), writer: { _, _ in throw CocoaError(.fileWriteOutOfSpace) })
         var callbacks = 0
         func service(_ evidence: GalleryVerificationStore) -> GoogleDriveGalleryUploadService {
-            GoogleDriveGalleryUploadService(configurationProvider: { try GoogleDriveGalleryConfiguration.validate(rawValue: "https://script.google.com/macros/s/TEST/exec") },
+            GoogleDriveGalleryUploadService(transportPreference: .legacy, configurationProvider: { try GoogleDriveGalleryConfiguration.validate(rawValue: "https://script.google.com/macros/s/TEST/exec") },
                 urlSession: network(), pendingStore: queue, verificationStore: evidence, onPublicGalleryVerified: { _ in callbacks += 1 })
         }
         do { _ = try await service(bad).uploadPendingGallery(galleryToken: token, deviceToken: String(repeating: "x", count: 32)); XCTFail() } catch { }
@@ -127,7 +127,7 @@ import UIKit
         let queue = try GalleryPendingUploadStore(directoryURL: root.appendingPathComponent("queue")); try queue.save(payload())
         try queue.updateDeliveryState(.deliveryUnknown, galleryToken: token)
         let bad = try GalleryVerificationStore(directory: root.appendingPathComponent("evidence"), writer: { _, _ in throw CocoaError(.fileWriteOutOfSpace) })
-        let service = GoogleDriveGalleryUploadService(urlSession: network(), pendingStore: queue, verificationStore: bad)
+        let service = GoogleDriveGalleryUploadService(transportPreference: .legacy, urlSession: network(), pendingStore: queue, verificationStore: bad)
         do { _ = try await service.uploadPendingGallery(galleryToken: token, deviceToken: String(repeating: "x", count: 32)); XCTFail() } catch { }
         XCTAssertEqual(try queue.load(galleryToken: token)?.deliveryState, .posted)
         V41GalleryProtocol.mode = .offline

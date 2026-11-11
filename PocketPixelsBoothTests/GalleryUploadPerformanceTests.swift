@@ -21,7 +21,7 @@ final class GalleryUploadPerformanceTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ReadinessProtocol.self]
         func reopened() throws -> GoogleDriveGalleryUploadService {
-            GoogleDriveGalleryUploadService(
+            GoogleDriveGalleryUploadService(transportPreference: .legacy,
                 configurationProvider: { try GoogleDriveGalleryConfiguration.validate(rawValue: "https://script.google.com/macros/s/TEST/exec") },
                 urlSession: URLSession(configuration: configuration), pendingStore: try GalleryPendingUploadStore(directoryURL: root),
                 verificationStore: try GalleryVerificationStore(directory: root.appendingPathComponent("proof")),
@@ -68,7 +68,7 @@ final class GalleryUploadPerformanceTests: XCTestCase {
         try store.save(payload); try store.updateDeliveryState(.deliveryUnknown, galleryToken: token)
         ReadinessProtocol.scenario = "valid"; ReadinessProtocol.requests = []
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [ReadinessProtocol.self]
-        let service = GoogleDriveGalleryUploadService(urlSession: URLSession(configuration: config), pendingStore: store,
+        let service = GoogleDriveGalleryUploadService(transportPreference: .legacy, urlSession: URLSession(configuration: config), pendingStore: store,
             verificationStore: try GalleryVerificationStore(directory: root.appendingPathComponent("proof")),
             scheduler: GalleryUploadScheduler(), onPublicGalleryVerified: { _ in })
         do { _ = try await service.uploadPendingGallery(galleryToken: token, deviceToken: "synthetic-only-placeholder-token"); XCTFail("Failed local clear must be surfaced") } catch { }
@@ -96,7 +96,7 @@ final class GalleryUploadPerformanceTests: XCTestCase {
             let configuration = URLSessionConfiguration.ephemeral
             configuration.protocolClasses = [ReadinessProtocol.self]
             var verified = 0
-            let service = GoogleDriveGalleryUploadService(
+            let service = GoogleDriveGalleryUploadService(transportPreference: .legacy,
                 configurationProvider: { try GoogleDriveGalleryConfiguration.validate(rawValue: "https://script.google.com/macros/s/TEST/exec") },
                 urlSession: URLSession(configuration: configuration), pendingStore: store, onPublicGalleryVerified: { _ in verified += 1 })
             let shouldPass = ["valid", "legacyHTML"].contains(scenario)

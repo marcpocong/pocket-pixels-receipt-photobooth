@@ -10,7 +10,7 @@ APPS_SCRIPT_GALLERY_ORIGIN = "https://script.google.com/macros/s/AKfycbxFc4wpaRi
 [observability]
 enabled = true
 head_sampling_rate = 1
-redact_query_string = false
+redact_query_string = true
 
 [observability.logs]
 enabled = true

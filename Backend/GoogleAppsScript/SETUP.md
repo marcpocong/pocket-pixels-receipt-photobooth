@@ -4,13 +4,49 @@ This backend receives gallery uploads from the iPad, stores them in one dedicate
 
 For production updates, use the existing project and deployment described in [the release record](../../docs/gallery-redesign-deployment.md). The steps below also describe initial setup; do not create a replacement project to update production.
 
+## Resumable transport update (11 November 2026)
+
+The candidate backend is `made-to-keep-gallery-v10-resumable-20261111`. Install
+**both** `Code.gs` and `ResumableUploads.gs`; preserve the existing manifest,
+properties, root folder, device token, deployment ID and access configuration.
+The version-30 production deployment remains the rollback target. Source in the
+editor (HEAD) is separate from the active versioned deployment.
+
+Before activating this backend, the existing owner must run
+`enableResumableUploadsForOwner` in the editor and complete Google's authorization
+if requested. This exercises `UrlFetchApp` and the Drive REST API before setting
+`MTK_RESUMABLE_UPLOADS_ENABLED=true`. Do not advertise support or update the active
+deployment until this succeeds. No Advanced Drive service or new OAuth client is
+needed; broad Google access remains exclusively on the server.
+
+Use an isolated synthetic gallery to verify initialization, a lost chunk response,
+server-offset recovery, finalization, the existing Worker readiness endpoint and
+the complete public page. Check existing galleries before and after release.
+Then update the **existing** Web App deployment to a validated version and verify
+`?diagnostic=phase6c`: the new version and `drive-resumable-v1` must both appear.
+Never replace the production deployment URL to release this change.
+
+The backend reserves stable Drive file IDs in private journals under
+`.gallery-upload-journals`, outside customer gallery folders. The iPad receives
+per-file resumable session capabilities, never a broad Google OAuth token.
+Manifests are published only after exact filename, parent, size, type and SHA-256
+checks. Existing schemas 1–4 and historical GIFs remain supported. Current schema
+4 stores the color receipt and derives the monochrome presentation as before.
+
+Do not delete incomplete galleries, private journals, active-transfer properties
+or local media during a rollout/rollback. Disabling the capability stops fresh
+resumable choices; clients with a saved transfer journal retain their protocol and
+media. Finish those transfers with the compatible backend before retiring it.
+Version 30 continues to read published galleries, but cannot finish a new binary
+transfer. See [validation and exact rollback procedure](../../docs/gallery-delivery-reliability-2026-11-11.md).
+
 ## Setup Steps
 
 1. In Google Drive, create a dedicated folder named something like `Pocket Pixels Galleries`.
 2. Open that folder and copy its folder ID from the URL. It is the long value after `/folders/`.
 3. Go to `https://script.google.com`.
 4. Create a new standalone Apps Script project.
-5. Replace the default `Code.gs` contents with `Backend/GoogleAppsScript/Code.gs`.
+5. Replace the default `Code.gs` contents with `Backend/GoogleAppsScript/Code.gs` and add `Backend/GoogleAppsScript/ResumableUploads.gs`.
 6. Do not add an `Index.html` file. The customer gallery page is inline inside `Code.gs`.
 7. Create a long random device token, at least 32 characters. Keep it private.
 8. In Apps Script, open Project Settings, then Script Properties.
@@ -33,11 +69,11 @@ For production updates, use the existing project and deployment described in [th
 25. Upload one test gallery.
 26. Confirm exactly one folder appears inside the dedicated Pocket Pixels root folder.
 27. Confirm that folder is named `gallery-{galleryToken}` and contains the sequenced photos, `receipt-color.jpg`, `receipt-bw.png`, optional `session.gif`, and `manifest.json`.
-28. Confirm `manifest.json` is schema v2 and lists the exact stored photo/receipt assets. New still-photo uploads omit the GIF; historical payloads may include `gif: "session.gif"`.
+28. Confirm `manifest.json` lists the exact stored assets and matches the uploaded schema. Current schema 4 omits the redundant thermal upload; older schemas retain their expected assets. New still-photo uploads omit the GIF; historical payloads may include `gif: "session.gif"`.
 29. Open the same Worker gallery link in Safari and confirm all gallery images appear.
 30. Tap `Retry Same Upload` in Cloud Test and confirm it returns an existing completed gallery without creating a second folder or changing the customer gallery URL.
 31. To update this Phase 6C backend, use `Deploy -> Manage deployments -> Edit -> New version -> Deploy`. Preserve the existing Web App deployment so the backend `/exec` URL does not change. Do not create a new deployment.
-32. Open `?diagnostic=phase6c` on the deployed `/exec` URL and confirm `backendVersion` is `made-to-keep-gallery-v6-monochrome-20261018`.
+32. Open `?diagnostic=phase6c` on the deployed `/exec` URL and confirm `backendVersion` is the version being released. The resumable candidate is `made-to-keep-gallery-v10-resumable-20261111`; the release record identifies what is actually active.
 33. Open a completed Worker gallery URL in iPhone Safari, iPhone Chrome, iPad Safari, iPad Chrome, desktop Safari, desktop Chrome signed out, desktop Chrome Incognito, Brave, and normal desktop Chrome with multiple Google accounts signed in.
 34. Confirm the browser address bar remains on the Worker/custom gallery domain and never navigates to `script.google.com/macros/u/<number>/`.
 
@@ -77,7 +113,7 @@ For production updates, use the existing project and deployment described in [th
 - If saving fails midway, the incomplete folder is preserved for manual inspection.
 - Repeating the same `galleryToken` and `sessionID` is idempotent.
 - Previously completed galleries are not modified.
-- The iPad does not automatically retry ambiguous uploads.
+- The iPad first reconciles ambiguous deliveries through the saved public URL. Confirmed accepted galleries use GET-only recovery; incomplete resumable assets query Google's confirmed offset before sending remaining bytes. Local files remain until public verification and durable local proof succeed.
 
 ## Important Limitations
 
