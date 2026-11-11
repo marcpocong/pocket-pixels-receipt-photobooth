@@ -1,0 +1,13 @@
+{
+  "sourceCommit": "4dd9c642f7711550f53021401fa1c29956bf8dc4",
+  "appsScriptVersion": 38,
+  "backendVersion": "made-to-keep-gallery-v11-progressive-20261111",
+  "workerVersion": "6d0f62f1-19ee-4468-be76-f460b713a2df",
+  "workerTrafficPercent": 100,
+  "originalAppManifestPreserved": true,
+  "originalWorkerSettingsPreserved": true,
+  "workerReleaseAnnotationUpdated": true,
+  "rollbackAppsScriptVersion": 31,
+  "rollbackWorkerVersion": "ef02c41b-ca24-47aa-bf9b-8630929da2c2",
+  "newRecurringCosts": 0
+}

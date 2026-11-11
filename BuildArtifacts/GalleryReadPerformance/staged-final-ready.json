@@ -1,0 +1,21 @@
+[
+  {
+    "check": "diagnostic",
+    "ok": true,
+    "status": "diagnostic",
+    "schemaVersion": 2,
+    "backendVersion": "made-to-keep-gallery-v11-progressive-20261111"
+  },
+  {
+    "check": "readiness",
+    "ok": true,
+    "status": "complete",
+    "schemaVersion": 4,
+    "fileCount": 6
+  },
+  {
+    "check": "pending",
+    "ok": false,
+    "status": "pending"
+  }
+]

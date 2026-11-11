@@ -1,0 +1,54 @@
+{
+  "allPhotosMs" : 16787,
+  "conversions" : 1,
+  "downloadAllActionsMs" : 16787,
+  "first-contentful-paint" : 5241,
+  "firstPhotoActionsMs" : 9340,
+  "firstPhotoMs" : 9340,
+  "galleryActionsMs" : 5620,
+  "heapBytes" : null,
+  "lcpMs" : 9356,
+  "maxHeartbeatGapMs" : 57,
+  "navigation" : [
+    {
+      "decodedBytes" : 2791742,
+      "domContentLoadedMs" : 18746,
+      "encodedBytes" : 1762980,
+      "loadMs" : 18779,
+      "serverTiming" : [
+        {
+          "duration" : 22,
+          "name" : "cacheLookupMs"
+        },
+        {
+          "duration" : 4025,
+          "name" : "upstreamMs"
+        },
+        {
+          "duration" : 866,
+          "name" : "bodyReadMs"
+        },
+        {
+          "duration" : 4923,
+          "name" : "totalMs"
+        },
+        {
+          "duration" : 0,
+          "name" : "cfExtPri"
+        }
+      ],
+      "ttfbMs" : 5214
+    }
+  ],
+  "receiptsMs" : 18804,
+  "supportedEntries" : [
+    "event",
+    "first-input",
+    "largest-contentful-paint",
+    "mark",
+    "measure",
+    "navigation",
+    "paint",
+    "resource"
+  ]
+}

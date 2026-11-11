@@ -1,0 +1,43 @@
+[
+  {
+    "check": "diagnostic",
+    "httpStatus": 200,
+    "cache": null,
+    "cacheControl": "no-store, max-age=0",
+    "robots": "noindex, nofollow",
+    "referrer": "no-referrer",
+    "nosniff": "nosniff",
+    "backendVersion": "made-to-keep-gallery-v11-progressive-20261111",
+    "proxyVersion": "gallery-worker-progressive-20261111"
+  },
+  {
+    "check": "invalid",
+    "httpStatus": 404,
+    "cache": null,
+    "cacheControl": "no-store, max-age=0",
+    "robots": "noindex, nofollow",
+    "referrer": "no-referrer",
+    "nosniff": "nosniff"
+  },
+  {
+    "check": "pending",
+    "httpStatus": 200,
+    "cache": "BYPASS",
+    "cacheControl": "no-store, max-age=0",
+    "robots": "noindex, nofollow",
+    "referrer": "no-referrer",
+    "nosniff": "nosniff"
+  },
+  {
+    "check": "readiness",
+    "httpStatus": 200,
+    "cache": null,
+    "cacheControl": "no-store, max-age=0",
+    "robots": "noindex, nofollow",
+    "referrer": "no-referrer",
+    "nosniff": "nosniff",
+    "status": "complete",
+    "schemaVersion": 4,
+    "fileCount": 6
+  }
+]

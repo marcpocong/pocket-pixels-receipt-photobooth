@@ -176,3 +176,76 @@ was added. Request coalescing is best effort within an isolate and normal cache 
 always retain authoritative origin validation/fallback.
 
 Evidence: [sanitized measurements and selected synthetic screenshot](../BuildArtifacts/GalleryReadPerformance/README.md).
+
+## Production activation and post-release evidence
+
+Released backend/Worker source:
+[`4dd9c642f7711550f53021401fa1c29956bf8dc4`](https://github.com/marcpocong/pocket-pixels-receipt-photobooth/commit/4dd9c642f7711550f53021401fa1c29956bf8dc4).
+Apps Script **38** is active on the original deployment, with backend
+`made-to-keep-gallery-v11-progressive-20261111`. The versioned source was compared
+byte-for-byte with that commit, including the unchanged production manifest and
+resumable source. Worker **`6d0f62f1-19ee-4468-be76-f460b713a2df`** is active at 100%.
+The original Worker settings matched exactly after allowing only the new release
+message annotation. Origin, bindings, routes, compatibility date, workers.dev,
+preview settings and query-string redaction are preserved.
+
+Live post-release browser observations on the same existing three-photo gallery:
+
+| Metric | First miss | Subsequent warm visit |
+|---|---:|---:|
+| TTFB | 5.214 s | 0.218 s |
+| FCP | 5.241 s | 0.385 s |
+| First visible photograph / photo actions | 9.340 s | 0.712 s |
+| All photo previews / Download All | 16.787 s | 1.053 s |
+| LCP | 9.356 s | 0.728 s |
+| Complete page | 18.779 s | 1.044 s |
+| Receipts ready | 18.804 s | 1.060 s |
+| Worker response processing | 4.923 s | 0.021 s |
+
+The first response's Server-Timing contains upstream work (4.025 s plus 0.866 s
+body read), confirming an actual miss. The warm response has cache lookup only.
+Its browser-compressed body was about 1.761 MB; curl negotiated a different gzip
+representation around 2.062 MB. A separate served-page comparison confirmed all
+five original photo/receipt payloads exactly match before release. Production origin
+instrumentation recorded **3.207 s** render, **1.230 s** parallel media reads and
+approximately **0.303 s** encoding. No image quality was traded for speed.
+
+Compare live cold TTFB **9.742 → 5.214 s** and warm browser first photo **1.157 →
+0.712 s**, with the limitations of unpaired, naturally varying live samples. There
+is **no matched pre-release cold browser-paint sample**. Live cold total completion
+was **14.607 s before (curl) versus 18.779 s after (WebKit)** on different clients
+and transfers; it did not
+improve in these observations. Do not label that transfer variation a controlled
+regression or claim a total-load win. Controlled paced browser results isolate the
+much earlier photograph/control availability while total bytes remain similar.
+
+Persistent-connection warm curl samples after release were **0.142 / 0.863 s** and
+**0.244 / 1.303 s** (TTFB / complete), with SIN HITs and 7/6 ms cache lookups.
+The pre-release comparable observations were 0.119 / 0.302 and 0.123 / 0.273 s.
+These show variable transfer/network conditions, not an improved warm server path.
+The first fresh post-release connection alone spent 1.099 s in TCP connection setup.
+
+Production diagnostics, completed readiness, invalid-link 404, and a missing valid
+capability's pending page passed. Pending remained BYPASS/no-store; readiness and
+errors remained no-store. noindex/nofollow, no-referrer and nosniff were verified.
+Several public Google/Worker requests timed out during diagnosis; failed transports
+were recorded as failures, never fast-gallery results. Focused retries completed
+successfully without changing production data or availability rules.
+
+The existing pre-release completed schema-4 gallery passed live; local schema 1–4,
+historical raster, receipt-style and GIF-manifest checks passed. Two previously saved
+legacy test capabilities returned pending in staging; they do not prove historical
+completed-gallery rendering. Broader old Drive-manifest enumeration was unavailable
+through the CLI credential's Drive access. No permissions were widened to obtain it.
+Physical iPhone/Android and older real-gallery qualification remain limitations.
+
+Temporary staging deployments were retired after production checks. Their versioned
+sources remain available; production 38 and rollback 31 remain intact. No temporary
+owner diagnostic is in HEAD or production. The Swift diagnostic accepts version strings generically and the uploader selects
+resumable transport by the unchanged advertised protocol, so no native interface
+change was required. No native app was redeployed.
+
+GitHub's latest pre-change backend annotation explicitly stated: **“The job was not
+started because your account is locked due to a billing issue.”** Final hosted status
+is reported with the final push; no failed job is manually retriggered. Executed local
+gates and sanitized production/browser evidence are the verification record.

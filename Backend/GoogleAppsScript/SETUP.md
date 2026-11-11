@@ -24,8 +24,9 @@ Version 31 is the compatible resumable rollback for this read-only release.
 The resumable backend release is `made-to-keep-gallery-v10-resumable-20261111`. Install
 all production `.gs` files listed above; preserve the existing manifest,
 properties, root folder, device token, deployment ID and access configuration.
-The saved version 30 remains the rollback target; the release ledger records the
-active version. Source in the
+Version 31 retains resumable support and is the rollback target for the gallery
+read release. Version 30 is the historical pre-resumable version; the release ledger
+records the active version. Source in the
 editor (HEAD) is separate from the active versioned deployment.
 
 Before activating this backend, the existing owner must run

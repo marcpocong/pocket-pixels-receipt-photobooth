@@ -1,0 +1,46 @@
+{
+  "allPhotosMs" : 1053,
+  "conversions" : 1,
+  "downloadAllActionsMs" : 1053,
+  "first-contentful-paint" : 385,
+  "firstPhotoActionsMs" : 712,
+  "firstPhotoMs" : 712,
+  "galleryActionsMs" : 385,
+  "heapBytes" : null,
+  "lcpMs" : 728,
+  "maxHeartbeatGapMs" : 59,
+  "navigation" : [
+    {
+      "decodedBytes" : 2791742,
+      "domContentLoadedMs" : 1021,
+      "encodedBytes" : 1760641,
+      "loadMs" : 1044,
+      "serverTiming" : [
+        {
+          "duration" : 21,
+          "name" : "cacheLookupMs"
+        },
+        {
+          "duration" : 21,
+          "name" : "totalMs"
+        },
+        {
+          "duration" : 0,
+          "name" : "cfExtPri"
+        }
+      ],
+      "ttfbMs" : 218
+    }
+  ],
+  "receiptsMs" : 1060,
+  "supportedEntries" : [
+    "event",
+    "first-input",
+    "largest-contentful-paint",
+    "mark",
+    "measure",
+    "navigation",
+    "paint",
+    "resource"
+  ]
+}

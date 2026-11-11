@@ -1,0 +1,13 @@
+{
+  "retiredStagingVersions": [
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38
+  ],
+  "productionVersion": 38,
+  "temporaryDiagnosticRemoved": true
+}
