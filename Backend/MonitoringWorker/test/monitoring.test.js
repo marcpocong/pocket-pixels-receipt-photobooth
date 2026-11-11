@@ -234,7 +234,7 @@ test('idle offline backlog is quiet; active delayed delivery warns and recovers'
 }));
 
 test('bounded telemetry rejects invalid counts, dates, unknown fields and guest details',()=>withMonitor(async h=>{
-    for(const changes of [{pending:-1},{pending:1e8},{uploading:1,verifying:1},{attention:4},{token:'secret'},{oldestAt:'not-a-date'}]) {
+    for(const changes of [{pending:-1},{pending:1e8},{uploading:2},{verifying:3},{attention:4},{token:'secret'},{oldestAt:'not-a-date'}]) {
         assert.equal((await h.request('/v1/heartbeat',{...clean,uploads:{...queue,...changes}})).status,422);
     }
     for(const changes of [{eventName:'Private customer'},{eventState:'invented'},{reportedAt:'bad'}]) {
@@ -267,12 +267,12 @@ test('Telegram retry guidance delays command and incident sends without losing e
     }
 }));
 
-test('fresh receipt of an old device sample is explicitly stale',()=>withMonitor(async h=>{
-    await h.request('/v1/heartbeat',{...clean,reportedAt:new Date(Date.now()-3600000).toISOString(),uploads:queue});
+test('stale samples do not enroll a device or invent fresh queue evidence',()=>withMonitor(async h=>{
+    const r=await h.request('/v1/heartbeat',{...clean,reportedAt:new Date(Date.now()-3600000).toISOString(),uploads:queue});
+    assert.deepEqual(await r.json(),{accepted:false,reason:'stale_sample'});
+    assert.equal((await h.db.prepare('SELECT COUNT(*) c FROM devices').first()).c,0);
     await h.telegram(update(601,'/uploads'));await h.tick();
-    const reply=h.messages.find(m=>m.text.includes('Last reported unverified queue:'));
-    assert.ok(reply.text.includes('STALE / unavailable'));
-    assert.ok(reply.text.includes('Device sample time:'));
+    assert.ok(h.messages.some(m=>m.text.includes('not reported')));
 }));
 
 
@@ -300,8 +300,8 @@ const printerState=(changes,other={})=>({printerObservation:{...readyPrinter,...
 test('V3 public release identity is explicit and non-sensitive',()=>withMonitor(async h=>{
     const health=await (await h.request('/health')).json();
     assert.equal(health.version,3);assert.equal(health.telemetryVersion,3);
-    assert.equal(health.release,'monitoring-v3-2026-10-30');
-    assert.deepEqual(Object.keys(health).sort(),['release','service','telemetryVersion','version']);
+    assert.equal(health.release,'monitoring-v3-2026-11-12');
+    assert.deepEqual(Object.keys(health).sort(),['galleryActivityVersion','release','service','telemetryVersion','version']);
 }));
 
 test('idle disconnect and diagnostic remain observed without urgent notifications',()=>withMonitor(async h=>{
@@ -728,4 +728,30 @@ test('legacy V2 idle context is quiet while context-free V1 printer warnings rem
     await h.db.prepare('UPDATE devices SET last_seen=0').run();
     await h.request('/v1/heartbeat',legacyDown);await h.tick();
     assert.equal(h.messages.length,1,'unknown legacy context must not silently hide potential unavailability');
+}));
+
+
+test('concurrent gallery activity is bounded and commands preserve actual last-known counts',()=>withMonitor(async h=>{
+    const health=await (await h.request('/health')).json();
+    assert.equal(health.galleryActivityVersion,2);
+    await sample(h,{uploads:{...queue,uploading:1,verifying:2}});
+    await h.telegram(update(901,'/uploads'));await h.tick();
+    assert.ok(h.messages.some(m=>m.text.includes('Uploading: 1 · Verifying: 2')));
+    const state=(await (await h.request('/v1/overview',null,owner)).json()).state;
+    assert.equal(state.uploads.pending,3,'Accepted transfers remain unverified');
+    assert.equal(state.uploads.verifying,2);
+}));
+
+test('duplicate and stale observations preserve accepted server evidence and cooldown is explicit',()=>withMonitor(async h=>{
+    await sample(h);
+    const before=await h.db.prepare('SELECT * FROM devices').first();
+    const cooldown=await h.request('/v1/heartbeat',v3());
+    assert.equal(cooldown.status,429);
+    assert.ok(Number(cooldown.headers.get('retry-after'))>0);
+    await h.db.prepare('UPDATE devices SET last_seen=0').run();
+    const duplicate=await h.request('/v1/heartbeat',JSON.parse(before.state_json));
+    assert.deepEqual(await duplicate.json(),{accepted:false,reason:'duplicate_sample'});
+    const stale=await h.request('/v1/heartbeat',v3({reportedAt:new Date(Date.now()-3600000).toISOString()}));
+    assert.equal((await stale.json()).accepted,false);
+    assert.equal((await h.db.prepare('SELECT state_json FROM devices').first()).state_json,before.state_json);
 }));

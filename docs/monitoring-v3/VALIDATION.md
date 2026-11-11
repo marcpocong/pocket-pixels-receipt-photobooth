@@ -177,3 +177,27 @@ increase, blind retry or disabled assertion. The existing iOS 26.5 simulator pas
 focused cases: historical archive/restore/removal, successful removal across relaunch, and
 storage-failure preservation (results/ci168-fix-focused.json). Build-for-testing passed and
 the production debug dylib hash remains unchanged. The final complete native suite passed **28/28**, zero failures/skips on iOS 26.5 (results/native-final26.json), before the next minimal test-only corrective commit. Both earlier hosted attempts passed backend and complete production jobs; their separate UI failures are retained in results/ci167-jobs.json and results/ci168-jobs.json. The next normal gate validates the final test-only correction.
+
+## Production completion local gate — 12 November 2026
+
+Fetched clean main `e6709de885b6cae56ebef16bda5f03c3e6e3a3dc`.
+Xcode 27.1 (27A9275), existing iOS 26.5 iPad simulator
+`643C1CF2-771A-4553-B562-869E09E571B1`.
+
+- Simulator build-for-testing passed after the telemetry changes and after adding tests.
+- Focused BoothMonitoringTelemetryTests + GallerySchedulerV2Tests: **25 passed, 0 failed,
+  0 skipped**. Actual scheduler overlap (one POST plus two public readers), accepted POST
+  waiting for capacity, operation completion, privacy and old Worker negotiation covered.
+  Explicit accepted/rejected/duplicate/stale/malformed/cooldown HTTP replies covered.
+- Complete relevant Monitoring Worker suite: **59 passed, 0 failed, 0 skipped**, including
+  real local D1 migrations/persistence, frozen V2 rollback, privacy, printer/camera/guest
+  policies, correlation, missing contact, replay, retry ordering and resource-budget checks.
+- Node syntax check and Wrangler dry-run packaging passed. No dependencies added.
+- The initial 59-case run passed 58: the release-identity assertion still expected October.
+  Updated that assertion and its public-field allowlist to the actual November release;
+  the final 59-case run above passed. No safety assertions were weakened.
+
+Private raw logs, result bundle, database export and app-data snapshots reside outside
+Git under `/Users/marc/.codex/private/monitoring-v3-20261112/`.
+Production observations and remaining acceptance belong in ROLLOUT.md; these local
+results alone do not prove Telegram receipt, device acceptance or physical paper output.

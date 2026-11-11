@@ -17,7 +17,7 @@ import UIKit
         }
         try store.updateDeliveryState(.posted, galleryToken: tokens[0])
         try store.recordFailure(galleryToken: tokens[1], error: GalleryUploadError.unauthorized)
-        let metric = GalleryQueueTelemetry(summaries: try store.summaries(), activeToken: tokens[0], verifying: true, lastActivityAt: Date())
+        let metric = GalleryQueueTelemetry(summaries: try store.summaries(), transmittingCount: 0, verifyingCount: 1, lastActivityAt: Date())
         XCTAssertEqual(metric.pending, 3, "Accepted POST is still pending public verification")
         XCTAssertEqual(metric.uploading, 0); XCTAssertEqual(metric.verifying, 1); XCTAssertEqual(metric.attention, 1)
         let text = String(decoding: try JSONEncoder().encode(metric), as: UTF8.self)
@@ -29,7 +29,7 @@ import UIKit
     func testLegacySchemaCanBeUsedAgainstPreviousMonitoringWorker() throws {
         var value = BoothTelemetry(mode: "event", network: "offline", payment: "ready", printer: "uncertain", storage: "ready", incidents: ["uncertain_print"], eventReference: "evt-synthetic")
         value.reportedAt = ISO8601DateFormatter().string(from: Date()); value.eventState = "active"
-        value.uploads = GalleryQueueTelemetry(summaries: [], activeToken: nil, verifying: false, lastActivityAt: nil)
+        value.uploads = GalleryQueueTelemetry(summaries: [], transmittingCount: 0, verifyingCount: 0, lastActivityAt: nil)
         let legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(value.legacy())) as? [String: Any])
         XCTAssertEqual(Set(legacy.keys), Set(["mode", "network", "payment", "printer", "storage", "incidents", "eventReference"]))
         XCTAssertEqual(legacy["printer"] as? String, "uncertain")
@@ -37,10 +37,43 @@ import UIKit
     }
 
     func testNoQueueActivityRemainsUnknownInsteadOfInventingATime() {
-        let metric = GalleryQueueTelemetry(summaries: [], activeToken: nil, verifying: false, lastActivityAt: nil)
+        let metric = GalleryQueueTelemetry(summaries: [], transmittingCount: 0, verifyingCount: 0, lastActivityAt: nil)
         XCTAssertEqual(metric.pending, 0); XCTAssertEqual(metric.verifying, 0); XCTAssertEqual(metric.uploading, 0)
         XCTAssertNil(metric.activityAt); XCTAssertNil(metric.oldestAt)
     }
+    func testConcurrentActivityNegotiatesWithoutLyingToOlderWorkers() throws {
+        var telemetry = BoothTelemetry(mode: "event", network: "online", payment: "ready", printer: "ready", storage: "ready", incidents: [])
+        telemetry.uploads = GalleryQueueTelemetry(summaries: [], transmittingCount: 1, verifyingCount: 2, lastActivityAt: nil)
+        for version in [1, 2, 3] {
+            XCTAssertNil(telemetry.compatible(version: version).uploads)
+        }
+        let current = telemetry.compatible(version: 3, concurrentUploads: true)
+        XCTAssertEqual(current.uploads?.uploading, 1)
+        XCTAssertEqual(current.uploads?.verifying, 2)
+        XCTAssertLessThan(try JSONEncoder().encode(current).count, 2048)
+        telemetry.uploads = GalleryQueueTelemetry(summaries: [], transmittingCount: 0, verifyingCount: 1, lastActivityAt: nil)
+        XCTAssertEqual(telemetry.compatible(version: 2).uploads?.verifying, 1)
+    }
+
+    func testOnlyExplicitAcceptanceAdvancesHeartbeatEvidence() {
+        let monitor = BoothMonitoring()
+        let accepted = Date(timeIntervalSince1970: 1000)
+        monitor.recordHeartbeatResponse(data: Data(#"{"accepted":true}"#.utf8), status: 200, receivedAt: accepted)
+        XCTAssertEqual(monitor.lastHeartbeat, accepted, "Legacy accepted:true replies remain supported")
+        for (status, body) in [(200, #"{"accepted":false,"reason":"older_sample"}"#),
+                               (200, #"{"accepted":false,"reason":"duplicate_sample"}"#),
+                               (200, #"{"accepted":false,"reason":"stale_sample"}"#),
+                               (429, #"{"error":"rate_limited"}"#), (200, "{}"), (200, "invalid"),
+                               (503, #"{"accepted":true}"#)] {
+            monitor.recordHeartbeatResponse(data: Data(body.utf8), status: status)
+            XCTAssertEqual(monitor.lastHeartbeat, accepted)
+            XCTAssertFalse(monitor.lastResult.contains("Heartbeat accepted"))
+        }
+        let unenrolled = BoothMonitoring()
+        unenrolled.recordHeartbeatResponse(data: Data(#"{"accepted":false}"#.utf8), status: 200)
+        XCTAssertNil(unenrolled.lastHeartbeat)
+    }
+
     private func printer(_ mode: PrinterConnectionMode = .bluetooth, connected: Bool = true, connecting: Bool = false,
                          diagnostic: Bool = false, wifi: PrinterMonitoringObservation.Connection = .unknown,
                          busy: Bool = false, recovery: Bool = false, unresolved: Bool = false,

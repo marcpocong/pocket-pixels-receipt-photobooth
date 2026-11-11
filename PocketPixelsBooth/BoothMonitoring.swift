@@ -22,9 +22,12 @@ nonisolated struct BoothTelemetry: Codable, Equatable, Sendable {
     var camera: CameraMonitoringState? = nil
     var guest: GuestMonitoringState? = nil
 
-    func compatible(version: Int) -> Self {
+    func compatible(version: Int, concurrentUploads: Bool = false) -> Self {
         var value = self
         if version < 3 { if value.eventState == "unknown" { value.eventState = nil }; value.telemetryVersion = nil; value.printerObservation = nil; value.camera = nil; value.guest = nil }
+        // Old V2/V3 Workers only accept a single activity. Omit unavailable compatible
+        // evidence rather than clamp real overlapping work to a misleading count.
+        if !concurrentUploads, let uploads = value.uploads, uploads.uploading + uploads.verifying > 1 { value.uploads = nil }
         return version < 2 ? value.legacy() : value
     }
 
@@ -117,10 +120,10 @@ nonisolated struct GalleryQueueTelemetry: Codable, Equatable, Sendable {
     var oldestAt: String?
     var activityAt: String?
 
-    init(summaries: [GalleryPendingUploadSummary], activeToken: String?, verifying: Bool, lastActivityAt: Date?) {
+    init(summaries: [GalleryPendingUploadSummary], transmittingCount: Int, verifyingCount: Int, lastActivityAt: Date?) {
         pending = min(100000, summaries.count)
-        uploading = activeToken != nil && !verifying ? 1 : 0
-        self.verifying = activeToken != nil && verifying ? 1 : 0
+        uploading = min(1, max(0, transmittingCount))
+        verifying = min(2, max(0, verifyingCount))
         attention = min(100000, summaries.filter(\.needsAttention).count)
         oldestAt = summaries.first?.createdAt
         activityAt = lastActivityAt.map { ISO8601DateFormatter().string(from: $0) }
@@ -136,6 +139,7 @@ nonisolated struct GalleryQueueTelemetry: Codable, Equatable, Sendable {
     private var task: Task<Void, Never>?
     private var sending = false
     private var supportedVersion: Int?
+    private var concurrentUploads = false
     private let credentialService = "com.pocketpixels.booth-monitoring"
     var endpoint: String { UserDefaults.standard.string(forKey: "pocketPixels.monitoring.endpoint") ?? "" }
 
@@ -150,6 +154,7 @@ nonisolated struct GalleryQueueTelemetry: Codable, Equatable, Sendable {
         guard status == errSecSuccess else { throw SetupFailure("Monitoring credential could not be saved in Keychain.") }
         UserDefaults.standard.set(url.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn:"/")),forKey:"pocketPixels.monitoring.endpoint")
         supportedVersion = nil
+        concurrentUploads = false
         lastResult = "Configured. A heartbeat will verify the connection."
     }
     private func token() -> String? {
@@ -187,23 +192,42 @@ nonisolated struct GalleryQueueTelemetry: Codable, Equatable, Sendable {
                    (response as? HTTPURLResponse)?.statusCode == 200,
                    let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                     supportedVersion = min(3, max(1, body["telemetryVersion"] as? Int ?? 1))
+                    concurrentUploads = (body["galleryActivityVersion"] as? Int ?? 1) >= 2
                 }
             }
             let telemetry = snapshot()
-            request.httpBody=try JSONEncoder().encode(telemetry.compatible(version: supportedVersion ?? 1))
-            var (_,response)=try await URLSession.shared.data(for:request)
+            request.httpBody=try JSONEncoder().encode(telemetry.compatible(version: supportedVersion ?? 1, concurrentUploads: concurrentUploads))
+            var (data,response)=try await URLSession.shared.data(for:request)
             if (response as? HTTPURLResponse)?.statusCode == 422, (supportedVersion ?? 1) > 1 {
                 // Code rollback to a legacy Worker cannot silently stop heartbeat enrollment.
                 supportedVersion = 1
                 request.httpBody = try JSONEncoder().encode(telemetry.legacy())
-                (_,response) = try await URLSession.shared.data(for: request)
+                (data,response) = try await URLSession.shared.data(for: request)
             }
             guard let response=response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
-            if response.statusCode==429 { lastResult="Heartbeat cooldown; monitoring remains configured.";return }
-            guard response.statusCode==200 else { throw URLError(.badServerResponse) }
-            lastHeartbeat=Date();lastResult="Heartbeat received by monitoring Worker."
+            recordHeartbeatResponse(data: data, status: response.statusCode)
         } catch { lastResult="Monitoring connection unavailable. The server will detect a stale heartbeat; booth/payment permissions are unchanged." }
     }
+    /// Only explicit server acceptance advances local evidence. Cooldown/rejection retains
+    /// the last accepted time; an HTTP success alone says nothing about freshness.
+    func recordHeartbeatResponse(data: Data, status: Int, receivedAt: Date = Date()) {
+        if status == 429 {
+            lastResult = "Heartbeat cooldown; last accepted observation is unchanged."
+            return
+        }
+        guard status == 200, let result = try? JSONDecoder().decode(HeartbeatReceipt.self, from: data) else {
+            lastResult = "Monitoring response unavailable; last accepted observation is unchanged."
+            return
+        }
+        guard result.accepted else {
+            lastResult = "Heartbeat not accepted (duplicate, older or stale observation); last accepted time is unchanged."
+            return
+        }
+        lastHeartbeat = receivedAt
+        lastResult = "Heartbeat accepted by monitoring Worker."
+    }
+    private struct HeartbeatReceipt: Decodable { let accepted: Bool }
+
     func snapshot() -> BoothTelemetry {
         let operations=EventOperationalState.shared, runs=EventRunStore.shared, acceptance=SessionAcceptanceStore.shared
         let recovery=PaymentRecoveryCoordinator.shared
@@ -265,8 +289,8 @@ nonisolated struct GalleryQueueTelemetry: Codable, Equatable, Sendable {
         // Re-read metadata only; no photographs are loaded for monitoring.
         do {
             let queue = try GalleryPendingUploadStore().summaries()
-            value.uploads = GalleryQueueTelemetry(summaries: queue, activeToken: scheduler.activeToken,
-                verifying: scheduler.phase == .verifying, lastActivityAt: scheduler.lastActivityAt)
+            value.uploads = GalleryQueueTelemetry(summaries: queue, transmittingCount: scheduler.transmittingCount,
+                verifyingCount: scheduler.verifyingCount, lastActivityAt: scheduler.lastActivityAt)
         } catch {
             value.storage = "error"
             value.incidents = Array(Set(value.incidents + ["storage"])).sorted()

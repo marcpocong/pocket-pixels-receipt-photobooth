@@ -161,3 +161,26 @@ images, payment/session IDs, QR identities, gallery URLs, raw logs or credential
 Network path does not prove internet reachability; a POST does not prove a public gallery;
 BLE/socket success does not prove physical paper output. Printing, payments, receipt pixels,
 recovery acknowledgment and gallery durability code are unchanged.
+
+## Production completion corrections — 12 November 2026
+
+Release `monitoring-v3-2026-11-12` advertises `galleryActivityVersion:2` in
+`/health`. The existing upload JSON shape is unchanged; uploading means actual
+transmission work (0–1), verifying means owned public-read operations (0–2).
+A remotely accepted POST waiting for public-read capacity counts in neither activity;
+it remains in the durable pending queue until public availability is verified.
+Counts come from scheduler ownership, never its last display phase. Concurrency,
+leases, durability, media identities and scheduler admission are unchanged.
+
+The app negotiates this additive capability separately from telemetry V1/V2/V3.
+Against older Workers, a queue snapshot with overlapping activity is omitted rather
+than fabricated or clamped to the old single-operation limit. Single-operation queue
+reports still work on V2/V3; V1 strips the queue. Existing backend clients remain valid.
+No D1 migration is needed for these counts because telemetry is stored as JSON.
+
+Only a parsed HTTP 200 `accepted:true` advances the app's last accepted timestamp.
+Rejections, malformed replies and 429 preserve it; 429 is a normal ingestion cooldown.
+The Worker supplies Retry-After for its existing 30-second cooldown. Equal observation
+times are duplicates; older and already-stale samples are rejected without replacing
+accepted evidence or restoring contact. Event-aware 10/15-minute thresholds, five-minute
+foreground periodic reporting and foreground-resume reporting remain unchanged.

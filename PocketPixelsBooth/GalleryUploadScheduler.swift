@@ -30,6 +30,13 @@ final class GalleryUploadScheduler: ObservableObject {
     private var verificationCapacity: (token: String, continuation: CheckedContinuation<Void, Never>)?
     // Bound public reads and retained payload memory. One additional POST can run concurrently.
     private let maximumVerifications = 2
+    /// Counts owned work, independently of the most recently displayed progress phase.
+    /// An accepted POST waiting for verification capacity is no longer transmitting.
+    var transmittingCount: Int {
+        guard let token = activeToken, verificationCapacity == nil, !verifyingTokens.contains(token) else { return 0 }
+        return 1
+    }
+    var verifyingCount: Int { verifyingTokens.count }
     private var freshSlots = 0
     private var recoveryTask: Task<Void, Never>?
     private var recoveryWake: Task<Void, Never>?

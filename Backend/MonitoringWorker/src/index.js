@@ -1,5 +1,5 @@
 const HEADERS = { 'content-type': 'application/json', 'cache-control': 'no-store' };
-const RELEASE = 'monitoring-v3-2026-10-30';
+const RELEASE = 'monitoring-v3-2026-11-12';
 const CODES = {
     offline: 'Carlo heartbeat missing', backend: 'Payment backend unavailable', verification: 'Payment confirmation repeatedly failing',
     review: 'Payment requires owner review', paid_blocked: 'Verified payment waiting before camera', printer: 'Printer readiness needs attention',
@@ -23,7 +23,7 @@ export default {
         try {
             const path = new URL(request.url).pathname;
             if (path === '/v1/telegram' && request.method === 'POST') return await telegramWebhook(request,env,ctx);
-            if (path === '/health' && request.method === 'GET') return response({service:'made-to-keep-monitor',version:3,telemetryVersion:3,release:RELEASE});
+            if (path === '/health' && request.method === 'GET') return response({service:'made-to-keep-monitor',version:3,telemetryVersion:3,galleryActivityVersion:2,release:RELEASE});
             if (path === '/v1/heartbeat' && request.method === 'POST') {
                 if (!await authorized(request, env.DEVICE_TOKEN)) return response({error:'unauthorized'},401);
                 let state;
@@ -33,10 +33,11 @@ export default {
                 if (!lock) return response({error:'monitor_busy'},503);
                 try {
                     const previous = await env.DB.prepare('SELECT last_seen,state_json FROM devices WHERE id=?').bind('carlo').first();
-                    if (previous && time-previous.last_seen<30000) return response({error:'rate_limited'},429);
+                    if (previous && time-previous.last_seen<30000) return new Response(JSON.stringify({accepted:false,error:'rate_limited'}),{status:429,headers:{...HEADERS,'retry-after':String(Math.ceil((30000-time+previous.last_seen)/1000))}});
                     const prior = previous && JSON.parse(previous.state_json);
-                    if (prior?.reportedAt && state.reportedAt && Date.parse(state.reportedAt)<Date.parse(prior.reportedAt))
-                        return response({accepted:false,reason:'older_sample'},200);
+                    if (prior?.reportedAt && state.reportedAt && Date.parse(state.reportedAt)<=Date.parse(prior.reportedAt))
+                        return response({accepted:false,reason:state.reportedAt===prior.reportedAt?'duplicate_sample':'older_sample'},200);
+                    if (!fresh(env,{last_seen:time},state,time)) return response({accepted:false,reason:'stale_sample'},200);
                     await observeDevice(env,state,time,lock);
                 } finally { await releaseLock(env,'state',lock); }
                 ctx.waitUntil(deliver(env,time));
@@ -108,7 +109,7 @@ export function validate(value) {
             if (!Number.isSafeInteger(u[key]) || u[key]<0 || u[key]>100000) throw new Error('invalid');
             queue[key]=u[key];
         }
-        if (queue.uploading+queue.verifying>1 || queue.attention>queue.pending) throw new Error('invalid');
+        if (queue.uploading>1 || queue.verifying>2 || queue.attention>queue.pending) throw new Error('invalid');
         for (const key of ['oldestAt','activityAt']) if (u[key]!=null) queue[key]=timestamp(u[key]);
         clean.uploads=queue;
     }

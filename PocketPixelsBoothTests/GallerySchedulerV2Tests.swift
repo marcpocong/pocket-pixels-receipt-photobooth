@@ -202,6 +202,50 @@ import UIKit
         XCTAssertEqual(active, 0)
     }
 
+    func testTelemetryCountsOverlappingReadsTransmissionAndCapacityWaitWithoutIdentities() async throws {
+        let scheduler = GalleryUploadScheduler()
+        let reads = expectation(description: "two public verifiers")
+        reads.expectedFulfillmentCount = 2
+        var releaseReads: [CheckedContinuation<Void, Never>] = []
+        let readers = (0..<2).map { index in Task {
+            try await scheduler.perform(token: "private-read-\(index)", lane: .publicRead) {
+                reads.fulfill()
+                await withCheckedContinuation { releaseReads.append($0) }
+                return self.result("private-read-\(index)")
+            }
+        } }
+        await fulfillment(of: [reads])
+        let sending = expectation(description: "overlapping POST")
+        let waiting = expectation(description: "POST accepted, waiting for public read capacity")
+        var releaseSend: CheckedContinuation<Void, Never>?
+        let sender = Task { try await scheduler.perform(token: "private-send") {
+            sending.fulfill()
+            await withCheckedContinuation { releaseSend = $0 }
+            waiting.fulfill()
+            await scheduler.beginVerification(token: "private-send")
+            return self.result("private-send")
+        } }
+        await fulfillment(of: [sending])
+        func metrics() -> GalleryQueueTelemetry {
+            GalleryQueueTelemetry(summaries: [], transmittingCount: scheduler.transmittingCount,
+                verifyingCount: scheduler.verifyingCount, lastActivityAt: scheduler.lastActivityAt)
+        }
+        XCTAssertEqual(metrics().uploading, 1)
+        XCTAssertEqual(metrics().verifying, 2, "The global phase/activeToken pair used to lose both verifiers")
+        let text = String(decoding: try JSONEncoder().encode(metrics()), as: UTF8.self)
+        XCTAssertFalse(text.contains("private"))
+        releaseSend?.resume()
+        await fulfillment(of: [waiting])
+        XCTAssertEqual(metrics().uploading, 0, "An accepted POST waiting for capacity is no longer transmitting")
+        XCTAssertEqual(metrics().verifying, 2)
+        releaseReads.removeFirst().resume()
+        _ = try await sender.value
+        releaseReads.removeFirst().resume()
+        for reader in readers { _ = try await reader.value }
+        XCTAssertEqual(metrics().uploading, 0)
+        XCTAssertEqual(metrics().verifying, 0)
+    }
+
     func testRetryClassificationAndBoundedBackoff() {
         XCTAssertEqual(GalleryRetryCategory.classify(GalleryUploadError.pendingNoInternet, state: .notStarted), .offline)
         XCTAssertEqual(GalleryRetryCategory.classify(GalleryUploadError.backendUnreachable(.noNetworkPath), state: .notStarted), .backendUnavailable)
