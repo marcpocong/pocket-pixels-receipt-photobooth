@@ -1,6 +1,15 @@
-# Deferred hardware/live acceptance — NOT YET VERIFIED
+# Deferred physical acceptance - VOZY G80 NOT VERIFIED
 
-Carlo and the VOZY G80 were unavailable. No item below passed during offline development.
+The VOZY G80 is unavailable. **Every physical-output and printer-radio procedure below
+remains NOT VERIFIED.** Fixture/state-machine passes are software evidence only.
+
+On 12 November 2026 Carlo was available: the corrected app was installed in place using
+the existing bundle/team; existing protected files were identical, and a real V3 heartbeat,
+private owner commands and fixed test-notification delivery were verified. See ROLLOUT.md
+for the exact production/contact-test evidence and signing expiration. These results do
+not establish physical paper output, printer-radio behavior, venue-network behavior,
+real camera interruption/capture recovery or a real new gallery delivery.
+
 Use a controlled test event, with no live customer payment or ambiguous historical resend.
 Preserve original records and perform local recovery only after physically inspecting output.
 A failure stops rollout acceptance; it does not authorize clearing evidence or automatic retry.
@@ -25,5 +34,5 @@ A failure stops rollout acceptance; it does not authorize clearing evidence or a
 | Weak/offline venue Wi-Fi, then restore | App remains usable under its existing rules; contact overdue is not equipment failure | Device sample/contact times, message sequence, original queued media; false equipment recovery/data loss fails | No |
 | Background/suspend/foreground Carlo across thresholds | Last-known active 10-minute / idle 15-minute contact policy at next Cron; one restored-contact message on fresh sample | iPad lifecycle and Worker timestamps; exact-second promises or stale equipment-health recovery fail | No |
 | New controlled pending gallery, accepted POST then public verification | Still pending after POST; only public proof establishes availability; original identity/media retained | Queue counts, original QR and public proof privately; premature Available/deletion/changed QR fails | Optional, only if testing a printed new QR |
-| Verify production /health, webhook and owner commands after separate authorization | V3 release identity, exactly five read-only commands, private owner only | Redacted health/overview, webhook status and actual owner reply; wrong release, leaked data or mutation command fails | No |
+| Verify production /health, webhook and owner commands after deployment | V3 release identity, exactly five read-only commands, private owner only | Redacted health/overview, webhook status and actual owner reply; wrong release, leaked data or mutation command fails | No |
 | One authorized real Telegram alert/recovery exercise on controlled state | Coherent issue/action/times; no duplicate printer recovery storm | Actual Telegram delivery and Worker delivery records; mocked sends never satisfy this item | Only if exercising a real print uncertainty |

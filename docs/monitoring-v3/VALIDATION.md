@@ -207,3 +207,8 @@ signed Carlo. The affected telemetry/scheduler suites then passed **26/26**, zer
 or skips, adding the absent-directory and frozen-placeholder-metadata regression. This
 rerun was required by the additional native source change; the unchanged Worker was not
 rerun redundantly. Existing gallery migration/delivery checks are recorded in ROLLOUT.md.
+
+Existing GalleryFrontDoorMigrationTests and GalleryDeliveryHardeningTests also passed
+**26/26**, zero failures/skips, after the passive-read correction. Together with the final
+26 telemetry/scheduler tests this is **52 distinct targeted Swift tests**, without rerunning
+the unrelated full iOS suite.

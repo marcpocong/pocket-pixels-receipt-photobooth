@@ -1,7 +1,7 @@
 # Made to Keep monitoring
 
-Current source: **Monitoring V3**, release `monitoring-v3-2026-10-30`. Production deployment
-is a separate manual operation. See [architecture/policy](../../docs/monitoring-v3/ENGINEERING.md),
+Current production: **Monitoring V3**, release `monitoring-v3-2026-11-12`, deployed on
+12 November 2026. See [architecture/policy](../../docs/monitoring-v3/ENGINEERING.md),
 [rollout/rollback](../../docs/monitoring-v3/ROLLOUT.md),
 [local evidence](../../docs/monitoring-v3/VALIDATION.md) and
 [deferred acceptance](../../docs/monitoring-v3/HARDWARE-ACCEPTANCE.md).
@@ -15,7 +15,12 @@ Secrets (put through Wrangler stdin, never command arguments or source):
 - `DEVICE_TOKEN`: one high-entropy credential for Carlo heartbeat writes only.
 - `OWNER_READ_TOKEN`: separate high-entropy owner credential for overview and the fixed test-message action.
 - `PAYMENTS_HEALTH_TOKEN`: the Payments Worker's `MONITOR_READ_TOKEN`; it reads only minimal health.
+- `TELEGRAM_WEBHOOK_SECRET`: separate high-entropy secret authenticating Telegram webhook requests.
 - `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`: owner-controlled private bot/chat. Never include either in diagnostics or URLs shown to guests.
+
+A successful transport response alone is not enrollment: only explicit `accepted:true`
+advances app evidence. Duplicate, older and already-stale samples preserve the last accepted
+server observation; the existing 30-second ingestion cooldown returns 429 with Retry-After.
 
 Endpoints:
 
@@ -46,14 +51,14 @@ Before upgrading an existing deployment, privately export its D1, apply only una
 
 Limitations: keep the kiosk app foregrounded; iPadOS background suspension can produce offline alerts. This Worker detects Payments Worker failure independently but shares Cloudflare's infrastructure. A platform-wide Cloudflare outage needs an external independent observer, outside this zero-subscription deployment.
 
-## Owner commands (V2 foundation; V3 deployment is manual)
+## Owner commands (V2 foundation; deployed with V3)
 
 Apply additive migration `0003_owner_commands.sql` before the new Worker. It adds only command
 reply/replay/rate tables and an independent payment-health observation. Existing rows remain.
 Set a distinct random `TELEGRAM_WEBHOOK_SECRET` (32–256 characters) privately through Wrangler
 stdin. Keep `TELEGRAM_CHAT_ID` a private owner user ID. Manually register Telegram's webhook
-with `secret_token` and URL `https://<monitor-worker>/v1/telegram` after validation. This task
-never registers it. Never put the bot credential, owner credential or webhook secret on iPad.
+with `secret_token` and URL `https://<monitor-worker>/v1/telegram` after validation. The existing bot webhook was registered during the authorized
+12 November production rollout, preserving pending updates. Never put the bot credential, owner credential or webhook secret on iPad.
 
 The POST endpoint verifies the Telegram secret before reading a bounded 4 KiB UTF-8 body.
 It accepts only unedited, unforwarded private messages from that same owner user/chat and five
@@ -70,7 +75,10 @@ retry semantics. This never triggers booth, gallery, payment or print side effec
 Each reply identifies report generation and heartbeat times and describes **last reported**
 state, with freshness at report time. Payment backend health has its own check timestamp.
 Unreported metrics remain unknown; no session counts or event names are invented. `/uploads`
-reports an unverified queue, uploading/verifying counts, attention and oldest/activity times.
+reports an unverified queue, uploading (0-1) and public verification (0-2) activity,
+attention and oldest/activity times. Accepted transfers waiting for verification capacity
+remain pending but are not counted as transmitting. Old Workers without galleryActivityVersion=2
+receive no queue snapshot during overlapping work, rather than invented reduced counts.
 It never equates accepted POSTs with publicly available galleries. Queue/incident messages
 contain no customer content, QR identities, payment identifiers or secrets.
 
@@ -93,7 +101,8 @@ secrets, production webhook or D1 data are modified by local tests.
 
 ## V3 compatibility and release identity
 
-Public GET /health contains only service, version=3, telemetryVersion=3 and the release tag.
+Public GET /health contains only service, version=3, telemetryVersion=3,
+galleryActivityVersion=2 and the release tag.
 Optional V3 fields require telemetryVersion=3 plus reportedAt: printerObservation
 (transport/connection/readiness/evidence), camera and guest. Unknown event context is supported
 in V3 and omitted when downgrading to V2/V1. The 2 KiB heartbeat limit and all legacy fields
