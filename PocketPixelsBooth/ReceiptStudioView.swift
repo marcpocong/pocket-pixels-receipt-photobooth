@@ -66,12 +66,12 @@ struct ReceiptStudioView: View {
                     }.accessibilityIdentifier("receipt-studio-importing")
                 }
                 if let error = artworkImport.errorMessage {
-                    Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(OperatorPalette.warning)
                 }
                 Picker("Editing Section", selection: $section) {
                     ForEach(EditingSection.allCases) { Text($0.rawValue).tag($0) }
                 }.pickerStyle(.segmented).accessibilityIdentifier("receipt-studio-section")
-                if ReceiptStudioLayout.usesColumns(width: geometry.size.width) {
+                if ReceiptStudioLayout.usesColumns(width: geometry.size.width) && !typeSize.isAccessibilitySize {
                     HStack(alignment: .top, spacing: 10) {
                         preview(height: max(180, geometry.size.height - 245))
                             .frame(width: ReceiptStudioLayout.previewWidth(for: geometry.size.width, accessibility: typeSize.isAccessibilitySize))
@@ -89,8 +89,8 @@ struct ReceiptStudioView: View {
             }.padding(16)
         }
         .background(OperatorPalette.canvas)
-        .navigationTitle("Receipt Studio").navigationBarTitleDisplayMode(.inline)
-        .tint(OperatorPalette.ink).textFieldStyle(.roundedBorder)
+        .operatorScreen().navigationTitle("Receipt Studio").navigationBarTitleDisplayMode(.inline)
+        .tint(OperatorPalette.accent).textFieldStyle(.roundedBorder)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button { draft = history.undo(draft) } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
@@ -153,7 +153,7 @@ struct ReceiptStudioView: View {
                 case .footer: footerControls
                 case .text: textControls
                 }
-                if design.id != draft.id { Text("Setup changed to another design. Cancel and reopen Receipt Studio.").foregroundStyle(.orange) }
+                if design.id != draft.id { Text("Setup changed to another design. Cancel and reopen Receipt Studio.").foregroundStyle(OperatorPalette.warning) }
                 Text(isRegularBooth ? "Save returns edits to Settings. Save Defaults applies them to future guests."
                      : "Save returns edits to Setup. Save Design keeps them for future use.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -226,7 +226,7 @@ struct EventPrintedFooterControls: View {
         }.accessibilityIdentifier("receipt-footer-layout")
         if (profile.receiptDesign.footerStyleOverride ?? ReceiptPrintSettingsStore.load().footerStyle) == .decorativeBarcodeOnly {
             Label("Decorative barcode only: no printed gallery access. The iPad gallery QR remains available.", systemImage: "exclamationmark.triangle")
-                .font(.footnote).foregroundStyle(.orange)
+                .font(.footnote).foregroundStyle(OperatorPalette.warning)
         }
         if let studioProfile {
             Button("Reset Footer to Studio") {

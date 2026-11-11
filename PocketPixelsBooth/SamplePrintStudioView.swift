@@ -56,8 +56,8 @@ struct SamplePrintStudioView: View {
                 .frame(maxWidth: .infinity)
             }
         }
-        .background(Color(uiColor: .systemGroupedBackground))
-        .navigationTitle("Print Display Samples")
+        .background(OperatorPalette.canvas)
+        .operatorScreen().navigationTitle("Print Display Samples")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: pickerItems) { _, items in importPhotos(items) }
         .onChange(of: model.format) { _, _ in selectedSlot = nil }
@@ -327,14 +327,12 @@ private struct StudioStep<Content: View>: View {
                     .font(.subheadline.bold())
                     .frame(width: 28, height: 28)
                     .background(Color.primary.opacity(0.08), in: Circle())
-                Text(title).font(.title3.weight(.semibold))
+                Text(title).font(OperatorStyle.TypeScale.section)
             }
             content
         }
-        .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background, in: RoundedRectangle(cornerRadius: 18))
-        .overlay { RoundedRectangle(cornerRadius: 18).stroke(.separator.opacity(0.5)) }
+        .operatorCard()
     }
 }
 
@@ -468,7 +466,7 @@ struct SamplePhotoChooser: View {
                 }
                 .padding()
             }
-            .navigationTitle("Choose \(model.slotTitle(slot))")
+            .operatorScreen().navigationTitle("Choose \(model.slotTitle(slot))")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: dismiss) }

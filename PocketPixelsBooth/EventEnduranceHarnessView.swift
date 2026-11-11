@@ -635,7 +635,7 @@ struct EventEnduranceHarnessView: View {
                     .textSelection(.enabled)
             }
         }
-        .navigationTitle("Endurance Harness")
+        .operatorScreen().navigationTitle("Endurance Harness")
         .navigationBarTitleDisplayMode(.inline)
     }
 

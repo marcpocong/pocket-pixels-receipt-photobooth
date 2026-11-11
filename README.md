@@ -4,6 +4,8 @@
 
 An iPad-only SwiftUI photobooth that captures guest photos, composes branded receipts, prints to an ESC/POS thermal printer over Bluetooth or TCP, and delivers digital galleries. The Xcode project and bundle identifier remain **PocketPixelsBooth** / **`com.pocketpixels.PocketPixelsBooth`**.
 
+[Operator Workspace V5](docs/operator-workspace-v5/README.md) contains the portrait operator design system, complete route inventory, screenshots, regression outcomes and Carlo installation record.
+
 Start with [the 27 October development handoff](docs/development-handoff-2026-10-27.md) for the final receipt-printing behavior, sample-preview fix, copy-authorization fix, CI repairs and verification record. [The documentation index](docs/README.md) links the broader architecture and earlier releases.
 
 ## Development

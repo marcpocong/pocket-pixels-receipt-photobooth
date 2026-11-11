@@ -2,6 +2,8 @@
 
 ## Current handoff
 
+- [12 November Operator Workspace V5 release](operator-workspace-v5/release-report.md): unified portrait UI, route inventory, visual evidence, local validation and Carlo installation.
+
 - [27 October 2026 handoff](development-handoff-2026-10-27.md): accepted printer limitation, final printing/digital-image separation, empty sample previews, prepaid copy authorization, CI root causes and verification.
 - [Receipt printing investigation and implementation](receipt-footer-first-printing.md): chronological measurements, code changes, retired paper-return probe and physical findings.
 - [Portrait delivery record](../BuildArtifacts/PortraitWorkspace/delivery-report.md) and [curated evidence index](../BuildArtifacts/PortraitWorkspace/README.md).
@@ -10,6 +12,8 @@
   and [validation checklists](validation/README.md).
 
 ## Operator workspace and event lifecycle
+
+- [Operator Workspace V5 design system and evidence](operator-workspace-v5/README.md)
 
 - [Portrait event workspace](portrait-event-workspace.md)
 - [Operator workspace V4.1.1](operator-workspace-v4-1-1.md)

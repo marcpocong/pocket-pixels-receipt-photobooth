@@ -5,12 +5,13 @@ import SwiftUI
 /// "last reported", never as a live check.
 nonisolated struct ProductionHealthReport: Equatable, Sendable {
     nonisolated enum Level: String, Equatable, Sendable, Comparable {
-        case ready = "Ready", unavailable = "Unavailable", warning = "Warning", review = "Needs Operator Review"
-        private var rank: Int { [.ready, .unavailable, .warning, .review].firstIndex(of: self) ?? 0 }
+        case ready = "Ready", progress = "In progress", unavailable = "Unavailable", warning = "Warning", review = "Needs Operator Review"
+        private var rank: Int { [.ready, .progress, .unavailable, .warning, .review].firstIndex(of: self) ?? 0 }
         static func < (lhs: Level, rhs: Level) -> Bool { lhs.rank < rhs.rank }
         var systemImage: String {
             switch self {
             case .ready: "checkmark.circle.fill"
+            case .progress: "arrow.triangle.2.circlepath"
             case .unavailable: "questionmark.circle"
             case .warning: "exclamationmark.triangle"
             case .review: "exclamationmark.octagon.fill"
@@ -47,6 +48,7 @@ nonisolated struct ProductionHealthReport: Equatable, Sendable {
         var storageErrors: [String]
         var pendingCreation: Bool
         var parkedFinancialFollowUps: Int = 0
+        var galleryAttentionCount: Int = 0
     }
 
     let generatedAt: Date
@@ -120,8 +122,9 @@ nonisolated struct ProductionHealthReport: Equatable, Sendable {
                 : "No parked financial obligations awaiting reconciliation."))
 
         let gallery: (Level, String) = input.galleryStorageProblem ? (.review, "Gallery storage needs review.")
-            : input.pendingGalleries > 0 ? (.warning, "\(input.pendingGalleries) gallery upload(s) waiting. They keep uploading while online.")
-            : (.ready, "No galleries waiting.")
+            : input.galleryAttentionCount > 0 ? (.review, "\(input.galleryAttentionCount) saved gallery item(s) need operator attention in Waiting Galleries. Photos remain on this iPad.")
+            : input.pendingGalleries > 0 ? (.progress, "\(input.pendingGalleries) gallery upload(s) waiting. Normal queue progress; public delivery is not yet verified. They keep uploading while online.")
+            : (.ready, "No galleries waiting. Public delivery evidence stays with each session.")
         items.append(Item(id: "galleries", title: "Pending galleries", level: gallery.0, detail: gallery.1))
 
         if input.pendingCreation {
@@ -180,7 +183,8 @@ struct ProductionHealthSheet: View {
             checkoutsNeedingAttention: recovery.activeInterruptionCount,
             checkoutIntegrityFault: CheckoutCheckpointStore.shared?.integrityFault != nil, lastRecoveryCheck: recovery.lastRefreshCompletedAt,
             pendingGalleries: operations.pendingUploadCount, galleryStorageProblem: operations.queueError != nil, storageErrors: errors,
-            pendingCreation: creations.open(binding: OperatorWorkspace.shared.serverBinding) != nil, parkedFinancialFollowUps: recovery.financialFollowUpCount))
+            pendingCreation: creations.open(binding: OperatorWorkspace.shared.serverBinding) != nil, parkedFinancialFollowUps: recovery.financialFollowUpCount,
+            galleryAttentionCount: operations.pendingUploads.filter(\.needsAttention).count))
     }
     private var appVersion: String {
         let info = Bundle.main.infoDictionary
@@ -215,7 +219,7 @@ struct ProductionHealthSheet: View {
                     Text("The support summary contains statuses and shortened identifiers only — no credentials, payment tokens, gallery links, photos or guest details.")
                 }
             }
-            .navigationTitle("Booth Health")
+            .operatorScreen().navigationTitle("Booth Health")
             .tint(MadeToKeepTheme.ColorPalette.burgundy)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { isPresented = false } } }
         }

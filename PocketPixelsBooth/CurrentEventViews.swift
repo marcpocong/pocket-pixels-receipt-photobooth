@@ -50,10 +50,8 @@ struct CurrentEventCard: View {
                     .accessibilityIdentifier("current-event-message")
             }
         }
-        .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Brand.ivoryLight, in: RoundedRectangle(cornerRadius: 16))
-        .overlay { RoundedRectangle(cornerRadius: 16).stroke(Brand.burgundy.opacity(0.18)) }
+        .operatorCard()
         // The ivory card keeps its editorial palette; system colors inside it stay legible.
         .environment(\.colorScheme, .light)
         .task { await refresh() }
@@ -73,11 +71,8 @@ struct CurrentEventCard: View {
             Text(eventName).font(.system(.title2, design: .serif).weight(.semibold)).foregroundStyle(Brand.ink)
                 .accessibilityIdentifier("current-event-name")
             HStack(spacing: 10) {
-                Label(status.title, systemImage: status.systemImage)
-                    .font(.headline)
-                    .padding(.horizontal, 14).padding(.vertical, 8)
-                    .background(statusColor.opacity(0.14), in: Capsule())
-                    .foregroundStyle(statusColor)
+                OperatorStatusLabel(title: status.title, symbol: status.systemImage,
+                    tone: statusTone)
                     .accessibilityIdentifier("current-event-status")
                 if busy { ProgressView() }
             }
@@ -88,9 +83,7 @@ struct CurrentEventCard: View {
     private var facts: some View {
         VStack(spacing: 10) {
             fact("Guest admission", guestAdmissionLine)
-            let health = OperatorStatusSummary(report: operations.readinessReport, hasUnresolvedPrint: operations.hasUnresolvedPrint,
-                printerRequiresRecovery: printer.requiresRecovery, pendingUploadCount: operations.pendingUploadCount, galleryStorageError: operations.queueError != nil)
-            fact("Equipment", health.allSystemsReady ? "Checks passed" : health.summary)
+            fact("Equipment", "See System for device observations; inspect paper to confirm output")
             if run == nil && lifecycle.canRecordUpgradedRun { fact("Event run", "Not recorded yet — statistics start with the first guest or Record Event Run") }
             fact("Payment", paymentLine)
             if paid, let checked = lifecycle.lastCheckedAt { fact("Server checked", checked.formatted(date: .omitted, time: .shortened)) }
@@ -255,12 +248,12 @@ struct CurrentEventCard: View {
         }
         return server?.error != nil ? "Paid — price not confirmed" : "Paid per print"
     }
-    private var statusColor: Color {
+    private var statusTone: OperatorStatusTone {
         switch status {
-        case .accepting, .regular: OperatorPalette.ready
-        case .recoveryRequired: OperatorPalette.danger
-        case .needsReview, .unconfirmed, .pausedOnBooth, .serverPaused: OperatorPalette.warning
-        default: Brand.burgundy
+        case .accepting, .regular: .verified
+        case .recoveryRequired: .critical
+        case .needsReview, .unconfirmed, .pausedOnBooth, .serverPaused: .attention
+        default: .neutral
         }
     }
 
@@ -387,7 +380,7 @@ struct EndEventSheet: View {
                     if result == false { Label(lifecycle.message, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.danger) }
                 }
             }
-            .navigationTitle("End Event")
+            .operatorScreen().navigationTitle("End Event")
             .tint(MadeToKeepTheme.ColorPalette.burgundy)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { isPresented = false }.disabled(lifecycle.operation != nil) } }
             .interactiveDismissDisabled(lifecycle.operation != nil)

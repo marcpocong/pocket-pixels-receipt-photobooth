@@ -49,11 +49,26 @@ import SwiftUI
         XCTAssertEqual(level(ProductionHealthReport(inputs { $0.printerRequiresRecovery = true }), "printer"), .review)
         XCTAssertEqual(level(ProductionHealthReport(inputs { $0.checkoutsNeedingAttention = 2 }), "payments"), .review)
         XCTAssertEqual(level(ProductionHealthReport(inputs { $0.lastRecoveryCheck = nil }), "payments"), .unavailable)
-        XCTAssertEqual(level(ProductionHealthReport(inputs { $0.pendingGalleries = 3 }), "galleries"), .warning)
+        XCTAssertEqual(level(ProductionHealthReport(inputs { $0.pendingGalleries = 3 }), "galleries"), .progress)
         XCTAssertEqual(level(ProductionHealthReport(inputs { $0.storageErrors = ["Event-run history could not be read."] }), "storage"), .review)
         XCTAssertEqual(level(ProductionHealthReport(inputs { $0.pendingCreation = true }), "creation"), .review)
         XCTAssertEqual(ProductionHealthReport(inputs { $0.pendingCreation = true }).overall, .review)
         XCTAssertEqual(level(ProductionHealthReport(inputs { $0.paid = false; $0.commercialEventID = nil; $0.commercial = .notNeeded }), "backend"), .ready, "Prepaid needs no server")
+    }
+
+    func testNormalGalleryProgressIsSeparateFromManualAttentionAndStorageFaults() {
+        let progress = ProductionHealthReport(inputs { $0.pendingGalleries = 3 })
+        XCTAssertEqual(level(progress, "galleries"), .progress)
+        XCTAssertEqual(progress.overall, .unavailable, "An ordinary queue must not upgrade cached printer uncertainty to a warning")
+        XCTAssertTrue(progress.exportText(appVersion: "test").contains("public delivery is not yet verified"))
+        let manual = ProductionHealthReport(inputs { $0.pendingGalleries = 3; $0.galleryAttentionCount = 1 })
+        XCTAssertEqual(level(manual, "galleries"), .review)
+        XCTAssertTrue(manual.exportText(appVersion: "test").contains("Waiting Galleries"))
+        XCTAssertEqual(level(ProductionHealthReport(inputs { $0.galleryStorageProblem = true }), "galleries"), .review)
+        for report in [progress, manual] {
+            XCTAssertEqual(level(report, "admission"), .ready, "A gallery observation never changes guest admission")
+            XCTAssertEqual(level(report, "printer"), .unavailable)
+        }
     }
 
     func testParkedFinancialFollowUpIsVisibleAndSeparateFromActiveInterruptions() {

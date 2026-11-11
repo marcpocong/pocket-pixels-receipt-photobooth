@@ -9,7 +9,7 @@ struct OperatorBrandingView: View {
         List {
             if !defaultIssues.isEmpty {
                 Section("Review saved defaults") {
-                    ForEach(defaultIssues, id: \.self) { Text($0).foregroundStyle(.orange) }
+                    ForEach(defaultIssues, id: \.self) { Text($0).foregroundStyle(OperatorPalette.warning) }
                     Button("Save Shown Replacement Defaults") {
                         ReceiptPrintSettingsStore.save(printOptions)
                         GalleryReceiptSettingsStore.save(galleryStyle)
@@ -39,7 +39,7 @@ struct OperatorBrandingView: View {
                 }
                 Button("Restore Default") { printOptions = .default }
                 if printOptions.footerStyle == .decorativeBarcodeOnly {
-                    Label("The barcode is decorative and does not provide gallery access.", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                    Label("The barcode is decorative and does not provide gallery access.", systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.warning)
                 }
             } header: { Text("Physical Printing") } footer: {
                 Text("Device default for future sessions. Saved events can override it. The guest’s gallery QR always stays available on the iPad.")
@@ -57,7 +57,7 @@ struct OperatorBrandingView: View {
             }
             Section("Preview") {
                 NavigationLink("Preview Guest Experience") {
-                    ScrollView { CustomerExperiencePreviewView(profile: EventProfileStore.load()).padding() }.navigationTitle("Guest Preview")
+                    ScrollView { CustomerExperiencePreviewView(profile: EventProfileStore.load()).padding() }.operatorScreen().navigationTitle("Guest Preview")
                 }
             }
         }
@@ -66,7 +66,7 @@ struct OperatorBrandingView: View {
             printOptions = ReceiptPrintSettingsStore.load()
             refreshDefaultIssues()
         }
-        .navigationTitle("Branding & Design").tint(OperatorPalette.ink)
+        .operatorScreen().navigationTitle("Branding & Design").tint(OperatorPalette.accent)
     }
     private func refreshDefaultIssues() {
         defaultIssues = [ReceiptPrintSettingsStore.loadIssue(), GalleryReceiptSettingsStore.loadIssue()].compactMap { $0 }

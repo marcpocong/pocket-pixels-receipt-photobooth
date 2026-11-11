@@ -90,7 +90,7 @@ struct GalleryUploadTestView: View {
                 .padding(28)
                 .frame(maxWidth: 1_120, alignment: .topLeading)
             }
-            .navigationTitle("Cloud Test")
+            .operatorScreen().navigationTitle("Cloud Test")
             .onChange(of: selectedPhotoItem) { _, newItem in
                 loadPhoto(from: newItem)
             }
@@ -394,7 +394,7 @@ struct GalleryUploadTestView: View {
                         .textSelection(.enabled)
                     if pendingSummary.deliveryState == .deliveryUnknown {
                         Text("The server may have received this upload. Check Google Drive before retrying.")
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(OperatorPalette.warning)
                     }
                 }
                 .font(.footnote)
@@ -404,7 +404,7 @@ struct GalleryUploadTestView: View {
             if hasLegacyPendingUpload {
                 Text("A pending upload from an older app version exists. It will not be uploaded automatically. Build a new test gallery to create a Phase 6C request.")
                     .font(.footnote)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(OperatorPalette.warning)
                     .fixedSize(horizontal: false, vertical: true)
             }
 

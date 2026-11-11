@@ -7,10 +7,11 @@
 import SwiftUI
 
 struct PrinterBluetoothDiagnosticView: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     @StateObject private var diagnosticService = PrinterBluetoothDiagnosticService()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: OperatorStyle.Space.section) {
             Divider()
 
             Text("Bluetooth Diagnostic")
@@ -24,10 +25,8 @@ struct PrinterBluetoothDiagnosticView: View {
             externalAccessoryView
             diagnosticLogView
         }
-        .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .operatorCard()
         .onDisappear {
             diagnosticService.cleanup()
         }
@@ -45,7 +44,8 @@ struct PrinterBluetoothDiagnosticView: View {
     }
 
     private var scanControls: some View {
-        HStack(spacing: 12) {
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))
+        return layout {
             Button {
                 diagnosticService.startScan()
             } label: {
@@ -92,7 +92,7 @@ struct PrinterBluetoothDiagnosticView: View {
                                         .fontWeight(.semibold)
                                         .padding(.vertical, 3)
                                         .padding(.horizontal, 8)
-                                        .background(Color.orange.opacity(0.18))
+                                        .background(OperatorPalette.selected)
                                         .clipShape(Capsule())
                                 }
                             }
@@ -114,8 +114,8 @@ struct PrinterBluetoothDiagnosticView: View {
                         .buttonStyle(.bordered)
                     }
                     .padding(12)
-                    .background(Color(.tertiarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .background(OperatorPalette.canvas)
+                    .clipShape(RoundedRectangle(cornerRadius: OperatorStyle.radius))
                 }
             }
         }
@@ -175,8 +175,8 @@ struct PrinterBluetoothDiagnosticView: View {
                         }
                     }
                     .padding(12)
-                    .background(Color(.tertiarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .background(OperatorPalette.canvas)
+                    .clipShape(RoundedRectangle(cornerRadius: OperatorStyle.radius))
                 }
             }
         }
@@ -270,8 +270,8 @@ struct PrinterBluetoothDiagnosticView: View {
                     .font(.subheadline)
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(.tertiarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .background(OperatorPalette.canvas)
+                    .clipShape(RoundedRectangle(cornerRadius: OperatorStyle.radius))
                 }
             }
         }
@@ -298,8 +298,8 @@ struct PrinterBluetoothDiagnosticView: View {
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(.tertiarySystemBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .background(OperatorPalette.canvas)
+                .clipShape(RoundedRectangle(cornerRadius: OperatorStyle.radius))
             }
         }
     }

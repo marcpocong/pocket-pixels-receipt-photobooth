@@ -55,7 +55,7 @@ struct OperatorGallerySettingsView: View {
             }
             Text(message)
             Text("Tokens are stored in Keychain and excluded from diagnostic reports. Changing credentials does not delete pending galleries.")
-        }.navigationTitle("Gallery Setup")
+        }.operatorScreen().navigationTitle("Gallery Setup")
         .onDisappear { token = "" }
         .task {
             let bytes = await Task.detached(priority: .utility) { try? RecentSessionArchiveStore().originalPhotoStorageBytes() }.value

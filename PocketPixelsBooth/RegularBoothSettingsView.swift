@@ -69,21 +69,23 @@ struct RegularBoothSettingsView: View {
             Section {
                 NavigationLink("Preview Receipt") {
                     ScrollView { EventReceiptComposerPreview(profile: regularProfile, printOptions: ReceiptPrintSettingsStore.load().resolved(for: regularProfile), showsSamplePrintLink: false).padding() }
-                        .navigationTitle("Regular Booth Preview")
+                        .operatorScreen().navigationTitle("Regular Booth Preview")
                 }
             }
             if !message.isEmpty { Section { Text(message) } }
         }
-        .navigationTitle("Receipt & Footer").navigationBarTitleDisplayMode(.inline)
+        .operatorScreen().navigationTitle("Receipt & Footer").navigationBarTitleDisplayMode(.inline)
         .scrollContentBackground(.hidden).background(OperatorPalette.canvas)
         .environment(\.defaultMinListRowHeight, 52)
 
     }
     private var settingsForm: some View {
         Form {
+            Section { OperatorSectionHeading(title: "Next guest defaults", detail: "Formats, quantities and receipt settings for Regular Booth. Event settings stay with each event.") }
+                .listRowBackground(OperatorPalette.canvas)
             if !message.isEmpty { Section { Text(message).accessibilityIdentifier("regular-defaults-save-result") } }
             if let loadIssue {
-                Section("Review saved settings") { Text(loadIssue).foregroundStyle(.orange) }
+                Section("Review saved settings") { Text(loadIssue).foregroundStyle(OperatorPalette.warning) }
             }
             Section("Printing") {
                 Text("Local, no-payment sessions. Changes apply to the next guest and do not change event settings.")
@@ -127,7 +129,7 @@ struct RegularBoothSettingsView: View {
                 Text("Device defaults are shared. Use Receipt & Footer above for Regular Booth changes.")
                     .font(.footnote).foregroundStyle(OperatorPalette.secondaryText)
             }
-        }.navigationTitle("Regular Booth Settings")
+        }.operatorScreen().navigationTitle("Regular Booth Settings")
         .environment(\.defaultMinListRowHeight, 52)
         .scrollContentBackground(.hidden).background(OperatorPalette.canvas)
         .navigationBarTitleDisplayMode(.inline)
@@ -154,7 +156,7 @@ struct RegularBoothSettingsView: View {
         }.padding(12).background(.bar)
     }
     private var saveStatus: some View {
-        Text(workspace.persistenceError ?? (message.isEmpty ? (isDirty ? "Unsaved changes · kept as a draft" : "Regular Booth · next guest defaults") : message))
+        Text(workspace.persistenceError ?? (settings.formats.isEmpty ? "Choose at least one format before saving." : (message.isEmpty ? (isDirty ? "Unsaved changes · kept as a draft" : "Regular Booth · next guest defaults") : message)))
             .font(.footnote).foregroundStyle(OperatorPalette.secondaryText)
     }
     private var saveButton: some View {

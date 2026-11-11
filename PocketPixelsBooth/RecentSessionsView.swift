@@ -726,7 +726,7 @@ struct RecentSessionsView: View {
             }
         }
         .background(OperatorPalette.canvas)
-        .navigationTitle("Sessions").navigationBarTitleDisplayMode(.inline)
+        .operatorScreen().navigationTitle("Sessions").navigationBarTitleDisplayMode(.inline)
         .task {
             if !viewModel.hasLoaded {
                 viewModel.searchText = initialSearch
@@ -749,7 +749,8 @@ struct RecentSessionsView: View {
 
     private func browser(wide: Bool, width: CGFloat) -> some View {
         VStack(spacing: 0) {
-            VStack(spacing: 8) {
+            VStack(spacing: OperatorStyle.Space.row) {
+                OperatorSectionHeading(title: "Guest receipts", detail: "Find original receipts, gallery evidence and operator reprints.")
                 Picker("Session Scope", selection: $viewModel.scope) {
                     ForEach(RecentSessionScope.allCases) { Text($0.rawValue).tag($0) }
                 }.pickerStyle(.segmented)
@@ -811,11 +812,11 @@ struct RecentSessionsView: View {
                         if !viewModel.hasLoaded {
                             ProgressView("Loading sessions…").frame(maxWidth: .infinity, minHeight: 220)
                         } else if let error = viewModel.loadError, viewModel.summaries.isEmpty {
-                            ContentUnavailableView("Sessions unavailable", systemImage: "exclamationmark.triangle", description: Text(error))
+                            OperatorStatePanel(title: "Sessions unavailable", detail: error, symbol: "exclamationmark.triangle", tone: .attention).padding(OperatorStyle.Space.page)
                             Button("Retry Loading") { viewModel.refresh() }.buttonStyle(.bordered).frame(minHeight: 44).padding()
                         } else if viewModel.filteredSummaries.isEmpty {
-                            ContentUnavailableView(viewModel.summaries.isEmpty ? "No sessions yet" : "No matching sessions", systemImage: "photo.stack",
-                                description: Text(viewModel.summaries.isEmpty ? "Finished receipts appear here with their original gallery and print history." : "Change the search or filters to find an earlier guest."))
+                            OperatorStatePanel(title: viewModel.summaries.isEmpty ? "No sessions yet" : "No matching sessions",
+                                detail: viewModel.summaries.isEmpty ? "Finished receipts appear here with their original gallery and print history." : "Change the search or filters to find an earlier guest.", symbol: "photo.stack").padding(OperatorStyle.Space.page)
                             if !viewModel.summaries.isEmpty { Button("Clear Filters") { viewModel.clearFilters() }.frame(minHeight: 44).padding() }
                         } else {
                             ForEach(viewModel.groupedSummaries, id: \.0) { title, summaries in
@@ -977,7 +978,7 @@ struct RecentSessionsView: View {
                     Text("Unknown print history stays visible here. It does not by itself block the next guest.").font(.footnote)
                 }
                 Section { Button("Clear Filters") { viewModel.clearFilters() } }
-            }.navigationTitle("Filter Sessions").navigationBarTitleDisplayMode(.inline)
+            }.operatorScreen().navigationTitle("Filter Sessions").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { filtersPresented = false } } }
         }
     }
@@ -1112,7 +1113,7 @@ struct ArchivedSessionDetailView: View {
             }
         }
         .background(OperatorPalette.canvas.ignoresSafeArea())
-        .navigationTitle(summary.eventName ?? "Archived Session")
+        .operatorScreen().navigationTitle(summary.eventName ?? "Archived Session")
         .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog(
             "Create a new OPERATOR REPRINT of this archived receipt?",
@@ -1147,7 +1148,7 @@ struct ArchivedSessionDetailView: View {
                     if rootViewModel.isExporting { ProgressView(rootViewModel.exportMessage) }
                     Button("Save Photo to Photos") { rootViewModel.exportPhotos(summary.archiveID, index: photo.id) }.frame(minHeight: 44).disabled(rootViewModel.isExporting)
 
-                }.padding().navigationTitle("Photo \(photo.id + 1)")
+                }.padding().operatorScreen().navigationTitle("Photo \(photo.id + 1)")
                     .safeAreaInset(edge: .top) {
                         if let feedback = rootViewModel.actionFeedback {
                             OperatorFeedbackBanner(feedback: feedback) { rootViewModel.dismissFeedback() }.padding(.horizontal, 16)
@@ -1513,7 +1514,7 @@ private struct FullReceiptPreviewSheet: View {
                     )
                 }
             }
-            .navigationTitle("Original Receipt")
+            .operatorScreen().navigationTitle("Original Receipt")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {

@@ -55,8 +55,8 @@ struct EventArtworkEditorView: View {
             }
             .padding(20)
         }
-        .background(Color(uiColor: .systemGroupedBackground))
-        .navigationTitle("Edit Artwork")
+        .background(OperatorPalette.canvas)
+        .operatorScreen().navigationTitle("Edit Artwork")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
@@ -103,7 +103,7 @@ struct EventArtworkEditorView: View {
                     EventReceiptComposerPreview(profile: EventSetupPreview.previewProfile(for: profile))
                         .padding()
                 }
-                .navigationTitle("Receipt Preview")
+                .operatorScreen().navigationTitle("Receipt Preview")
                 .navigationBarTitleDisplayMode(.inline)
             } label: {
                 Label("Preview Full Receipt", systemImage: "doc.richtext")
@@ -441,13 +441,11 @@ private struct EditorCard<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title.uppercased())
-                .font(.caption.bold())
-                .foregroundStyle(.secondary)
+            Text(title).font(OperatorStyle.TypeScale.section)
+                .foregroundStyle(OperatorPalette.ink)
             content()
         }
-        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+        .operatorCard()
     }
 }

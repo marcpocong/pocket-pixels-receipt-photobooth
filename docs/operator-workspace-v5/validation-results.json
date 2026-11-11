@@ -1,0 +1,5867 @@
+{
+  "date": "2026-11-12",
+  "timezone": "Asia/Manila",
+  "integrated_iOS26_5": {
+    "xctestPassed": 907,
+    "xctestFailed": 2,
+    "swiftTestingPassed": 98,
+    "swiftTestingSuites": 17,
+    "runnerOutcome": "TEST FAILED; the two affected test cases passed unchanged in the final focused run",
+    "cases": [
+      {
+        "class": "BoothMonitoringTelemetryTests",
+        "test": "testCameraObservationsArePassiveAndUninitializedIsUnknown",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "BoothMonitoringTelemetryTests",
+        "test": "testConcurrentActivityNegotiatesWithoutLyingToOlderWorkers",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "BoothMonitoringTelemetryTests",
+        "test": "testConnectionAndReadinessNeverVerifyPhysicalOutput",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "BoothMonitoringTelemetryTests",
+        "test": "testGuestObservationsNeverTreatLegitimateWaitingAsStalled",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "BoothMonitoringTelemetryTests",
+        "test": "testLegacySchemaCanBeUsedAgainstPreviousMonitoringWorker",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "BoothMonitoringTelemetryTests",
+        "test": "testMonitoringDoesNotMutateMountedGuestOrExposeItsPrivateFields",
+        "outcome": "passed",
+        "seconds": 0.006
+      },
+      {
+        "class": "BoothMonitoringTelemetryTests",
+        "test": "testMonitoringQueueReadDoesNotCreateStorageOrMigratePlaceholderURLs",
+        "outcome": "passed",
+        "seconds": 0.047
+      },
+      {
+        "class": "BoothMonitoringTelemetryTests",
+        "test": "testNoQueueActivityRemainsUnknownInsteadOfInventingATime",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "BoothMonitoringTelemetryTests",
+        "test": "testNormalBusyCheckpointIsUnknownAndExplicitReviewStillSurfaces",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "BoothMonitoringTelemetryTests",
+        "test": "testOnlyExplicitAcceptanceAdvancesHeartbeatEvidence",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "BoothMonitoringTelemetryTests",
+        "test": "testQueueMetricsAreAggregatedAndNeverTreatAcceptedPOSTAsAvailability",
+        "outcome": "passed",
+        "seconds": 0.115
+      },
+      {
+        "class": "BoothMonitoringTelemetryTests",
+        "test": "testReconnectionCannotResolvePhysicalEvidenceAndUnreadableIsUnknown",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "BoothMonitoringTelemetryTests",
+        "test": "testSelectedTransportIgnoresUnusedRadioAndOldWiFiChecks",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "BoothMonitoringTelemetryTests",
+        "test": "testUnreadableEventContextIsUnknownAndDowngradesSafely",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "BoothMonitoringTelemetryTests",
+        "test": "testV3NegotiationDoesNotSendNewFieldsToV2OrLegacy",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "CloseContinueRecoveryTests",
+        "test": "testCashClosureNeverChangesVerificationOrOriginalLedgerReference",
+        "outcome": "passed",
+        "seconds": 0.033
+      },
+      {
+        "class": "CloseContinueRecoveryTests",
+        "test": "testConcurrentCloseIsIdempotentAndKeepsFinancialState",
+        "outcome": "passed",
+        "seconds": 0.01
+      },
+      {
+        "class": "CloseContinueRecoveryTests",
+        "test": "testCorruptGuestCheckpointCannotBeClearedByCancellation",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "CloseContinueRecoveryTests",
+        "test": "testCorruptRecordsRemainBlockedOnEveryRelaunch",
+        "outcome": "passed",
+        "seconds": 0.007
+      },
+      {
+        "class": "CloseContinueRecoveryTests",
+        "test": "testDurableAcknowledgementSurvivesPreferencesLossAndDistinctCheckpoint",
+        "outcome": "passed",
+        "seconds": 0.014
+      },
+      {
+        "class": "CloseContinueRecoveryTests",
+        "test": "testFailedFinalOutcomeAndCompletionAreRetriedWithoutTransport",
+        "outcome": "passed",
+        "seconds": 0.027
+      },
+      {
+        "class": "CloseContinueRecoveryTests",
+        "test": "testFailedResolutionStaysVisibleAndRetryCommitsBeforeRemoving",
+        "outcome": "passed",
+        "seconds": 0.013
+      },
+      {
+        "class": "CloseContinueRecoveryTests",
+        "test": "testInterruptedSendRequiresDurableRecoveryAndExactInspection",
+        "outcome": "passed",
+        "seconds": 0.029
+      },
+      {
+        "class": "CloseContinueRecoveryTests",
+        "test": "testNoBytesOutcomeCanRetryButUncertainOutcomeCannot",
+        "outcome": "passed",
+        "seconds": 0.017
+      },
+      {
+        "class": "CloseContinueRecoveryTests",
+        "test": "testOperatorCloseRetainsPhotosPreviewsAndOriginalGalleryAcrossRelaunch",
+        "outcome": "passed",
+        "seconds": 0.038
+      },
+      {
+        "class": "CloseContinueRecoveryTests",
+        "test": "testParkedPaymentUsesScopedGatesAndKeepsConnectionProtected",
+        "outcome": "passed",
+        "seconds": 0.009
+      },
+      {
+        "class": "CloseContinueRecoveryTests",
+        "test": "testResolveReturnsFailureAndRepeatedSuccessKeepsFirstReasonAndTimestamp",
+        "outcome": "passed",
+        "seconds": 0.011
+      },
+      {
+        "class": "CloseContinueRecoveryTests",
+        "test": "testResumeRetainsOriginalPhotosAndCannotOverwriteAnotherUnclosedGuest",
+        "outcome": "passed",
+        "seconds": 0.022
+      },
+      {
+        "class": "CloseContinueRecoveryTests",
+        "test": "testResumingAndClosingAgainRetainsBothDecisions",
+        "outcome": "passed",
+        "seconds": 0.017
+      },
+      {
+        "class": "CloseContinueRecoveryTests",
+        "test": "testRetentionFailureCannotParkOrDiscardOriginal",
+        "outcome": "passed",
+        "seconds": 0.011
+      },
+      {
+        "class": "CloseContinueRecoveryTests",
+        "test": "testUnavailableStorageNeverAllowsPaidOrPrintOperation",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "CoBrandedReceiptTests",
+        "test": "testAdjustedGeometryAtMovementAndSizeBoundaries",
+        "outcome": "passed",
+        "seconds": 0.218
+      },
+      {
+        "class": "CoBrandedReceiptTests",
+        "test": "testAdjustedHeaderUsesProductionStripAndThermalRaster",
+        "outcome": "passed",
+        "seconds": 0.506
+      },
+      {
+        "class": "CoBrandedReceiptTests",
+        "test": "testAdjustedSeparatorComposesAndRasterizesWithProductionHeaderPreview",
+        "outcome": "passed",
+        "seconds": 2.489
+      },
+      {
+        "class": "CoBrandedReceiptTests",
+        "test": "testCoBrandedHeaderPlacesWordmarkSeparatorAndLogoOnOneMidlineForEveryFormat",
+        "outcome": "passed",
+        "seconds": 0.173
+      },
+      {
+        "class": "CoBrandedReceiptTests",
+        "test": "testCoBrandedModePersistsAndOlderProfilesDecodeUnchanged",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "CoBrandedReceiptTests",
+        "test": "testDefaultStandardAndCoBrandedMastheadsStartWithinSixMillimetres",
+        "outcome": "passed",
+        "seconds": 7.327
+      },
+      {
+        "class": "CoBrandedReceiptTests",
+        "test": "testDotMovementAndDynamicSeparatorRegionsDoNotMoveOtherIdentities",
+        "outcome": "passed",
+        "seconds": 0.038
+      },
+      {
+        "class": "CoBrandedReceiptTests",
+        "test": "testIndependentHeaderMigrationPersistenceAndGeometry",
+        "outcome": "passed",
+        "seconds": 0.142
+      },
+      {
+        "class": "CoBrandedReceiptTests",
+        "test": "testLegacyStudioAndEventFirstProfilesStillResolveAsBefore",
+        "outcome": "passed",
+        "seconds": 0.017
+      },
+      {
+        "class": "CoBrandedReceiptTests",
+        "test": "testLogoKeepsItsProportionsForWideSquareAndTallArtwork",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "CoBrandedReceiptTests",
+        "test": "testMissingLogoFallsBackToStandardHeaderWithoutBlankSpace",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "CoBrandedReceiptTests",
+        "test": "testMovingBothPreservesAlignmentAndIndependentEditsAtBoundaries",
+        "outcome": "passed",
+        "seconds": 0.035
+      },
+      {
+        "class": "CoBrandedReceiptTests",
+        "test": "testNewEditorInitializesEverySavedGeometryWithoutJump",
+        "outcome": "passed",
+        "seconds": 0.288
+      },
+      {
+        "class": "CoBrandedReceiptTests",
+        "test": "testPhotographsKeepTheirSizeAndHeaderStaysCompactComparedWithStandard",
+        "outcome": "passed",
+        "seconds": 0.018
+      },
+      {
+        "class": "CoBrandedReceiptTests",
+        "test": "testRenderEveryFormatCoBrandedWithNormalAndThermalArtifacts",
+        "outcome": "passed",
+        "seconds": 14.364
+      },
+      {
+        "class": "CoBrandedReceiptTests",
+        "test": "testResizeClampResolvesNextMovementAndSelectedResetLeavesNeighborsAlone",
+        "outcome": "passed",
+        "seconds": 0.039
+      },
+      {
+        "class": "CoBrandedReceiptTests",
+        "test": "testStickersNeverCoverTheCoBrandedHeader",
+        "outcome": "passed",
+        "seconds": 0.015
+      },
+      {
+        "class": "CoBrandedReceiptTests",
+        "test": "testThermalRasterKeepsTheSeparatorAndWordmarkInk",
+        "outcome": "passed",
+        "seconds": 0.456
+      },
+      {
+        "class": "CoBrandedReceiptTests",
+        "test": "testWholeHeaderScalesAndMovesAllThreeElementsTogether",
+        "outcome": "passed",
+        "seconds": 0.034
+      },
+      {
+        "class": "CommercialEventCreationRecoveryTests",
+        "test": "testAbandoningRequiresAReasonAndKeepsTheDraft",
+        "outcome": "passed",
+        "seconds": 0.074
+      },
+      {
+        "class": "CommercialEventCreationRecoveryTests",
+        "test": "testConcurrentDuplicateTapsCreateOneEvent",
+        "outcome": "passed",
+        "seconds": 0.047
+      },
+      {
+        "class": "CommercialEventCreationRecoveryTests",
+        "test": "testCorruptedCreationJournalBlocksNewCreationsAndIsPreserved",
+        "outcome": "passed",
+        "seconds": 0.023
+      },
+      {
+        "class": "CommercialEventCreationRecoveryTests",
+        "test": "testCrashAfterServerCreationBeforeLocalLinkingResumesAfterRelaunch",
+        "outcome": "passed",
+        "seconds": 0.047
+      },
+      {
+        "class": "CommercialEventCreationRecoveryTests",
+        "test": "testCreationOnAnotherConnectionIsNeverAttachedHere",
+        "outcome": "passed",
+        "seconds": 0.051
+      },
+      {
+        "class": "CommercialEventCreationRecoveryTests",
+        "test": "testDefinitiveRejectionClosesTheRequestAndAllowsARetry",
+        "outcome": "passed",
+        "seconds": 0.049
+      },
+      {
+        "class": "CommercialEventCreationRecoveryTests",
+        "test": "testIntentWriteFailureSendsNothing",
+        "outcome": "passed",
+        "seconds": 0.022
+      },
+      {
+        "class": "CommercialEventCreationRecoveryTests",
+        "test": "testLostCreateResponseNeverCreatesASecondEventAndRecoversByExactIdentity",
+        "outcome": "passed",
+        "seconds": 0.053
+      },
+      {
+        "class": "CommercialEventCreationRecoveryTests",
+        "test": "testLostResponseWhileStartingNewPaidOccurrenceRecoversWithoutReassigningHistory",
+        "outcome": "passed",
+        "seconds": 0.194
+      },
+      {
+        "class": "CommercialEventCreationRecoveryTests",
+        "test": "testOlderWorkerWithoutLookupFallsBackToExplicitAuditedDraftSelection",
+        "outcome": "passed",
+        "seconds": 0.066
+      },
+      {
+        "class": "CommercialEventCreationRecoveryTests",
+        "test": "testRequestThatNeverArrivedIsConfirmedNotCreatedThenRetried",
+        "outcome": "passed",
+        "seconds": 0.076
+      },
+      {
+        "class": "CommercialEventCreationRecoveryTests",
+        "test": "testSameOperationIDReplaysAndDifferentPayloadFails",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "CommercialEventCreationRecoveryTests",
+        "test": "testUnpairedIPadSendsNothingAndRecordsNoCreation",
+        "outcome": "passed",
+        "seconds": 0.023
+      },
+      {
+        "class": "CustomerExperienceTests",
+        "test": "testControlledThemesHaveNamesAndDescriptions",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "CustomerExperienceTests",
+        "test": "testCustomerContentNormalizesWhitespaceAndLimitsLength",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "CustomerExperienceTests",
+        "test": "testCustomerErrorClassificationDoesNotExposeTechnicalDetail",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "CustomerExperienceTests",
+        "test": "testCustomerIdentityFallbackDoesNotCoupleScreenAndReceiptMessages",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "CustomerExperienceTests",
+        "test": "testDoneResetStillClearsCustomerIdentityAndCopyCount",
+        "outcome": "passed",
+        "seconds": 0.009
+      },
+      {
+        "class": "CustomerExperienceTests",
+        "test": "testEventModeSummaryClearlyDistinguishesScreenAndReceiptActivation",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "CustomerExperienceTests",
+        "test": "testGridSixCustomerScreensOnElevenInchIPad",
+        "outcome": "passed",
+        "seconds": 5.95
+      },
+      {
+        "class": "CustomerExperienceTests",
+        "test": "testIdleResetIsBlockedByEveryPrintSafetyCondition",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "CustomerExperienceTests",
+        "test": "testIdleResetIsLimitedToConservativeCustomerStates",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "CustomerExperienceTests",
+        "test": "testOlderPersistedProfileDecodesWithSafeCustomerDefaults",
+        "outcome": "passed",
+        "seconds": 0.022
+      },
+      {
+        "class": "CustomerExperienceTests",
+        "test": "testReceiptOutputSelectionsUseControlledProductionProfiles",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "CustomerExperienceTests",
+        "test": "testReturningToWelcomeReloadsEventModeAfterItWasTurnedOffMidSession",
+        "outcome": "passed",
+        "seconds": 0.004
+      },
+      {
+        "class": "CustomerExperienceTests",
+        "test": "testStaticPreviewPolicyHasNoProductionSideEffects",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "CustomerExperienceTests",
+        "test": "testThankYouUsesShorterButConservativeTimeout",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "CustomerOperatorUIReleaseTests",
+        "test": "testArchivedQRIsTheExactFrozenURLForLegacyAndCurrentFrontDoors",
+        "outcome": "passed",
+        "seconds": 1.201
+      },
+      {
+        "class": "CustomerOperatorUIReleaseTests",
+        "test": "testCameraScreenCompositionInPortraitAndLandscape",
+        "outcome": "passed",
+        "seconds": 10.122
+      },
+      {
+        "class": "CustomerOperatorUIReleaseTests",
+        "test": "testCopyControlsFollowExistingEntitlementRules",
+        "outcome": "passed",
+        "seconds": 0.153
+      },
+      {
+        "class": "CustomerOperatorUIReleaseTests",
+        "test": "testGalleryStatusIsTruthful",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "CustomerOperatorUIReleaseTests",
+        "test": "testGestureOnlyZoomViewerFitsWithAVeryTallReceipt",
+        "outcome": "passed",
+        "seconds": 1.791
+      },
+      {
+        "class": "CustomerOperatorUIReleaseTests",
+        "test": "testInvalidOrForeignArchivedURLsNeverProduceAQR",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "CustomerOperatorUIReleaseTests",
+        "test": "testPrintingAndPreparingStatesStayMonochrome",
+        "outcome": "passed",
+        "seconds": 5.736
+      },
+      {
+        "class": "CustomerOperatorUIReleaseTests",
+        "test": "testPrintSummaryIsConciseAndFlagsUnknownOutcomes",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "CustomerOperatorUIReleaseTests",
+        "test": "testReceiptScreenHasNoKeepsakeOrBlackAndWhiteSwitch",
+        "outcome": "passed",
+        "seconds": 0.272
+      },
+      {
+        "class": "CustomerOperatorUIReleaseTests",
+        "test": "testReceiptScreenShowsOneBlackAndWhitePreviewForEveryFormatAndOrientation",
+        "outcome": "passed",
+        "seconds": 24.798
+      },
+      {
+        "class": "CustomerOperatorUIReleaseTests",
+        "test": "testRecentSessionsSourceNeverLogsAFullGalleryTokenOrURL",
+        "outcome": "passed",
+        "seconds": 0.008
+      },
+      {
+        "class": "CustomerOperatorUIReleaseTests",
+        "test": "testSearchGroupingFiltersAndCorruptArchivesInTheCollection",
+        "outcome": "passed",
+        "seconds": 8.825
+      },
+      {
+        "class": "CustomerOperatorUIReleaseTests",
+        "test": "testZoomingAnArchivedReceiptKeepsTheReprintFingerprint",
+        "outcome": "passed",
+        "seconds": 0.983
+      },
+      {
+        "class": "CustomerOperatorUIReleaseTests",
+        "test": "testZoomViewFitsWholeExtremeReceiptAndPresetsAreRelativeToFit",
+        "outcome": "passed",
+        "seconds": 0.037
+      },
+      {
+        "class": "DetachedCheckoutTests",
+        "test": "testCaptureAndPrintingCannotBeDetachedAndWriteFailureDoesNotLoseOriginal",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "DetachedCheckoutTests",
+        "test": "testCrashAfterHandoffCommitClearsOnlyMatchingPreCameraSnapshot",
+        "outcome": "passed",
+        "seconds": 0.022
+      },
+      {
+        "class": "DetachedCheckoutTests",
+        "test": "testDeletionRequiresUnusedLocalRunAndCompleteReadableEvidence",
+        "outcome": "passed",
+        "seconds": 0.029
+      },
+      {
+        "class": "DetachedCheckoutTests",
+        "test": "testDurableHandoffReleasesKioskAndPreservesOriginalOwnership",
+        "outcome": "passed",
+        "seconds": 0.028
+      },
+      {
+        "class": "EmojiStickerTests",
+        "test": "testAddingEmojiUsesExistingGeometryUndoRedoAndFreeze",
+        "outcome": "passed",
+        "seconds": 0.86
+      },
+      {
+        "class": "EmojiStickerTests",
+        "test": "testBundledCatalogCoversUnicodeGroupsSkinTonesAndSearch",
+        "outcome": "passed",
+        "seconds": 0.051
+      },
+      {
+        "class": "EmojiStickerTests",
+        "test": "testCatalogFiltersEntriesTheSystemFontCannotDraw",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EmojiStickerTests",
+        "test": "testEmojiRespectsStickerLimitAndRejectsInvalidInput",
+        "outcome": "passed",
+        "seconds": 0.84
+      },
+      {
+        "class": "EmojiStickerTests",
+        "test": "testEmojiStickersAreLegibleInTheThermalRasterAndRespectProtectedAreas",
+        "outcome": "passed",
+        "seconds": 11.399
+      },
+      {
+        "class": "EmojiStickerTests",
+        "test": "testEmojiStickersOnEveryFormatKeepReceiptGeometry",
+        "outcome": "passed",
+        "seconds": 3.785
+      },
+      {
+        "class": "EmojiStickerTests",
+        "test": "testLegacyArtworkAndEmojiCanBeOfferedTogetherOrSeparately",
+        "outcome": "passed",
+        "seconds": 0.215
+      },
+      {
+        "class": "EmojiStickerTests",
+        "test": "testRecentEmojiAreScopedToOneSessionAndClosingReleasesEverything",
+        "outcome": "passed",
+        "seconds": 1.136
+      },
+      {
+        "class": "EmojiStickerTests",
+        "test": "testRenderEmojiStudioInPortraitAndLandscape",
+        "outcome": "passed",
+        "seconds": 4.204
+      },
+      {
+        "class": "EmojiStickerTests",
+        "test": "testRendererIsDeterministic",
+        "outcome": "passed",
+        "seconds": 0.901
+      },
+      {
+        "class": "EmojiStickerTests",
+        "test": "testRendererProducesBoundedMatchingDisplayAndPrintArtwork",
+        "outcome": "passed",
+        "seconds": 6.252
+      },
+      {
+        "class": "EmojiStickerTests",
+        "test": "testSettingsMigrationMakesEmojiPrimaryAndKeepsArtworkAsOptionalLegacySource",
+        "outcome": "passed",
+        "seconds": 0.005
+      },
+      {
+        "class": "EmojiStickerTests",
+        "test": "testToneCurveDarkensBrightColoursButKeepsHighlightsWhite",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EmojiStickerTests",
+        "test": "testValidatorAcceptsEveryRepresentativeSequenceAsOneGrapheme",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EmojiStickerTests",
+        "test": "testValidatorNormalizesTextDefaultPictographToEmojiPresentation",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EmojiStickerTests",
+        "test": "testValidatorRejectsSequencesTheSystemFontCannotDrawAsOneEmoji",
+        "outcome": "passed",
+        "seconds": 0.007
+      },
+      {
+        "class": "EmojiStickerTests",
+        "test": "testValidatorRejectsTextEmptyModifiersAndLongPastes",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventDesignDirtyStateTests",
+        "test": "testConnectingPaidCheckoutDoesNotMarkTheDesignAsEdited",
+        "outcome": "passed",
+        "seconds": 0.053
+      },
+      {
+        "class": "EventDesignLibraryTests",
+        "test": "testLegacyProfileMigratesToOneSavedEventWithoutChangingIt",
+        "outcome": "passed",
+        "seconds": 0.003
+      },
+      {
+        "class": "EventDesignLibraryTests",
+        "test": "testServerLinksAreSeparatedByPaymentsEnvironment",
+        "outcome": "passed",
+        "seconds": 0.011
+      },
+      {
+        "class": "EventDesignLibraryTests",
+        "test": "testSessionSetupDraftFromEarlierBuildStillDecodes",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventDesignLibraryTests",
+        "test": "testUnreadableLibraryIsPreservedAndRefusesWrites",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventDesignStudioTests",
+        "test": "testArchivedReprintKeepsFrozenArtworkAfterSettingsChange",
+        "outcome": "passed",
+        "seconds": 0.558
+      },
+      {
+        "class": "EventDesignStudioTests",
+        "test": "testArtworkFrameAlwaysStaysInsidePrintableBounds",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "EventDesignStudioTests",
+        "test": "testClassicPresetIsTheLegacyReceiptTypography",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventDesignStudioTests",
+        "test": "testCustomTypographyValuesClampAndNormalize",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventDesignStudioTests",
+        "test": "testDesignRoundTripsThroughPersistence",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventDesignStudioTests",
+        "test": "testEveryFontFaceIsInstalledAndResolvesDeterministically",
+        "outcome": "passed",
+        "seconds": 0.005
+      },
+      {
+        "class": "EventDesignStudioTests",
+        "test": "testEveryPresetFitsLongestTextInEveryFormatWithoutOverlap",
+        "outcome": "passed",
+        "seconds": 1.313
+      },
+      {
+        "class": "EventDesignStudioTests",
+        "test": "testExtremeArtworkSettingsKeepEveryFormatWithinMaximumHeight",
+        "outcome": "passed",
+        "seconds": 0.026
+      },
+      {
+        "class": "EventDesignStudioTests",
+        "test": "testFillBannerHeightAndZoomAreBoundedAndDeterministic",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "EventDesignStudioTests",
+        "test": "testJPEGArtworkRemainsSupported",
+        "outcome": "passed",
+        "seconds": 0.39
+      },
+      {
+        "class": "EventDesignStudioTests",
+        "test": "testLegacyAlignmentAndNewHorizontalPositionAgree",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventDesignStudioTests",
+        "test": "testLegacyProfileWithoutNewFieldsDecodesToClassicAndAlignmentPlacement",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventDesignStudioTests",
+        "test": "testLongTitleShrinksWithinSafeRangeAndShortTitleKeepsPreferredSize",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventDesignStudioTests",
+        "test": "testMultiPageAndUnreadableArtworkAreRejectedCleanly",
+        "outcome": "passed",
+        "seconds": 0.004
+      },
+      {
+        "class": "EventDesignStudioTests",
+        "test": "testPassportLayoutIsIndependentOfReceiptTypography",
+        "outcome": "passed",
+        "seconds": 0.219
+      },
+      {
+        "class": "EventDesignStudioTests",
+        "test": "testResetClearsEditorAdjustmentsButKeepsArtwork",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventDesignStudioTests",
+        "test": "testSessionArtworkIsFrozenAndCannotLeakIntoLaterSession",
+        "outcome": "passed",
+        "seconds": 0.095
+      },
+      {
+        "class": "EventDesignStudioTests",
+        "test": "testSinglePagePDFImportsAsVectorAndRendersAtReceiptResolution",
+        "outcome": "passed",
+        "seconds": 0.376
+      },
+      {
+        "class": "EventDesignStudioTests",
+        "test": "testThermalPreviewMatchesProductionReceiptRaster",
+        "outcome": "passed",
+        "seconds": 0.482
+      },
+      {
+        "class": "EventDesignStudioTests",
+        "test": "testTransparentPNGCompositesToWhiteInReceiptAndThermalPreview",
+        "outcome": "passed",
+        "seconds": 0.123
+      },
+      {
+        "class": "EventDesignStudioTests",
+        "test": "testTypographyChangeAffectsOnlySessionsFrozenAfterIt",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventDesignStudioTests",
+        "test": "testTypographyLayoutIsDeterministic",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "EventDesignStudioTests",
+        "test": "testUnknownOrCorruptDesignValuesNeverMakeTheProfileUnreadable",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventFinalizationTests",
+        "test": "testAccessibilityCopySelectionScrollsWithoutHorizontalClipping",
+        "outcome": "passed",
+        "seconds": 0.627
+      },
+      {
+        "class": "EventFinalizationTests",
+        "test": "testBackAndCancelBeforeCheckoutPreserveIdentityAndCreateNoPayment",
+        "outcome": "passed",
+        "seconds": 0.035
+      },
+      {
+        "class": "EventFinalizationTests",
+        "test": "testCancelAtPaidCameraReadyReturnsToWelcomeAndRetainsRecoveryForEveryPaidSource",
+        "outcome": "passed",
+        "seconds": 0.104
+      },
+      {
+        "class": "EventFinalizationTests",
+        "test": "testConclusivePolicyRejectionReopensCopyReviewButUnresolvedPaymentDoesNot",
+        "outcome": "passed",
+        "seconds": 0.005
+      },
+      {
+        "class": "EventFinalizationTests",
+        "test": "testCopySelectionAndThankYouFitCarloPortraitAndLandscape",
+        "outcome": "passed",
+        "seconds": 5.416
+      },
+      {
+        "class": "EventFinalizationTests",
+        "test": "testPaymentAndCashBackPreserveSessionAndCopiesWithoutCreatingOrders",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "EventFinalizationTests",
+        "test": "testPaymentAndCashScreensFitAndCenterInBothCarloOrientations",
+        "outcome": "passed",
+        "seconds": 5.321
+      },
+      {
+        "class": "EventFinalizationTests",
+        "test": "testPaymentScreenNavigationCannotAbandonAnUnresolvedRequest",
+        "outcome": "passed",
+        "seconds": 0.054
+      },
+      {
+        "class": "EventFinalizationTests",
+        "test": "testQuantityLimitsUseConfiguredPolicyAndRepeatedContinueDoesNotStartAnOrder",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventFinalizationTests",
+        "test": "testUnresolvedPaymentCannotNavigateBackCancelOrChangeQuantity",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventHeaderTests",
+        "test": "testAlignmentProducesDeterministicFrames",
+        "outcome": "passed",
+        "seconds": 0.012
+      },
+      {
+        "class": "EventHeaderTests",
+        "test": "testCustomHeaderAppearsWithinSafeRegionAndPreservesAspectRatio",
+        "outcome": "passed",
+        "seconds": 0.06
+      },
+      {
+        "class": "EventHeaderTests",
+        "test": "testCustomHeaderKeepsEveryReceiptFormatWithinMaximumHeight",
+        "outcome": "passed",
+        "seconds": 0.01
+      },
+      {
+        "class": "EventHeaderTests",
+        "test": "testDefaultAndNoHeaderGeometry",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventHeaderTests",
+        "test": "testEventTextBlockCanBeRemovedWithoutReservedHeight",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventHeaderTests",
+        "test": "testExtremelyTallHeaderIsCapped",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventHeaderTests",
+        "test": "testFitFillAndCropSettingsAreDeterministicAndCodable",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "EventHeaderTests",
+        "test": "testImmutableAssetsKeepSessionAIsolatedFromProfileReplacement",
+        "outcome": "passed",
+        "seconds": 0.003
+      },
+      {
+        "class": "EventHeaderTests",
+        "test": "testLegacyEventProfileDecodesWithDefaultHeader",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventHeaderTests",
+        "test": "testMaximumHeaderScaleStaysWithinPrintableWidth",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventHeaderTests",
+        "test": "testMissingAssetFallsBackToDefaultHeader",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventHeaderTests",
+        "test": "testNewEventImageResetUsesSafeDefaultsAndKeepsAsset",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventHeaderTests",
+        "test": "testQualityAnalyzerFindsBroadWarningClasses",
+        "outcome": "passed",
+        "seconds": 0.004
+      },
+      {
+        "class": "EventHeaderTests",
+        "test": "testSavedAdvancedEventImageAdjustmentsSurviveProfileRoundTrip",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventHeaderTests",
+        "test": "testThermalPreviewIsDeterministic",
+        "outcome": "passed",
+        "seconds": 0.11
+      },
+      {
+        "class": "EventHeaderTests",
+        "test": "testTransparentPNGCompositesAgainstWhite",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventHistoryReportingTests",
+        "test": "testCommercialOrdersNotLinkedToAnyRunStayUnassignedAndAreNotGuessed",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "EventHistoryReportingTests",
+        "test": "testCorruptAttributionJournalIsPreservedAndBlocksNewAttributions",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventHistoryReportingTests",
+        "test": "testHistoricalReportProvesOnlyIdentityLinkedSessionsAndExplainsTheRest",
+        "outcome": "passed",
+        "seconds": 0.018
+      },
+      {
+        "class": "EventHistoryReportingTests",
+        "test": "testLegacyDesignLibraryDecodesWithoutRetiredLinksAndDraftCannotReplaceALink",
+        "outcome": "passed",
+        "seconds": 0.028
+      },
+      {
+        "class": "EventHistoryReportingTests",
+        "test": "testLegacyManifestWithoutNewFieldsDecodesAndOlderReadersIgnoreThem",
+        "outcome": "passed",
+        "seconds": 0.007
+      },
+      {
+        "class": "EventHistoryReportingTests",
+        "test": "testManualAttributionIsAuthenticatedAppendOnlyAuditedAndSeparateFromExactCounts",
+        "outcome": "passed",
+        "seconds": 0.011
+      },
+      {
+        "class": "EventHistoryReportingTests",
+        "test": "testMultipleRunsKeepSeparateRestartSafeStatisticsAndCompleteCSV",
+        "outcome": "passed",
+        "seconds": 0.035
+      },
+      {
+        "class": "EventHistoryReportingTests",
+        "test": "testUnassignedPrintEvidenceIsCountedOnceAndNeverAdopted",
+        "outcome": "passed",
+        "seconds": 0.027
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testAcknowledgedUnknownPrintAllowsRelaunchRegularGuestEventStartAndEnd",
+        "outcome": "passed",
+        "seconds": 0.207
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testArchivedDesignAndArchivedRunCannotStartOrResume",
+        "outcome": "passed",
+        "seconds": 0.147
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testConcurrentAndDuplicateOperatorActionsAreSerialized",
+        "outcome": "passed",
+        "seconds": 0.242
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testCurrentEventAndReportTabsRenderInPortraitAndLandscape",
+        "outcome": "passed",
+        "seconds": 8.426
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testEndedRunIsNeverReopenedAndRequiresExplicitNewOccurrence",
+        "outcome": "passed",
+        "seconds": 0.134
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testEndForEveryBoothCompletesRunOnlyAfterServerConfirmsEnded",
+        "outcome": "passed",
+        "seconds": 0.131
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testEndThenRelaunchReturnsToRegularAndKeepsHistory",
+        "outcome": "passed",
+        "seconds": 0.123
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testEndThisBoothOnlyLeavesTheSharedPaidEventOpen",
+        "outcome": "passed",
+        "seconds": 0.107
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testHistoricalRenameKeepsCommercialAndSessionAssociationsAcrossRestart",
+        "outcome": "passed",
+        "seconds": 0.021
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testInactiveAppliedDesignDetachesThroughRegularTransitionAndRemovalSurvivesRelaunch",
+        "outcome": "passed",
+        "seconds": 0.052
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testInFlightSetupCannotBeContradictedByEndOrPauseAfterNavigation",
+        "outcome": "passed",
+        "seconds": 0.064
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testLegacyInstallWithoutRunsStillAdmitsFirstGuestButMismatchFailsClosed",
+        "outcome": "passed",
+        "seconds": 0.025
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testLostEndResponseIsReconciledAfterRelaunchWithoutRepeatingTheMutation",
+        "outcome": "passed",
+        "seconds": 0.134
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testMaintenanceEndElsewhereCompletesMatchingLocalRun",
+        "outcome": "passed",
+        "seconds": 0.1
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testParkedPaidGuestRelaunchNextRegularGuestAndFreeEventCycleKeepsOutstandingEvidence",
+        "outcome": "passed",
+        "seconds": 0.213
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testPauseBoothNeverPausesTheSharedPaidEventForOtherBooths",
+        "outcome": "passed",
+        "seconds": 0.165
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testPauseCommercialEventIsExplicitServerWideAndConfirmedByReadBack",
+        "outcome": "passed",
+        "seconds": 0.156
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testPausedRunResumesWithSameIdentityOnlyThroughRevalidatedStart",
+        "outcome": "passed",
+        "seconds": 0.107
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testPrepaidStartCommitsRunBeforeFirstGuestAndReportsWithoutPaymentsServer",
+        "outcome": "passed",
+        "seconds": 0.072
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testRemovingCompletedPaidDesignPreservesFinancialTotalsOriginalSessionsAndServerEvent",
+        "outcome": "passed",
+        "seconds": 0.153
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testReusingEndedPaidDesignCreatesFreshCommercialEventAndKeepsOldFinancialHistory",
+        "outcome": "passed",
+        "seconds": 0.25
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testRunWriteFailureAtStartKeepsAdmissionClosed",
+        "outcome": "passed",
+        "seconds": 0.051
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testStaleOrReusedCommercialLinkIsRefusedWithoutChangingTheDesign",
+        "outcome": "passed",
+        "seconds": 0.161
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testStatusModelNeverDerivesAcceptingFromASingleSource",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testSwitchingDesignsStartsNewRunWithoutMovingSessions",
+        "outcome": "passed",
+        "seconds": 0.132
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testSwitchingPaidToPrepaidWithUnresolvedEntitlementIsBlockedAndKeepsState",
+        "outcome": "passed",
+        "seconds": 0.119
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testUnreachableEndLeavesRunPausedAndReviewClearsIntentWithoutGuessing",
+        "outcome": "passed",
+        "seconds": 0.113
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testUnreadableRunHistoryBlocksStartAndIsPreserved",
+        "outcome": "passed",
+        "seconds": 0.025
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testVersionConflictDuringEndIsNotRetriedAndKeepsHistory",
+        "outcome": "passed",
+        "seconds": 0.113
+      },
+      {
+        "class": "EventLogoImportTests",
+        "test": "testContentBoundsIgnoreEmptyPaddingSoPaddedLogosPrintAtTheSameSize",
+        "outcome": "passed",
+        "seconds": 0.046
+      },
+      {
+        "class": "EventLogoImportTests",
+        "test": "testCorruptOversizedMultipageAndEncryptedFilesAreRejectedWithClearMessages",
+        "outcome": "passed",
+        "seconds": 0.004
+      },
+      {
+        "class": "EventLogoImportTests",
+        "test": "testReplacementCreatesANewIdentifierAndKeepsTheOldArtworkForFrozenSessions",
+        "outcome": "passed",
+        "seconds": 0.007
+      },
+      {
+        "class": "EventLogoImportTests",
+        "test": "testValidPNGTransparentPNGJPEGAndVectorPDFImport",
+        "outcome": "passed",
+        "seconds": 0.008
+      },
+      {
+        "class": "EventOperationsTests",
+        "test": "testAcknowledgementRetainsExactPhotosAndSurvivesRelaunchForOnlyThatCheckpoint",
+        "outcome": "passed",
+        "seconds": 0.016
+      },
+      {
+        "class": "EventOperationsTests",
+        "test": "testAllPassingChecksAreReady",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventOperationsTests",
+        "test": "testEditingDefaultsCannotRefreshAnAlreadyStartedGuestsProfile",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventOperationsTests",
+        "test": "testNextCustomerResetClearsIdentityAndCopyCount",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventOperationsTests",
+        "test": "testNoChecksCannotClaimReady",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventOperationsTests",
+        "test": "testOfflinePendingUploadsNeedAttentionButDoNotBlockPrinting",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventOperationsTests",
+        "test": "testOldArchivesSurviveSaveAndStoreReopen",
+        "outcome": "passed",
+        "seconds": 0.028
+      },
+      {
+        "class": "EventOperationsTests",
+        "test": "testOptionalProfileAttentionDoesNotBlockOperation",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventOperationsTests",
+        "test": "testOwnerMonitoringKeepsDeployedProtocolForEveryPrinterState",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventOperationsTests",
+        "test": "testPrinterRecoveryLockBlocksReadiness",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventOperationsTests",
+        "test": "testRapidStartCannotReplaceAnExistingSession",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventOperationsTests",
+        "test": "testRecoveryEventsCountUniqueUnknownJobsOnly",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventOperationsTests",
+        "test": "testReprintRequiresIdleUnlockedResolvedState",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventOperationsTests",
+        "test": "testRequestedCopiesCountBatchesOnceIncludingFailedBatch",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventOperationsTests",
+        "test": "testStorageProbeFailureIsNotReportedAsAccessible",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventOperationsTests",
+        "test": "testStorageProbeLeavesExistingDataIntact",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventOperationsTests",
+        "test": "testStorageThresholdBoundaries",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventOperationsTests",
+        "test": "testUnknownPrintNeedsFreshAcknowledgementAfterRelaunch",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventOperationsTests",
+        "test": "testUnverifiedCriticalCameraCannotClaimReady",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventReadinessSessionTests",
+        "test": "testCustomizedRegularBoothAssociationSurvivesArchiveReload",
+        "outcome": "passed",
+        "seconds": 0.841
+      },
+      {
+        "class": "EventReadinessSessionTests",
+        "test": "testScopesUseOccurrenceIdentityAndKeepLegacyUnknownsInAllHistory",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "EventReportingAPITests",
+        "test": "testCSVLoadsEveryPageAndIncludesHeaderOnlyOnce",
+        "outcome": "passed",
+        "seconds": 0.009
+      },
+      {
+        "class": "EventReportingAPITests",
+        "test": "testDeliveredPrintCountIsDecodedWithoutEquatingItToSensorConfirmation",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventReportingAPITests",
+        "test": "testEventListLoadsAllPagesIncludingArchivedHistory",
+        "outcome": "passed",
+        "seconds": 0.003
+      },
+      {
+        "class": "EventReportingAPITests",
+        "test": "testExactRunPaymentsRequireExplicitBackendCapabilityInsteadOfReturningMisleadingZero",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "EventReportingAPITests",
+        "test": "testFailedSummaryAndWrongCredentialThrowInsteadOfBecomingZero",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventReportingAPITests",
+        "test": "testIncompleteCSVWithoutNextCursorIsNotOfferedAsComplete",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventReportingAPITests",
+        "test": "testRepeatedPaginationCursorFailsInsteadOfSilentTruncation",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventReportingAPITests",
+        "test": "testRunOrderQueryCompletesAllPagesIncludingExactSessionIDs",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventRunArchiveAndLayoutTests",
+        "test": "testAppliedCommerciallyLinkedAndHistoricalDesignsCannotBeDeleted",
+        "outcome": "passed",
+        "seconds": 0.453
+      },
+      {
+        "class": "EventRunArchiveAndLayoutTests",
+        "test": "testArchiveStoresExactRunAndLegacyMetadataLoadsWithoutRewritingOrInference",
+        "outcome": "passed",
+        "seconds": 0.457
+      },
+      {
+        "class": "EventRunArchiveAndLayoutTests",
+        "test": "testDesignCleanupRequiresAuthenticationAndSafeIdle",
+        "outcome": "passed",
+        "seconds": 0.015
+      },
+      {
+        "class": "EventRunArchiveAndLayoutTests",
+        "test": "testExplicitLegacyAttributionProtectsOnlyItsRunEvenAfterMediaRemoval",
+        "outcome": "passed",
+        "seconds": 0.45
+      },
+      {
+        "class": "EventRunArchiveAndLayoutTests",
+        "test": "testFailedRemovalWriteRetainsDesignAndRetryPersistsReferenceAtomically",
+        "outcome": "passed",
+        "seconds": 0.016
+      },
+      {
+        "class": "EventRunArchiveAndLayoutTests",
+        "test": "testFailedSoftRemovalCannotHideEventOrReportSuccess",
+        "outcome": "passed",
+        "seconds": 0.01
+      },
+      {
+        "class": "EventRunArchiveAndLayoutTests",
+        "test": "testOnlyUnusedDesignCanBeDeletedAndArchiveIsReversible",
+        "outcome": "passed",
+        "seconds": 0.024
+      },
+      {
+        "class": "EventRunArchiveAndLayoutTests",
+        "test": "testPrintJournalReconciliationRepairsStatisticsAfterCrashWithoutAdoptingLegacySessions",
+        "outcome": "passed",
+        "seconds": 0.035
+      },
+      {
+        "class": "EventRunArchiveAndLayoutTests",
+        "test": "testRemovalDoesNotTouchAnotherLiveEventAndCannotRelinkItsCommercialRecord",
+        "outcome": "passed",
+        "seconds": 0.035
+      },
+      {
+        "class": "EventRunArchiveAndLayoutTests",
+        "test": "testRemovalProtectsActiveAppliedPendingAndUnauthorizedOperations",
+        "outcome": "passed",
+        "seconds": 0.032
+      },
+      {
+        "class": "EventRunArchiveAndLayoutTests",
+        "test": "testRemoveCommercialEventHidesAllRunsButPreservesJournalMediaAndOwnershipAcrossRestart",
+        "outcome": "passed",
+        "seconds": 0.491
+      },
+      {
+        "class": "EventRunArchiveAndLayoutTests",
+        "test": "testRemovingHistoricalConfigurationKeepsExactIdentityCommercialOwnershipAndArchivesAcrossRelaunch",
+        "outcome": "passed",
+        "seconds": 0.459
+      },
+      {
+        "class": "EventRunArchiveAndLayoutTests",
+        "test": "testRunReportRendersPortraitAndLandscapeWithSyntheticHistory",
+        "outcome": "passed",
+        "seconds": 1.829
+      },
+      {
+        "class": "EventRunArchiveAndLayoutTests",
+        "test": "testStandalonePaidRunRemovalAndRestoreKeepStableAssociations",
+        "outcome": "passed",
+        "seconds": 0.036
+      },
+      {
+        "class": "EventRunArchiveAndLayoutTests",
+        "test": "testUnusedDeletionIgnoresLaterUnassignedRegularSessionsIncludingRemovedMedia",
+        "outcome": "passed",
+        "seconds": 0.455
+      },
+      {
+        "class": "EventRunArchiveAndLayoutTests",
+        "test": "testUnusedRunIgnoresUnassignedSessionsButRetainsExactEvidenceAndRestoreIsHistorical",
+        "outcome": "passed",
+        "seconds": 0.448
+      },
+      {
+        "class": "EventRunReportingTests",
+        "test": "testActualCompletionCallbackRecordsOnceAndKeepsRunAfterGuestReset",
+        "outcome": "passed",
+        "seconds": 0.02
+      },
+      {
+        "class": "EventRunReportingTests",
+        "test": "testAutomaticContextSwitchCannotBypassUnresolvedFinancialRecovery",
+        "outcome": "passed",
+        "seconds": 0.004
+      },
+      {
+        "class": "EventRunReportingTests",
+        "test": "testDiskFailureKeepsCommittedRunAndSessionRecords",
+        "outcome": "passed",
+        "seconds": 0.009
+      },
+      {
+        "class": "EventRunReportingTests",
+        "test": "testFinancialAndPrintSafetyAndAuthenticationBlockRunReset",
+        "outcome": "passed",
+        "seconds": 0.005
+      },
+      {
+        "class": "EventRunReportingTests",
+        "test": "testHistoricalSessionCannotBeReassignedToNewRun",
+        "outcome": "passed",
+        "seconds": 0.011
+      },
+      {
+        "class": "EventRunReportingTests",
+        "test": "testInvalidFinancialAmountsFailInsteadOfDisplayingZero",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventRunReportingTests",
+        "test": "testLegacySessionDecodingKeepsMissingGalleryEvidenceUnknown",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventRunReportingTests",
+        "test": "testNamesNeverIdentifyRunsAndTestLiveRemainSeparate",
+        "outcome": "passed",
+        "seconds": 0.013
+      },
+      {
+        "class": "EventRunReportingTests",
+        "test": "testOfflineCashSnapshotScopesEnvironmentAndRunWithoutServerAccess",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventRunReportingTests",
+        "test": "testPaidButUnclaimedOrderMatchesOriginalCheckoutWithoutInventingAClaim",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "EventRunReportingTests",
+        "test": "testPartialPrintsAndGalleryUnknownAreNotCompletedOrVerified",
+        "outcome": "passed",
+        "seconds": 0.013
+      },
+      {
+        "class": "EventRunReportingTests",
+        "test": "testPauseAndEndCloseExistingAdmissionBarrierForRollbackSafety",
+        "outcome": "passed",
+        "seconds": 0.021
+      },
+      {
+        "class": "EventRunReportingTests",
+        "test": "testPauseResumeEndAndArchivePreserveIdentityAndHistory",
+        "outcome": "passed",
+        "seconds": 0.019
+      },
+      {
+        "class": "EventRunReportingTests",
+        "test": "testRepeatedCallbacksDoNotInflateCopiesCompletionOrGalleryCounts",
+        "outcome": "passed",
+        "seconds": 0.106
+      },
+      {
+        "class": "EventRunReportingTests",
+        "test": "testRunAndCompletionsSurviveRelaunchAndNewRunKeepsHistory",
+        "outcome": "passed",
+        "seconds": 0.026
+      },
+      {
+        "class": "EventRunReportingTests",
+        "test": "testRunPaymentsUseExactMembershipAndExcludeUnresolvedAndHeldFromRevenue",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "EventRunReportingTests",
+        "test": "testRunWriteFailureAfterPausingLeavesAdmissionFailClosed",
+        "outcome": "passed",
+        "seconds": 0.013
+      },
+      {
+        "class": "EventRunReportingTests",
+        "test": "testUnreadableRunHistoryIsPreservedAndCannotBeOverwritten",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "EventSetupAndPaymentMatrixTests",
+        "test": "testAmbiguousRegularSessionsDoNotCreateOrChooseAnotherEvent",
+        "outcome": "passed",
+        "seconds": 0.021
+      },
+      {
+        "class": "EventSetupAndPaymentMatrixTests",
+        "test": "testDifferentConnectionDraftReviewNeverContactsCurrentServer",
+        "outcome": "passed",
+        "seconds": 0.008
+      },
+      {
+        "class": "EventSetupAndPaymentMatrixTests",
+        "test": "testEventOffWithEveryPaymentChoiceUsesTheStudioReceipt",
+        "outcome": "passed",
+        "seconds": 0.296
+      },
+      {
+        "class": "EventSetupAndPaymentMatrixTests",
+        "test": "testEventOnLogoOffFreeAppliesEventScreensButStandardReceipt",
+        "outcome": "passed",
+        "seconds": 0.079
+      },
+      {
+        "class": "EventSetupAndPaymentMatrixTests",
+        "test": "testExistingInstallsKeepTheirCommittedPaidEventWithoutRelinking",
+        "outcome": "passed",
+        "seconds": 0.027
+      },
+      {
+        "class": "EventSetupAndPaymentMatrixTests",
+        "test": "testExistingRegularSessionsNamesAreReusedWithoutChangingServerPolicy",
+        "outcome": "passed",
+        "seconds": 0.054
+      },
+      {
+        "class": "EventSetupAndPaymentMatrixTests",
+        "test": "testFreeEventWithCoBrandedReceipt",
+        "outcome": "passed",
+        "seconds": 0.083
+      },
+      {
+        "class": "EventSetupAndPaymentMatrixTests",
+        "test": "testPaidEventWithStandardReceiptConnectsOnceAndCarriesTheEventName",
+        "outcome": "passed",
+        "seconds": 0.098
+      },
+      {
+        "class": "EventSetupAndPaymentMatrixTests",
+        "test": "testPaidToFreeEventPausesTheRemoteEventFirst",
+        "outcome": "passed",
+        "seconds": 0.153
+      },
+      {
+        "class": "EventSetupAndPaymentMatrixTests",
+        "test": "testPaymentChoiceAppliesToTheLoadedPolicyAndClearsOfflineCashWithCash",
+        "outcome": "passed",
+        "seconds": 0.09
+      },
+      {
+        "class": "EventSetupAndPaymentMatrixTests",
+        "test": "testPersonalizedReceiptRequiresAUsableLogo",
+        "outcome": "passed",
+        "seconds": 0.048
+      },
+      {
+        "class": "EventSetupAndPaymentMatrixTests",
+        "test": "testQRMinimumAndEmptyMethodsAreRejected",
+        "outcome": "passed",
+        "seconds": 0.072
+      },
+      {
+        "class": "EventSetupAndPaymentMatrixTests",
+        "test": "testRevisitingSetupNeverCreatesDuplicatePaidEvents",
+        "outcome": "passed",
+        "seconds": 0.05
+      },
+      {
+        "class": "EventSetupAndPaymentMatrixTests",
+        "test": "testSaveDesignNeverReportsSuccessWhenTheWriteFails",
+        "outcome": "passed",
+        "seconds": 0.034
+      },
+      {
+        "class": "EventSetupAndPaymentMatrixTests",
+        "test": "testSavedEventAndDraftsAreRestoredAfterRelaunch",
+        "outcome": "passed",
+        "seconds": 0.058
+      },
+      {
+        "class": "EventSetupAndPaymentMatrixTests",
+        "test": "testSwitchingEventsNeverCarriesAnotherEventsLogo",
+        "outcome": "passed",
+        "seconds": 0.139
+      },
+      {
+        "class": "EventSetupAndPaymentMatrixTests",
+        "test": "testTargetedPaymentReviewIsReadOnlyAndCapturesOriginalBaselineOnEdit",
+        "outcome": "passed",
+        "seconds": 0.076
+      },
+      {
+        "class": "EventSetupAndPaymentMatrixTests",
+        "test": "testTurningLogoOrEventModeOffKeepsTheSavedArtwork",
+        "outcome": "passed",
+        "seconds": 0.126
+      },
+      {
+        "class": "EventSetupAndPaymentMatrixTests",
+        "test": "testViewingAppliedAndPausedSetupDoesNotLeaveFalseDrafts",
+        "outcome": "passed",
+        "seconds": 0.079
+      },
+      {
+        "class": "GalleryAuthenticationClassificationTests",
+        "test": "testAuthCodesAreClassifiedEvenInsideHTTP200Body",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "GalleryAuthenticationClassificationTests",
+        "test": "testNonAuthBackendErrorIsNotMisclassified",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "GalleryAuthenticationClassificationTests",
+        "test": "testOperatorFacingAuthMessagePointsToGallerySetup",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "GalleryBrowserLayoutTests",
+        "test": "testBlackAndWhiteReceiptIsSmoothForHistoricalAndNewGalleries",
+        "outcome": "passed",
+        "seconds": 1.54
+      },
+      {
+        "class": "GalleryBrowserLayoutTests",
+        "test": "testEditorialMenuReceiptsCollageAndPrivateInstagramNavigation",
+        "outcome": "passed",
+        "seconds": 0.356
+      },
+      {
+        "class": "GalleryBrowserLayoutTests",
+        "test": "testFullSizePortraitLandscapeAndReceiptsFitViewport",
+        "outcome": "passed",
+        "seconds": 0.959
+      },
+      {
+        "class": "GalleryBrowserLayoutTests",
+        "test": "testGalleryLinkShareClipboardAndLightboxFocus",
+        "outcome": "passed",
+        "seconds": 0.295
+      },
+      {
+        "class": "GalleryBrowserLayoutTests",
+        "test": "testMobileShareAndDownloadFallbackPreserveFilesAndAccurateGuidance",
+        "outcome": "passed",
+        "seconds": 0.585
+      },
+      {
+        "class": "GalleryBrowserLayoutTests",
+        "test": "testProgressivePhotoIsVisibleAndSaveableBeforeLaterAssetsArrive",
+        "outcome": "passed",
+        "seconds": 0.334
+      },
+      {
+        "class": "GalleryBrowserLayoutTests",
+        "test": "testReceiptStyleBeforeAfterScreenshots",
+        "outcome": "passed",
+        "seconds": 11.851
+      },
+      {
+        "class": "GalleryBrowserLayoutTests",
+        "test": "testReceiptStylesSwitchBothCardsActionsAndLightboxAcrossWidths",
+        "outcome": "passed",
+        "seconds": 4.784
+      },
+      {
+        "class": "GalleryBrowserLayoutTests",
+        "test": "testSlowImageDecodeKeepsPlaceholdersAndTouchTargetsUntilLoad",
+        "outcome": "passed",
+        "seconds": 0.317
+      },
+      {
+        "class": "GalleryBrowserLayoutTests",
+        "test": "testSyntheticGalleriesFitAllWidthsAndOpenPhotosAndReceipts",
+        "outcome": "passed",
+        "seconds": 5.609
+      },
+      {
+        "class": "GalleryBrowserLayoutTests",
+        "test": "testUnavailableShareFriendlyAssetNeverShowsOrSavesTheQRReceipt",
+        "outcome": "passed",
+        "seconds": 0.346
+      },
+      {
+        "class": "GalleryDeliveryHardeningTests",
+        "test": "testCancelAndStartAnotherSessionNeverDeleteQueuedGallery",
+        "outcome": "passed",
+        "seconds": 0.054
+      },
+      {
+        "class": "GalleryDeliveryHardeningTests",
+        "test": "testColdPublicPageTakingLongerThanEightSecondsReconcilesWithoutPOST",
+        "outcome": "passed",
+        "seconds": 9.162
+      },
+      {
+        "class": "GalleryDeliveryHardeningTests",
+        "test": "testFailedReconciliationCountsAttemptsAndPublicReadsRespectRetryAfter",
+        "outcome": "passed",
+        "seconds": 0.107
+      },
+      {
+        "class": "GalleryDeliveryHardeningTests",
+        "test": "testMixedAcceptedAndUncertainBacklogDoesNotLeaveTransmissionLaneIdle",
+        "outcome": "passed",
+        "seconds": 2.296
+      },
+      {
+        "class": "GalleryDeliveryHardeningTests",
+        "test": "testNetworkAndBackendFailuresRetainDurablePhotosAcrossRestart",
+        "outcome": "passed",
+        "seconds": 1.21
+      },
+      {
+        "class": "GalleryDeliveryHardeningTests",
+        "test": "testPublicSweepRecoversLaterReadyGalleriesBeforeSlowUpload",
+        "outcome": "passed",
+        "seconds": 0.555
+      },
+      {
+        "class": "GalleryDeliveryHardeningTests",
+        "test": "testRetryAllContinuesAfterFailureAndReconcilesWithoutAnotherPOST",
+        "outcome": "passed",
+        "seconds": 1.014
+      },
+      {
+        "class": "GalleryDeliveryHardeningTests",
+        "test": "testSimultaneousTriggersAndCancelCannotReleaseAnotherUploadLock",
+        "outcome": "passed",
+        "seconds": 0.673
+      },
+      {
+        "class": "GalleryFrontDoorMigrationTests",
+        "test": "testArchivedSessionsRetainOriginalURLAndReprintReproducesSameQR",
+        "outcome": "passed",
+        "seconds": 2.233
+      },
+      {
+        "class": "GalleryFrontDoorMigrationTests",
+        "test": "testEveryBoothFormatComposesReceiptQRFromItsSessionURL",
+        "outcome": "passed",
+        "seconds": 0.622
+      },
+      {
+        "class": "GalleryFrontDoorMigrationTests",
+        "test": "testGalleryURLRoundTripsToItsOwnFrontDoor",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "GalleryFrontDoorMigrationTests",
+        "test": "testInvalidPreferredValueFailsInsteadOfSilentlyFallingBack",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "GalleryFrontDoorMigrationTests",
+        "test": "testLegacyInfoPlistKeyRemainsFallback",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "GalleryFrontDoorMigrationTests",
+        "test": "testLoadUsesStandardOperatorOverrideForNewSessions",
+        "outcome": "passed",
+        "seconds": 0.004
+      },
+      {
+        "class": "GalleryFrontDoorMigrationTests",
+        "test": "testMadeToKeepInfoPlistKeyIsPreferredOverLegacyKey",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "GalleryFrontDoorMigrationTests",
+        "test": "testMissingBothKeysGivesClearError",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "GalleryFrontDoorMigrationTests",
+        "test": "testNewSessionsUsePreferredFrontDoorWithUnchangedQueryAndToken",
+        "outcome": "passed",
+        "seconds": 0.005
+      },
+      {
+        "class": "GalleryFrontDoorMigrationTests",
+        "test": "testOperatorOverrideHasHighestPriority",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "GalleryFrontDoorMigrationTests",
+        "test": "testOperatorOverrideStoreAcceptsBothFrontDoors",
+        "outcome": "passed",
+        "seconds": 0.007
+      },
+      {
+        "class": "GalleryFrontDoorMigrationTests",
+        "test": "testPackagedInfoPlistUsesVerifiedMadeToKeepFrontDoor",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "GalleryFrontDoorMigrationTests",
+        "test": "testPreparationReusesSessionFrozenURLEvenAfterConfigChanges",
+        "outcome": "passed",
+        "seconds": 0.131
+      },
+      {
+        "class": "GalleryFrontDoorMigrationTests",
+        "test": "testQueuedLegacyAndNewPayloadsKeepTheirFrozenURLs",
+        "outcome": "passed",
+        "seconds": 0.235
+      },
+      {
+        "class": "GalleryFrontDoorMigrationTests",
+        "test": "testRecoverySnapshotsRoundTripLegacyAndNewURLsUnchanged",
+        "outcome": "passed",
+        "seconds": 0.013
+      },
+      {
+        "class": "GalleryFrontDoorMigrationTests",
+        "test": "testRetryReturnsFrozenLegacyURLWhenBackendNowAnswersWithNewFrontDoor",
+        "outcome": "passed",
+        "seconds": 0.127
+      },
+      {
+        "class": "GalleryFrontDoorMigrationTests",
+        "test": "testSuccessfulResponseFromEitherFrontDoorIsAcceptedForSameToken",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "GalleryFrontDoorMigrationTests",
+        "test": "testValidationAcceptsLegacyAndMadeToKeepHostsAndStaysStrict",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "GalleryPipelineBenchmarkTests",
+        "test": "testDurableBacklogRecovery",
+        "outcome": "passed",
+        "seconds": 46.733
+      },
+      {
+        "class": "GalleryPipelineBenchmarkTests",
+        "test": "testJPEGEncoderCandidateBenchmark",
+        "outcome": "passed",
+        "seconds": 0.869
+      },
+      {
+        "class": "GalleryPipelineBenchmarkTests",
+        "test": "testSyntheticConsecutiveGuestMatrix",
+        "outcome": "passed",
+        "seconds": 65.877
+      },
+      {
+        "class": "GalleryReceiptStyleTests",
+        "test": "testEveryFooterAndDefaultUsesAuthenticPublicCompositionAndDurableQueue",
+        "outcome": "passed",
+        "seconds": 87.004
+      },
+      {
+        "class": "GalleryReceiptStyleTests",
+        "test": "testExportSyntheticReleasePayload",
+        "outcome": "passed",
+        "seconds": 0.134
+      },
+      {
+        "class": "GalleryReceiptStyleTests",
+        "test": "testIndependentDeviceStoreAndLogoOffEventInheritance",
+        "outcome": "passed",
+        "seconds": 0.012
+      },
+      {
+        "class": "GalleryReceiptStyleTests",
+        "test": "testRecoveryOptionalFieldKeepsOldRecordsReadableAndNewStyleFrozen",
+        "outcome": "passed",
+        "seconds": 0.008
+      },
+      {
+        "class": "GalleryResumableTransportTests",
+        "test": "testConcurrentAssetProgressMergesWithoutOverwritingAnotherDurableOffset",
+        "outcome": "passed",
+        "seconds": 0.554
+      },
+      {
+        "class": "GalleryResumableTransportTests",
+        "test": "testConnectionRecoveryClearsTemporaryCoordinationFailureButPreservesServerCooldown",
+        "outcome": "passed",
+        "seconds": 0.473
+      },
+      {
+        "class": "GalleryResumableTransportTests",
+        "test": "testLostChunkAcknowledgmentResumesAtServerOffsetAfterRelaunchWithoutResendingAcceptedBytes",
+        "outcome": "passed",
+        "seconds": 0.409
+      },
+      {
+        "class": "GalleryResumableTransportTests",
+        "test": "testPersistedProtocolDoesNotFallBackToLegacyPOSTAfterCapabilityRollback",
+        "outcome": "passed",
+        "seconds": 0.257
+      },
+      {
+        "class": "GalleryResumableTransportTests",
+        "test": "testPublishedButNotPublicGalleryRetainsMediaAndRetriesOnlyGETAfterRelaunch",
+        "outcome": "passed",
+        "seconds": 0.276
+      },
+      {
+        "class": "GalleryResumableTransportTests",
+        "test": "testServerRangeValidationNeverTrustsLocalSentByteCount",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "GalleryResumableTransportTests",
+        "test": "testTransferPolicyAdaptsToMeasuredRateAndConstrainedPaths",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "GalleryResumableTransportTests",
+        "test": "testUntrustedSessionDestinationIsRejectedBeforeAnyMediaLeaves",
+        "outcome": "passed",
+        "seconds": 0.205
+      },
+      {
+        "class": "GallerySchedulerV2Tests",
+        "test": "testFreshArrivalTakesNextSafeSlotAndRecoveryCannotStarve",
+        "outcome": "passed",
+        "seconds": 0.006
+      },
+      {
+        "class": "GallerySchedulerV2Tests",
+        "test": "testOnlineInterfaceChangeWakesRecoveryButDuplicatePathSignalsDoNot",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "GallerySchedulerV2Tests",
+        "test": "testPublicReconciliationStartsWhileTransmissionIsBlocked",
+        "outcome": "passed",
+        "seconds": 0.003
+      },
+      {
+        "class": "GallerySchedulerV2Tests",
+        "test": "testReconnectSignalsCoalesceWithoutCompetingRecoveryPasses",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "GallerySchedulerV2Tests",
+        "test": "testRetryClassificationAndBoundedBackoff",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "GallerySchedulerV2Tests",
+        "test": "testRetryDeadlineAndPermanentFailuresSurviveRelaunchWithoutMediaLoss",
+        "outcome": "passed",
+        "seconds": 0.048
+      },
+      {
+        "class": "GallerySchedulerV2Tests",
+        "test": "testSequentialRecoveryGetsFairSlotAmongImmediatelyCompletedFreshJobs",
+        "outcome": "passed",
+        "seconds": 0.007
+      },
+      {
+        "class": "GallerySchedulerV2Tests",
+        "test": "testTelemetryCountsOverlappingReadsTransmissionAndCapacityWaitWithoutIdentities",
+        "outcome": "passed",
+        "seconds": 0.003
+      },
+      {
+        "class": "GallerySchedulerV2Tests",
+        "test": "testTwoRetryRequestsJoinOneOperationEvenWhenFirstCallerCancels",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "GallerySchedulerV2Tests",
+        "test": "testVerificationConcurrencyIsBoundedAndFailureReleasesCapacity",
+        "outcome": "passed",
+        "seconds": 0.004
+      },
+      {
+        "class": "GallerySchedulerV2Tests",
+        "test": "testVerificationOverlapsNextTransmissionAndDuplicateCallerJoinsTokenLease",
+        "outcome": "passed",
+        "seconds": 0.003
+      },
+      {
+        "class": "GalleryUploadPerformanceTests",
+        "test": "testAcceptedGalleryRelaunchVerifiesWithoutOpeningMediaAndNextGuestCanUpload",
+        "outcome": "passed",
+        "seconds": 0.036
+      },
+      {
+        "class": "GalleryUploadPerformanceTests",
+        "test": "testLightweightReadinessRequiresExactPersistedIdentityBeforeClearingQueue",
+        "outcome": "passed",
+        "seconds": 0.106
+      },
+      {
+        "class": "GalleryUploadPerformanceTests",
+        "test": "testVerifiedUnknownUploadWithDiskCommitFailureNeverFallsThroughToPOST",
+        "outcome": "passed",
+        "seconds": 0.02
+      },
+      {
+        "class": "GuestPaymentAndCashTests",
+        "test": "testAttendantConfirmationFailingOnTheServerNeverFallsBackToSelfDeclaration",
+        "outcome": "passed",
+        "seconds": 0.032
+      },
+      {
+        "class": "GuestPaymentAndCashTests",
+        "test": "testAttendantConfirmationRequiresAuthentication",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "GuestPaymentAndCashTests",
+        "test": "testCashOnlyGoesStraightToTheAttendantScreenWithoutCreatingAnyOrder",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "GuestPaymentAndCashTests",
+        "test": "testChoicesMapOntoTheExistingPolicyModel",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "GuestPaymentAndCashTests",
+        "test": "testConfirmationUnavailableErrorsAreRecognised",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "GuestPaymentAndCashTests",
+        "test": "testConfirmCashUsesTheOperatorCredentialAndSendsTheShownAmount",
+        "outcome": "passed",
+        "seconds": 0.008
+      },
+      {
+        "class": "GuestPaymentAndCashTests",
+        "test": "testGuestDeclarationCannotBypassOfflineAttendantAuthentication",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "GuestPaymentAndCashTests",
+        "test": "testGuestDeclarationUsesBoothCredentialAndKeepsSelfReportedProvenance",
+        "outcome": "passed",
+        "seconds": 0.006
+      },
+      {
+        "class": "GuestPaymentAndCashTests",
+        "test": "testOnlineGuestDeclarationDoesNotAskForOperatorAuthentication",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "GuestPaymentAndCashTests",
+        "test": "testOperatorConfirmedProvenanceIsDecodedSeparatelyFromHistoricalCash",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "GuestPaymentAndCashTests",
+        "test": "testQROnlyNeverOffersCashAndBothMethodsStillAskTheGuest",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testApprovalCoversOnlyTheFirstBatchUntilRenewed",
+        "outcome": "passed",
+        "seconds": 2.318
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testAuthorizationIsBoundToRunPlanLaunchBatchAndBudget",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testAutomaticPhotoPassInputUsesDiagnosticSessionTransitionsOnly",
+        "outcome": "passed",
+        "seconds": 0.012
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testBackToBackCustomerBatchesAreSerializedWithoutInterleaving",
+        "outcome": "passed",
+        "seconds": 0.054
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testCleanupRefusesActiveRunsAndUnresolvedPrints",
+        "outcome": "passed",
+        "seconds": 0.018
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testCopyCountsStaySeparateFromSessionCounts",
+        "outcome": "passed",
+        "seconds": 90.271
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testCustomerEnvironmentKeepsProductionBehaviour",
+        "outcome": "passed",
+        "seconds": 0.084
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testDefaultConfigurationIsSimulationAndNeverTouchesThePrinter",
+        "outcome": "passed",
+        "seconds": 12.426
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testDiagnosticCopiesAndRemainingRetryAreAuthorizedOnlyForQualification",
+        "outcome": "passed",
+        "seconds": 1.567
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testDiagnosticPhotosKeepCaptureAndPrintOrientationConsistent",
+        "outcome": "passed",
+        "seconds": 0.172
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testDiagnosticRunsNeverWriteCustomerArchivesGalleriesOrRecovery",
+        "outcome": "passed",
+        "seconds": 9.986
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testFailedPreprintCheckpointSendsNoBytes",
+        "outcome": "passed",
+        "seconds": 1.402
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testHandsFreeApprovalCoversWholeRunOnlyForModeC",
+        "outcome": "passed",
+        "seconds": 0.019
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testHandsFreeReportKeepsPhysicalChecksUnverified",
+        "outcome": "passed",
+        "seconds": 0.024
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testHundredSessionPlanIsDeterministicBalancedAndCoversEveryScenario",
+        "outcome": "passed",
+        "seconds": 0.015
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testHundredSimulatedSessionsHaveHundredDistinctIdentities",
+        "outcome": "failed",
+        "seconds": 158.953
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testOnlyACompleteFullyConfirmedRunCanPass",
+        "outcome": "passed",
+        "seconds": 0.004
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testOwnerConfirmedHandsFreeRunPassesWithoutInventingDrillAcknowledgments",
+        "outcome": "passed",
+        "seconds": 0.003
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testPauseAndStopPreventNewPhysicalJobs",
+        "outcome": "passed",
+        "seconds": 0.928
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testPhysicalRunNeverStartsWithoutExplicitApproval",
+        "outcome": "passed",
+        "seconds": 0.004
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testPrinterEndurancePassIsScopedAndStillRequiresEvidence",
+        "outcome": "passed",
+        "seconds": 0.017
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testPrinterRecoveryLockBlocksStartAndStopsARun",
+        "outcome": "passed",
+        "seconds": 1.635
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testQualificationBoothEnvironmentIsolatesTheProductionStateMachine",
+        "outcome": "passed",
+        "seconds": 0.996
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testRelaunchReconstructsStateWithoutResumingAndInvalidatesApproval",
+        "outcome": "passed",
+        "seconds": 0.027
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testReportsNeverClaimPhysicalValidationFromMockResults",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testSafetyGateListsEveryBlockingCondition",
+        "outcome": "passed",
+        "seconds": 0.003
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testStopRunFromPrintErrorPromptNeverStartsAnotherSession",
+        "outcome": "passed",
+        "seconds": 0.832
+      },
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testUncertainPrintHaltsTheRunAndIsNeverResent",
+        "outcome": "passed",
+        "seconds": 0.99
+      },
+      {
+        "class": "HistoricalAttributionBatchTests",
+        "test": "testEarlierBuildJournalEntriesWithoutBatchIDStillDecode",
+        "outcome": "passed",
+        "seconds": 0.005
+      },
+      {
+        "class": "HistoricalAttributionBatchTests",
+        "test": "testFailedBatchWriteAttributesNothing",
+        "outcome": "passed",
+        "seconds": 0.016
+      },
+      {
+        "class": "HistoricalAttributionBatchTests",
+        "test": "testOneInvalidItemRejectsTheWholeBatch",
+        "outcome": "passed",
+        "seconds": 0.013
+      },
+      {
+        "class": "HistoricalAttributionBatchTests",
+        "test": "testRealRunBoundsAreEnforcedButEarlierEventRecordsAreOperatorDefined",
+        "outcome": "passed",
+        "seconds": 0.01
+      },
+      {
+        "class": "HistoricalAttributionBatchTests",
+        "test": "testRepeatedSubmissionAndRelaunchKeepOneAuditedBatch",
+        "outcome": "passed",
+        "seconds": 0.017
+      },
+      {
+        "class": "HistoricalAttributionBatchTests",
+        "test": "testTwoEventsOnTheSameDayAreAttributedSeparatelyBySelection",
+        "outcome": "passed",
+        "seconds": 0.021
+      },
+      {
+        "class": "LiveEventPaymentRecoveryTests",
+        "test": "testCancelledPollCannotReturnAuthorizedCameraToPayment",
+        "outcome": "passed",
+        "seconds": 0.045
+      },
+      {
+        "class": "LiveEventPaymentRecoveryTests",
+        "test": "testEmptyLookupRequiresAttendantAndDoesNotDeclareCheckoutUnpaid",
+        "outcome": "passed",
+        "seconds": 0.015
+      },
+      {
+        "class": "LiveEventPaymentRecoveryTests",
+        "test": "testLostConnectionRevokesPreviouslyAllowedReplacement",
+        "outcome": "passed",
+        "seconds": 0.035
+      },
+      {
+        "class": "LiveEventPaymentRecoveryTests",
+        "test": "testOnlyConclusiveUnpaidServerDecisionAllowsDeliberateNewCheckout",
+        "outcome": "passed",
+        "seconds": 0.015
+      },
+      {
+        "class": "LiveEventPaymentRecoveryTests",
+        "test": "testOperatorArmedResumeFromReconciliationRevalidatesAndClaimsSameCheckout",
+        "outcome": "passed",
+        "seconds": 0.07
+      },
+      {
+        "class": "LiveEventPaymentRecoveryTests",
+        "test": "testOperatorCloseDuringHeldVerificationCannotAuthorizeNextGuest",
+        "outcome": "passed",
+        "seconds": 0.048
+      },
+      {
+        "class": "LiveEventPaymentRecoveryTests",
+        "test": "testOperatorResumeCannotReplaceDifferentGuestOrAuthorizedCamera",
+        "outcome": "passed",
+        "seconds": 0.057
+      },
+      {
+        "class": "LiveEventPaymentRecoveryTests",
+        "test": "testRapidStartTapsCannotReplaceAnExistingCustomer",
+        "outcome": "passed",
+        "seconds": 0.014
+      },
+      {
+        "class": "LiveEventPaymentRecoveryTests",
+        "test": "testResetCancelsPreviousPollWithoutChangingNextCustomer",
+        "outcome": "passed",
+        "seconds": 0.012
+      },
+      {
+        "class": "LiveEventPaymentRecoveryTests",
+        "test": "testTimeoutRetainsUnknownOutcomeAndForegroundRecoversOriginalOrder",
+        "outcome": "passed",
+        "seconds": 0.032
+      },
+      {
+        "class": "LiveEventPaymentRecoveryTests",
+        "test": "testUnknownOrderIsLookedUpWithoutCreatingAnotherPaymentAndCancellationKeepsRecord",
+        "outcome": "passed",
+        "seconds": 0.017
+      },
+      {
+        "class": "LiveEventPaymentRecoveryTests",
+        "test": "testVerifiedPaymentClaimsOriginalEntitlementAndSession",
+        "outcome": "passed",
+        "seconds": 0.025
+      },
+      {
+        "class": "MadeToKeepBrandTests",
+        "test": "testAppDisplayNameIsMadeToKeepStudios",
+        "outcome": "passed",
+        "seconds": 0.003
+      },
+      {
+        "class": "MadeToKeepBrandTests",
+        "test": "testBrandConstantsMatchReference",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "MadeToKeepBrandTests",
+        "test": "testCustomerFlowScreensUseMadeToKeepDesignSystem",
+        "outcome": "passed",
+        "seconds": 14.332
+      },
+      {
+        "class": "MadeToKeepBrandTests",
+        "test": "testDefaultReceiptIsMadeToKeepBrandedInColorAndThermal",
+        "outcome": "passed",
+        "seconds": 0.75
+      },
+      {
+        "class": "MadeToKeepBrandTests",
+        "test": "testDefaultVisibleCopyNeverShowsRetiredBrand",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "MadeToKeepBrandTests",
+        "test": "testDuoReviewLayoutFitsPortraitWithoutScrolling",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "MadeToKeepBrandTests",
+        "test": "testDuoReviewPhotoAreaIncreasesByAtLeastFortyPercentFromPreviousGeometry",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "MadeToKeepBrandTests",
+        "test": "testEventAndPhotoPassReceiptRegressionFixtures",
+        "outcome": "passed",
+        "seconds": 1.571
+      },
+      {
+        "class": "MadeToKeepBrandTests",
+        "test": "testEventModeWelcomeKeepsMadeToKeepPoster",
+        "outcome": "passed",
+        "seconds": 1.307
+      },
+      {
+        "class": "MadeToKeepBrandTests",
+        "test": "testEveryFormatReviewFitsElevenInchIPadInBothOrientations",
+        "outcome": "passed",
+        "seconds": 0.007
+      },
+      {
+        "class": "MadeToKeepBrandTests",
+        "test": "testEveryFormatReviewRendersOnElevenInchCanvas",
+        "outcome": "passed",
+        "seconds": 15.941
+      },
+      {
+        "class": "MadeToKeepBrandTests",
+        "test": "testLegacyCompatibilityIdentifiersAreUnchanged",
+        "outcome": "passed",
+        "seconds": 0.004
+      },
+      {
+        "class": "MadeToKeepBrandTests",
+        "test": "testPortraitReviewMirrorsPrintedArrangement",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "MadeToKeepBrandTests",
+        "test": "testShortWindowsScrollInsteadOfClippingControls",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "MadeToKeepBrandTests",
+        "test": "testWelcomePosterLayoutMatchesElevenInchCanvas",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "MadeToKeepBrandTests",
+        "test": "testWelcomeScreenMatchesReferenceCanvasSizes",
+        "outcome": "passed",
+        "seconds": 2.522
+      },
+      {
+        "class": "MadeToKeepBrandTests",
+        "test": "testWordmarkFontResolvesToHighContrastItalicSerif",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "MonochromeReceiptPreviewTests",
+        "test": "testEveryFormatKeepsGeometryPhotoToneTypographyAndQR",
+        "outcome": "passed",
+        "seconds": 4.911
+      },
+      {
+        "class": "MonochromeReceiptPreviewTests",
+        "test": "testGalleryUploadCarriesSmoothMonochromeForEveryFormatWithinBudget",
+        "outcome": "passed",
+        "seconds": 1.212
+      },
+      {
+        "class": "MonochromeReceiptPreviewTests",
+        "test": "testGradientKeepsSmoothGrayLevelsAndGeometry",
+        "outcome": "passed",
+        "seconds": 0.046
+      },
+      {
+        "class": "MonochromeReceiptPreviewTests",
+        "test": "testGuestSeesOneBlackAndWhitePreviewWithoutAModeSwitch",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "MonochromeReceiptPreviewTests",
+        "test": "testLegacyPrinterRasterPNGIsDistinguishableFromSmoothPreview",
+        "outcome": "passed",
+        "seconds": 0.512
+      },
+      {
+        "class": "MonochromeReceiptPreviewTests",
+        "test": "testOrientationIsBakedInWithoutCroppingOrMoving",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "MonochromeReceiptPreviewTests",
+        "test": "testOutputIsGrayscaleDeterministicAndMatchesThePublishedLumaMath",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "MonochromeReceiptPreviewTests",
+        "test": "testPhotoPassGalleryMonochromeComesFromTheRedactedReceipt",
+        "outcome": "passed",
+        "seconds": 0.445
+      },
+      {
+        "class": "MonochromeReceiptPreviewTests",
+        "test": "testRenderingTheCustomerPreviewNeverChangesThePrinterRaster",
+        "outcome": "passed",
+        "seconds": 6.877
+      },
+      {
+        "class": "MonochromeReceiptPreviewTests",
+        "test": "testStickersAndMixedOrientationPhotosKeepTheirComposition",
+        "outcome": "passed",
+        "seconds": 0.537
+      },
+      {
+        "class": "MonochromeReceiptPreviewTests",
+        "test": "testTransparencyFlattensOntoWhitePaper",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "MonochromeReceiptPreviewTests",
+        "test": "testWorstCaseNoisyGridSixStaysWithinTheGalleryBudget",
+        "outcome": "passed",
+        "seconds": 4.369
+      },
+      {
+        "class": "OccurrenceBoundaryTests",
+        "test": "testCrashBetweenAdmissionClosureAndRunTransitionStaysClosedAndRecovers",
+        "outcome": "passed",
+        "seconds": 0.169
+      },
+      {
+        "class": "OccurrenceBoundaryTests",
+        "test": "testNewOccurrenceSharingACommercialEventKeepsRevenueSeparatePerRun",
+        "outcome": "passed",
+        "seconds": 0.248
+      },
+      {
+        "class": "OccurrenceBoundaryTests",
+        "test": "testPausedOccurrenceResumesWithTheSameRun",
+        "outcome": "passed",
+        "seconds": 0.142
+      },
+      {
+        "class": "OccurrenceBoundaryTests",
+        "test": "testRunningEventCannotBeResetFromSetupWithoutEndingIt",
+        "outcome": "passed",
+        "seconds": 0.109
+      },
+      {
+        "class": "OccurrenceBoundaryTests",
+        "test": "testSwitchingPaidEventsCompletesThePreviousRunAndKeepsItsIdentity",
+        "outcome": "passed",
+        "seconds": 0.184
+      },
+      {
+        "class": "OnlineStickerProviderTests",
+        "test": "testParsingDropsDisallowedOrOversizedMediaAndPaginates",
+        "outcome": "passed",
+        "seconds": 0.005
+      },
+      {
+        "class": "OnlineStickerProviderTests",
+        "test": "testRequestsUseDocumentedEndpointsAndSafeSearch",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OnlineStickerProviderTests",
+        "test": "testURLPolicyRejectsUnsafeAddresses",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "OperatorAccessAppearanceTests",
+        "test": "testRenderAccessCardInPortraitAndLandscape",
+        "outcome": "passed",
+        "seconds": 1.705
+      },
+      {
+        "class": "OperatorDashboardV2Tests",
+        "test": "testFivePrimaryDestinationsAndLegacyRouteMigration",
+        "outcome": "passed",
+        "seconds": 0.043
+      },
+      {
+        "class": "OperatorDashboardV2Tests",
+        "test": "testPortraitLandscapeAndNarrowWorkspaceRules",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorDashboardV2Tests",
+        "test": "testRenderedWorkspaceAndMajorScreensInBothOrientations",
+        "outcome": "passed",
+        "seconds": 69.063
+      },
+      {
+        "class": "OperatorDashboardV2Tests",
+        "test": "testRunMetricsChartsAndSessionFiltersUseExactDeduplicatedEvidence",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorDashboardV2Tests",
+        "test": "testSavedPrepaidEventsRestoreCopyLimitsFormatsAndUnsavedDraftsWithoutActivation",
+        "outcome": "passed",
+        "seconds": 0.149
+      },
+      {
+        "class": "OperatorDashboardV2Tests",
+        "test": "testSectionRestorationKeepsDraftsAndDoesNotPublishOrActivate",
+        "outcome": "passed",
+        "seconds": 0.052
+      },
+      {
+        "class": "OperatorDashboardV2Tests",
+        "test": "testTruthfulEmptyEquipmentStateAndContextualPause",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testAllPassingChecksAreReadyForGuestsWithoutClutter",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testAutomaticPassportBrandingPrefersImageThenNameThenPocketPassport",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testBackendOverridesValidatePersistAndResetWithoutStoringCredentials",
+        "outcome": "passed",
+        "seconds": 0.005
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testCheckDisplayNamesAvoidInternalTerminology",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testEventModeActivationControlsBothOutputsAndFreezesSnapshot",
+        "outcome": "passed",
+        "seconds": 0.027
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testNewlyImportedTallImageUsesSafeDefaultsWithinPrintableBounds",
+        "outcome": "passed",
+        "seconds": 0.017
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testOperatorFacingHeaderNames",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testPassportEventBrandingSwitchPreservesAdvancedOverrides",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testPreviewKeepsExplicitSplitConfiguration",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testPreviewShowsActivatedLookWhileEventModeIsOff",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testPrinterRecoveryLockOffersFixPrinter",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testReceiptPreviewIsSideEffectFreeForEveryFormat",
+        "outcome": "passed",
+        "seconds": 0.562
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testSamplePrintPolicyBlocksUnresolvedStateAndPreparationDoubleTap",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testSavedProfileWithAdvancedHeaderAndPassportOverrideDecodesUnchanged",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testStatusBeforeBoothCheckAsksOperatorToRunIt",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testUncertainPrintSurfacesRecoveryWithoutSofteningReadiness",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testWaitingGalleriesAndOfflineAreAttentionNotFailure",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testCIMEightCopyInterruptionRelaunchExactReplacementDiagnosticSampleAndEnd",
+        "outcome": "passed",
+        "seconds": 2.943
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testCompletedModelDeadlineSurvivesUpdatesAndResetsOnlyTemporaryGuestState",
+        "outcome": "passed",
+        "seconds": 0.006
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testCompletionCountdownFrozenDurationExtensionsNoRestartAndStaleSession",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testEightCopyBatchStopsAtFirstOrFinalFailureWithCorrectKnownAndUnknownCounts",
+        "outcome": "passed",
+        "seconds": 0.444
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testEventEndRetentionFailureLeavesAdmissionClosedAndEventUnsettled",
+        "outcome": "passed",
+        "seconds": 0.11
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testFailureSavingSuccessfulOperatorOutcomeBlocksFurtherSendsAndRelaunchKeepsUnknown",
+        "outcome": "passed",
+        "seconds": 0.032
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testJournalPruningKeepsAllOriginalCopiesInAnAcknowledgedUncertainBatch",
+        "outcome": "passed",
+        "seconds": 4.426
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testOperatorDuplicateTapCannotQueueAnotherPhysicalCommand",
+        "outcome": "passed",
+        "seconds": 0.065
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testOperatorFailureMatrixRetainsUncertaintyAcrossRelaunchWithoutRetry",
+        "outcome": "passed",
+        "seconds": 0.081
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testQuickDiagnosticUsesExistingFinishingWithoutCustomerData",
+        "outcome": "passed",
+        "seconds": 0.392
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testReconnectIsIdempotentAndNeverInterruptsPhysicalWork",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testReplacementCopiesCannotFulfillOriginalPaidEntitlementOrCompleteGuestStatistics",
+        "outcome": "passed",
+        "seconds": 0.025
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testSampleExplicitReuseFillsRemainingSlotsAndPreparesAutomatically",
+        "outcome": "passed",
+        "seconds": 1.035
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testUnauthorizedOperatorCannotDispatchOrCreateJournalEntry",
+        "outcome": "passed",
+        "seconds": 0.006
+      },
+      {
+        "class": "OperatorSessionsPerformanceTests",
+        "test": "testArchiveBrowserScaling",
+        "outcome": "passed",
+        "seconds": 24.237
+      },
+      {
+        "class": "OperatorWorkspaceV41GalleryTests",
+        "test": "testAmbiguousUploadReconciliationStorageFailureBecomesVerificationOnly",
+        "outcome": "passed",
+        "seconds": 0.239
+      },
+      {
+        "class": "OperatorWorkspaceV41GalleryTests",
+        "test": "testAuthoritativeUnavailableRateLimitAndRedirectedIdentityRemainDistinct",
+        "outcome": "passed",
+        "seconds": 0.007
+      },
+      {
+        "class": "OperatorWorkspaceV41GalleryTests",
+        "test": "testBackgroundProofSupersedesEarlierRecheckFailureBeforeQueueClear",
+        "outcome": "passed",
+        "seconds": 1.191
+      },
+      {
+        "class": "OperatorWorkspaceV41GalleryTests",
+        "test": "testDuplicateConcurrentEvidenceWritesAreIdempotentAndProtectedByIdentity",
+        "outcome": "passed",
+        "seconds": 0.012
+      },
+      {
+        "class": "OperatorWorkspaceV41GalleryTests",
+        "test": "testEventCallbackAndIndependentEvidenceBothPersist",
+        "outcome": "passed",
+        "seconds": 0.153
+      },
+      {
+        "class": "OperatorWorkspaceV41GalleryTests",
+        "test": "testHistoricalReadinessStillRequiresSchemaMandatoryAssets",
+        "outcome": "passed",
+        "seconds": 0.003
+      },
+      {
+        "class": "OperatorWorkspaceV41GalleryTests",
+        "test": "testHistoricalRecheckIsBoundedCancellableAndIncremental",
+        "outcome": "passed",
+        "seconds": 0.051
+      },
+      {
+        "class": "OperatorWorkspaceV41GalleryTests",
+        "test": "testInvalidFrozenLinkNeverRequestsNetwork",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorWorkspaceV41GalleryTests",
+        "test": "testLegacyRequiresExistingCompletionEvidence",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "OperatorWorkspaceV41GalleryTests",
+        "test": "testMetadataIdentityChangeCannotReuseCachedProofForAnotherFrozenURL",
+        "outcome": "passed",
+        "seconds": 0.963
+      },
+      {
+        "class": "OperatorWorkspaceV41GalleryTests",
+        "test": "testOfflineIsNotProofOfGalleryUnavailability",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "OperatorWorkspaceV41GalleryTests",
+        "test": "testRegularBoothVerificationSurvivesRelaunchWithoutEventRecord",
+        "outcome": "passed",
+        "seconds": 0.008
+      },
+      {
+        "class": "OperatorWorkspaceV41GalleryTests",
+        "test": "testStorageFailureRetainsPayloadAndRetryDoesNotPostAgain",
+        "outcome": "passed",
+        "seconds": 0.178
+      },
+      {
+        "class": "OperatorWorkspaceV41GalleryTests",
+        "test": "testWrongTokenSessionManifestAndIncompleteResponsesAreRejected",
+        "outcome": "passed",
+        "seconds": 0.008
+      },
+      {
+        "class": "OperatorWorkspaceV41ManagementTests",
+        "test": "testArchiveRestoreKeepsParkedFinancialWarningsAndOriginalIdentity",
+        "outcome": "passed",
+        "seconds": 0.032
+      },
+      {
+        "class": "OperatorWorkspaceV41ManagementTests",
+        "test": "testBulkSessionDeletionReportsPartialResultsAndRevalidatesEachItem",
+        "outcome": "passed",
+        "seconds": 1.96
+      },
+      {
+        "class": "OperatorWorkspaceV41ManagementTests",
+        "test": "testCompletedPaidMediaCleanupRetainsFinancialAndPrintEvidence",
+        "outcome": "passed",
+        "seconds": 0.975
+      },
+      {
+        "class": "OperatorWorkspaceV41ManagementTests",
+        "test": "testConcurrentCheckpointChangeAndMissingServerRejectDeletion",
+        "outcome": "passed",
+        "seconds": 0.013
+      },
+      {
+        "class": "OperatorWorkspaceV41ManagementTests",
+        "test": "testConsumedOpenOrderCannotHideAnotherUnresolvedAttempt",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorWorkspaceV41ManagementTests",
+        "test": "testCurrentRecoveryAndConcurrentReprintRejectCleanupUntilAcknowledgementRelaunch",
+        "outcome": "passed",
+        "seconds": 0.88
+      },
+      {
+        "class": "OperatorWorkspaceV41ManagementTests",
+        "test": "testEmptyDeletionRevalidatesServerAndIsDurableIdempotent",
+        "outcome": "passed",
+        "seconds": 0.016
+      },
+      {
+        "class": "OperatorWorkspaceV41ManagementTests",
+        "test": "testFailedDeletionWriteRetainsCheckpointAndRetrySucceeds",
+        "outcome": "passed",
+        "seconds": 0.011
+      },
+      {
+        "class": "OperatorWorkspaceV41ManagementTests",
+        "test": "testFailedRecoveryPreservationKeepsCheckpointAndDoesNotWriteTombstone",
+        "outcome": "passed",
+        "seconds": 0.011
+      },
+      {
+        "class": "OperatorWorkspaceV41ManagementTests",
+        "test": "testForceDeleteRejectsInFlightPrintButKeepsUncertainPrintEvidence",
+        "outcome": "passed",
+        "seconds": 0.012
+      },
+      {
+        "class": "OperatorWorkspaceV41ManagementTests",
+        "test": "testForceDeletionRejectsActiveArmedAndInFlightRecordsAndSupportsMixedBulkResults",
+        "outcome": "passed",
+        "seconds": 0.016
+      },
+      {
+        "class": "OperatorWorkspaceV41ManagementTests",
+        "test": "testForceRemoveAndRestoreWorkOfflineWithoutChangingFinancialState",
+        "outcome": "passed",
+        "seconds": 0.016
+      },
+      {
+        "class": "OperatorWorkspaceV41ManagementTests",
+        "test": "testLatePaymentBetweenPreflightAndDeleteIsRechecked",
+        "outcome": "passed",
+        "seconds": 0.008
+      },
+      {
+        "class": "OperatorWorkspaceV41ManagementTests",
+        "test": "testMediaRemovalKeepsEventUseEvidence",
+        "outcome": "passed",
+        "seconds": 0.803
+      },
+      {
+        "class": "OperatorWorkspaceV41ManagementTests",
+        "test": "testOfflineForceDeleteRetainsIndependentPaymentIdentityAndDurableTombstone",
+        "outcome": "passed",
+        "seconds": 0.015
+      },
+      {
+        "class": "OperatorWorkspaceV41ManagementTests",
+        "test": "testPendingLatePaidUnknownAndUsableEntitlementCannotBeDeleted",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "OperatorWorkspaceV41ManagementTests",
+        "test": "testPendingUploadIndependentCopiesPermitMediaCleanupAndKeepQueue",
+        "outcome": "passed",
+        "seconds": 1.088
+      },
+      {
+        "class": "OperatorWorkspaceV41ManagementTests",
+        "test": "testRetainedFinancialFollowUpReadsLatePaymentsWithoutRecreatingCheckpoint",
+        "outcome": "passed",
+        "seconds": 0.029
+      },
+      {
+        "class": "OperatorWorkspaceV41ManagementTests",
+        "test": "testUnresolvedPhysicalCashAndIncompleteInspectionAreProtected",
+        "outcome": "passed",
+        "seconds": 0.02
+      },
+      {
+        "class": "OperatorWorkspaceV41MediaTests",
+        "test": "testChangingZoomedShortAndLongImagesResetsToWholeImageFit",
+        "outcome": "passed",
+        "seconds": 0.096
+      },
+      {
+        "class": "OperatorWorkspaceV41MediaTests",
+        "test": "testDeletionIsIdempotentAndLateArchiveCallbacksCannotRecreateMedia",
+        "outcome": "passed",
+        "seconds": 0.933
+      },
+      {
+        "class": "OperatorWorkspaceV41MediaTests",
+        "test": "testDeniedRestrictedStorageAndTransactionFailuresNeverClaimSuccess",
+        "outcome": "passed",
+        "seconds": 0.009
+      },
+      {
+        "class": "OperatorWorkspaceV41MediaTests",
+        "test": "testHistoricalPreparedAndThumbnailSourcesAreNeverLabelledOriginal",
+        "outcome": "passed",
+        "seconds": 0.808
+      },
+      {
+        "class": "OperatorWorkspaceV41MediaTests",
+        "test": "testInterruptedDeletionFinishesOnRelaunchAndBadStorageIsNotSuccess",
+        "outcome": "passed",
+        "seconds": 0.738
+      },
+      {
+        "class": "OperatorWorkspaceV41MediaTests",
+        "test": "testOriginalRetentionPreservesEncodedBytesOrderAndSurvivesRelaunch",
+        "outcome": "passed",
+        "seconds": 0.842
+      },
+      {
+        "class": "OperatorWorkspaceV41MediaTests",
+        "test": "testReceiptExportUsesIdenticalArchivedPNGAndDimensions",
+        "outcome": "passed",
+        "seconds": 0.881
+      },
+      {
+        "class": "OperatorWorkspaceV41MediaTests",
+        "test": "testSeveralPhotosSaveTogetherAndRepeatedTapDoesNotStartAnotherTransaction",
+        "outcome": "passed",
+        "seconds": 1.07
+      },
+      {
+        "class": "OperatorWorkspaceV41MediaTests",
+        "test": "testTargetedThumbnailEvictionRetainsUnrelatedCacheEntries",
+        "outcome": "passed",
+        "seconds": 1.236
+      },
+      {
+        "class": "OperatorWorkspaceV41MediaTests",
+        "test": "testUnresolvedRetentionWarningSurvivesSuccessfulUnrelatedExportAndFeedbackDismissal",
+        "outcome": "passed",
+        "seconds": 0.744
+      },
+      {
+        "class": "OperatorWorkspaceV41VisualTests",
+        "test": "testPortraitManagementAndMediaScreens",
+        "outcome": "passed",
+        "seconds": 15.903
+      },
+      {
+        "class": "OperatorWorkspaceV41VisualTests",
+        "test": "testReducedWidthSessionsAndAccessibleSelection",
+        "outcome": "passed",
+        "seconds": 3.513
+      },
+      {
+        "class": "OperatorWorkspaceV4Tests",
+        "test": "testBoothDraftSurvivesTabsRelaunchAndFailedDiscard",
+        "outcome": "passed",
+        "seconds": 0.037
+      },
+      {
+        "class": "OperatorWorkspaceV4Tests",
+        "test": "testLegacySessionBoothAndSystemPathsKeepDeeperRoutesAndDrafts",
+        "outcome": "passed",
+        "seconds": 0.054
+      },
+      {
+        "class": "OperatorWorkspaceV4Tests",
+        "test": "testMetadataRefreshCancellationFiltersAndStorageFailureRemainTruthful",
+        "outcome": "passed",
+        "seconds": 0.507
+      },
+      {
+        "class": "OperatorWorkspaceV4Tests",
+        "test": "testOpeningBoothDoesNotCreateDraftAndReturningFromFooterKeepsLatestEdits",
+        "outcome": "passed",
+        "seconds": 1.243
+      },
+      {
+        "class": "OperatorWorkspaceV4Tests",
+        "test": "testThumbnailCancellationBoundsConcurrentReadersAndMemoryWarningEviction",
+        "outcome": "passed",
+        "seconds": 0.139
+      },
+      {
+        "class": "OperatorWorkspaceV5Tests",
+        "test": "testAllCurrentFollowUpsRemainVisibleAndNormalQueueIsProgress",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorWorkspaceV5Tests",
+        "test": "testFiveDestinationsAndAllTypedRoutesKeepTheirIdentity",
+        "outcome": "passed",
+        "seconds": 0.042
+      },
+      {
+        "class": "OperatorWorkspaceV5Tests",
+        "test": "testMonitoringEvidenceSeparatesUnknownFreshAndStaleFromTelegram",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorWorkspaceV5Tests",
+        "test": "testPortraitPrimaryAndNestedScreens",
+        "outcome": "passed",
+        "seconds": 25.331
+      },
+      {
+        "class": "PassportFormatTests",
+        "test": "testArchivePersistsPassportAndReprintKeepsFrozenReceipt",
+        "outcome": "passed",
+        "seconds": 0.852
+      },
+      {
+        "class": "PassportFormatTests",
+        "test": "testBirthdayValidationAgeAndCommitDropsYear",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "PassportFormatTests",
+        "test": "testCustomerResetClearsAllPassportData",
+        "outcome": "passed",
+        "seconds": 0.022
+      },
+      {
+        "class": "PassportFormatTests",
+        "test": "testCustomHeaderGraphicAndEventTextCombinations",
+        "outcome": "passed",
+        "seconds": 3.016
+      },
+      {
+        "class": "PassportFormatTests",
+        "test": "testDefaultThemeAndConfigurationAreDeterministic",
+        "outcome": "passed",
+        "seconds": 0.154
+      },
+      {
+        "class": "PassportFormatTests",
+        "test": "testEventModeTitleIntegrationWithoutStackedHeaders",
+        "outcome": "passed",
+        "seconds": 0.019
+      },
+      {
+        "class": "PassportFormatTests",
+        "test": "testEveryThemeProducesValidDistinctLayouts",
+        "outcome": "passed",
+        "seconds": 0.21
+      },
+      {
+        "class": "PassportFormatTests",
+        "test": "testGalleryUploadsTwoPhotosAndNoPassportPersonalDetails",
+        "outcome": "passed",
+        "seconds": 0.295
+      },
+      {
+        "class": "PassportFormatTests",
+        "test": "testMaximumLengthFieldsFitWithoutOverflowForEveryTheme",
+        "outcome": "passed",
+        "seconds": 0.27
+      },
+      {
+        "class": "PassportFormatTests",
+        "test": "testMissingOptionalFieldsStillProduceCompleteCards",
+        "outcome": "passed",
+        "seconds": 0.045
+      },
+      {
+        "class": "PassportFormatTests",
+        "test": "testPassportCustomerScreensOnElevenInchIPad",
+        "outcome": "passed",
+        "seconds": 14.691
+      },
+      {
+        "class": "PassportFormatTests",
+        "test": "testPassportDataFromSessionACannotAppearInSessionB",
+        "outcome": "passed",
+        "seconds": 0.147
+      },
+      {
+        "class": "PassportFormatTests",
+        "test": "testPassportFormatIdentityAndCodableValue",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "PassportFormatTests",
+        "test": "testPassportLayoutHasTwoLandscapeCardsAboveFooterInsideCanvas",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "PassportFormatTests",
+        "test": "testPassportPhysicalDimensions",
+        "outcome": "passed",
+        "seconds": 8.646
+      },
+      {
+        "class": "PassportFormatTests",
+        "test": "testPassportReceiptQRDecodesAndRasterIsDeterministic",
+        "outcome": "passed",
+        "seconds": 1.265
+      },
+      {
+        "class": "PassportFormatTests",
+        "test": "testPassportRequiresExactlyTwoPhotosAndFollowsDetailsSignaturePreviewFlow",
+        "outcome": "passed",
+        "seconds": 0.018
+      },
+      {
+        "class": "PassportFormatTests",
+        "test": "testPassportSessionDataCodableRoundTripAndOptionalFields",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "PassportFormatTests",
+        "test": "testPhotoOneIsLowerPortraitAndPhotoTwoIsUpperHero",
+        "outcome": "passed",
+        "seconds": 0.058
+      },
+      {
+        "class": "PassportFormatTests",
+        "test": "testRecoverySnapshotRoundTripsCommittedPassportOnlyForItsSession",
+        "outcome": "passed",
+        "seconds": 0.033
+      },
+      {
+        "class": "PassportFormatTests",
+        "test": "testRetakeTargetsOnlyTheRequestedPassportPhoto",
+        "outcome": "passed",
+        "seconds": 0.004
+      },
+      {
+        "class": "PassportFormatTests",
+        "test": "testSignatureIsResolutionIndependentAndRoundTrips",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "PassportFormatTests",
+        "test": "testTextLimitsWhitespaceAndUnicodeNormalization",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "PaymentCameraHandoffTests",
+        "test": "testAuthorizedPaymentRelinquishesTaskOwnershipAndStartPhotosClaimsIt",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "PaymentRecoveryConcurrencyTests",
+        "test": "testAutomaticUnpaidResolutionFailureStaysVisibleUntilDurableRetry",
+        "outcome": "passed",
+        "seconds": 0.023
+      },
+      {
+        "class": "PaymentRecoveryConcurrencyTests",
+        "test": "testManySimultaneousRequestsCoalesceIntoOneFollowUpPass",
+        "outcome": "passed",
+        "seconds": 0.031
+      },
+      {
+        "class": "PaymentRecoveryConcurrencyTests",
+        "test": "testOlderResponseArrivingLateNeverOverwritesNewerClassification",
+        "outcome": "passed",
+        "seconds": 0.017
+      },
+      {
+        "class": "PaymentRecoveryConcurrencyTests",
+        "test": "testOperatorDismissalDuringARefreshIsNeverResurrectedOrOverwritten",
+        "outcome": "passed",
+        "seconds": 0.023
+      },
+      {
+        "class": "PaymentRecoveryConcurrencyTests",
+        "test": "testParkedUnknownCanBecomeVerifiedWithoutBecomingAnActiveGuestAgain",
+        "outcome": "passed",
+        "seconds": 0.016
+      },
+      {
+        "class": "PaymentRecoveryConcurrencyTests",
+        "test": "testServerOnlyPrintEvidenceRequiresReviewBeforeParking",
+        "outcome": "passed",
+        "seconds": 0.025
+      },
+      {
+        "class": "PaymentRecoveryConcurrencyTests",
+        "test": "testTimeoutUnknownAndPossiblyPaidExpiredStatesStayPendingAndUnresolved",
+        "outcome": "passed",
+        "seconds": 0.034
+      },
+      {
+        "class": "PaymentRecoveryConcurrencyTests",
+        "test": "testVerifiedPaymentStaysResumableAndArmedResumeFollowsTheNewestAnswer",
+        "outcome": "passed",
+        "seconds": 0.014
+      },
+      {
+        "class": "PaymentVerificationEscalationTests",
+        "test": "testAnUnexpiredQRIsNeverReportedAsSlow",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "PaymentVerificationEscalationTests",
+        "test": "testEscalatedQRScreenRendersInPortraitAndLandscape",
+        "outcome": "passed",
+        "seconds": 1.617
+      },
+      {
+        "class": "PaymentVerificationEscalationTests",
+        "test": "testForegroundRestartKeepsTheClockAndANewCheckoutRestartsIt",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "PaymentVerificationEscalationTests",
+        "test": "testOfflineFailuresEscalateAndRecoveryOnlineResetsTheFailureCount",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "PaymentVerificationEscalationTests",
+        "test": "testReconciliationEscalatesByTimeWithoutChangingTheCheckout",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "PaymentVerificationEscalationTests",
+        "test": "testServerReviewHoldNeedsTheAttendantImmediately",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "PaymentVerificationEscalationTests",
+        "test": "testStagesNeverOfferPaymentAndAlwaysSayDoNotPayAgainWhenUncertain",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "PhotoPassFormatTests",
+        "test": "testArchiveRoundTripKeepsPhotoPassAndReprintIsIdentical",
+        "outcome": "passed",
+        "seconds": 1.181
+      },
+      {
+        "class": "PhotoPassFormatTests",
+        "test": "testCustomerFacingNameIsPhotoPassButStoredIdentityStaysPassport",
+        "outcome": "passed",
+        "seconds": 0.005
+      },
+      {
+        "class": "PhotoPassFormatTests",
+        "test": "testCustomerResetClearsNameNotesAndSignature",
+        "outcome": "passed",
+        "seconds": 0.01
+      },
+      {
+        "class": "PhotoPassFormatTests",
+        "test": "testEventProfileFillsDateEventAndLocation",
+        "outcome": "passed",
+        "seconds": 0.006
+      },
+      {
+        "class": "PhotoPassFormatTests",
+        "test": "testGalleryCopyHasNoNameNotesOrSignature",
+        "outcome": "passed",
+        "seconds": 0.604
+      },
+      {
+        "class": "PhotoPassFormatTests",
+        "test": "testLegacyArchivedSessionStillRendersTheLegacyDesign",
+        "outcome": "passed",
+        "seconds": 0.306
+      },
+      {
+        "class": "PhotoPassFormatTests",
+        "test": "testLongValuesFitTheirFieldsWithoutOverlap",
+        "outcome": "passed",
+        "seconds": 0.323
+      },
+      {
+        "class": "PhotoPassFormatTests",
+        "test": "testNotesAndDesignVersionCodableRoundTripAndLegacyDefaults",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "PhotoPassFormatTests",
+        "test": "testNotesNormalizationLimitAndHasAnyDetails",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "PhotoPassFormatTests",
+        "test": "testPhotoOneFillsThePortraitAndPhotoTwoTheHero",
+        "outcome": "passed",
+        "seconds": 0.13
+      },
+      {
+        "class": "PhotoPassFormatTests",
+        "test": "testPhotoPassFlowKeepsPhotosNameNoteAndSignatureWhenGoingBack",
+        "outcome": "passed",
+        "seconds": 0.035
+      },
+      {
+        "class": "PhotoPassFormatTests",
+        "test": "testSignatureInkStaysInsideTheSignatureBox",
+        "outcome": "passed",
+        "seconds": 0.142
+      },
+      {
+        "class": "PhotoPassFormatTests",
+        "test": "testTemplateGeometryIsDeterministicAndInsideTheCards",
+        "outcome": "passed",
+        "seconds": 0.003
+      },
+      {
+        "class": "PhotoPassFormatTests",
+        "test": "testThermalRasterQRAndDebugArtifacts",
+        "outcome": "passed",
+        "seconds": 4.13
+      },
+      {
+        "class": "PhotoPassFormatTests",
+        "test": "testUpperPhotoRotatesCounterclockwiseWithoutMirroringAndLowerPhotoStaysUpright",
+        "outcome": "passed",
+        "seconds": 0.068
+      },
+      {
+        "class": "PhotoPresentationConsistencyTests",
+        "test": "testEveryFormatPrintsExactlyTheApprovedCropWithoutRotationOrMirroring",
+        "outcome": "passed",
+        "seconds": 1.444
+      },
+      {
+        "class": "PhotoPresentationConsistencyTests",
+        "test": "testPhotoPassHeroIsApprovedAsTheUprightPortraitThatPrintsSideways",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "PhotoPresentationConsistencyTests",
+        "test": "testPresentationNeverModifiesTheStoredSource",
+        "outcome": "passed",
+        "seconds": 0.025
+      },
+      {
+        "class": "PhotoPresentationConsistencyTests",
+        "test": "testThermalPreparationDoesNotCropTheApprovedPhotoAgain",
+        "outcome": "passed",
+        "seconds": 0.166
+      },
+      {
+        "class": "PrepaidCopyAuthorizationTests",
+        "test": "testDirectPrepaidQuantityBindingUsesTheSameFrozenAuthorizationBeforePrint",
+        "outcome": "passed",
+        "seconds": 0.017
+      },
+      {
+        "class": "PrepaidCopyAuthorizationTests",
+        "test": "testFrozenRegularAndEventLimitsCannotBeExpandedByAQuantityBinding",
+        "outcome": "passed",
+        "seconds": 0.006
+      },
+      {
+        "class": "PrepaidCopyAuthorizationTests",
+        "test": "testNextGuestDoesNotInheritThePreviousCopyAllowance",
+        "outcome": "passed",
+        "seconds": 0.005
+      },
+      {
+        "class": "PrepaidCopyAuthorizationTests",
+        "test": "testOperatorFixedPrepaidQuantitiesCannotBeChanged",
+        "outcome": "passed",
+        "seconds": 0.007
+      },
+      {
+        "class": "PrepaidCopyAuthorizationTests",
+        "test": "testPaidQRPhCashAndOfflineCashRemainFixedAtPurchasedQuantity",
+        "outcome": "passed",
+        "seconds": 0.01
+      },
+      {
+        "class": "PrepaidCopyAuthorizationTests",
+        "test": "testQuantityCannotBeReauthorizedAfterACopyHasStartedOrCompleted",
+        "outcome": "passed",
+        "seconds": 0.006
+      },
+      {
+        "class": "PrepaidCopyAuthorizationTests",
+        "test": "testRegularAndEventGuestsCanSelectEveryAllowedCopyCount",
+        "outcome": "passed",
+        "seconds": 0.007
+      },
+      {
+        "class": "PrepaidCopyAuthorizationTests",
+        "test": "testWrongSessionFormatEventAndPolicyCannotAcquireMoreCopies",
+        "outcome": "passed",
+        "seconds": 0.011
+      },
+      {
+        "class": "PrintDurabilityTests",
+        "test": "testArchiveCommitFailureIsReportedAndNeverPartiallyVisible",
+        "outcome": "passed",
+        "seconds": 1.078
+      },
+      {
+        "class": "PrintDurabilityTests",
+        "test": "testArchivePayloadCommitsDurablyBeforeThumbnailsAndIsIdempotent",
+        "outcome": "passed",
+        "seconds": 1.403
+      },
+      {
+        "class": "PrintDurabilityTests",
+        "test": "testArchivesNeverCrossContaminateBetweenSessions",
+        "outcome": "passed",
+        "seconds": 3.243
+      },
+      {
+        "class": "PrintDurabilityTests",
+        "test": "testBluetoothProductionPolicyIsExplicitAndSafeModeRemainsAvailable",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "PrintDurabilityTests",
+        "test": "testCheckpointRunsBeforeEveryCopyAndBlocksOnlyTheFailingCopy",
+        "outcome": "passed",
+        "seconds": 0.036
+      },
+      {
+        "class": "PrintDurabilityTests",
+        "test": "testCriticalRecoverySaveIsVerifiedAndLeavesNoTemporaryFiles",
+        "outcome": "passed",
+        "seconds": 0.024
+      },
+      {
+        "class": "PrintDurabilityTests",
+        "test": "testFailedCheckpointNeverInvokesTransportAndSendsZeroBytes",
+        "outcome": "passed",
+        "seconds": 0.021
+      },
+      {
+        "class": "PrintDurabilityTests",
+        "test": "testRecoveryClearIsScopedToItsOwnSession",
+        "outcome": "passed",
+        "seconds": 0.006
+      },
+      {
+        "class": "PrintDurabilityTests",
+        "test": "testSuccessfulCheckpointPermitsPrintAndPersistsUnknownStatus",
+        "outcome": "passed",
+        "seconds": 0.013
+      },
+      {
+        "class": "PrintDurabilityTests",
+        "test": "testWifiFailureAfterBytesRequiresRecoveryAndNeverRetries",
+        "outcome": "passed",
+        "seconds": 0.015
+      },
+      {
+        "class": "PrintDurabilityTests",
+        "test": "testWifiFailureBeforeBytesDoesNotLockRecovery",
+        "outcome": "passed",
+        "seconds": 0.014
+      },
+      {
+        "class": "PrintDurabilityTests",
+        "test": "testWifiOutcomeMappingForEveryTransmissionState",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "PrintReliabilityTests",
+        "test": "testBluetoothReadinessDoesNotTreatDisconnectedPrinterAsReady",
+        "outcome": "passed",
+        "seconds": 0.007
+      },
+      {
+        "class": "PrintReliabilityTests",
+        "test": "testBluetoothUnavailableBeforeBytesDoesNotRequireUnsafeRecovery",
+        "outcome": "passed",
+        "seconds": 0.007
+      },
+      {
+        "class": "PrintReliabilityTests",
+        "test": "testBusyPrinterSummaryDoesNotTellOperatorToRecoverOrReconnect",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "PrintReliabilityTests",
+        "test": "testCancelledBluetoothReadinessStopsBeforeConnectionPreparation",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "PrintReliabilityTests",
+        "test": "testConnectionFailureBeforeBytesDoesNotRequireUnsafeRecovery",
+        "outcome": "passed",
+        "seconds": 0.008
+      },
+      {
+        "class": "PrintReliabilityTests",
+        "test": "testDuplicateCompletionCallbackIsRejectedByLifecycle",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "PrintReliabilityTests",
+        "test": "testFailureAfterBytesLocksPrinterRecovery",
+        "outcome": "passed",
+        "seconds": 0.007
+      },
+      {
+        "class": "PrintReliabilityTests",
+        "test": "testFailureAfterBytesNeverAutoRetries",
+        "outcome": "passed",
+        "seconds": 0.009
+      },
+      {
+        "class": "PrintReliabilityTests",
+        "test": "testFailureAtFinalByteLocksPrinterRecovery",
+        "outcome": "passed",
+        "seconds": 0.006
+      },
+      {
+        "class": "PrintReliabilityTests",
+        "test": "testFailureBeforeBytesDoesNotRequireUnsafeRecovery",
+        "outcome": "passed",
+        "seconds": 0.007
+      },
+      {
+        "class": "PrintReliabilityTests",
+        "test": "testFailureHalfwayLocksPrinterRecovery",
+        "outcome": "passed",
+        "seconds": 0.007
+      },
+      {
+        "class": "PrintReliabilityTests",
+        "test": "testHardwareAcknowledgementDoesNotRequireDiagnosticButDisconnectedStaysUnavailable",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "PrintReliabilityTests",
+        "test": "testMultiCopyEnvelopeIntegrityForSupportedCopyCounts",
+        "outcome": "passed",
+        "seconds": 0.134
+      },
+      {
+        "class": "PrintReliabilityTests",
+        "test": "testNextCopyDoesNotStartAfterUnknownPrintFailure",
+        "outcome": "passed",
+        "seconds": 0.007
+      },
+      {
+        "class": "PrintReliabilityTests",
+        "test": "testOperatorStatusRespectsSelectedTransportAndDoesNotCallBusyAFailure",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "PrintReliabilityTests",
+        "test": "testPrintAuditMatchesExecutedJobs",
+        "outcome": "passed",
+        "seconds": 0.019
+      },
+      {
+        "class": "PrintReliabilityTests",
+        "test": "testRecoveryDiagnosticTextCanStartBeforeTextVerification",
+        "outcome": "passed",
+        "seconds": 0.003
+      },
+      {
+        "class": "PrintReliabilityTests",
+        "test": "testSingleCopyEnvelopeIntegrity",
+        "outcome": "passed",
+        "seconds": 0.006
+      },
+      {
+        "class": "PrintReliabilityTests",
+        "test": "testSpoolerNeverAllowsConcurrentPhysicalJobs",
+        "outcome": "passed",
+        "seconds": 0.343
+      },
+      {
+        "class": "PrintReliabilityTests",
+        "test": "testTenCopiesUseIdenticalFrozenPayload",
+        "outcome": "passed",
+        "seconds": 0.058
+      },
+      {
+        "class": "PrintReliabilityTests",
+        "test": "testTimeoutBeforeTransmissionDoesNotRequireUnsafeRecovery",
+        "outcome": "passed",
+        "seconds": 0.006
+      },
+      {
+        "class": "PrinterPaperReturnDiagnosticTests",
+        "test": "testCleanCutAllowsExactlyOneBAndRejectsStaleCompletions",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "PrinterPaperReturnDiagnosticTests",
+        "test": "testComparisonStripsStartWithAnInkBarAndHaveMatchingDimensions",
+        "outcome": "passed",
+        "seconds": 0.196
+      },
+      {
+        "class": "PrinterPaperReturnDiagnosticTests",
+        "test": "testEachStripIsAnIndependentSingleDiagnosticWithNoCustomerIdentity",
+        "outcome": "passed",
+        "seconds": 0.189
+      },
+      {
+        "class": "PrinterPaperReturnDiagnosticTests",
+        "test": "testOnlyTheExplicitAJobUsesTheExperimentalReturnCommand",
+        "outcome": "passed",
+        "seconds": 0.212
+      },
+      {
+        "class": "PrinterPaperReturnDiagnosticTests",
+        "test": "testReportedNoCutOrPaperCatchEndsTheDiagnosticWithoutBOrRetry",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "PrinterPaperReturnDiagnosticTests",
+        "test": "testTransportFailureStopsBothDiagnosticStagesWithoutRetry",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "PrinterPaperReturnDiagnosticTests",
+        "test": "testTransportSuccessDoesNotEnableBWithoutPhysicalCutConfirmation",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "ProductionHealthTests",
+        "test": "testHealthSheetRendersInPortraitAndLandscapeWithoutRemoteCalls",
+        "outcome": "passed",
+        "seconds": 1.13
+      },
+      {
+        "class": "ProductionHealthTests",
+        "test": "testHealthyBoothStillDoesNotClaimTheCachedPrinterIsHealthy",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "ProductionHealthTests",
+        "test": "testParkedFinancialFollowUpIsVisibleAndSeparateFromActiveInterruptions",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "ProductionHealthTests",
+        "test": "testProblemsAreClassifiedAsWarningUnavailableOrNeedsReview",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "ProductionHealthTests",
+        "test": "testRegularBoothAndBackgroundReportsDoNotInventPrinterProblems",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "ProductionHealthTests",
+        "test": "testSupportExportContainsNoSecretsURLsOrFullIdentifiers",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "QRPhPaymentLayoutTests",
+        "test": "testAccessibilityAndSmallWindowScrollToAllContent",
+        "outcome": "passed",
+        "seconds": 2.074
+      },
+      {
+        "class": "QRPhPaymentLayoutTests",
+        "test": "testLoadingAndUnavailableKeepAmountVisibleWithoutInventingCodeOrExpiry",
+        "outcome": "passed",
+        "seconds": 5.003
+      },
+      {
+        "class": "QRPhPaymentLayoutTests",
+        "test": "testNonSquareProviderImageRetainsItsAspectRatio",
+        "outcome": "passed",
+        "seconds": 0.894
+      },
+      {
+        "class": "QRPhPaymentLayoutTests",
+        "test": "testReadyCodeScansAndIsCenteredInBothOrientations",
+        "outcome": "passed",
+        "seconds": 4.439
+      },
+      {
+        "class": "ReceiptAndRasterRegressionTests",
+        "test": "testExtremeEventTextDoesNotOverlapReceiptSections",
+        "outcome": "passed",
+        "seconds": 0.864
+      },
+      {
+        "class": "ReceiptAndRasterRegressionTests",
+        "test": "testGridSixCompleteReceiptRasterAndArchiveReprintAreIdentical",
+        "outcome": "passed",
+        "seconds": 2.19
+      },
+      {
+        "class": "ReceiptAndRasterRegressionTests",
+        "test": "testGridSixHeaderEventAndQRCombinationsAndDimensions",
+        "outcome": "passed",
+        "seconds": 2.2
+      },
+      {
+        "class": "ReceiptAndRasterRegressionTests",
+        "test": "testGridSixIdentityAndLegacyCodableValues",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "ReceiptAndRasterRegressionTests",
+        "test": "testGridSixUsesThreeRowsOfExistingGridTiles",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "ReceiptAndRasterRegressionTests",
+        "test": "testRasterCommandIntegrity",
+        "outcome": "passed",
+        "seconds": 2.083
+      },
+      {
+        "class": "ReceiptAndRasterRegressionTests",
+        "test": "testRasterOutputIsDeterministic",
+        "outcome": "passed",
+        "seconds": 0.283
+      },
+      {
+        "class": "ReceiptAndRasterRegressionTests",
+        "test": "testReceiptLayoutValidForEveryBoothFormat",
+        "outcome": "passed",
+        "seconds": 0.759
+      },
+      {
+        "class": "ReceiptAndRasterRegressionTests",
+        "test": "testReceiptMastheadUsesMadeToKeepDescriptor",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "ReceiptDesignSystemTests",
+        "test": "testCommittedSessionFreezesPhysicalPrintOptions",
+        "outcome": "passed",
+        "seconds": 0.015
+      },
+      {
+        "class": "ReceiptDesignSystemTests",
+        "test": "testEditorialCaptionNormalizesToTwoPrintSafeLines",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "ReceiptDesignSystemTests",
+        "test": "testEventCaptionPrintsOnlyWhenConfiguredBelowTheFooter",
+        "outcome": "passed",
+        "seconds": 0.003
+      },
+      {
+        "class": "ReceiptDesignSystemTests",
+        "test": "testEventFirstWithoutArtworkUsesSafeStudioFallback",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "ReceiptDesignSystemTests",
+        "test": "testEveryFormatPrintsTheThreePartFooterWithTheSessionTimeAndNoDefaultCaption",
+        "outcome": "passed",
+        "seconds": 0.015
+      },
+      {
+        "class": "ReceiptDesignSystemTests",
+        "test": "testFooterArtworkIsBundledDeterministicAndPureBlackOnWhite",
+        "outcome": "passed",
+        "seconds": 0.156
+      },
+      {
+        "class": "ReceiptDesignSystemTests",
+        "test": "testPrintedQRChoiceReflowsEveryFormatWithoutRemovingGalleryURL",
+        "outcome": "passed",
+        "seconds": 2.184
+      },
+      {
+        "class": "ReceiptDesignSystemTests",
+        "test": "testPrintedQRSettingDefaultsOnAndPersistsIndependently",
+        "outcome": "passed",
+        "seconds": 0.007
+      },
+      {
+        "class": "ReceiptDesignSystemTests",
+        "test": "testRenderEveryFormatAndBrandingCombination",
+        "outcome": "passed",
+        "seconds": 37.095
+      },
+      {
+        "class": "ReceiptFooterModeTests",
+        "test": "testAdmissionFreezesFooterBeforeFormatSelectionAndRecoveryPersistsIt",
+        "outcome": "passed",
+        "seconds": 0.265
+      },
+      {
+        "class": "ReceiptFooterModeTests",
+        "test": "testAllModesFormatsAndFinalThermalQRWithVisualArtifacts",
+        "outcome": "failed",
+        "seconds": 6.474
+      },
+      {
+        "class": "ReceiptFooterModeTests",
+        "test": "testArchiveKeepsFrozenOptionsAndOlderArchivesReprintOriginalRaster",
+        "outcome": "passed",
+        "seconds": 0.761
+      },
+      {
+        "class": "ReceiptFooterModeTests",
+        "test": "testCheckoutCheckpointRoundTripAndOlderPayload",
+        "outcome": "passed",
+        "seconds": 0.01
+      },
+      {
+        "class": "ReceiptFooterModeTests",
+        "test": "testEventOverrideWithoutLogoAndInheritance",
+        "outcome": "passed",
+        "seconds": 0.003
+      },
+      {
+        "class": "ReceiptFooterModeTests",
+        "test": "testLargestSupportedIntegratedURLExpandsAtIntegerScaleAndScans",
+        "outcome": "passed",
+        "seconds": 0.932
+      },
+      {
+        "class": "ReceiptFooterModeTests",
+        "test": "testMigrationAndUnknownValues",
+        "outcome": "passed",
+        "seconds": 0.01
+      },
+      {
+        "class": "ReceiptFooterModeTests",
+        "test": "testModuleGeometryQuietZonesAndProtectedArea",
+        "outcome": "passed",
+        "seconds": 0.955
+      },
+      {
+        "class": "ReceiptFooterModeTests",
+        "test": "testSamplesHaveNoScannableGalleryButPreserveSelectedGeometry",
+        "outcome": "passed",
+        "seconds": 2.636
+      },
+      {
+        "class": "ReceiptPreviewAccuracyTests",
+        "test": "testCustomerPreviewModesNeverExposeThePrinterRaster",
+        "outcome": "passed",
+        "seconds": 1.034
+      },
+      {
+        "class": "ReceiptPreviewAccuracyTests",
+        "test": "testThermalPreviewIsTheExactOneBitRasterForEveryConfiguration",
+        "outcome": "passed",
+        "seconds": 23.001
+      },
+      {
+        "class": "ReceiptPrintDirectionTests",
+        "test": "testAllReceiptSourcesAndCopiesShareOneFooterFirstPayload",
+        "outcome": "passed",
+        "seconds": 0.019
+      },
+      {
+        "class": "ReceiptPrintDirectionTests",
+        "test": "testEntirelyBlankReceiptKeepsAValidHeight",
+        "outcome": "passed",
+        "seconds": 0.009
+      },
+      {
+        "class": "ReceiptPrintDirectionTests",
+        "test": "testFooterFirstRotatesEveryPixelWithoutMirroringClippingOrChangingThePreview",
+        "outcome": "passed",
+        "seconds": 0.148
+      },
+      {
+        "class": "ReceiptPrintDirectionTests",
+        "test": "testGuestReceiptsKeepTheirDigitalBorderAndIdentifierWhilePaperEndsAtInk",
+        "outcome": "passed",
+        "seconds": 18.667
+      },
+      {
+        "class": "ReceiptPrintDirectionTests",
+        "test": "testNewReceiptPreviewAlreadyIncludesAnyRotatedSafetyCorrections",
+        "outcome": "passed",
+        "seconds": 0.019
+      },
+      {
+        "class": "ReceiptPrintDirectionTests",
+        "test": "testOldArchivesAreSanitizedAfterRotationWithoutChangingTheirStoredRaster",
+        "outcome": "passed",
+        "seconds": 0.005
+      },
+      {
+        "class": "ReceiptPrintDirectionTests",
+        "test": "testPhotoDiagnosticsKeepTheCallersOrientationAndFeedSequence",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "ReceiptPrintDirectionTests",
+        "test": "testPrintPreparationLeavesNormalGalleryAndPreviewCopiesUntouched",
+        "outcome": "passed",
+        "seconds": 4.091
+      },
+      {
+        "class": "ReceiptSessionIdentifierTests",
+        "test": "testEveryFormatRendersTheShortTextWithoutChangingInternalIdentityOrLayout",
+        "outcome": "passed",
+        "seconds": 1.959
+      },
+      {
+        "class": "ReceiptSessionIdentifierTests",
+        "test": "testOnlyCanonicalTimestampAndUUIDIdentifiersAreShortened",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "ReceiptSessionIdentifierTests",
+        "test": "testPrintedPrefixFindsFullArchivedIdentitiesAndFrozenLegacyReprintBytesStayUnchanged",
+        "outcome": "passed",
+        "seconds": 0.376
+      },
+      {
+        "class": "ReceiptSessionIdentifierTests",
+        "test": "testSamplesStillOmitTheIdentifier",
+        "outcome": "passed",
+        "seconds": 0.175
+      },
+      {
+        "class": "ReceiptStudioTests",
+        "test": "testCompatibleReplacementKeepsCropAndOnlyIncompatibleArtworkResetsIt",
+        "outcome": "passed",
+        "seconds": 0.114
+      },
+      {
+        "class": "ReceiptStudioTests",
+        "test": "testEnabledMovesChangeOnlyRequestedIdentityAndResetKeepsArtwork",
+        "outcome": "passed",
+        "seconds": 0.063
+      },
+      {
+        "class": "ReceiptStudioTests",
+        "test": "testFirstLogoUsesRecommendedHeaderWithoutChangingOtherEventSettings",
+        "outcome": "passed",
+        "seconds": 0.024
+      },
+      {
+        "class": "ReceiptStudioTests",
+        "test": "testFitWidthFocusZoomAndRenderingNeverMutateReceiptBytes",
+        "outcome": "passed",
+        "seconds": 0.053
+      },
+      {
+        "class": "ReceiptStudioTests",
+        "test": "testFocusedProductionGeometryZoomHitTestingAndManualViewportSurviveUpdates",
+        "outcome": "passed",
+        "seconds": 0.358
+      },
+      {
+        "class": "ReceiptStudioTests",
+        "test": "testPreviewMetadataAndOpaqueSampleCanvasForAllFormats",
+        "outcome": "passed",
+        "seconds": 1.907
+      },
+      {
+        "class": "ReceiptStudioTests",
+        "test": "testReplacementPreservesOtherBrandingModes",
+        "outcome": "passed",
+        "seconds": 0.074
+      },
+      {
+        "class": "ReceiptStudioTests",
+        "test": "testReplacementPreservesOtherElementsAndOldArtworkAcrossAspectRatios",
+        "outcome": "passed",
+        "seconds": 0.122
+      },
+      {
+        "class": "ReceiptStudioTests",
+        "test": "testSizeControlsExcludeClampedPlateausWithoutChangingNeighbors",
+        "outcome": "passed",
+        "seconds": 0.059
+      },
+      {
+        "class": "ReceiptStudioV2Tests",
+        "test": "testCancelDuringImportPreventsLateDraftOrParentMutationAndRetainsArtwork",
+        "outcome": "passed",
+        "seconds": 0.012
+      },
+      {
+        "class": "ReceiptStudioV2Tests",
+        "test": "testCancelledImportCannotOverwriteLaterReplacementOrRemoval",
+        "outcome": "passed",
+        "seconds": 0.003
+      },
+      {
+        "class": "ReceiptStudioV2Tests",
+        "test": "testCaptionWithDerivedEnableFlagIsOneUndoAndRestoresFlagOnRedo",
+        "outcome": "passed",
+        "seconds": 0.009
+      },
+      {
+        "class": "ReceiptStudioV2Tests",
+        "test": "testConflictBlocksEntireSaveAndUndoAllowsSafeRetryAcrossSections",
+        "outcome": "passed",
+        "seconds": 0.004
+      },
+      {
+        "class": "ReceiptStudioV2Tests",
+        "test": "testHistoryCoalescesContinuousValuesAndPreservesAllSections",
+        "outcome": "passed",
+        "seconds": 0.008
+      },
+      {
+        "class": "ReceiptStudioV2Tests",
+        "test": "testHistoryIgnoresNoOpsAndBoundsRetainedValues",
+        "outcome": "passed",
+        "seconds": 0.056
+      },
+      {
+        "class": "ReceiptStudioV2Tests",
+        "test": "testImportBlocksSaveUntilCompletionAndRejectsDuplicateThenReopensSavedLogo",
+        "outcome": "passed",
+        "seconds": 0.015
+      },
+      {
+        "class": "ReceiptStudioV2Tests",
+        "test": "testImportFailureKeepsExistingLogoAndReportsFailure",
+        "outcome": "passed",
+        "seconds": 0.008
+      },
+      {
+        "class": "ReceiptStudioV2Tests",
+        "test": "testLocalLogoAndExternalSpacingAndNestedAdjustmentsMerge",
+        "outcome": "passed",
+        "seconds": 0.004
+      },
+      {
+        "class": "ReceiptStudioV2Tests",
+        "test": "testPortraitColumnsAndFocusedFallback",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "ReceiptStudioV2Tests",
+        "test": "testPrecisionRecenterResetAndPrintableBounds",
+        "outcome": "passed",
+        "seconds": 0.087
+      },
+      {
+        "class": "ReceiptStudioV2Tests",
+        "test": "testReceiptSaveMergesOnlyEditedFieldsWithoutReplacingNewCommercialOrGuestData",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "ReceiptStudioV2Tests",
+        "test": "testSameValueConcurrentEditIsNotConflictAndOptionalRemovalIsPreserved",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "ReceiptStudioV2Tests",
+        "test": "testScaleAndExternalLogoMergeThenPersistAcrossReopen",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "ReceiptStudioV2Tests",
+        "test": "testSimultaneousGeometryInitializationOrResetConflictsWithoutGuessing",
+        "outcome": "passed",
+        "seconds": 0.009
+      },
+      {
+        "class": "ReceiptStudioV2Tests",
+        "test": "testWholeReceiptViewportPreservesManualZoomPanAndSelectionAcrossEdits",
+        "outcome": "passed",
+        "seconds": 0.007
+      },
+      {
+        "class": "RegularBoothTests",
+        "test": "testCrashAfterManifestDetachFinishesSameTransition",
+        "outcome": "passed",
+        "seconds": 0.149
+      },
+      {
+        "class": "RegularBoothTests",
+        "test": "testEndFreeEventDetachesAndRetainsHistoryAndDrafts",
+        "outcome": "passed",
+        "seconds": 0.128
+      },
+      {
+        "class": "RegularBoothTests",
+        "test": "testFreshInstallBootstrapsWithoutEventOrPaymentContact",
+        "outcome": "passed",
+        "seconds": 0.011
+      },
+      {
+        "class": "RegularBoothTests",
+        "test": "testInterruptedPaidStartCannotReturnFreeWhileOriginalServerIsUnknown",
+        "outcome": "passed",
+        "seconds": 0.023
+      },
+      {
+        "class": "RegularBoothTests",
+        "test": "testInvalidDefaultsStayVisibleAndCannotAdmitUntilExplicitlyRepaired",
+        "outcome": "passed",
+        "seconds": 0.011
+      },
+      {
+        "class": "RegularBoothTests",
+        "test": "testPaidBindingsPausesHistoryAndRecoveryNeverAutoBecomeFree",
+        "outcome": "passed",
+        "seconds": 0.051
+      },
+      {
+        "class": "RegularBoothTests",
+        "test": "testRegularReceiptAndCopyDefaultsPersistWithoutMutatingFrozenValues",
+        "outcome": "passed",
+        "seconds": 0.009
+      },
+      {
+        "class": "RegularBoothTests",
+        "test": "testRegularSettingsAreLocalFreeAndIndependentOfEvents",
+        "outcome": "passed",
+        "seconds": 0.007
+      },
+      {
+        "class": "RegularBoothTests",
+        "test": "testSimultaneousAndRepeatedClockValuesCannotReuseCheckoutOwnership",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "RegularBoothTests",
+        "test": "testUnknownDeviceFooterAndGalleryDefaultsAreReportedAndPreservedOnRepair",
+        "outcome": "passed",
+        "seconds": 0.008
+      },
+      {
+        "class": "RegularBoothTests",
+        "test": "testUnreadableDefaultsAreRetainedAndReportedRatherThanSilentlyUsed",
+        "outcome": "passed",
+        "seconds": 0.005
+      },
+      {
+        "class": "RegularBoothTests",
+        "test": "testUnverifiedIntentCannotDetachOrGrantRegularAdmission",
+        "outcome": "passed",
+        "seconds": 0.019
+      },
+      {
+        "class": "SamplePrintStudioTests",
+        "test": "testAnyChangeInvalidatesThePreparedRaster",
+        "outcome": "passed",
+        "seconds": 10.097
+      },
+      {
+        "class": "SamplePrintStudioTests",
+        "test": "testBothModesSaveNativePNGWithoutPrinterOrEventAndIgnoreDuplicateTap",
+        "outcome": "passed",
+        "seconds": 1.28
+      },
+      {
+        "class": "SamplePrintStudioTests",
+        "test": "testDecoderAppliesOrientationAndBoundsLargePhotos",
+        "outcome": "passed",
+        "seconds": 0.1
+      },
+      {
+        "class": "SamplePrintStudioTests",
+        "test": "testEditsDuringPhotosPermissionNeverExportTheOldPreview",
+        "outcome": "passed",
+        "seconds": 2.184
+      },
+      {
+        "class": "SamplePrintStudioTests",
+        "test": "testEmptyStudioPreparesPlaceholderWithoutAPermanentLoadingIndicator",
+        "outcome": "passed",
+        "seconds": 1.225
+      },
+      {
+        "class": "SamplePrintStudioTests",
+        "test": "testEventSampleKeepsAdjustedHeaderFooterAndProductionRaster",
+        "outcome": "passed",
+        "seconds": 1.088
+      },
+      {
+        "class": "SamplePrintStudioTests",
+        "test": "testEverySampleFormatPrintsWithoutSessionIdentifierOrQR",
+        "outcome": "passed",
+        "seconds": 8.568
+      },
+      {
+        "class": "SamplePrintStudioTests",
+        "test": "testExplicitDuplicateReplaceReorderClearAndRemove",
+        "outcome": "passed",
+        "seconds": 0.005
+      },
+      {
+        "class": "SamplePrintStudioTests",
+        "test": "testExplicitPreviewDesignStaysIsolatedFromAppliedBranding",
+        "outcome": "passed",
+        "seconds": 0.003
+      },
+      {
+        "class": "SamplePrintStudioTests",
+        "test": "testFailedCopyStopsTheBatch",
+        "outcome": "passed",
+        "seconds": 0.798
+      },
+      {
+        "class": "SamplePrintStudioTests",
+        "test": "testFormatChangeKeepsArrangementAndUsesOnlyUnusedPhotos",
+        "outcome": "passed",
+        "seconds": 0.007
+      },
+      {
+        "class": "SamplePrintStudioTests",
+        "test": "testImportFillsSlotsInOrderWithoutSilentlyRepeatingAPhoto",
+        "outcome": "passed",
+        "seconds": 0.005
+      },
+      {
+        "class": "SamplePrintStudioTests",
+        "test": "testIncompleteOrBlockedSamplesCannotPrint",
+        "outcome": "passed",
+        "seconds": 1.498
+      },
+      {
+        "class": "SamplePrintStudioTests",
+        "test": "testMountedDepartingSlotAndChooserSurviveShrinkingFormats",
+        "outcome": "passed",
+        "seconds": 2.107
+      },
+      {
+        "class": "SamplePrintStudioTests",
+        "test": "testPhotoPassSampleUsesOperatorDetails",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "SamplePrintStudioTests",
+        "test": "testPolicyBlocksActiveGuestsHardwareRecoveryAndDoubleTapButAllowsHistoricalUncertainty",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "SamplePrintStudioTests",
+        "test": "testPrintSendsTheExactPreparedRasterForEveryCopyAndNeverRecomposes",
+        "outcome": "passed",
+        "seconds": 1.059
+      },
+      {
+        "class": "SamplePrintStudioTests",
+        "test": "testRemovingAllPhotosReturnsToPlaceholderWithoutShowingPreviousPhotosOrASpinner",
+        "outcome": "passed",
+        "seconds": 1.498
+      },
+      {
+        "class": "SamplePrintStudioTests",
+        "test": "testSamplePrintPipelineKeepsCompactTopMarginAndPrintsFooterFirstWithoutExtraFeed",
+        "outcome": "passed",
+        "seconds": 12.007
+      },
+      {
+        "class": "SamplePrintStudioTests",
+        "test": "testSavedBrandingIsOnlyOfferedWhenSavedAndNeverUsesDrafts",
+        "outcome": "passed",
+        "seconds": 0.004
+      },
+      {
+        "class": "SamplePrintStudioTests",
+        "test": "testSaveDenialAndStorageFailureProvideFeedbackAndAllowRetry",
+        "outcome": "passed",
+        "seconds": 0.796
+      },
+      {
+        "class": "SamplePrintStudioTests",
+        "test": "testTrayIsBounded",
+        "outcome": "passed",
+        "seconds": 0.006
+      },
+      {
+        "class": "SavedDraftsTests",
+        "test": "testEquivalentDraftPruningKeepsGenuineDesignEdits",
+        "outcome": "passed",
+        "seconds": 0.029
+      },
+      {
+        "class": "SavedDraftsTests",
+        "test": "testEquivalentLookingSelectionForAnotherPaymentConnectionIsRetained",
+        "outcome": "passed",
+        "seconds": 0.013
+      },
+      {
+        "class": "SavedDraftsTests",
+        "test": "testImplicitAndExplicitEquivalentHeaderDefaultsDoNotCreateADraft",
+        "outcome": "passed",
+        "seconds": 0.009
+      },
+      {
+        "class": "SavedDraftsTests",
+        "test": "testIndividualDiscardPreservesOtherDraftsSavedDesignAndAppliedState",
+        "outcome": "passed",
+        "seconds": 0.021
+      },
+      {
+        "class": "SavedDraftsTests",
+        "test": "testLogoReplacementIsExplainedWithoutExposingAssetIdentifiers",
+        "outcome": "passed",
+        "seconds": 0.008
+      },
+      {
+        "class": "SavedDraftsTests",
+        "test": "testPaymentDiffUsesBaselineIgnoresEquivalentPesoTextAndDisabledOfflineDate",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "SavedDraftsTests",
+        "test": "testRealSampleIsDiscoverableWithOnlyChangedFieldsAndMetadataDoesNotCount",
+        "outcome": "passed",
+        "seconds": 0.018
+      },
+      {
+        "class": "SavedDraftsTests",
+        "test": "testRenderDraftListAndSampleReviewInBothOrientations",
+        "outcome": "passed",
+        "seconds": 16.119
+      },
+      {
+        "class": "SavedDraftsTests",
+        "test": "testReturningToNormalizedSavedValuesRemovesTheAutosavedDraft",
+        "outcome": "passed",
+        "seconds": 0.024
+      },
+      {
+        "class": "SavedDraftsTests",
+        "test": "testTargetedDesignReviewDoesNotChangeAnotherDraftOrSessionSelectionAndSaveDoesNotApply",
+        "outcome": "passed",
+        "seconds": 0.032
+      },
+      {
+        "class": "SavedDraftsTests",
+        "test": "testTypedReviewRoutesSurviveRestart",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "SavedDraftsTests",
+        "test": "testUnauthorizedAndFailedDiscardKeepTheDraft",
+        "outcome": "passed",
+        "seconds": 0.004
+      },
+      {
+        "class": "SavedDraftsTests",
+        "test": "testUnfinishedNewEventShowsOnlyEnteredFields",
+        "outcome": "passed",
+        "seconds": 0.014
+      },
+      {
+        "class": "SavedDraftsTests",
+        "test": "testUnknownBaselineAndOtherConnectionStayVisibleAndCannotBePruned",
+        "outcome": "passed",
+        "seconds": 0.012
+      },
+      {
+        "class": "SessionGIFAndSamplePreviewTests",
+        "test": "testGIFFrameCountsTimingLoopDimensionsAndSignature",
+        "outcome": "passed",
+        "seconds": 0.292
+      },
+      {
+        "class": "SessionGIFAndSamplePreviewTests",
+        "test": "testGIFHonorsCallerByteBudgetAndRejectsAbsurdBudget",
+        "outcome": "passed",
+        "seconds": 0.203
+      },
+      {
+        "class": "SessionGIFAndSamplePreviewTests",
+        "test": "testGIFPreservesApprovedFrameOrder",
+        "outcome": "passed",
+        "seconds": 0.09
+      },
+      {
+        "class": "SessionGIFAndSamplePreviewTests",
+        "test": "testGIFRejectsMissingFrames",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "SessionGIFAndSamplePreviewTests",
+        "test": "testMixedPortraitLandscapeAndOrientedFramesUseOneNeutralCanvas",
+        "outcome": "passed",
+        "seconds": 0.056
+      },
+      {
+        "class": "SessionGIFAndSamplePreviewTests",
+        "test": "testSoloGalleryRemainsSchemaV2WithoutMisleadingGIF",
+        "outcome": "passed",
+        "seconds": 0.054
+      },
+      {
+        "class": "SessionIsolationAndRecoveryTests",
+        "test": "testCopyCountResetsToOneForNewSession",
+        "outcome": "passed",
+        "seconds": 0.006
+      },
+      {
+        "class": "SessionIsolationAndRecoveryTests",
+        "test": "testCrashAtPrintStatusUnknownDoesNotAutoReprint",
+        "outcome": "passed",
+        "seconds": 0.005
+      },
+      {
+        "class": "SessionIsolationAndRecoveryTests",
+        "test": "testDelayedOldSessionCallbackCannotMutateNewSession",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "SessionIsolationAndRecoveryTests",
+        "test": "testGridSixRecoveryRoundTripsZeroThroughSixPhotos",
+        "outcome": "passed",
+        "seconds": 0.038
+      },
+      {
+        "class": "SessionIsolationAndRecoveryTests",
+        "test": "testNewCustomerCannotReusePreviousCustomerPayload",
+        "outcome": "passed",
+        "seconds": 0.005
+      },
+      {
+        "class": "SessionIsolationAndRecoveryTests",
+        "test": "testOldCameraCallbackCannotOverwriteNewSession",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "SessionIsolationAndRecoveryTests",
+        "test": "testOldGalleryCompletionCannotOverwriteNewSession",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "SessionIsolationAndRecoveryTests",
+        "test": "testOldReceiptCompositionCannotOverwriteNewSession",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "SessionIsolationAndRecoveryTests",
+        "test": "testOneThousandSessionsHaveZeroCrossSessionContamination",
+        "outcome": "passed",
+        "seconds": 44.355
+      },
+      {
+        "class": "SessionIsolationAndRecoveryTests",
+        "test": "testPendingConfirmationFromCancelledSessionCannotAdvanceNextSession",
+        "outcome": "passed",
+        "seconds": 0.036
+      },
+      {
+        "class": "SessionIsolationAndRecoveryTests",
+        "test": "testRapidSessionResetDoesNotLeakState",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "SessionIsolationAndRecoveryTests",
+        "test": "testSixPhotoCommittedSessionOfflineQueueAndResetIsolation",
+        "outcome": "passed",
+        "seconds": 0.215
+      },
+      {
+        "class": "SessionIsolationAndRecoveryTests",
+        "test": "testSixPhotoSequenceReachesReviewOnlyAfterSixAndRejectsExtraSamples",
+        "outcome": "passed",
+        "seconds": 0.005
+      },
+      {
+        "class": "SessionIsolationAndRecoveryTests",
+        "test": "testSyntheticRasterPreservesSeedBeyondOneByte",
+        "outcome": "passed",
+        "seconds": 0.004
+      },
+      {
+        "class": "SessionMotionPreviewTests",
+        "test": "testEveryFormatUploadsStillPhotosAndBothReceiptsWithoutGIF",
+        "outcome": "passed",
+        "seconds": 0.289
+      },
+      {
+        "class": "SessionMotionPreviewTests",
+        "test": "testFramesKeepPhotoOrderAndFitMixedOrientationsWithoutCropping",
+        "outcome": "passed",
+        "seconds": 0.008
+      },
+      {
+        "class": "SessionMotionPreviewTests",
+        "test": "testMotionIsOfferedForEveryMultiPhotoFormatButNeverSolo",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "SessionMotionPreviewTests",
+        "test": "testPreviewTimingMatchesTheGalleryGIFAndLoopsInOrder",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "SessionSetupScreenRenderTests",
+        "test": "testRenderCenteredGuestCash",
+        "outcome": "passed",
+        "seconds": 2.759
+      },
+      {
+        "class": "SessionSetupScreenRenderTests",
+        "test": "testRenderSetupScenarios",
+        "outcome": "passed",
+        "seconds": 8.898
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testAcceptanceBindingAndCorruptStateFailClosedWithoutOverwritingOriginal",
+        "outcome": "passed",
+        "seconds": 0.01
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testAppliedDesignIdentityFailureKeepsAdmissionClosed",
+        "outcome": "passed",
+        "seconds": 0.043
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testCancelLiveChangesRestoresEarlierUnrelatedDraft",
+        "outcome": "passed",
+        "seconds": 0.063
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testConcurrentRefreshIsCoalesced",
+        "outcome": "passed",
+        "seconds": 0.011
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testCreateTimeoutRetainsOriginalOperationAcrossRelaunchWithoutRetry",
+        "outcome": "passed",
+        "seconds": 0.053
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testDraftFlushRunsOffMainAndPreservesLatestValueAcrossRestart",
+        "outcome": "passed",
+        "seconds": 0.116
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testDuplicatePaidCreateSharesOneOperationAndOnlyOneVerificationRead",
+        "outcome": "passed",
+        "seconds": 0.118
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testEventStickerChoicesPersistIndependentlyAndTemplateDoesNotShareState",
+        "outcome": "passed",
+        "seconds": 0.132
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testFooterWithoutCustomLogoIsOptInAndBackwardCompatible",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testFreeActivationNeedsNoPaymentsAndPreservesIncludedCopiesAndFormats",
+        "outcome": "passed",
+        "seconds": 0.082
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testFulfillmentBlocksSwitchingButDoesNotBlockPausingNewSessions",
+        "outcome": "passed",
+        "seconds": 0.012
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testGalleryOverrideIsStagedSavedAndAppliedIndependentlyOfLogo",
+        "outcome": "passed",
+        "seconds": 0.115
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testInterruptedPaidToFreeTransitionNeverOpensFreeSessions",
+        "outcome": "passed",
+        "seconds": 0.017
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testLegacyPhotoPassFormatRemainsEnabledAndIsNotSilentlyDroppedFromSavedSetup",
+        "outcome": "passed",
+        "seconds": 0.007
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testLegacyStickerInheritanceSurvivesDecodeAndNewTemplateFreezesPreference",
+        "outcome": "passed",
+        "seconds": 0.028
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testLegacyWorkspaceStillDecodesWithoutSessionSetupFields",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testLiveEditsAreStagedDuringGuestAndApplyOnlyWhenGuestFinishes",
+        "outcome": "passed",
+        "seconds": 0.095
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testLivePaidCosmeticChangesDoNotPublishUnrelatedServerDraft",
+        "outcome": "passed",
+        "seconds": 0.108
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testLivePaidPolicyUsesVersionedPublishAndSameEventAndRun",
+        "outcome": "passed",
+        "seconds": 0.094
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testLivePrepaidChangesPreserveRunAndSessionJournalAndSurviveRestart",
+        "outcome": "passed",
+        "seconds": 0.18
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testLiveStaleVersionPreservesEditsAndRunUntilReview",
+        "outcome": "passed",
+        "seconds": 0.062
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testLiveStickerEditPreservesFrozenConfigurationAndRunAcrossRelaunch",
+        "outcome": "passed",
+        "seconds": 0.105
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testLiveUnknownPublishNeverReportsSuccessOrRepeatsMutation",
+        "outcome": "passed",
+        "seconds": 0.066
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testLockDuringActivationPreventsSourceCommit",
+        "outcome": "passed",
+        "seconds": 0.027
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testModeSelectionIsStagedInBothDirectionsAndDraftsSurviveRelaunch",
+        "outcome": "passed",
+        "seconds": 0.065
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testNewWorkspaceDefaultsToNoPaymentAndNeverCreatesServerEventUntilReviewedStart",
+        "outcome": "passed",
+        "seconds": 0.155
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testPaidActivationAcknowledgesExactSavedPriceAndCommitsModeOnlyAfterConfirmation",
+        "outcome": "passed",
+        "seconds": 0.065
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testPaidAdmissionDoesNotDependOnPausedOrInvalidPrepaidSettings",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testPaidToFreePausesServerBeforeCommittingFreeMode",
+        "outcome": "passed",
+        "seconds": 0.038
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testPreviousEventCopiesDesignWithFreshIdentityAndNoCommercialHistory",
+        "outcome": "passed",
+        "seconds": 0.039
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testReadTimeoutReleasesBusyAndAllowsExplicitRefresh",
+        "outcome": "passed",
+        "seconds": 0.065
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testReceiptStudioDraftCheckpointSaveAndLiveStagePreserveOtherConfiguration",
+        "outcome": "passed",
+        "seconds": 0.123
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testRefreshAndCreateDoNotLosePaidLinking",
+        "outcome": "passed",
+        "seconds": 0.057
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testRenderActualOperatorScreensForVisualReview",
+        "outcome": "passed",
+        "seconds": 3.322
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testReopenedPaidWorkspaceCannotCreateSecondCommercialIdentity",
+        "outcome": "passed",
+        "seconds": 0.122
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testReopeningSetupCannotOverlapAnInFlightActivation",
+        "outcome": "passed",
+        "seconds": 0.256
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testSavedLocalPreparationCannotOverwriteLaterServerDraftOnRefresh",
+        "outcome": "passed",
+        "seconds": 0.115
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testSaveWithoutStartingNeverChangesSourceOrPublishes",
+        "outcome": "passed",
+        "seconds": 0.038
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testSavingAnEventDuringRecoveryPreservesAdmissionAndActiveProfile",
+        "outcome": "passed",
+        "seconds": 0.059
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testStaleServerVersionPreservesLocalEditsAndRequiresReview",
+        "outcome": "passed",
+        "seconds": 0.081
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testThermalPreviewWorkerPreservesExactPrinterRaster",
+        "outcome": "passed",
+        "seconds": 0.785
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testTurningTheLogoOffKeepsTheSavedDesignButPrintsTheStandardReceipt",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testUnchangedDraftDoesNotRepeatDurableWrites",
+        "outcome": "passed",
+        "seconds": 0.005
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testUnfinishedLogoCanBeSavedButCannotBeActivated",
+        "outcome": "passed",
+        "seconds": 0.043
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testUnfinishedWorkspaceRestoresIdentityDesignAndUnlinkedPaidPolicy",
+        "outcome": "passed",
+        "seconds": 0.041
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testUnifiedAndMaintenanceRoutesRoundTripWithoutLosingSavedNavigation",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testUnknownActivationReportsActiveServerButBoothRemainsPausedUntilExplicitRetry",
+        "outcome": "passed",
+        "seconds": 0.042
+      },
+      {
+        "class": "SessionSetupTests",
+        "test": "testUnknownSaveClosesGateAcrossRelaunchAndNeverAutomaticallyRetriesMutation",
+        "outcome": "passed",
+        "seconds": 0.047
+      },
+      {
+        "class": "StaticStickerCollectionTests",
+        "test": "testAll200StickersAreDistinctStaticTransparentAndBounded",
+        "outcome": "passed",
+        "seconds": 0.777
+      },
+      {
+        "class": "StaticStickerCollectionTests",
+        "test": "testCategoryBrowsingAndSearchStayEntirelyLocal",
+        "outcome": "passed",
+        "seconds": 0.014
+      },
+      {
+        "class": "StaticStickerCollectionTests",
+        "test": "testContactSheetsAndExactThermalArtwork",
+        "outcome": "passed",
+        "seconds": 2.46
+      },
+      {
+        "class": "StaticStickerCollectionTests",
+        "test": "testNewGIFImportsAreRejectedWhileLegacyFilesAndSettingsSurvive",
+        "outcome": "passed",
+        "seconds": 0.026
+      },
+      {
+        "class": "StaticStickerCollectionTests",
+        "test": "testOperatorControlsAndPreviewWithoutEnablingLiveStudio",
+        "outcome": "passed",
+        "seconds": 1.924
+      },
+      {
+        "class": "StaticStickerCollectionTests",
+        "test": "testOriginal150StickerIDsArePreservedAndExpansionAddsFifty",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "StaticStickerCollectionTests",
+        "test": "testRenderStaticStudioInPortraitAndLandscape",
+        "outcome": "passed",
+        "seconds": 2.087
+      },
+      {
+        "class": "StaticStickerCollectionTests",
+        "test": "testRepresentativeStickersAcrossEveryReceiptFormatAndMultipleCopies",
+        "outcome": "passed",
+        "seconds": 6.32
+      },
+      {
+        "class": "StickerCatalogTests",
+        "test": "testBuiltInLibraryIsOriginalLegibleAndOffline",
+        "outcome": "passed",
+        "seconds": 7.467
+      },
+      {
+        "class": "StickerCatalogTests",
+        "test": "testDecoderLimitsAreEnforced",
+        "outcome": "passed",
+        "seconds": 0.087
+      },
+      {
+        "class": "StickerCatalogTests",
+        "test": "testEventCollectionEnableDisableReorderAndDelete",
+        "outcome": "passed",
+        "seconds": 0.045
+      },
+      {
+        "class": "StickerCatalogTests",
+        "test": "testGIFPrintsADeterministicRepresentativeStillFrame",
+        "outcome": "passed",
+        "seconds": 0.005
+      },
+      {
+        "class": "StickerCatalogTests",
+        "test": "testGuestCatalogRespectsSourcesAndHidesEmptyCategories",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "StickerCatalogTests",
+        "test": "testImportSurvivesRestartAndMissingOrCorruptFilesAreSkipped",
+        "outcome": "passed",
+        "seconds": 0.061
+      },
+      {
+        "class": "StickerCatalogTests",
+        "test": "testPrintPreparationSnapsAlphaAndFlagsLowContrast",
+        "outcome": "passed",
+        "seconds": 0.009
+      },
+      {
+        "class": "StickerGeometryTests",
+        "test": "testDragPinchAndTwistAreClampedTogether",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "StickerGeometryTests",
+        "test": "testMalformedPlacementsFailSafely",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "StickerGeometryTests",
+        "test": "testRotationNormalizationAndLegibilityWarning",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "StickerGeometryTests",
+        "test": "testSingleTransformMapsPrintAndDisplayAtEveryIPadScale",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "StickerRenderingTests",
+        "test": "testAlphaCompositesOverThePhoto",
+        "outcome": "passed",
+        "seconds": 0.112
+      },
+      {
+        "class": "StickerRenderingTests",
+        "test": "testNoStickersIsByteForByteIdenticalToBaselineForEveryFormat",
+        "outcome": "passed",
+        "seconds": 5.748
+      },
+      {
+        "class": "StickerRenderingTests",
+        "test": "testPhotoPassGalleryRedactionKeepsStickersAndOriginalPhotos",
+        "outcome": "passed",
+        "seconds": 0.465
+      },
+      {
+        "class": "StickerRenderingTests",
+        "test": "testRegionsComeFromTheExactLayoutPlanForEveryFormat",
+        "outcome": "passed",
+        "seconds": 0.404
+      },
+      {
+        "class": "StickerRenderingTests",
+        "test": "testStickerInkStaysInsideItsRegionAndNeverTouchesProtectedElements",
+        "outcome": "passed",
+        "seconds": 1.744
+      },
+      {
+        "class": "StickerRenderingTests",
+        "test": "testThermalPreviewPrintRasterAndCopiesMatchForOneCommittedSession",
+        "outcome": "passed",
+        "seconds": 1.219
+      },
+      {
+        "class": "StickerStudioFlowTests",
+        "test": "testBackPreservesPhotosAndDraftWithoutSideEffects",
+        "outcome": "passed",
+        "seconds": 0.206
+      },
+      {
+        "class": "StickerStudioFlowTests",
+        "test": "testDoneWaitsForPendingArtworkAndPreservesStaticDraftOnBack",
+        "outcome": "passed",
+        "seconds": 0.966
+      },
+      {
+        "class": "StickerStudioFlowTests",
+        "test": "testEventOverrideWinsBothWaysAndNeverLoadsDisabledSources",
+        "outcome": "passed",
+        "seconds": 0.651
+      },
+      {
+        "class": "StickerStudioFlowTests",
+        "test": "testEveryStandardFormatVisitsStickerStudioOnceAndDoneCommitsOnce",
+        "outcome": "passed",
+        "seconds": 3.681
+      },
+      {
+        "class": "StickerStudioFlowTests",
+        "test": "testFeatureOffKeepsTheExistingFlowWithNoStickerWork",
+        "outcome": "passed",
+        "seconds": 0.535
+      },
+      {
+        "class": "StickerStudioFlowTests",
+        "test": "testPhotoPassVisitsStickersAfterDetailsSignatureAndPreview",
+        "outcome": "passed",
+        "seconds": 0.929
+      },
+      {
+        "class": "StickerStudioFlowTests",
+        "test": "testQualificationEnvironmentNeverOpensStickerStudio",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "StickerStudioFlowTests",
+        "test": "testSettingsAreFrozenPerSessionAndIdleResetClearsTheDraft",
+        "outcome": "passed",
+        "seconds": 0.136
+      },
+      {
+        "class": "StickerStudioFlowTests",
+        "test": "testSkipCommitsTheOriginalReceipt",
+        "outcome": "passed",
+        "seconds": 0.646
+      },
+      {
+        "class": "StickerStudioFlowTests",
+        "test": "testStickerStatesIntegrateWithIdleAndErrorPolicies",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "StickerStudioSessionTests",
+        "test": "testAddMoveUndoRedoDeleteResetAndLimit",
+        "outcome": "passed",
+        "seconds": 0.196
+      },
+      {
+        "class": "StickerStudioSessionTests",
+        "test": "testHitTestingFindsTinyAndRotatedStickers",
+        "outcome": "passed",
+        "seconds": 0.103
+      },
+      {
+        "class": "StickerStudioSessionTests",
+        "test": "testLegacyOnlineConfigurationCannotTriggerGuestNetworkRequests",
+        "outcome": "passed",
+        "seconds": 0.099
+      },
+      {
+        "class": "StickerStudioSessionTests",
+        "test": "testRepeatedSyntheticEditSessionsDoNotLeakState",
+        "outcome": "passed",
+        "seconds": 30.823
+      },
+      {
+        "class": "StickerStudioSettingsTests",
+        "test": "testAPIKeyIsNeverStoredInSettingsOrShownInFull",
+        "outcome": "passed",
+        "seconds": 0.003
+      },
+      {
+        "class": "StickerStudioSettingsTests",
+        "test": "testMasterToggleDefaultsOffForNewAndPreMigrationInstalls",
+        "outcome": "passed",
+        "seconds": 0.005
+      },
+      {
+        "class": "StickerStudioSettingsTests",
+        "test": "testNormalizationClampsLimitsAndDropsUnacknowledgedOnline",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "StickerStudioSettingsTests",
+        "test": "testOnAndOffPersistAcrossRelaunchAndCorruptDataResetsSafely",
+        "outcome": "passed",
+        "seconds": 0.005
+      },
+      {
+        "class": "StickerStudioSettingsTests",
+        "test": "testOnlineRequiresMasterKeyToggleAndRightsTogether",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "StickerStudioSettingsTests",
+        "test": "testSavingPostsChangeNotification",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "UpgradedEventBootstrapTests",
+        "test": "testBootstrapChangesOnlyTheRunManifestAndKeepsHistory",
+        "outcome": "passed",
+        "seconds": 0.017
+      },
+      {
+        "class": "UpgradedEventBootstrapTests",
+        "test": "testConnectionUnavailableIsUnconfirmedAndRecordsNothing",
+        "outcome": "passed",
+        "seconds": 0.008
+      },
+      {
+        "class": "UpgradedEventBootstrapTests",
+        "test": "testCorruptedRunHistoryBlocksBootstrapAndKeepsTheFile",
+        "outcome": "passed",
+        "seconds": 0.014
+      },
+      {
+        "class": "UpgradedEventBootstrapTests",
+        "test": "testFirstGuestAfterBootstrapUsesTheRecordedRunAndStatusStaysAccepting",
+        "outcome": "passed",
+        "seconds": 0.022
+      },
+      {
+        "class": "UpgradedEventBootstrapTests",
+        "test": "testFirstGuestWithoutBootstrapKeepsTheEstablishedUpgradePath",
+        "outcome": "passed",
+        "seconds": 0.019
+      },
+      {
+        "class": "UpgradedEventBootstrapTests",
+        "test": "testInterruptedBootstrapRetriesAfterRelaunchAndNeverDuplicates",
+        "outcome": "passed",
+        "seconds": 0.016
+      },
+      {
+        "class": "UpgradedEventBootstrapTests",
+        "test": "testOpenAdmissionWithNoCommittedPaidEventNeedsReview",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "UpgradedEventBootstrapTests",
+        "test": "testServerActiveButLocalAdmissionPausedIsPausedOnThisIPad",
+        "outcome": "passed",
+        "seconds": 0.014
+      },
+      {
+        "class": "UpgradedEventBootstrapTests",
+        "test": "testServerPausedEndedDraftAndMissingEventsAreNeverAcceptingOrUnconfigured",
+        "outcome": "passed",
+        "seconds": 0.042
+      },
+      {
+        "class": "UpgradedEventBootstrapTests",
+        "test": "testUnauthorizedOperatorCannotRecordARun",
+        "outcome": "passed",
+        "seconds": 0.011
+      },
+      {
+        "class": "UpgradedEventBootstrapTests",
+        "test": "testUnresolvedCheckoutNeedsReviewWithOrWithoutARun",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "UpgradedEventBootstrapTests",
+        "test": "testUpgradedActivePaidEventWithoutRunIsNotShownAsUnconfigured",
+        "outcome": "passed",
+        "seconds": 0.01
+      },
+      {
+        "class": "UpgradedEventBootstrapTests",
+        "test": "testUpgradedPrepaidEventWithoutRunAcceptsAndPausedPrepaidIsPaused",
+        "outcome": "passed",
+        "seconds": 0.018
+      },
+      {
+        "class": "UpgradedEventBootstrapTests",
+        "test": "testWrongEnvironmentOrAccountNeedsReview",
+        "outcome": "passed",
+        "seconds": 0.023
+      }
+    ]
+  },
+  "final_iOS26_5": {
+    "passed": 16,
+    "failed": 0,
+    "caseExecution": "All 13 unit and 3 UI test cases and both target suites passed",
+    "runnerOutcome": "All target suites passed; xcodebuild was terminated during stalled result finalization after SDK build metadata warnings. No successful overall xcresult status asserted.",
+    "cases": [
+      {
+        "class": "HardwareQualificationTests",
+        "test": "testHundredSimulatedSessionsHaveHundredDistinctIdentities",
+        "outcome": "passed",
+        "seconds": 64.152
+      },
+      {
+        "class": "OperatorWorkspaceV5Tests",
+        "test": "testAllCurrentFollowUpsRemainVisibleAndNormalQueueIsProgress",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "OperatorWorkspaceV5Tests",
+        "test": "testFiveDestinationsAndAllTypedRoutesKeepTheirIdentity",
+        "outcome": "passed",
+        "seconds": 0.063
+      },
+      {
+        "class": "OperatorWorkspaceV5Tests",
+        "test": "testMonitoringEvidenceSeparatesUnknownFreshAndStaleFromTelegram",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorWorkspaceV5Tests",
+        "test": "testPortraitPrimaryAndNestedScreens",
+        "outcome": "passed",
+        "seconds": 25.976
+      },
+      {
+        "class": "ProductionHealthTests",
+        "test": "testHealthSheetRendersInPortraitAndLandscapeWithoutRemoteCalls",
+        "outcome": "passed",
+        "seconds": 0.986
+      },
+      {
+        "class": "ProductionHealthTests",
+        "test": "testHealthyBoothStillDoesNotClaimTheCachedPrinterIsHealthy",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "ProductionHealthTests",
+        "test": "testNormalGalleryProgressIsSeparateFromManualAttentionAndStorageFaults",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "ProductionHealthTests",
+        "test": "testParkedFinancialFollowUpIsVisibleAndSeparateFromActiveInterruptions",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "ProductionHealthTests",
+        "test": "testProblemsAreClassifiedAsWarningUnavailableOrNeedsReview",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "ProductionHealthTests",
+        "test": "testRegularBoothAndBackgroundReportsDoNotInventPrinterProblems",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "ProductionHealthTests",
+        "test": "testSupportExportContainsNoSecretsURLsOrFullIdentifiers",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "ReceiptFooterModeTests",
+        "test": "testAllModesFormatsAndFinalThermalQRWithVisualArtifacts",
+        "outcome": "passed",
+        "seconds": 19.794
+      },
+      {
+        "class": "OperatorFreedomUITests",
+        "test": "testNormalWelcomePINHomePrinterRecoveryAndSampleExplanation",
+        "outcome": "passed",
+        "seconds": 28.821
+      },
+      {
+        "class": "OperatorWorkspaceV5UITests",
+        "test": "testLargerTextNavigationSearchKeyboardAndDetail",
+        "outcome": "passed",
+        "seconds": 15.28
+      },
+      {
+        "class": "OperatorWorkspaceV5UITests",
+        "test": "testPersistentFiveTabNavigationAndNestedBack",
+        "outcome": "passed",
+        "seconds": 23.737
+      }
+    ]
+  },
+  "supplementary_iOS27": {
+    "passed": 47,
+    "failed": 0,
+    "runnerOutcome": "All target suites passed; result finalization was terminated after stalling",
+    "cases": [
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testAcknowledgedUnknownPrintAllowsRelaunchRegularGuestEventStartAndEnd",
+        "outcome": "passed",
+        "seconds": 0.299
+      },
+      {
+        "class": "EventLifecycleIntegrationTests",
+        "test": "testParkedPaidGuestRelaunchNextRegularGuestAndFreeEventCycleKeepsOutstandingEvidence",
+        "outcome": "passed",
+        "seconds": 0.177
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testAllPassingChecksAreReadyForGuestsWithoutClutter",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testAutomaticPassportBrandingPrefersImageThenNameThenPocketPassport",
+        "outcome": "passed",
+        "seconds": 0.005
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testBackendOverridesValidatePersistAndResetWithoutStoringCredentials",
+        "outcome": "passed",
+        "seconds": 0.009
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testCheckDisplayNamesAvoidInternalTerminology",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testEventModeActivationControlsBothOutputsAndFreezesSnapshot",
+        "outcome": "passed",
+        "seconds": 0.036
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testNewlyImportedTallImageUsesSafeDefaultsWithinPrintableBounds",
+        "outcome": "passed",
+        "seconds": 0.038
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testOperatorFacingHeaderNames",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testPassportEventBrandingSwitchPreservesAdvancedOverrides",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testPreviewKeepsExplicitSplitConfiguration",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testPreviewShowsActivatedLookWhileEventModeIsOff",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testPrinterRecoveryLockOffersFixPrinter",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testReceiptPreviewIsSideEffectFreeForEveryFormat",
+        "outcome": "passed",
+        "seconds": 0.748
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testSamplePrintPolicyBlocksUnresolvedStateAndPreparationDoubleTap",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testSavedProfileWithAdvancedHeaderAndPassportOverrideDecodesUnchanged",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testStatusBeforeBoothCheckAsksOperatorToRunIt",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testUncertainPrintSurfacesRecoveryWithoutSofteningReadiness",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "OperatorExperienceTests",
+        "test": "testWaitingGalleriesAndOfflineAreAttentionNotFailure",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testCIMEightCopyInterruptionRelaunchExactReplacementDiagnosticSampleAndEnd",
+        "outcome": "passed",
+        "seconds": 1.849
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testCompletedModelDeadlineSurvivesUpdatesAndResetsOnlyTemporaryGuestState",
+        "outcome": "passed",
+        "seconds": 0.003
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testCompletionCountdownFrozenDurationExtensionsNoRestartAndStaleSession",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testEightCopyBatchStopsAtFirstOrFinalFailureWithCorrectKnownAndUnknownCounts",
+        "outcome": "passed",
+        "seconds": 0.223
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testEventEndRetentionFailureLeavesAdmissionClosedAndEventUnsettled",
+        "outcome": "passed",
+        "seconds": 0.066
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testFailureSavingSuccessfulOperatorOutcomeBlocksFurtherSendsAndRelaunchKeepsUnknown",
+        "outcome": "passed",
+        "seconds": 0.019
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testJournalPruningKeepsAllOriginalCopiesInAnAcknowledgedUncertainBatch",
+        "outcome": "passed",
+        "seconds": 3.693
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testOperatorDuplicateTapCannotQueueAnotherPhysicalCommand",
+        "outcome": "passed",
+        "seconds": 0.069
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testOperatorFailureMatrixRetainsUncertaintyAcrossRelaunchWithoutRetry",
+        "outcome": "passed",
+        "seconds": 0.075
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testQuickDiagnosticUsesExistingFinishingWithoutCustomerData",
+        "outcome": "passed",
+        "seconds": 0.314
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testReconnectIsIdempotentAndNeverInterruptsPhysicalWork",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testReplacementCopiesCannotFulfillOriginalPaidEntitlementOrCompleteGuestStatistics",
+        "outcome": "passed",
+        "seconds": 0.031
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testSampleExplicitReuseFillsRemainingSlotsAndPreparesAutomatically",
+        "outcome": "passed",
+        "seconds": 0.78
+      },
+      {
+        "class": "OperatorFreedomReleaseTests",
+        "test": "testUnauthorizedOperatorCannotDispatchOrCreateJournalEntry",
+        "outcome": "passed",
+        "seconds": 0.004
+      },
+      {
+        "class": "OperatorWorkspaceV5Tests",
+        "test": "testAllCurrentFollowUpsRemainVisibleAndNormalQueueIsProgress",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "OperatorWorkspaceV5Tests",
+        "test": "testFiveDestinationsAndAllTypedRoutesKeepTheirIdentity",
+        "outcome": "passed",
+        "seconds": 0.05
+      },
+      {
+        "class": "OperatorWorkspaceV5Tests",
+        "test": "testMonitoringEvidenceSeparatesUnknownFreshAndStaleFromTelegram",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorWorkspaceV5Tests",
+        "test": "testPortraitPrimaryAndNestedScreens",
+        "outcome": "passed",
+        "seconds": 29.248
+      },
+      {
+        "class": "ProductionHealthTests",
+        "test": "testHealthSheetRendersInPortraitAndLandscapeWithoutRemoteCalls",
+        "outcome": "passed",
+        "seconds": 0.989
+      },
+      {
+        "class": "ProductionHealthTests",
+        "test": "testHealthyBoothStillDoesNotClaimTheCachedPrinterIsHealthy",
+        "outcome": "passed",
+        "seconds": 0.002
+      },
+      {
+        "class": "ProductionHealthTests",
+        "test": "testNormalGalleryProgressIsSeparateFromManualAttentionAndStorageFaults",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "ProductionHealthTests",
+        "test": "testParkedFinancialFollowUpIsVisibleAndSeparateFromActiveInterruptions",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "ProductionHealthTests",
+        "test": "testProblemsAreClassifiedAsWarningUnavailableOrNeedsReview",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "ProductionHealthTests",
+        "test": "testRegularBoothAndBackgroundReportsDoNotInventPrinterProblems",
+        "outcome": "passed",
+        "seconds": 0.0
+      },
+      {
+        "class": "ProductionHealthTests",
+        "test": "testSupportExportContainsNoSecretsURLsOrFullIdentifiers",
+        "outcome": "passed",
+        "seconds": 0.001
+      },
+      {
+        "class": "OperatorFreedomUITests",
+        "test": "testNormalWelcomePINHomePrinterRecoveryAndSampleExplanation",
+        "outcome": "passed",
+        "seconds": 36.559
+      },
+      {
+        "class": "OperatorWorkspaceV5UITests",
+        "test": "testLargerTextNavigationSearchKeyboardAndDetail",
+        "outcome": "passed",
+        "seconds": 19.648
+      },
+      {
+        "class": "OperatorWorkspaceV5UITests",
+        "test": "testPersistentFiveTabNavigationAndNestedBack",
+        "outcome": "passed",
+        "seconds": 28.37
+      }
+    ]
+  },
+  "earlier_portrait_iOS26_5": {
+    "passed": 6,
+    "failed": 0,
+    "runnerOutcome": "TEST SUCCEEDED"
+  },
+  "finalDebugBuild": "BUILD SUCCEEDED",
+  "finalSignedReleaseBuild": "BUILD SUCCEEDED; codesign --verify --deep --strict passed"
+}

@@ -1,0 +1,12 @@
+{
+  "bundleIdentifier": "com.pocketpixels.PocketPixelsBooth",
+  "team": "PQ26682725",
+  "profileExpiresUTC": "2026-11-18T11:28:56Z",
+  "carloProvisioned": true,
+  "binarySHA256": "30baeea8f79a3f1eb2807c3faaf2a3b36a962d972ea404c9120940e3c5df24df",
+  "configuration": "Release",
+  "signatureVerified": true,
+  "iPadOrientations": [
+    "UIInterfaceOrientationPortrait"
+  ]
+}

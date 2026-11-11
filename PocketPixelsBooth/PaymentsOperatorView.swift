@@ -81,7 +81,7 @@ struct PaymentsOperatorView: View {
             Section("Commercial Events — all runs") {
                 Toggle("Include completed and archived events", isOn: $showsHistory)
                 if isLoading { ProgressView("Loading events…") }
-                if let eventsError { Label(eventsError, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
+                if let eventsError { Label(eventsError, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.danger) }
                 if client == nil { Text("Pair this iPad in Advanced → Payment Maintenance.") }
                 if eventsLoaded, events.isEmpty { Text("No commercial events were returned by this server.").foregroundStyle(.secondary) }
                 if let eventsLoadedAt {
@@ -89,7 +89,7 @@ struct PaymentsOperatorView: View {
                                             : "Showing the list from \(eventsLoadedAt.formatted(date: .omitted, time: .shortened)); it may be out of date.")
                         .font(.footnote).foregroundStyle(eventsError == nil ? Color.secondary : Color.orange)
                 }
-                if let deviceError, !salesOnly { Label(deviceError, systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(.orange) }
+                if let deviceError, !salesOnly { Label(deviceError, systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(OperatorPalette.warning) }
                 LabeledContent("Environment", value: configuration?.environment.uppercased() ?? "NOT CONFIGURED")
                 Button("Refresh Event List") { Task { await refresh() } }.disabled(isLoading)
                 if salesOnly { NavigationLink("Operator API Credentials", value: OperatorWorkspaceRoute.payments) }
@@ -109,7 +109,7 @@ struct PaymentsOperatorView: View {
                 }
             }
         }
-        .navigationTitle(salesOnly ? "Event Sales & Reports" : "Payment Maintenance")
+        .operatorScreen().navigationTitle(salesOnly ? "Event Sales & Reports" : "Payment Maintenance")
         .task { await refresh() }
         .onReceive(NotificationCenter.default.publisher(for: OperatorWorkspace.didUnlock)) { _ in Task { await refresh() } }
     }
@@ -128,14 +128,14 @@ struct PaymentsOperatorView: View {
             LabeledContent("History: receipts with unknown outcome", value: "\(summary.uncertain)")
             if summary.awaiting > 0 { LabeledContent("Copies in flight", value: "\(summary.awaiting)") }
             if summary.conflicts > 0 {
-                Label("\(summary.conflicts) print record(s) refused by the server — review below", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                Label("\(summary.conflicts) print record(s) refused by the server — review below", systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.warning)
                 ForEach(PrintOutcomeOutbox.shared?.conflicts ?? []) { entry in
                     Text("Copy \(entry.copyIndex) of \(entry.copyCount) · \(entry.localState.rawValue) · \(entry.lastError ?? "refused")")
                         .font(.caption)
                 }
             }
             if let fault = PrintOutcomeOutbox.shared?.integrityFault {
-                Label(fault, systemImage: "exclamationmark.octagon").foregroundStyle(.red)
+                Label(fault, systemImage: "exclamationmark.octagon").foregroundStyle(OperatorPalette.danger)
             }
             Button("Send Print Reports Now") { Task { await recovery.syncOutbox(showFeedback: true) } }
                 .disabled(client == nil || recovery.printReportSyncState == .syncing)
@@ -155,10 +155,10 @@ struct PaymentsOperatorView: View {
                     .foregroundStyle(.green)
             case .networkFailure(let retryCount):
                 Label("Network failure. \(retryCount) report(s) will retry automatically.", systemImage: "wifi.exclamationmark")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(OperatorPalette.warning)
             case .serverConflict(let count):
                 Label("Server conflict for \(count) print report(s). Review the records above.", systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(OperatorPalette.warning)
             case .retryScheduled(let count):
                 Label("Retry already scheduled for \(count) print report(s).", systemImage: "clock.arrow.circlepath")
                     .foregroundStyle(.secondary)
@@ -197,17 +197,17 @@ struct PaymentsOperatorView: View {
     @ViewBuilder private var offlineLedgerSection: some View {
         Section("Offline Cash on This iPad") {
             if OfflineCashLedger.shared == nil {
-                Label("Offline cash storage is unavailable on this iPad.", systemImage: "xmark.octagon").foregroundStyle(.red)
+                Label("Offline cash storage is unavailable on this iPad.", systemImage: "xmark.octagon").foregroundStyle(OperatorPalette.danger)
             }
             if let ledgerFault {
-                Label(ledgerFault, systemImage: "exclamationmark.octagon").foregroundStyle(.red)
+                Label(ledgerFault, systemImage: "exclamationmark.octagon").foregroundStyle(OperatorPalette.danger)
                 Button("Acknowledge and Start a New Journal", role: .destructive) { Task { await acknowledgeLedgerFault() } }
             }
             LabeledContent("Waiting to sync", value: "\(localPending)")
             ForEach(localConflicts) { record in
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\(PHPPriceFormatter.string(centavos: record.totalCentavos)) · \(record.copies) copies · seq \(record.localSequence)")
-                    Text("Rejected: \(record.failureMessage ?? "unknown")").font(.caption).foregroundStyle(.red)
+                    Text("Rejected: \(record.failureMessage ?? "unknown")").font(.caption).foregroundStyle(OperatorPalette.danger)
                 }
             }
             Button("Sync Offline Cash Now") { Task { await syncOffline() } }
@@ -368,7 +368,7 @@ struct CheckoutRecoverySection: View {
     var body: some View {
         Section {
             if let fault = recovery.managementStore?.integrityFault {
-                Label(fault, systemImage: "exclamationmark.octagon").foregroundStyle(.red)
+                Label(fault, systemImage: "exclamationmark.octagon").foregroundStyle(OperatorPalette.danger)
                 Button("Acknowledge (server orders remain listed)", role: .destructive) {
                     do { try recovery.managementStore?.acknowledgeIntegrityFault() }
                     catch { status = "Could not save the acknowledgement: \(error.localizedDescription)" }
@@ -376,7 +376,7 @@ struct CheckoutRecoverySection: View {
                 }
             }
             if recovery.managementStore == nil {
-                Label("Checkout storage is unavailable. Free iPad storage and reopen Help & Recovery; no records were cleared.", systemImage: "exclamationmark.octagon").foregroundStyle(.red)
+                Label("Checkout storage is unavailable. Free iPad storage and reopen Help & Recovery; no records were cleared.", systemImage: "exclamationmark.octagon").foregroundStyle(OperatorPalette.danger)
             }
             if recovery.items.isEmpty, recovery.managementStore != nil {
                 Text("No interrupted paid checkouts on this iPad.").foregroundStyle(.secondary)
@@ -418,7 +418,7 @@ struct CheckoutRecoverySection: View {
                     if let reason = item.checkpoint.localCloseReason, let date = item.checkpoint.locallyClosedAt {
                         Text("Closed locally \(date.formatted()) · \(reason). Financial status unchanged.").font(.caption).foregroundStyle(.secondary)
                     }
-                    if let failure = recovery.resolutionFailures[item.id] { Text(failure).foregroundStyle(.orange) }
+                    if let failure = recovery.resolutionFailures[item.id] { Text(failure).foregroundStyle(OperatorPalette.warning) }
                     Text("Started \(item.checkpoint.createdAt.formatted())")
                         .font(.caption).foregroundStyle(.secondary)
                     if let reference = item.checkpoint.recoveryReference {
@@ -482,7 +482,7 @@ struct CheckoutRecoverySection: View {
                     }
                 }
             }
-            if !status.isEmpty { Text(status).foregroundStyle(.orange) }
+            if !status.isEmpty { Text(status).foregroundStyle(OperatorPalette.warning) }
             if !operations.recoveryActionMessage.isEmpty { Text(operations.recoveryActionMessage).font(.footnote) }
             if let armed = recovery.armedResume {
                 Label("Armed: the next tap on the welcome screen continues checkout \(armed.item.id) (until \(armed.expiresAt.formatted(date: .omitted, time: .shortened))).", systemImage: "hand.tap")
@@ -534,7 +534,7 @@ struct CheckoutRecoverySection: View {
                     LabeledContent("Started", value: item.checkpoint.createdAt.formatted())
                     LabeledContent("Checkout", value: item.id)
                     Text("Closing or hiding an interaction does not settle its payment. Original payment and print records remain authoritative.")
-                }.navigationTitle("Checkout Details")
+                }.operatorScreen().navigationTitle("Checkout Details")
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { detailItem = nil } } }
             }
         }
@@ -570,7 +570,7 @@ struct CheckoutRecoverySection: View {
                     Button("Force Delete Local Checkout", role: .destructive) { managedCleanupForce = true }
                     if !status.isEmpty { Text(status).font(.footnote) }
                 }
-            }.navigationTitle("Manage Checkout").navigationBarTitleDisplayMode(.inline)
+            }.operatorScreen().navigationTitle("Manage Checkout").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { managedCheckoutID = nil } } }
         }.presentationDetents([.medium, .large])
     }

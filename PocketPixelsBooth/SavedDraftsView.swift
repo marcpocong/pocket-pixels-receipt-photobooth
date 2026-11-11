@@ -26,9 +26,9 @@ struct SavedDraftsView: View {
                     ForEach(entries.filter { $0.eventName == name }, content: draftRow)
                 } header: { Text(name) }
             }
-            if !message.isEmpty { Section { Text(message).foregroundStyle(.red) } }
+            if !message.isEmpty { Section { Text(message).foregroundStyle(OperatorPalette.danger) } }
         }
-        .navigationTitle("Saved Drafts")
+        .operatorScreen().navigationTitle("Saved Drafts")
         .confirmationDialog(discardCandidate.map { "Discard \($0.category.lowercased()) changes for \($0.eventName)?" } ?? "Discard changes?",
                             isPresented: Binding(get: { discardCandidate != nil }, set: { if !$0 { discardCandidate = nil } }), titleVisibility: .visible) {
             if let entry = discardCandidate {
@@ -125,7 +125,7 @@ struct SavedDraftReviewView: View {
                 if !message.isEmpty { Text(message).foregroundStyle(.secondary) }
             }.padding(28).frame(maxWidth: 850).frame(maxWidth: .infinity)
         }
-        .navigationTitle("Review Draft")
+        .operatorScreen().navigationTitle("Review Draft")
         .confirmationDialog(entry.map { "Discard \($0.category.lowercased()) changes for \($0.eventName)?" } ?? "Discard changes?", isPresented: $confirmDiscard, titleVisibility: .visible) {
             Button("Discard These Changes", role: .destructive) {
                 do { try workspace.discardDraft(draftID); message = "Changes discarded. Your guests keep the applied setup." }
@@ -231,7 +231,7 @@ struct SavedDesignDraftEditor: View {
                 } else { ContentUnavailableView("Design unavailable", systemImage: "doc.questionmark") }
                 if !setup.message.isEmpty { Text(setup.message).foregroundStyle(.secondary) }
             }.padding(28).frame(maxWidth: 850).frame(maxWidth: .infinity)
-        }.navigationTitle("Edit Draft Design")
+        }.operatorScreen().navigationTitle("Edit Draft Design")
         .onAppear { setup.reloadDesignFromStorage() }
         .confirmationDialog("Discard receipt design changes for \(setup.design?.displayName ?? "this event")?", isPresented: $confirmsDiscard, titleVisibility: .visible) {
             Button("Discard These Changes", role: .destructive) { setup.discardDesignChanges() }

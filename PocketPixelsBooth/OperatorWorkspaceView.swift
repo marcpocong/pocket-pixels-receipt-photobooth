@@ -34,14 +34,15 @@ struct OperatorWorkspaceView: View {
     @ObservedObject private var operations = EventOperationalState.shared
     @ObservedObject private var printer = PrinterCoordinator.shared
     @ObservedObject private var workspace: OperatorWorkspace
-    @StateObject private var sessions = RecentSessionsViewModel()
+    @StateObject private var sessions: RecentSessionsViewModel
     @StateObject private var lifecycle: EventLifecycleCoordinator
     private let loadsRemote: Bool
 
-    init(workspace: OperatorWorkspace? = nil, lifecycle: EventLifecycleCoordinator? = nil, loadsRemote: Bool = true) {
+    init(workspace: OperatorWorkspace? = nil, lifecycle: EventLifecycleCoordinator? = nil, loadsRemote: Bool = true, sessionsViewModel: RecentSessionsViewModel? = nil) {
         _workspace = ObservedObject(wrappedValue: workspace ?? .shared)
         _lifecycle = StateObject(wrappedValue: lifecycle ?? EventLifecycleCoordinator())
         self.loadsRemote = loadsRemote
+        _sessions = StateObject(wrappedValue: sessionsViewModel ?? RecentSessionsViewModel())
     }
 
     var body: some View {
@@ -77,7 +78,10 @@ struct OperatorWorkspaceView: View {
                                             Color.clear.task { workspace.navigate(to: route) }
                                         } else if route == .regularFooter { RegularBoothSettingsView(workspace: workspace, footerOnly: true) }
                                         else { route.destination }
-                                    }.toolbar(.visible, for: .navigationBar)
+                                    }
+                                    .navigationTitle(route.title)
+                                    .navigationBarTitleDisplayMode(.inline)
+                                    .toolbar(.visible, for: .navigationBar)
                                 }
                         }
                         if !sidebar && workspace.path.isEmpty && !(workspace.primaryDestination == .sessions && sessions.selectedArchiveID != nil) {
@@ -91,24 +95,46 @@ struct OperatorWorkspaceView: View {
             }
         }
         .background(OperatorPalette.canvas)
-        .tint(OperatorPalette.ink)
+        .operatorScreen()
         .environment(\.colorScheme, .light)
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
-            Text(workspace.currentSection).font(.headline).lineLimit(2)
-                .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 0)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: OperatorStyle.Space.card) {
+                headerTitle
+                Spacer(minLength: 8)
+                headerActions
+            }
+            VStack(alignment: .leading, spacing: OperatorStyle.Space.small) {
+                headerTitle
+                HStack { Spacer(minLength: 0); headerActions }
+            }
+        }
+        .padding(.horizontal, OperatorStyle.Space.page)
+        .padding(.vertical, OperatorStyle.Space.row)
+        .background(OperatorPalette.surface)
+    }
+
+    private var headerTitle: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Made to Keep Studios").font(OperatorStyle.TypeScale.metadata).foregroundStyle(OperatorPalette.secondaryText)
+            Text(workspace.path.isEmpty ? workspace.primaryDestination.title : "Operator Workspace")
+                .font(OperatorStyle.TypeScale.title).foregroundStyle(OperatorPalette.ink)
+                .fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.isHeader)
+        }
+    }
+
+    private var headerActions: some View {
+        HStack(spacing: OperatorStyle.Space.small) {
             Button { workspace.navigate(to: .recovery) } label: {
-                Image(systemName: "lifepreserver").frame(width: 44, height: 44)
+                Image(systemName: "lifepreserver").frame(width: 48, height: 48)
             }.accessibilityLabel("Help & Recovery").accessibilityIdentifier("operator-help")
             Button { workspace.navigate(to: .equipment) } label: {
-                Image(systemName: "gearshape").frame(width: 44, height: 44)
+                Image(systemName: "gearshape").frame(width: 48, height: 48)
             }.accessibilityLabel("System & Settings").accessibilityIdentifier("operator-system")
             returnButton
-        }
-        .padding(.horizontal, 16).padding(.vertical, 4).background(OperatorPalette.surface)
+        }.fixedSize(horizontal: false, vertical: true)
     }
 
     private var returnButton: some View {
@@ -146,8 +172,8 @@ struct OperatorWorkspaceView: View {
                     }
                     .frame(maxWidth: .infinity, minHeight: 48)
                     .padding(.horizontal, vertical ? 14 : 6)
-                    .foregroundStyle(selected ? OperatorPalette.ink : OperatorPalette.ink)
-                    .background(selected ? OperatorPalette.selected : .clear, in: RoundedRectangle(cornerRadius: 10))
+                    .foregroundStyle(selected ? OperatorPalette.accent : OperatorPalette.secondaryText)
+                    .background(selected ? OperatorPalette.selected : .clear, in: RoundedRectangle(cornerRadius: OperatorStyle.radius))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -156,7 +182,6 @@ struct OperatorWorkspaceView: View {
                 .accessibilityAddTraits(workspace.primaryDestination == destination ? .isSelected : [])
             }
         }
-        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Operator navigation")
     }
@@ -287,7 +312,7 @@ struct OperatorEventsView: View {
                     Label(managementError, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.danger)
                 }
             }
-            .navigationTitle("Rename Event").navigationBarTitleDisplayMode(.inline)
+            .operatorScreen().navigationTitle("Rename Event").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { renameDesignID = nil; renameRunID = nil; managementError = nil }
@@ -333,6 +358,8 @@ struct OperatorEventsView: View {
 
     var body: some View {
         List {
+            Section { OperatorSectionHeading(title: "Events & designs", detail: "Run today’s event, prepare a draft, or reuse a saved design. Starting an event still requires Review & Start.") }
+                .listRowBackground(OperatorPalette.canvas)
             Section("Current Event") {
                 Button { workspace.select(.home) } label: {
                     Label {
@@ -461,7 +488,7 @@ struct OperatorEventsView: View {
                         if deletionRunID == run.id { runRemovalReview(run) }
                         else { runManagementActions(run) }
                     }
-                }.navigationTitle(managementTitle).navigationBarTitleDisplayMode(.inline)
+                }.operatorScreen().navigationTitle(managementTitle).navigationBarTitleDisplayMode(.inline)
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { managingDesignID = nil; managingRunID = nil }.disabled(removingDesign) } }
                     .alert("Event action could not finish", isPresented: Binding(get: { managementError != nil }, set: { if !$0 { managementError = nil } })) {
                         Button("OK", role: .cancel) { managementError = nil; managingDesignID = nil; managingRunID = nil; deletionDesignID = nil }
@@ -483,7 +510,7 @@ struct OperatorEventsView: View {
             }
             Button("Cancel", role: .cancel) { }
         } message: { Text("Guest admission and unfinished receipts are checked again. This iPad returns to Regular Booth; other booths, event history and payments are kept. Remove the saved design afterward.") }
-        .navigationTitle("Events").navigationBarTitleDisplayMode(.inline)
+        .operatorScreen().navigationTitle("Events").navigationBarTitleDisplayMode(.inline)
         .scrollContentBackground(.hidden).background(OperatorPalette.canvas)
         .environment(\.defaultMinListRowHeight, 52)
     }

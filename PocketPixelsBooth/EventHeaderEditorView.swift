@@ -75,7 +75,7 @@ struct EventHeaderEditorView: View {
                 if let loadError, artwork != nil {
                     Label(loadError, systemImage: "exclamationmark.triangle.fill")
                         .font(.footnote)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(OperatorPalette.warning)
                 }
             }
 
@@ -287,7 +287,7 @@ private struct EventArtworkSummaryCard: View {
                         .foregroundStyle(.green)
                 } else {
                     Label("\(warnings.count) print \(warnings.count == 1 ? "note" : "notes")", systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(OperatorPalette.warning)
                 }
                 Spacer()
                 Text(kind == .vector ? "Vector PDF" : "Image")
@@ -298,7 +298,7 @@ private struct EventArtworkSummaryCard: View {
             ForEach(warnings, id: \.self) { warning in
                 Text(warning.message)
                     .font(.footnote)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(OperatorPalette.warning)
             }
 
             HStack(spacing: 10) {

@@ -116,7 +116,7 @@ struct PrinterTestView: View {
                 .padding(24)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .navigationTitle("Made to Keep Printer Test")
+            .operatorScreen().navigationTitle("Made to Keep Printer Test")
             .onChange(of: selectedPhotoItem) { _, newItem in
                 loadPhoto(from: newItem)
             }
@@ -1155,7 +1155,7 @@ struct PrinterTestView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("EXPERIMENTAL PRINTER CONFIGURATION")
                     .font(.subheadline.weight(.bold))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(OperatorPalette.warning)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Variant 1 - Cutter with alarm OFF")
@@ -1188,7 +1188,7 @@ struct PrinterTestView: View {
 
                     Text("Status: NOT YET TESTED")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(OperatorPalette.warning)
 
                     Button {
                         bluetoothPrinterService.sendVOZYAltFirmwareCutterAlarmOffConfiguration()

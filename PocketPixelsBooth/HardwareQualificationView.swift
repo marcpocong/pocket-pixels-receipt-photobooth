@@ -38,7 +38,7 @@ struct HardwareQualificationView: View {
 
             historySection
         }
-        .navigationTitle("Hardware Qualification")
+        .operatorScreen().navigationTitle("Hardware Qualification")
         .task {
             engine.loadHistory()
             refreshSafety()
@@ -190,7 +190,7 @@ struct HardwareQualificationView: View {
             if !preflightBlockers.isEmpty {
                 Text("Blocked: \(preflightBlockers.map(\.message).joined(separator: " "))")
                     .font(.footnote)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(OperatorPalette.danger)
             }
         } footer: {
             Text(configuration.mode.usesPhysicalPrinter
@@ -294,7 +294,7 @@ private struct QualificationApprovalSheet: View {
                     .accessibilityIdentifier("qualification.approveAndStart")
                 }
             }
-            .navigationTitle("Confirm Qualification Run")
+            .operatorScreen().navigationTitle("Confirm Qualification Run")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -460,7 +460,7 @@ private struct QualificationPromptSheet: View {
                     Button("Stop run", role: .destructive) { engine.respond(.stopRun) }
                 }
             }
-            .navigationTitle(prompt.title)
+            .operatorScreen().navigationTitle(prompt.title)
             .navigationBarTitleDisplayMode(.inline)
             .interactiveDismissDisabled()
             .onAppear { observedReceipts = prompt.expectedReceipts ?? 0 }
@@ -527,7 +527,7 @@ private struct UnresolvedQualificationPrintSection: View {
     var body: some View {
         Section {
             Label("Run \(record.shortID): a print may have started without a confirmed outcome (session \(record.inFlightPrint?.session ?? 0)).", systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
+                .foregroundStyle(OperatorPalette.danger)
             Text("Inspect the printer and paper. The copy will never be resent automatically. Customer printing stays blocked until this is acknowledged.")
                 .font(.footnote)
             NavigationLink("Open Printer Recovery") { OperatorRecoveryView() }
@@ -535,7 +535,7 @@ private struct UnresolvedQualificationPrintSection: View {
             Button("I inspected the printer") {
                 do { try engine.acknowledgeUncertainPrint(runID: record.runID, note: note) } catch { self.error = error.localizedDescription }
             }
-            if let error { Text(error).foregroundStyle(.red) }
+            if let error { Text(error).foregroundStyle(OperatorPalette.danger) }
         } header: {
             Text("Failure and Recovery")
         }
@@ -581,7 +581,7 @@ private struct QualificationReportView: View {
                 Text("Removes only this run's diagnostic archive and recovery files. Customer archives, waiting galleries, unresolved prints and customer recovery data are never touched. Nothing is deleted automatically.")
             }
         }
-        .navigationTitle("Run \(record.shortID)")
+        .operatorScreen().navigationTitle("Run \(record.shortID)")
         .alert("Delete diagnostic data?", isPresented: $showingCleanup) {
             TextField("Type \(record.shortID)", text: $confirmation)
                 .textInputAutocapitalization(.characters)

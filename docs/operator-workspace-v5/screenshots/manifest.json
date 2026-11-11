@@ -1,0 +1,110 @@
+[
+  {
+    "file": "home.png",
+    "bytes": 313046,
+    "sha256": "ebf0bcde23b7dc0b180648b493613e5c318e3922fbbfed926f6fc6b3c2c081e0",
+    "synthetic": true
+  },
+  {
+    "file": "booth.png",
+    "bytes": 308425,
+    "sha256": "b82ca3518802f7f49e2acc5b47ecf59fb9b33401765853b1b17b64ac2733821b",
+    "synthetic": true
+  },
+  {
+    "file": "sessions.png",
+    "bytes": 356547,
+    "sha256": "c33c8ca697ccd26ae60eafc09fbcefa3103c5c36b96fd4be130a5f85d6b60a75",
+    "synthetic": true
+  },
+  {
+    "file": "events.png",
+    "bytes": 271237,
+    "sha256": "a7256642383e515396bb735de0d05f4fcbc616f064b6fac27d68180a98ddf7cd",
+    "synthetic": true
+  },
+  {
+    "file": "reports.png",
+    "bytes": 180400,
+    "sha256": "a73aaf675c851c8e6fef3fbe7b23acfa5289eac350a592545d86c5b2e8951346",
+    "synthetic": true
+  },
+  {
+    "file": "system.png",
+    "bytes": 237911,
+    "sha256": "9d84c438258c776fa4e3057a8e8906ec473646e940c41b43ed79ade6c2e4b6f3",
+    "synthetic": true
+  },
+  {
+    "file": "recovery.png",
+    "bytes": 249248,
+    "sha256": "af39a5c41f9b9f96d8c75658ae235c6cafa4211d6d734ab445b4d9debb4b58b8",
+    "synthetic": true
+  },
+  {
+    "file": "waiting-galleries.png",
+    "bytes": 304718,
+    "sha256": "d85296f6f90199969477bbb41ed82d0a00d8a043dce1cecfb20b99c874498403",
+    "synthetic": true
+  },
+  {
+    "file": "gallery-settings.png",
+    "bytes": 277257,
+    "sha256": "31a16628bac28e7544f20f02e60f5a53724afe0096ce3d932b7949f1c0f21474",
+    "synthetic": true
+  },
+  {
+    "file": "settings-form.png",
+    "bytes": 370924,
+    "sha256": "fef5df20d5eac13941f9eab0e525d6010d2d2fd8ae378fdd2f34f35a9f955d3d",
+    "synthetic": true
+  },
+  {
+    "file": "session-detail.png",
+    "bytes": 431093,
+    "sha256": "4843f0e79f6ed00344953a66b73f73ad2c146fb19a6019ab559fd42973af6450",
+    "synthetic": true
+  },
+  {
+    "file": "sample-studio.png",
+    "bytes": 416966,
+    "sha256": "1b61fe0770dbe4b6afcecd57f8fb4a355dee212cd836bad1a20bf8778c0713bf",
+    "synthetic": true
+  },
+  {
+    "file": "receipt-studio.png",
+    "bytes": 386029,
+    "sha256": "9868792fcf0976293804a602ab4b6042b694157d6ad0308061e2ef352275ae09",
+    "synthetic": true
+  },
+  {
+    "file": "home-accessibility.png",
+    "bytes": 315648,
+    "sha256": "56270e5e41db7109ebf396fc917e46145a38a5a0025b919b06eaf34802c5a384",
+    "synthetic": true
+  },
+  {
+    "file": "receipt-studio-accessibility.png",
+    "bytes": 362980,
+    "sha256": "d64276f04dba2dd7c285d4b4de085d3dff16164631aa243e165d7140f2de773d",
+    "synthetic": true
+  },
+  {
+    "file": "sessions-keyboard-accessibility.png",
+    "bytes": 306194,
+    "sha256": "1e3b87bc207c06d0de34dd22dbd12d15623785fa584431f37fd17175c4e98fab",
+    "synthetic": true
+  },
+  {
+    "file": "long-event-name.png",
+    "bytes": 469557,
+    "sha256": "f3feb69f2a089dd11b0b8033e928549eacd510f0d03187af62935d0b52c224f9",
+    "synthetic": true
+  },
+  {
+    "file": "simultaneous-follow-ups.png",
+    "bytes": 315913,
+    "sha256": "d09c757a2b54a7bc2ea37b7e2d02f4640ee94cae1d06ecd47522f18a76da3158",
+    "synthetic": true
+  }
+]

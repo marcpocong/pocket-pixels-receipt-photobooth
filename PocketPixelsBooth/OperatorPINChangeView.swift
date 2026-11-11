@@ -31,7 +31,7 @@ struct OperatorPINChangeView: View {
                 if !message.isEmpty { Text(message).foregroundStyle(.secondary) }
             }
         }
-        .navigationTitle(ownerRecovery ? "Recover Operator Access" : "Change Passcode")
+        .operatorScreen().navigationTitle(ownerRecovery ? "Recover Operator Access" : "Change Passcode")
         .navigationBarTitleDisplayMode(.inline)
         .disabled(working)
         .onChange(of: scenePhase) { _, phase in if phase == .background { cancel(); dismiss() } }

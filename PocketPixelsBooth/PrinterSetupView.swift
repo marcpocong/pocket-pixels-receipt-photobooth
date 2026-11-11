@@ -17,7 +17,7 @@ struct PrinterSetupView: View {
 
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: OperatorStyle.Space.section) {
             if advancedOnly {
                 modeSection
                 bluetoothSection
@@ -38,13 +38,11 @@ struct PrinterSetupView: View {
                     .disabled(printerCoordinator.isWorking)
                 Text("Manual tests open a preview first. Nothing prints until you choose Print. A connection check does not prove paper output.")
                     .font(.footnote).foregroundStyle(.secondary)
-                NavigationLink("Advanced Printer Settings") { ScrollView { PrinterSetupView(advancedOnly: true).padding() }.navigationTitle("Advanced Printer") }
+                NavigationLink("Advanced Printer Settings") { ScrollView { PrinterSetupView(advancedOnly: true).padding() }.operatorScreen().navigationTitle("Advanced Printer") }
             }
         }
-        .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .operatorCard()
         .onAppear {
             printerCoordinator.prepare()
         }
@@ -181,8 +179,8 @@ struct PrinterSetupView: View {
                             .disabled(!bluetoothService.canConnect)
                         }
                         .padding(10)
-                        .background(Color(.tertiarySystemBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .background(OperatorPalette.canvas)
+                        .clipShape(RoundedRectangle(cornerRadius: OperatorStyle.radius))
                     }
                 }
             }

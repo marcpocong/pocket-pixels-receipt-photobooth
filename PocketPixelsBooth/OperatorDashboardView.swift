@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// Home uses the existing lifecycle coordinator; presentation never starts or activates an event.
+/// Reads the existing state owners. No lifecycle, admission, payment or transport policy lives here.
 struct OperatorDashboardView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @ObservedObject private var workspace: OperatorWorkspace
@@ -10,6 +10,7 @@ struct OperatorDashboardView: View {
     @ObservedObject private var printer = PrinterCoordinator.shared
     @ObservedObject private var bluetooth = PrinterBluetoothService.shared
     @ObservedObject private var recovery = PaymentRecoveryCoordinator.shared
+    @ObservedObject private var monitoring = BoothMonitoring.shared
     private let loadsRemote: Bool
 
     init(lifecycle: EventLifecycleCoordinator? = nil, workspace: OperatorWorkspace? = nil, loadsRemote: Bool = true) {
@@ -24,34 +25,28 @@ struct OperatorDashboardView: View {
             pendingUploadCount: operations.pendingUploadCount, galleryStorageError: operations.queueError != nil)
         GeometryReader { geometry in
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: OperatorStyle.Space.section) {
+                    OperatorSectionHeading(title: "At a glance", detail: "Your event, guest admission and next steps.")
                     CurrentEventCard(lifecycle: lifecycle, loadsRemote: loadsRemote, workspace: workspace)
-                    Text("Quick actions").font(.headline).accessibilityAddTraits(.isHeader)
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: typeSize.isAccessibilitySize || geometry.size.width < 580 ? 1 : 2), spacing: 12) {
-                        equipmentButton("Booth Settings", detail: "Copies, formats, footer & branding", symbol: "slider.horizontal.3", route: .regularBooth, ready: true)
-                        equipmentButton("Recent Sessions", detail: "Find a guest's receipt or gallery", symbol: "photo.stack", route: .recentSessions, ready: true)
-                        equipmentButton(lifecycle.runs.operational == nil ? "Start Event" : "Manage Event", detail: "Setup, design and saved drafts", symbol: "calendar", route: lifecycle.runs.operational == nil ? .newEvent : .sessionSetup, ready: true)
-                        equipmentButton("Help & Recovery", detail: "\(recovery.activeInterruptionCount) active checkout interruption(s) · receipt recovery", symbol: "lifepreserver", route: .recovery, ready: !recovery.needsAttention)
-                    }
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Printer & Reprints").font(.headline)
-                        OperatorPrinterControls()
-                    }.padding(16).background(OperatorPalette.surface, in: RoundedRectangle(cornerRadius: 12))
-                    if !status.attentionItems.isEmpty { OperatorAttentionCard(items: status.attentionItems, workspace: workspace) }
-                    if recovery.parkedFollowUpCount > 0 {
-                        Button { workspace.navigate(to: .recovery) } label: {
-                            Label("\(recovery.parkedFollowUpCount) parked financial follow-up(s) · guests closed · review separately", systemImage: "creditcard")
-                                .font(.callout).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                        }.buttonStyle(.bordered)
-                    }
-                    equipment(status)
+                    followUps(status)
+                    equipment(status, width: geometry.size.width)
                     OperatorHomeMetricsView(runs: lifecycle.runs)
+                    OperatorSectionHeading(title: "Quick access")
+                    LazyVGrid(columns: columns(width: geometry.size.width), spacing: OperatorStyle.Space.row) {
+                        link("Waiting Galleries", detail: "Saved uploads and delivery checks", symbol: "icloud.and.arrow.up", route: .waitingGalleries)
+                        link("Booth Check", detail: "Inspect camera and equipment evidence", symbol: "checkmark.shield", route: .boothCheck)
+                        link("Help & Recovery", detail: "Current receipt and interrupted guest support", symbol: "lifepreserver", route: .recovery)
+                    }
+                    VStack(alignment: .leading, spacing: OperatorStyle.Space.row) {
+                        OperatorSectionHeading(title: "Printer & reprints")
+                        OperatorPrinterControls()
+                    }.operatorCard()
                 }
-                .frame(maxWidth: 1_040).padding(20).frame(maxWidth: .infinity)
+                .frame(maxWidth: OperatorStyle.contentWidth)
+                .padding(OperatorStyle.Space.page).frame(maxWidth: .infinity)
             }
         }
-        .background(OperatorPalette.canvas)
-        .navigationTitle("Home").toolbar(.hidden, for: .navigationBar)
+        .operatorScreen().navigationTitle("Home").toolbar(.hidden, for: .navigationBar)
         .task { operations.refresh() }
         .onReceive(NotificationCenter.default.publisher(for: EventProfileStore.didChangeNotification)) { _ in operations.refresh() }
         .onChange(of: printer.state) { _, _ in operations.refresh() }
@@ -59,62 +54,76 @@ struct OperatorDashboardView: View {
         .refreshable { operations.refresh(); if loadsRemote { await lifecycle.refresh() } }
     }
 
-    private func equipment(_ status: OperatorStatusSummary) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Equipment").font(.headline)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
-                equipmentButton("Camera", detail: status.camera.label, symbol: "camera", route: .camera, ready: status.camera.isReady)
-                equipmentButton("Printer", detail: printer.operatorState.label,
-                    symbol: "printer", route: .printer, ready: status.printer.isReady)
-                equipmentButton("Gallery / connectivity", detail: status.internet.isReady ? (status.gallery.isReady ? "Configured · online" : status.gallery.label) : status.internet.label,
-                    symbol: "icloud", route: operations.pendingUploadCount > 0 ? .waitingGalleries : .gallery,
-                    ready: status.gallery.isReady && status.internet.isReady)
+    private func columns(width: CGFloat) -> [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: OperatorStyle.Space.row), count: typeSize.isAccessibilitySize || width < 580 ? 1 : 2)
+    }
+
+    @ViewBuilder private func followUps(_ status: OperatorStatusSummary) -> some View {
+        let items = status.actionableAttentionItems
+        let galleryAttention = operations.pendingUploads.filter(\.needsAttention).count
+        VStack(alignment: .leading, spacing: OperatorStyle.Space.row) {
+            OperatorSectionHeading(title: "Follow-ups", detail: "Current work requiring an attendant. Saved history stays in Reports.")
+            if !items.isEmpty { OperatorAttentionCard(items: items, workspace: workspace) }
+            if recovery.needsAttention {
+                link(recovery.activeInterruptionCount > 0 ? "Interrupted guest checkout" : "Payment records need review",
+                     detail: recovery.activeInterruptionCount > 0
+                        ? "Review the current interruption in Help & Recovery. Closing a guest never settles a payment."
+                        : "Review saved payment and recovery evidence. Financial report review stays separate from guest admission.",
+                     symbol: "creditcard", route: .recovery, tone: .attention)
             }
-            Text("Equipment shows the last reported state. Booth Check verifies the camera; inspect paper to confirm physical print output.")
-                .font(.footnote).foregroundStyle(OperatorPalette.secondaryText)
+            if operations.hasPendingSessionRecovery && !operations.hasUnresolvedPrint {
+                link("Interrupted guest session", detail: "Review the saved session before continuing.", symbol: "person.crop.rectangle", route: .recovery, tone: .attention)
+            }
+            if galleryAttention > 0 && operations.queueError == nil {
+                link("Gallery delivery needs review", detail: "\(galleryAttention) saved item(s) need operator attention. Photos stay on this iPad.", symbol: "icloud", route: .waitingGalleries, tone: .attention)
+            }
+            if items.isEmpty && !recovery.needsAttention && !operations.hasPendingSessionRecovery && galleryAttention == 0 {
+                OperatorStatePanel(title: "No current follow-ups", detail: "Equipment observations are listed below. Guest admission is shown in the current event card.", symbol: "checklist")
+            }
+            if recovery.parkedFollowUpCount > 0 {
+                link("Financial follow-up", detail: "\(recovery.parkedFollowUpCount) closed guest interaction(s). Review separately; unrelated guests can continue.", symbol: "tray", route: .recovery)
+            }
         }
     }
-    private func equipmentButton(_ title: String, detail: String, symbol: String, route: OperatorWorkspaceRoute, ready: Bool) -> some View {
-        Button { workspace.navigate(to: route) } label: {
-            HStack(spacing: 12) {
-                Image(systemName: symbol).foregroundStyle(ready ? OperatorPalette.accent : OperatorPalette.warning)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.callout.weight(.semibold))
-                    Text(detail).font(.caption).foregroundStyle(OperatorPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+
+    private func equipment(_ status: OperatorStatusSummary, width: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: OperatorStyle.Space.row) {
+            OperatorSectionHeading(title: "System overview", detail: "Observations are separate from guest admission.")
+            LazyVGrid(columns: columns(width: width), spacing: OperatorStyle.Space.row) {
+                link("Camera", detail: operations.cameraCheckPassed ? "Checked this foreground session · inspect live preview" : status.camera.label + " · open Camera Check", symbol: "camera", route: .camera, tone: operations.cameraCheckPassed ? .verified : .neutral)
+                link("Printer", detail: "Last reported: \(printer.operatorState.label). Transport status does not confirm paper output.", symbol: "printer", route: .printer,
+                     tone: printer.requiresRecovery || operations.hasUnresolvedPrint ? .attention : .neutral)
+                link("Connectivity", detail: "Network path: \(operations.networkPathStatus). Internet and providers are not verified by this observation.", symbol: "network", route: .equipment)
+                link("Galleries", detail: operations.queueError != nil ? "Saved queue needs review" : "\(operations.pendingUploadCount) saved upload(s) waiting · public delivery is verified per session", symbol: "icloud", route: .waitingGalleries,
+                     tone: operations.queueError != nil ? .attention : .neutral)
+                if CommercialPolicySource.load() == .serverManaged {
+                    link("Payments", detail: lifecycle.lastCheckedAt.map { "Event server last checked \($0.formatted(date: .omitted, time: .shortened)). Provider availability is not checked here." } ?? "Event server not checked this visit. Provider availability is unknown.", symbol: "creditcard", route: .payments)
                 }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right").font(.caption).foregroundStyle(OperatorPalette.secondaryText)
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    link("Monitoring V3", detail: OperatorEvidence.monitoringDetail(lastAccepted: monitoring.lastHeartbeat, configured: !monitoring.endpoint.isEmpty, now: context.date), symbol: "antenna.radiowaves.left.and.right", route: .monitoring)
+                }
             }
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).padding(12)
-            .background(OperatorPalette.surface, in: RoundedRectangle(cornerRadius: 12))
-            .overlay { RoundedRectangle(cornerRadius: 12).stroke(OperatorPalette.border) }
-        }.buttonStyle(.plain).accessibilityHint("Open \(title)")
+            Text("Equipment snapshot: \(operations.readinessReport.generatedAt.formatted(date: .omitted, time: .shortened)). Pull to refresh saved observations; use Booth Check for an explicit camera check.")
+                .font(OperatorStyle.TypeScale.metadata).foregroundStyle(OperatorPalette.secondaryText)
+        }
+    }
+
+    private func link(_ title: String, detail: String, symbol: String, route: OperatorWorkspaceRoute, tone: OperatorStatusTone = .neutral) -> some View {
+        OperatorNavigationCard(title: title, detail: detail, symbol: symbol, tone: tone) { workspace.navigate(to: route) }
     }
 }
 
-private struct OperatorAttentionCard: View {
+struct OperatorAttentionCard: View {
     let items: [OperatorStatusSummary.AttentionItem]
     @ObservedObject var workspace: OperatorWorkspace
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Needs attention", systemImage: "exclamationmark.triangle.fill")
-                .font(.callout.weight(.semibold)).foregroundStyle(OperatorPalette.accent)
-            if let item = items.first {
-                Button { workspace.navigate(to: item.destination.route) } label: {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(item.message).font(.callout).foregroundStyle(.primary)
-                        Label(item.actionTitle, systemImage: "arrow.right").font(.callout.weight(.semibold))
-                    }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                }.buttonStyle(.plain).accessibilityHint(item.actionTitle)
-            }
-            if items.count > 1 {
-                Button("\(items.count - 1) more in System") { workspace.navigate(to: .equipment) }
-                    .font(.footnote).frame(minHeight: 44, alignment: .leading)
+        VStack(alignment: .leading, spacing: OperatorStyle.Space.row) {
+            ForEach(items) { item in
+                OperatorNavigationCard(title: item.message, detail: item.actionTitle, symbol: "exclamationmark.circle", tone: .attention) {
+                    workspace.navigate(to: item.destination.route)
+                }.accessibilityIdentifier("operator-follow-up-\(item.id)")
             }
         }
-        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
-        .overlay { RoundedRectangle(cornerRadius: 12).stroke(Color.orange.opacity(0.35)) }
     }
 }
 
@@ -122,7 +131,7 @@ private struct OperatorAttentionCard: View {
 struct OperatorPrinterSetupView: View {
     var body: some View {
         ScrollView { PrinterSetupView().padding() }
-            .navigationTitle("Printer Setup")
+            .operatorScreen().navigationTitle("Printer Setup")
             .navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -134,12 +143,14 @@ struct OperatorEquipmentView: View {
 
     var body: some View {
         List {
+            Section { OperatorSectionHeading(title: "System & equipment", detail: "Inspect devices and connections. Last reported states are observations; they do not confirm receipt delivery.") }
+                .listRowBackground(OperatorPalette.canvas)
             Section("Devices · Printer") {
                 EquipmentDestination(
                     title: "Printer",
-                    status: printer.operatorState.label,
+                    status: "Last reported: " + printer.operatorState.label + " · inspect paper to confirm output",
                     systemImage: "printer.fill",
-                    ready: printer.operatorState.acceptsJobs
+                    ready: false
                 )
                 NavigationLink("Printer Setup", value: OperatorWorkspaceRoute.printer)
                     .disabled(printer.isWorking)
@@ -161,14 +172,17 @@ struct OperatorEquipmentView: View {
 
             Section("Connections") {
                 NavigationLink("Payments Connection & Maintenance", value: OperatorWorkspaceRoute.payments)
+                LabeledContent("Network path", value: operations.networkPathStatus)
+                Text("A network path does not verify internet, a payment provider or gallery delivery.")
+                    .font(OperatorStyle.TypeScale.metadata).foregroundStyle(OperatorPalette.secondaryText)
                 EquipmentDestination(
-                    title: "Gallery & Internet",
+                    title: "Galleries",
                     status: galleryStatus,
                     systemImage: "icloud.fill",
-                    ready: DeviceCredentialStore().hasDeviceToken() && operations.networkPathStatus == "Online"
+                    ready: false
                 )
                 NavigationLink("Gallery Setup", value: OperatorWorkspaceRoute.gallery)
-                NavigationLink("Waiting Galleries (\(operations.pendingUploadCount))", value: OperatorWorkspaceRoute.waitingGalleries)
+                NavigationLink(operations.queueError == nil ? "Waiting Galleries (\(operations.pendingUploadCount))" : "Waiting Galleries · review storage", value: OperatorWorkspaceRoute.waitingGalleries)
             }
             Section("Storage") {
                 NavigationLink(value: OperatorWorkspaceRoute.storage) {
@@ -188,16 +202,16 @@ struct OperatorEquipmentView: View {
                 NavigationLink(value: OperatorWorkspaceRoute.advanced) { Label("Advanced", systemImage: "gearshape.2") }
             } header: { Text("Advanced") } footer: { Text("Payment recovery, print audits, hardware qualification and backend configuration.") }
         }
-        .navigationTitle("System")
+        .operatorScreen().navigationTitle("System")
         .scrollContentBackground(.hidden).background(OperatorPalette.canvas)
         .environment(\.defaultMinListRowHeight, 52)
         .task { operations.refresh() }
     }
 
     private var galleryStatus: String {
+        if operations.queueError != nil { return "Saved queue unavailable · review Waiting Galleries" }
         if !DeviceCredentialStore().hasDeviceToken() { return "Setup needed" }
-        if operations.networkPathStatus != "Online" { return "Internet offline" }
-        return operations.pendingUploadCount == 0 ? "Configured · online (delivery not checked here)" : "\(operations.pendingUploadCount) waiting on this iPad"
+        return operations.pendingUploadCount == 0 ? "Configured · public delivery verified per session" : "\(operations.pendingUploadCount) waiting on this iPad · public delivery verified per session"
     }
 }
 
@@ -215,7 +229,7 @@ private struct EquipmentDestination: View {
             }
         } icon: {
             Image(systemName: systemImage)
-                .foregroundStyle(ready ? OperatorPalette.ready : OperatorPalette.warning)
+                .foregroundStyle(ready ? OperatorPalette.ready : OperatorPalette.secondaryText)
         }
         .padding(.vertical, 6)
     }
@@ -251,7 +265,7 @@ struct OperatorAdvancedView: View {
             }
 
             Section("Diagnostics") {
-                NavigationLink("Printer Transport & Diagnostics") { ScrollView { PrinterSetupView(advancedOnly: true).padding() }.navigationTitle("Advanced Printer") }
+                NavigationLink("Printer Transport & Diagnostics") { ScrollView { PrinterSetupView(advancedOnly: true).padding() }.operatorScreen().navigationTitle("Advanced Printer") }
                 Button(copied ? "Diagnostic Report Copied" : "Copy Diagnostic Report") {
                     operations.refresh()
                     UIPasteboard.general.string = operations.diagnosticReport
@@ -285,7 +299,7 @@ struct OperatorAdvancedView: View {
             }
 #endif
         }
-        .navigationTitle("Advanced")
+        .operatorScreen().navigationTitle("Advanced")
         .task { operations.refresh() }
     }
 }
@@ -333,7 +347,7 @@ private struct GalleryBackendOverrideView: View {
                 }
             }
         }
-        .navigationTitle("Gallery Backend")
+        .operatorScreen().navigationTitle("Gallery Backend")
         .onAppear {
             uploadURL = store.uploadURLOverride() ?? ""
             customerURL = store.customerURLOverride() ?? ""
@@ -375,7 +389,7 @@ private struct OperatorStorageView: View {
                     .font(.caption)
             }
         }
-        .navigationTitle("Storage")
+        .operatorScreen().navigationTitle("Storage")
         .task { operations.refresh() }
     }
 }

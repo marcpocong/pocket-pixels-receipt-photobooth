@@ -108,6 +108,8 @@ struct EventRunReportingView: View {
 
     var body: some View {
         List {
+            Section { OperatorSectionHeading(title: "Event reports", detail: "Choose a section and event run. Saved journals and verified payment records retain their original scope.") }
+                .listRowBackground(OperatorPalette.canvas)
             let storageErrors = [store.storageError, attributionStore.storageError, library.storageError].compactMap { $0 }
             if !storageErrors.isEmpty {
                 Section("Records need review") {
@@ -149,7 +151,7 @@ struct EventRunReportingView: View {
         .safeAreaInset(edge: .top) {
             if let feedback { OperatorFeedbackBanner(feedback: feedback) { self.feedback = nil }.padding(.horizontal, 16) }
         }
-        .navigationTitle(tab == .history ? "Event History" : tab == .manage ? "Saved Events" : "Reports")
+        .operatorScreen().navigationTitle(tab == .history ? "Event History" : tab == .manage ? "Saved Events" : "Reports")
         .navigationBarTitleDisplayMode(.inline)
         .scrollContentBackground(.hidden)
         .background(OperatorPalette.canvas)
@@ -765,7 +767,7 @@ private struct LegacyAttributionSheet: View {
                     }
                 }
             }
-            .navigationTitle(saved == nil ? "Review Earlier Sessions" : "Attribution Saved")
+            .operatorScreen().navigationTitle(saved == nil ? "Review Earlier Sessions" : "Attribution Saved")
             .toolbar {
                 ToolbarItem(placement: saved == nil ? .cancellationAction : .confirmationAction) {
                     Button(saved == nil ? "Cancel" : "Done") {

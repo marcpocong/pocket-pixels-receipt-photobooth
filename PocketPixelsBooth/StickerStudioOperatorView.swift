@@ -79,11 +79,11 @@ struct StickerStudioOperatorView: View {
                             }
                         }
                     }
-                    .navigationTitle("Advanced Sticker Settings")
+                    .operatorScreen().navigationTitle("Advanced Sticker Settings")
                 }
             }
         }
-        .navigationTitle("Sticker Studio")
+        .operatorScreen().navigationTitle("Sticker Studio")
         .onAppear(perform: reload)
         .onReceive(NotificationCenter.default.publisher(for: StickerCatalogStore.didChangeNotification)) { _ in reload() }
     }
@@ -148,7 +148,7 @@ struct StickerStudioPreviewView: View {
                 ProgressView(message)
             }
         }
-        .navigationTitle("Sticker Studio Preview")
+        .operatorScreen().navigationTitle("Sticker Studio Preview")
         .toolbar {
             Picker("Format", selection: $format) {
                 ForEach(BoothFormat.allCases.filter { $0 != .passport }, id: \.self) { format in
@@ -273,7 +273,7 @@ struct EmojiPrintTestView: View {
             }
             .padding(24)
         }
-        .navigationTitle("Emoji Print Preview Test")
+        .operatorScreen().navigationTitle("Emoji Print Preview Test")
         .toolbar {
             Picker("Format", selection: $format) {
                 ForEach(BoothFormat.allCases.filter { $0 != .passport }, id: \.self) { Text($0.displayName).tag($0) }

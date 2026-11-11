@@ -51,6 +51,11 @@ struct OperatorStatusSummary: Equatable {
     let internet: ComponentState
     let attentionItems: [AttentionItem]
 
+    /// Ordinary queued uploads are progress, not a current operator incident.
+    var actionableAttentionItems: [AttentionItem] {
+        attentionItems.filter { $0.id != "waiting-galleries" }
+    }
+
     var allSystemsReady: Bool {
         camera.isReady && printer.isReady && gallery.isReady && internet.isReady
     }

@@ -63,7 +63,7 @@ struct CheckoutCleanupReview: View {
                     }
                     if working { ProgressView("Checking and cleaning up…") }
                 }
-            }.navigationTitle("Review Checkout Deletion").navigationBarTitleDisplayMode(.inline)
+            }.operatorScreen().navigationTitle("Review Checkout Deletion").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.disabled(working) } }
                 .interactiveDismissDisabled(working)
                 .task {

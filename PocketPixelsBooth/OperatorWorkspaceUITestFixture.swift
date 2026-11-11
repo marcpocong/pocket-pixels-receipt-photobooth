@@ -11,6 +11,9 @@ struct OperatorWorkspaceUITestFixture: View {
     var body: some View {
         Group {
             if let fixture {
+                if ProcessInfo.processInfo.arguments.contains("--operator-v5-ui-fixture") {
+                    OperatorWorkspaceView(workspace: fixture.workspace, lifecycle: fixture.lifecycle, loadsRemote: false, sessionsViewModel: fixture.sessions)
+                } else {
                 VStack(spacing: 0) {
                     Picker("Synthetic validation screen", selection: $screen) {
                         ForEach(["Sessions", "Events", "Checkouts", "Health"], id: \.self) { Text($0) }
@@ -24,10 +27,13 @@ struct OperatorWorkspaceUITestFixture: View {
                         }
                     }
                 }
+                }
             } else if !failure.isEmpty { Text(failure) }
             else { ProgressView("Preparing synthetic records…") }
         }.environment(\.dynamicTypeSize, ProcessInfo.processInfo.arguments.contains("--fixture-accessibility") ? .accessibility2 : .large)
         .task {
+            // This explicit simulator-only fixture represents an already authenticated workspace.
+            if ProcessInfo.processInfo.arguments.contains("--operator-v5-ui-fixture") { OperatorAccessPermit.shared.authorize() }
             guard fixture == nil else { return }
             do { fixture = try await Fixture() } catch { failure = "Synthetic fixture could not be prepared." }
         }

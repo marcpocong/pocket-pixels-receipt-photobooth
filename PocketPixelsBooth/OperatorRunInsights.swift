@@ -39,8 +39,7 @@ struct OperatorRunMetricsView: View {
             Text(title).font(.callout).foregroundStyle(OperatorPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading)
-        .padding(14).background(OperatorPalette.surface, in: RoundedRectangle(cornerRadius: 12))
-        .overlay { RoundedRectangle(cornerRadius: 12).stroke(OperatorPalette.border) }
+        .operatorCard()
         .accessibilityElement(children: .combine)
     }
 }
@@ -123,9 +122,9 @@ struct OperatorHomeMetricsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Event activity").font(.headline)
+                Text("Event activity").font(OperatorStyle.TypeScale.section).accessibilityAddTraits(.isHeader)
                 Spacer()
-                Text("THIS IPAD").font(.caption.weight(.semibold)).tracking(1).foregroundStyle(OperatorPalette.secondaryText)
+                Text("This iPad").font(OperatorStyle.TypeScale.metadata).foregroundStyle(OperatorPalette.secondaryText)
             }
             Text(runs.operational.map { "\($0.context.name.isEmpty ? "Regular Booth" : $0.context.name) · since \($0.createdAt.formatted(date: .abbreviated, time: .shortened))" }
                  ?? "No current event run recorded").font(.callout).foregroundStyle(OperatorPalette.secondaryText)

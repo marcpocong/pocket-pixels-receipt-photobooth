@@ -90,7 +90,7 @@ struct ServerEventEditorView: View {
             if !reportsOnly, let detail { lifecycleSection(detail) }
             salesSections
         }
-        .navigationTitle(detail?.event.name ?? "Server Event")
+        .operatorScreen().navigationTitle(detail?.event.name ?? "Server Event")
         .disabled(isBusy)
         .overlay { if isBusy { ProgressView().controlSize(.large) } }
         .task { await reload(keepEdits: workspace.serverDraft(eventID: eventID) != nil) }
@@ -152,7 +152,7 @@ struct ServerEventEditorView: View {
             }
             if hasVersionConflict {
                 Text("Local edits began at server version \(baseServerVersion ?? 0); the current version is \(detail?.event.version ?? 0). Saving and publishing are blocked until you review.")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(OperatorPalette.warning)
                 if let latest = detail?.latestRevision {
                     LabeledContent("Your price / server price", value: "\(draft.priceText) / \(PesoAmount.editingText(centavos: latest.unitPriceCentavos))")
                     LabeledContent("Your copies / server copies", value: "\(draft.defaultCopies)–\(draft.maxCopies) / \(latest.defaultCopies)–\(latest.maxCopies)")
@@ -226,7 +226,7 @@ struct ServerEventEditorView: View {
             Stepper("Maximum copies: \(draft.maxCopies)", value: Binding(get: { draft.maxCopies }, set: { draft.maxCopies = $0; draft.defaultCopies = min(draft.defaultCopies, $0) }), in: PaymentPolicySnapshot.copyRange)
             Stepper("Default copies: \(draft.defaultCopies)", value: $draft.defaultCopies, in: 1...draft.maxCopies)
             if let validation = draft.validationMessage() {
-                Label(validation, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
+                Label(validation, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.danger)
             }
         } header: {
             Text("Charging Policy")
@@ -291,13 +291,13 @@ struct ServerEventEditorView: View {
         Section("Report Status") {
             LabeledContent("Environment", value: PaymentsConfiguration.current()?.environment.uppercased() ?? "NOT CONFIGURED")
             Text("Financial totals cover this commercial event across all runs and iPads. Event-run statistics are available in Sales & Reports.").font(.footnote)
-            if let reportError { Label(reportError, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
-            if let conflictsError { Label(conflictsError, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
+            if let reportError { Label(reportError, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.danger) }
+            if let conflictsError { Label(conflictsError, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.warning) }
             if summary == nil, reportError == nil { Text("Loading financial report…") }
             Button("Refresh Financial Report") { Task { await reload(keepEdits: true) } }
             NavigationLink("Operator API Credentials", value: OperatorWorkspaceRoute.payments)
-            if legacyOfflineCount > 0 { Text("\(legacyOfflineCount) legacy offline cash record(s) have no saved environment. Review in Payment Maintenance; their amounts are excluded here.").foregroundStyle(.orange) }
-            if let localOfflineError { Label(localOfflineError, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
+            if legacyOfflineCount > 0 { Text("\(legacyOfflineCount) legacy offline cash record(s) have no saved environment. Review in Payment Maintenance; their amounts are excluded here.").foregroundStyle(OperatorPalette.warning) }
+            if let localOfflineError { Label(localOfflineError, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.warning) }
             else { LabeledContent("Offline cash waiting on this iPad", value: "\(localOfflineCount) · \(PHPPriceFormatter.string(centavos: localOfflineCentavos))") }
         }
         if let summary {
@@ -356,7 +356,7 @@ struct ServerEventEditorView: View {
                 Text("Cash").tag("cash"); Text("QR Ph").tag("qr")
             }
             .onChange(of: orderFilter) { _, _ in Task { await loadOrders(reset: true) } }
-            if let ordersError { Label(ordersError, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
+            if let ordersError { Label(ordersError, systemImage: "exclamationmark.triangle").foregroundStyle(OperatorPalette.danger) }
             if ordersLoading { ProgressView("Loading orders…") }
             if orders.isEmpty, !ordersLoading, ordersError == nil { Text("No orders match this filter.").foregroundStyle(.secondary) }
             ForEach(orders) { order in

@@ -44,7 +44,7 @@ struct EventPreflightView: View {
 
                 if operations.customerSessionActive {
                     Text("Finish the customer session before checking the camera.")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(OperatorPalette.warning)
                 }
             } footer: {
                 Text("No paper is printed. Booth Check cannot prove physical receipt output, paper feed or cutter operation.")
@@ -68,7 +68,7 @@ struct EventPreflightView: View {
                 }
             }
         }
-        .navigationTitle("Booth Check")
+        .operatorScreen().navigationTitle("Booth Check")
         .task { operations.refresh() }
     }
 
@@ -127,10 +127,10 @@ struct OperatorRecoveryView: View {
                 Text("Closing retains the original payment, receipt and photos. It never prints or settles a payment.").font(.footnote)
                 if !operations.recoveryActionMessage.isEmpty { Text(operations.recoveryActionMessage) }
             }
-            if let error = operations.recoveryStorageError { Section("Saved guest records") { Text(error).foregroundStyle(.orange) } }
+            if let error = operations.recoveryStorageError { Section("Saved guest records") { Text(error).foregroundStyle(OperatorPalette.warning) } }
             if let error = PrintOutcomeOutbox.shared?.persistenceFailure {
                 Section("Print record needs saving") {
-                    Text(error).foregroundStyle(.orange)
+                    Text(error).foregroundStyle(OperatorPalette.warning)
                     Button("Retry Saving Resolution") {
                         PrintOutcomeOutbox.shared?.retryLaunchRecovery()
                         operations.refresh()
@@ -150,7 +150,7 @@ struct OperatorRecoveryView: View {
                 NavigationLink("Print History") { OperatorPrintAuditView() }
                 NavigationLink("Payment Recovery", value: OperatorWorkspaceRoute.payments)
             }
-        }.navigationTitle("Help & Recovery")
+        }.operatorScreen().navigationTitle("Help & Recovery")
         .environment(\.defaultMinListRowHeight, 52)
         .task { operations.refresh() }
         .sheet(isPresented: $showsEndEvent) { EndEventSheet(lifecycle: lifecycle, isPresented: $showsEndEvent) }
@@ -232,7 +232,7 @@ struct RetainedRecoverySessionsView: View {
     var body: some View {
         List {
             Text("These interrupted sessions were kept by an operator. Photos, gallery links and the original uncertain result remain unchanged. Use Recent Sessions for an archived receipt reprint.").font(.footnote)
-            if let error { Text(error).foregroundStyle(.orange) }
+            if let error { Text(error).foregroundStyle(OperatorPalette.warning) }
             if sessions.isEmpty, error == nil { Text("No retained interrupted sessions.") }
             ForEach(Array(sessions.enumerated()), id: \.offset) { _, session in
                 NavigationLink {
@@ -245,7 +245,7 @@ struct RetainedRecoverySessionsView: View {
                                 if let photo = UIImage(data: data) { Image(uiImage: photo).resizable().scaledToFit().frame(maxHeight: 500) }
                             }
                         }.padding()
-                    }.navigationTitle("Retained Session")
+                    }.operatorScreen().navigationTitle("Retained Session")
                 } label: {
                     VStack(alignment: .leading) {
                         Text(session.sessionIdentifier)
@@ -253,7 +253,7 @@ struct RetainedRecoverySessionsView: View {
                     }.padding(.vertical, 6)
                 }
             }
-        }.navigationTitle("Retained Sessions")
+        }.operatorScreen().navigationTitle("Retained Sessions")
         .task {
             do { sessions = try AppRecoveryStore().retainedSessions() }
             catch { self.error = "Retained sessions could not be read. Their files are kept on this iPad." }
@@ -263,18 +263,20 @@ struct RetainedRecoverySessionsView: View {
 
 struct PendingUploadsView: View {
     @StateObject private var operations = EventOperationalState.shared
+    @ObservedObject private var transfer = GalleryTransferTelemetry.shared
     @ObservedObject private var scheduler = GalleryUploadScheduler.shared
     var body: some View {
         List {
             Section {
-                LabeledContent("Pending", value: "\(operations.pendingUploadCount)")
+                LabeledContent("Pending", value: operations.queueError == nil ? "\(operations.pendingUploadCount)" : "Unavailable")
                 LabeledContent("Network path", value: operations.networkPathStatus)
                 Text("A network path does not confirm internet or backend availability.").font(.caption).foregroundStyle(.secondary)
-                LabeledContent("Delivering", value: scheduler.activeToken == nil ? "0" : "1")
-                LabeledContent("Needs attention", value: "\(operations.pendingUploads.filter(\.needsAttention).count)")
+                LabeledContent("Active byte transfers", value: "\(transfer.activeTransfers)")
+                LabeledContent("Verifying public delivery", value: "\(scheduler.verifyingCount)")
+                LabeledContent("Needs attention", value: operations.queueError == nil ? "\(operations.pendingUploads.filter(\.needsAttention).count)" : "Unavailable")
                 if let first = operations.pendingUploads.first { LabeledContent("Oldest waiting", value: first.createdAt) }
                 Text("Photos saved locally. Uploads wait for internet; receipt printing does not need to wait.")
-                if let error = operations.queueError { Text(error).foregroundStyle(.red) }
+                if let error = operations.queueError { Text(error).foregroundStyle(OperatorPalette.danger) }
                 Button("Retry Now") { operations.retryPendingUploads(reason: "Operator requested retry.") }
                     .buttonStyle(.borderedProminent)
                     .disabled(operations.pendingUploads.isEmpty)
@@ -285,10 +287,14 @@ struct PendingUploadsView: View {
                 }
                 Text(operations.lastUploadWorkerMessage).font(.caption)
             }
+            if operations.pendingUploads.isEmpty && operations.queueError == nil {
+                Section { OperatorStatePanel(title: "No galleries waiting", detail: "New deliveries appear here while uploading or awaiting verification. Gallery evidence remains with each session.", symbol: "icloud") }
+                    .listRowBackground(OperatorPalette.canvas)
+            }
             ForEach(operations.pendingUploads) { upload in
                 Section(upload.sessionID) {
                     Text(upload.createdAt)
-                    Text("\(upload.needsAttention ? "Needs Attention" : (scheduler.activeToken == upload.galleryToken ? (scheduler.phase == .verifying ? "Verifying" : "Uploading") : "Queued · Saved on iPad")) · \(upload.retryAttemptCount) attempts")
+                    Text("\(upload.needsAttention ? "Needs attention" : "Last recorded: " + (upload.transferStage ?? upload.deliveryState.operatorTitle)) · \(upload.retryAttemptCount) attempts")
                     if let last = upload.lastAttemptAt { Text("Last attempt: \(last.formatted())") }
                     if let error = upload.lastSafeError {
                         Text(error).font(.caption)
@@ -299,7 +305,7 @@ struct PendingUploadsView: View {
                         customerGalleryBaseURL: URL(string: "https://gallery.madetokeepstudios.workers.dev/")!,
                         galleryToken: upload.galleryToken) {
                         Text("Original QR uses the unavailable legacy hostname. Check this same-token replacement and confirm all photos appear before sharing. The original QR stays unchanged.")
-                            .font(.caption).foregroundStyle(.orange)
+                            .font(.caption).foregroundStyle(OperatorPalette.warning)
                         Link("Check Replacement Gallery", destination: replacement)
                         ShareLink("Share Replacement Link", item: replacement)
                     }
@@ -308,7 +314,7 @@ struct PendingUploadsView: View {
                     NavigationLink("Details / View Session") { RecentSessionsView(initialSearch: upload.sessionID) }
                 }
             }
-        }.navigationTitle("Waiting Galleries")
+        }.operatorScreen().navigationTitle("Waiting Galleries")
         .task { operations.refreshGalleryQueue() }
         .refreshable { operations.refreshGalleryQueue() }
     }
@@ -320,7 +326,7 @@ struct OperatorPrintAuditView: View {
     var body: some View {
         List {
             Text("Recent transport history (up to 200 jobs). Transport completion is not proof of paper output.").font(.caption)
-            if failed { Text("Print history could not be read. Keep recovery locked and inspect storage.").foregroundStyle(.red) }
+            if failed { Text("Print history could not be read. Keep recovery locked and inspect storage.").foregroundStyle(OperatorPalette.danger) }
             ForEach(records.reversed()) { record in
                 Section(record.sessionIdentifier) {
                     Text(record.timestamp.formatted())
@@ -331,7 +337,7 @@ struct OperatorPrintAuditView: View {
                     if record.recoveryReason != nil { Text("Recovery reason: transport ended with uncertain physical output. Automatic retry disabled.") }
                 }
             }
-        }.navigationTitle("Print History")
+        }.operatorScreen().navigationTitle("Print History")
         .task { load() }.refreshable { load() }
     }
     private func load() {
@@ -352,7 +358,7 @@ struct OperatorCameraCheckView: View {
             CameraPreview(session: camera.session, cameraService: camera).aspectRatio(3.0 / 4.0, contentMode: .fit)
             Text(message).padding()
             Button("Check Camera Again") { start() }.disabled(starting)
-        }.navigationTitle("Camera Check")
+        }.operatorScreen().navigationTitle("Camera Check")
         .onAppear { visible = true; start() }
         .onDisappear { visible = false; camera.stopSession() }
         .onChange(of: phase) { _, value in

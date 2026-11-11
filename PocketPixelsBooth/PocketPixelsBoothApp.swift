@@ -26,7 +26,7 @@ struct PocketPixelsBoothApp: App {
 #if targetEnvironment(simulator)
             if ProcessInfo.processInfo.arguments.contains("--header-pin-ui-fixture") {
                 HeaderPINRefinementFixture()
-            } else if ProcessInfo.processInfo.arguments.contains("--operator-v41-ui-fixture") {
+            } else if ProcessInfo.processInfo.arguments.contains("--operator-v41-ui-fixture") || ProcessInfo.processInfo.arguments.contains("--operator-v5-ui-fixture") {
                 OperatorWorkspaceUITestFixture()
             } else {
                 ContentView()

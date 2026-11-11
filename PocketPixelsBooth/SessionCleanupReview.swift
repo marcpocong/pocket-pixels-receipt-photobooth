@@ -51,7 +51,7 @@ struct SessionCleanupReview: View {
                     if working { ProgressView("Deleting local media…") }
                 }
             }
-            .navigationTitle(candidates.count == 1 ? "Delete Session?" : "Delete Sessions?")
+            .operatorScreen().navigationTitle(candidates.count == 1 ? "Delete Session?" : "Delete Sessions?")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(working) } }
             .interactiveDismissDisabled(working)

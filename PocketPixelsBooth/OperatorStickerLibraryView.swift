@@ -29,7 +29,7 @@ struct OperatorStickerLibraryView: View {
                 let warnings = records.filter { $0.printWarning != nil }.count
                 if warnings > 0 {
                     Label("\(warnings) sticker\(warnings == 1 ? "" : "s") may not print clearly", systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(OperatorPalette.warning)
                 }
                 Picker("Import into", selection: $importCategory) {
                     ForEach(StickerCategory.assignableToImports) { Text($0.operatorDisplayName).tag($0) }
@@ -58,7 +58,7 @@ struct OperatorStickerLibraryView: View {
                 }
             }
         }
-        .navigationTitle("Manage Stickers")
+        .operatorScreen().navigationTitle("Manage Stickers")
         .toolbar { EditButton() }
         .onAppear(perform: reload)
         .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.png, .jpeg], allowsMultipleSelection: true) { result in
@@ -125,7 +125,7 @@ struct OperatorStickerLibraryView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     if let warning = record.printWarning {
-                        Label(warning, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
+                        Label(warning, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(OperatorPalette.warning)
                     }
                 }
             }

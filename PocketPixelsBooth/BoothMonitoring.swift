@@ -321,6 +321,6 @@ struct BoothMonitoringView: View {
                 if !message.isEmpty { Text(message) }
             }
             Section("Timing") { Text("A heartbeat is sent every five minutes while the app runs in the foreground. The server checks for overdue contact after ten minutes during a last-reported active event or fifteen minutes while idle, on its next five-minute scheduled check. iPadOS may suspend background apps; keep Carlo open for booth operation.") }
-        }.navigationTitle("Remote Monitoring").onAppear { endpoint=monitor.endpoint }
+        }.operatorScreen().navigationTitle("Remote Monitoring").onAppear { endpoint=monitor.endpoint }
     }
 }

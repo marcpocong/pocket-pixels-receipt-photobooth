@@ -58,7 +58,7 @@ struct CameraTestView: View {
                     .frame(maxWidth: 1_180, alignment: .topLeading)
                 }
             }
-            .navigationTitle("Made to Keep Camera Test")
+            .operatorScreen().navigationTitle("Made to Keep Camera Test")
             .navigationBarTitleDisplayMode(.inline)
             .task {
                 setupCameraIfNeeded()

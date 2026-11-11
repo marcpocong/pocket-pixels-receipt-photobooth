@@ -43,7 +43,7 @@ struct SessionSetupView: View {
     var body: some View {
         ScrollViewReader { reader in
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: OperatorStyle.Space.section) {
                 header
                 if setup.busy {
                     VStack(alignment: .leading, spacing: 6) {
@@ -72,7 +72,7 @@ struct SessionSetupView: View {
                     workspacePanels
                 }
             }
-            .frame(maxWidth: 980, alignment: .leading)
+            .frame(maxWidth: OperatorStyle.contentWidth, alignment: .leading)
             .padding(.horizontal, 24)
             .padding(.vertical, 24)
             .frame(maxWidth: .infinity)
@@ -87,9 +87,9 @@ struct SessionSetupView: View {
             }
         }
         .onChange(of: validationAttempt) { _, _ in reader.scrollTo("event-details", anchor: .top) }
-        .navigationTitle(setup.editingLiveEvent ? "Edit Live Event" : (opensNewEventDraft ? "New Event" : "Edit Event"))
+        .operatorScreen().navigationTitle(setup.editingLiveEvent ? "Edit Live Event" : (opensNewEventDraft ? "New Event" : "Edit Event"))
         .navigationBarTitleDisplayMode(.inline)
-        .tint(OperatorPalette.ink)
+        .tint(OperatorPalette.accent)
         .background(OperatorPalette.canvas)
         .safeAreaInset(edge: .top) {
             VStack(spacing: 8) {
@@ -124,7 +124,7 @@ struct SessionSetupView: View {
                         previousEventPicker = false
                         Task { await setup.prepareNewWorkspace(templateID: event.id) }
                     }.frame(minHeight: 44)
-                }.navigationTitle("Use Previous Event")
+                }.operatorScreen().navigationTitle("Use Previous Event")
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { previousEventPicker = false } } }
             }
         }
@@ -458,7 +458,7 @@ struct SessionSetupView: View {
                 .accessibilityIdentifier("review-setup")
             }
         }
-        .padding(.horizontal, 24).padding(.vertical, 10).background(.regularMaterial).tint(OperatorPalette.ink)
+        .padding(.horizontal, 24).padding(.vertical, 10).background(.regularMaterial).tint(OperatorPalette.accent)
     }
 
     private var reviewSheet: some View {
@@ -572,7 +572,7 @@ struct SessionSetupReviewView: View {
                     .buttonStyle(.borderedProminent).disabled(setup.busy || setup.validation != nil || needsOccurrenceChoice)
                 .padding().background(.regularMaterial)
             }
-            .navigationTitle(setup.editingLiveEvent ? "Review Live Changes" : "Review Setup").navigationBarTitleDisplayMode(.inline).tint(OperatorPalette.ink)
+            .operatorScreen().navigationTitle(setup.editingLiveEvent ? "Review Live Changes" : "Review Setup").navigationBarTitleDisplayMode(.inline).tint(OperatorPalette.accent)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Back to Setup") { onBack() } } }
         }
     }
@@ -610,9 +610,8 @@ private struct SetupCard<Content: View>: View {
     @ViewBuilder let content: () -> Content
     var body: some View {
         VStack(alignment: .leading, spacing: 12) { content() }
-            .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+            .operatorCard()
     }
 }
 
@@ -665,18 +664,6 @@ private struct PaymentOptionCard: View {
     }
 }
 
-enum OperatorPalette {
-    static let canvas = MadeToKeepTheme.ColorPalette.paper
-    static let ink = MadeToKeepTheme.ColorPalette.ink
-    static let accent = MadeToKeepTheme.ColorPalette.burgundy
-    static let secondaryText = MadeToKeepTheme.ColorPalette.secondaryText
-    static let ready = Color(.sRGB, red: 0.15, green: 0.38, blue: 0.25, opacity: 1)
-    static let warning = Color(.sRGB, red: 0.55, green: 0.31, blue: 0.08, opacity: 1)
-    static let danger = Color(.sRGB, red: 0.64, green: 0.12, blue: 0.13, opacity: 1)
-    static let surface = MadeToKeepTheme.ColorPalette.ivoryLight
-    static let border = accent.opacity(0.14)
-    static let selected = accent.opacity(0.08)
-}
 
 private func paymentMethods(_ qr: Bool, _ cash: Bool) -> String {
     [qr ? "QR Ph" : nil, cash ? "Cash" : nil].compactMap { $0 }.joined(separator: ", ")

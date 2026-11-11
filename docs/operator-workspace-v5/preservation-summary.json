@@ -1,0 +1,21 @@
+{
+  "support": {
+    "beforeFiles": 3,
+    "afterFiles": 3,
+    "missingFiles": 0,
+    "changedFiles": 0
+  },
+  "preferences": {
+    "beforeFiles": 1,
+    "afterFiles": 1,
+    "missingFiles": 0,
+    "changedFiles": 0
+  },
+  "protectedPathsBefore": 19,
+  "protectedPathsAfter": 19,
+  "missingProtectedPaths": 0,
+  "afterLaunchSupportFiles": 3,
+  "afterLaunchOriginalSupportFilesUnchanged": true,
+  "originalPreferenceValuesRetainedAfterLaunch": true,
+  "appProcessConfirmed": true
+}
