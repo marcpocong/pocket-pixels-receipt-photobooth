@@ -100,11 +100,27 @@ contact does not diagnose failure. No camera incident or new printer episode was
 The existing printer episode remained revision 1, without repeats. No threshold or production
 timestamp was edited.
 
-Restoration verification is pending device unlock: Carlo auto-locked during the wait and
-iPadOS refused the ordinary relaunch at 00:31. Contact stayed overdue, with no invented
-recovery. The owner was asked to unlock Carlo. The final protected-file copy was likewise
-refused while locked; earlier complete post-install comparison passed. This is a hardware
-access limitation, not evidence of file loss.
+Carlo auto-locked during the wait and iPadOS refused the ordinary relaunch at 00:31.
+Contact stayed overdue with no invented recovery. After the owner unlocked Carlo, the
+final installed build was launched at 01:46 **without provisioning environment variables**.
+A real V3 heartbeat was accepted at **01:46:32 PHT**, confirming saved endpoint/Keychain
+credential persistence and capability negotiation after the final update. Overview became
+online=true, the offline episode cleared at revision 2, and the existing printer episode
+remained active at revision 1: contact restoration did not manufacture equipment recovery.
+
+The restored-contact Telegram notification was observed in the private owner conversation.
+D1 records exactly one contact-loss warning and one recovery for this controlled episode,
+both delivered on their first attempt; there were no repeat warnings during the extended
+locked interval. Webhook pending updates and errors remained zero; delivery/command queues
+were empty with no exhausted items. The final protected Application Support copy completed
+after unlock and all three original files compared byte-for-byte identical. The queue stayed
+empty. A fresh /status reply from the final installed build was observed in Telegram.
+
+Without further device actions or provisioning variables, the next normal periodic V3
+heartbeat was accepted at **01:51:41 PHT**, 309 seconds after restoration. Overview remained
+online=true with no pending/failed notifications or commands; printer episode revision 1
+remained unchanged. This verifies foreground periodic reporting, not continuous monitoring
+while iPadOS suspends the app. The device-unlock/restoration blocker is resolved.
 
 ## Validation, costs and limits
 
@@ -122,7 +138,11 @@ access limitation, not evidence of file loss.
   status/account-wide runtime usage is not independently certified. No new recurring expense
   was introduced by this rollout.
 - Existing hosted gate on baseline main could not start: GitHub annotation explicitly says
-  the account is locked due to a billing issue. No workflow rerun or application workaround.
+  the account is locked due to a billing issue. The source release gate on main
+  `78a23d3781faab1e768eec80ac5927939a6ab367` likewise reported that its backend job could
+  not start because of account billing. No workflow rerun or application workaround.
+  The later documentation-only restoration record uses [skip ci] to avoid a redundant
+  blocked hosted run; no source, test assertion, workflow or build setting was changed.
 - One real empty-queue sample proves reporting integration. One POST plus two verifiers and
   accepted-POST capacity waiting are verified with actual isolated scheduler states; no real
   customer gallery was generated to manufacture busy production telemetry.
