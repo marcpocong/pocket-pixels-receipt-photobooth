@@ -1,0 +1,21 @@
+{
+  "bundleIdentifier": "com.pocketpixels.PocketPixelsBooth",
+  "version": "1.0",
+  "build": "3",
+  "originalTeamPreserved": true,
+  "carloIncludedInProfile": true,
+  "signatureVerified": true,
+  "profileExpiresUTC": "2026-11-18T11:28:56Z",
+  "sourceCommit": "dfa7bc911016045f533a8a445a6aac3aef779689",
+  "releaseBuildPassed": true,
+  "installationVerified": true,
+  "developerModeEnabled": true,
+  "launchVerified": true,
+  "uninstalledOrErasedByThisTask": false,
+  "runningProcessRechecked": true,
+  "developerTrustConfirmedByOwner": true,
+  "deviceBackendCheckConfirmedByOwner": true,
+  "deviceBackendVersionReported": "v10 resumable 20261111",
+  "privateInstalledStateSnapshotSaved": true,
+  "physicalGuestDeliveryTest": "pending printer availability"
+}

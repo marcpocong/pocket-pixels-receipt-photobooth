@@ -28,6 +28,8 @@ support directory and are excluded from Git.
   gallery readiness after the respective production deployments.
 - `deployment-record.json`: exact active/rollback versions, preserved settings
   and remaining physical-device/hosted-CI blockers.
+- `carlo-device-installation.json`: signed Release build, original identity,
+  installed app and successful trusted launch; seven-day profile expiration.
 
 The live backend report qualifies the server-side synthetic lifecycle. None of
 these is a physical-iPad venue benchmark. See the [engineering/release record](../../docs/gallery-delivery-reliability-2026-11-11.md)

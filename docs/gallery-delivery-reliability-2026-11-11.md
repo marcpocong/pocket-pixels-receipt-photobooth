@@ -4,8 +4,8 @@
 
 Implemented against fetched, clean `main` at
 `9a2f9b574d00c00206bc9e6d6533b57500342e6e`. The backend transport is deployed and
-live synthetic checks passed. Installing and qualifying the app on Carlo remains
-blocked by the missing original Xcode developer account/profile. See the release
+live synthetic checks passed. The signed Release app is installed and launches on
+Carlo after developer trust; physical workflow qualification remains pending. See the release
 ledger for the exact integrated commit, tests and deployments.
 
 ## What was wrong
@@ -202,7 +202,16 @@ hostname. This change does not rewrite those receipts or falsely mark them ready
   settings matched the saved baseline; an existing completed gallery passed a
   live readiness check afterward. Rollback:
   `2b10f3ca-e7d4-4ed4-808d-945991b32c73`.
-- Carlo: connected/unlocked; the owner confirms the photobooth icon is absent.
-  Signed build reported Xcode “No Accounts” and no provisioning profile for the
-  existing bundle/team. No app was uninstalled, erased or replaced. Owner sign-in
-  and application visibility remain required for in-place installation/qualification.
+- Carlo: the app was absent before this install.
+  The earlier Xcode account/profile blocker is resolved. A signed Release build
+  succeeded using the original bundle/team, the code signature and Carlo's profile
+  inclusion were verified, and Made to Keep Studios 1.0 (3) was installed. Developer
+  Mode is enabled. The first launch was denied by iPadOS's signature/entitlement/
+  developer-trust check. After the owner trusted the profile, launch succeeded and
+  the running process was independently rechecked. The owner then ran Check Gallery
+  Backend in the installed app and confirmed `v10 resumable 20261111`, verifying
+  device-side reachability of the released backend. A private installed-state
+  snapshot was retained outside Git. The profile
+  expires **18 November 2026 at 19:28 Manila time**: this is a seven-day development
+  install and requires renewal. No uninstall/erase or Keychain edit was performed.
+  Physical gallery, camera, printer and venue-network qualification remain pending.

@@ -16,9 +16,13 @@
     "onlyIntentionalSettingChange": "observability.redact_query_string=true"
   },
   "carlo": {
-    "ownerConfirmsAppIconAbsent": true,
-    "installation": "blocked: existing Xcode developer account/profile missing",
-    "uninstalledOrErasedByThisTask": false
+    "installation": "Release 1.0 (3) installed",
+    "uninstalledOrErasedByThisTask": false,
+    "signing": "verified with original team and bundle",
+    "launch": "verified; process remains running after developer trust",
+    "profileExpiresUTC": "2026-11-18T11:28:56Z",
+    "backendCheck": "Owner confirmed v10 resumable 20261111 from installed app",
+    "absentBeforeInstallation": true
   },
   "githubActions": {
     "run": 42944732625,
