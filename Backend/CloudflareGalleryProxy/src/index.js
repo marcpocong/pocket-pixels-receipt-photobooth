@@ -1,3 +1,5 @@
+import { coalescedGalleryResponse } from "./origin-coordination.js";
+
 const TOKEN_PATTERN = /^[a-f0-9]{64}$/;
 const ALLOWED_UPSTREAM_HOSTS = new Set([
   "script.google.com",
@@ -7,7 +9,7 @@ const COMPLETED_GALLERY_MARKER = 'data-pocket-pixels-gallery-status="complete"';
 const COMPLETED_GALLERY_TTL_SECONDS = 3600;
 // Internal only: bump when completed gallery HTML changes so old branded documents are not
 // served for the remainder of their edge TTL. Customer QR URLs remain unchanged.
-const COMPLETED_GALLERY_CACHE_VERSION = "made-to-keep-fit-20261018";
+const COMPLETED_GALLERY_CACHE_VERSION = "made-to-keep-progressive-20261111";
 // Upstream pages are recognised by the structural completed-gallery marker, the Made to Keep
 // Studios brand, or the legacy Pocket Pixels brand still served until Apps Script is redeployed.
 // Google sign-in and error pages contain none of these and are never proxied as a gallery.
@@ -28,7 +30,7 @@ const galleryWorker = {
     const response = await serveGallery(request, env, context, metrics);
     metrics.totalMs = performance.now() - started;
     const headers = new Headers(response.headers);
-    headers.set("Server-Timing", Object.entries(metrics).map(([key, value]) => `${key};dur=${value.toFixed(2)}`).join(", "));
+    headers.set("Server-Timing", Object.entries(metrics).filter(([key]) => key.endsWith("Ms")).map(([key, value]) => `${key};dur=${value.toFixed(2)}`).join(", "));
     // Numeric timing and fixed cache/status classifications only; never log URLs or identities.
     console.log("Gallery response performance: " + JSON.stringify({...metrics, status:response.status, cache:headers.get("X-Pocket-Pixels-Cache") || "BYPASS"}));
     return new Response(response.body, {status:response.status, statusText:response.statusText, headers});
@@ -85,6 +87,15 @@ async function serveGallery(request, env, context, metrics) {
       return temporaryError(request.method, originCheck.code);
     }
 
+    const response = await coalescedGalleryResponse(
+      originCheck.url + "|" + cacheKey.url,
+      (producerContext) => fetchGalleryDocument(originCheck, token, cache, cacheKey, producerContext, metrics),
+      context, metrics
+    );
+    return responseForMethod(response, request.method, response.headers.get("X-Pocket-Pixels-Cache"));
+}
+
+async function fetchGalleryDocument(originCheck, token, cache, cacheKey, context, metrics) {
     const upstreamURL = new URL(originCheck.url);
     upstreamURL.search = "";
     upstreamURL.hash = "";
@@ -101,7 +112,7 @@ async function serveGallery(request, env, context, metrics) {
       fetched = await fetchGoogleWithSafeRedirects(upstreamURL.toString());
     } catch (error) {
       console.log("Pocket Pixels proxy: upstream fetch failed.");
-      return temporaryError(request.method, "UPSTREAM_FETCH_FAILED");
+      return temporaryError("GET", "UPSTREAM_FETCH_FAILED");
     }
 
     metrics.upstreamMs = performance.now() - originStarted;
@@ -112,7 +123,7 @@ async function serveGallery(request, env, context, metrics) {
           " status=" +
           fetched.status
       );
-      return temporaryError(request.method, fetched.code);
+      return temporaryError("GET", fetched.code);
     }
 
     let html;
@@ -120,7 +131,7 @@ async function serveGallery(request, env, context, metrics) {
     try {
       html = await fetched.response.text();
     } catch (error) {
-      return temporaryError(request.method, "UPSTREAM_BODY_READ_FAILED");
+      return temporaryError("GET", "UPSTREAM_BODY_READ_FAILED");
     }
 
     metrics.bodyReadMs = performance.now() - bodyStarted;
@@ -132,7 +143,7 @@ async function serveGallery(request, env, context, metrics) {
           " status=" +
           fetched.status
       );
-      return temporaryError(request.method, "UNEXPECTED_UPSTREAM_PAGE");
+      return temporaryError("GET", "UNEXPECTED_UPSTREAM_PAGE");
     }
 
     const isCompletedGallery = isCompletedGalleryHTML(html);
@@ -159,7 +170,7 @@ async function serveGallery(request, env, context, metrics) {
       else await write();
     }
 
-    return responseForMethod(response, request.method, headers.get("X-Pocket-Pixels-Cache"));
+    return responseForMethod(response, "GET", headers.get("X-Pocket-Pixels-Cache"));
 }
 
 export default galleryWorker;
@@ -197,7 +208,7 @@ async function galleryReadiness(request, env, token, context) {
     const warm = async () => {
       const cache = globalThis.caches && globalThis.caches.default;
       if (cache && await cache.match(canonicalCacheRequest(pageURL, token))) return;
-      await galleryWorker.fetch(new Request(pageURL), env);
+      await galleryWorker.fetch(new Request(pageURL), env, context);
     };
     context.waitUntil(warm().catch(() => console.log("Gallery cache warm deferred.")));
   }
@@ -352,7 +363,7 @@ async function proxyDiagnostic(env) {
   if (!originCheck.ok) {
     return jsonResponse({
       ok: false,
-      proxyVersion: "gallery-worker-readiness-20261020",
+      proxyVersion: "gallery-worker-progressive-20261111",
       configPresent: !!String(env.APPS_SCRIPT_GALLERY_ORIGIN || "").trim(),
       configValid: false,
       stage: originCheck.code,
@@ -386,7 +397,7 @@ async function proxyDiagnostic(env) {
 
   return jsonResponse({
     ok: result.ok && bodyLooksLikeBackendDiagnostic,
-    proxyVersion: "gallery-worker-readiness-20261020",
+    proxyVersion: "gallery-worker-progressive-20261111",
     configPresent: true,
     configValid: true,
     upstreamStatus: result.status || 0,

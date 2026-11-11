@@ -1,0 +1,16 @@
+[
+  {
+    "name": "before-origin",
+    "ttfbSeconds": 9.321231041999999,
+    "totalSeconds": 10.033129791999999,
+    "bytes": 2788434,
+    "status": 200,
+    "cache": null,
+    "serverTiming": null
+  },
+  {
+    "name": "before-worker",
+    "error": "HTTPError",
+    "elapsedSeconds": 0.673752084
+  }
+]

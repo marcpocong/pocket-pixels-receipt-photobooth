@@ -34,6 +34,12 @@ for (const photos of [1,3,6]) for (const guests of [1,5,20]) {
     HtmlService:{XFrameOptionsMode:{ALLOWALL:1},createHtmlOutput:html=>({getContent:()=>html,setTitle(){return this;},setXFrameOptionsMode(){return this;}})}
   });
   vm.runInContext(fs.readFileSync(scriptPath,'utf8'),context);
+  if (path.basename(scriptPath) === 'Code.gs') {
+    for (const name of ['ResumableUploads.gs','GalleryPresentation.gs','GalleryStyles.gs','GalleryClient.gs','GalleryDelivery.gs','GalleryMedia.gs']) {
+      const modulePath=path.join(path.dirname(scriptPath),name);
+      if (fs.existsSync(modulePath)) vm.runInContext(fs.readFileSync(modulePath,'utf8'),context);
+    }
+  }
   const post=[],readiness=[],cold=[],warm=[];let transferBytes=0,htmlBytes=0;
   const started=performance.now();
   const originalFetch=globalThis.fetch,originalCaches=globalThis.caches;

@@ -1,0 +1,32 @@
+{
+  "allPhotosMs" : 1182,
+  "conversions" : 2,
+  "downloadAllActionsMs" : 1133,
+  "first-contentful-paint" : 354,
+  "firstPhotoActionsMs" : 1157,
+  "firstPhotoMs" : 1157,
+  "galleryActionsMs" : 1133,
+  "heapBytes" : null,
+  "lcpMs" : 1168,
+  "maxHeartbeatGapMs" : 43,
+  "navigation" : [
+    {
+      "decodedBytes" : 2788434,
+      "domContentLoadedMs" : 1132,
+      "encodedBytes" : 1760790,
+      "loadMs" : 1156,
+      "ttfbMs" : 259
+    }
+  ],
+  "receiptsMs" : 1182,
+  "supportedEntries" : [
+    "event",
+    "first-input",
+    "largest-contentful-paint",
+    "mark",
+    "measure",
+    "navigation",
+    "paint",
+    "resource"
+  ]
+}

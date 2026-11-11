@@ -283,6 +283,33 @@ final class EventFinalizationTests: XCTestCase {
 
 @MainActor
 final class GalleryBrowserLayoutTests: XCTestCase {
+    func testProgressivePhotoIsVisibleAndSaveableBeforeLaterAssetsArrive() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("DerivedData/gallery-fixtures")
+        let html = try String(contentsOf: root.appendingPathComponent("gallery-3.html"), encoding: .utf8)
+        let boundary = try XCTUnwrap(html.range(of: "<script>acceptGalleryAsset("))
+        let shell = String(html[..<boundary.lowerBound]) + "</body></html>"
+        let records = html[boundary.lowerBound...].components(separatedBy: "<script>").dropFirst().compactMap { record -> String? in
+            guard let end = record.range(of: "</script>"), record.hasPrefix("acceptGalleryAsset(") else { return nil }
+            return String(record[..<end.lowerBound])
+        }
+        XCTAssertGreaterThanOrEqual(records.count, 4)
+        let (web, window) = hostedBrowser()
+        defer { web.stopLoading(); window.isHidden = true }
+        try await loadFixture(shell, in: web)
+        let waiting = try await web.evaluateJavaScript("document.getElementById('shareAll').disabled && document.querySelector('[data-download]').disabled && photoItems.every(i=>i.pending)") as? Bool
+        XCTAssertEqual(waiting, true)
+        _ = try await web.evaluateJavaScript(records[0] + "true")
+        _ = try await web.callAsyncJavaScript("await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));return true", arguments: [:], contentWorld: .page)
+        let firstReady = try await web.evaluateJavaScript("!document.getElementById('image-photo-01.jpg').hidden && !document.querySelector('[data-download]').disabled && document.getElementById('shareAll').disabled && photoItems[1].pending && realFileCache.size===0") as? Bool
+        XCTAssertEqual(firstReady, true, "The first original displays with working controls before any later photo or receipt arrives")
+        _ = try await web.evaluateJavaScript("window.saved=[];saveItem=item=>saved.push(fileForItem(item).name);document.querySelector('[data-download]').click();true")
+        let saved = try await web.evaluateJavaScript("saved[0]") as? String
+        XCTAssertEqual(saved, "photo-01.jpg")
+        for record in records.dropFirst() { _ = try await web.evaluateJavaScript(record + "true") }
+        let complete = try await web.evaluateJavaScript("!document.getElementById('shareAll').disabled && photoItems.every(i=>!i.pending&&i.base64Data)") as? Bool
+        XCTAssertEqual(complete, true)
+    }
+
     func testReceiptStylesSwitchBothCardsActionsAndLightboxAcrossWidths() async throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("DerivedData/gallery-fixtures")
         let (web, window) = hostedBrowser()
@@ -332,7 +359,7 @@ final class GalleryBrowserLayoutTests: XCTestCase {
     func testUnavailableShareFriendlyAssetNeverShowsOrSavesTheQRReceipt() async throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("DerivedData/gallery-fixtures")
         let html = try String(contentsOf: root.appendingPathComponent("gallery-styles-integratedGalleryQR-shareFriendly.html"), encoding: .utf8)
-            .replacingOccurrences(of: "const startedAt=performance.now();", with: "galleryData.shareColorReceipt.base64Data='invalid-image';const startedAt=performance.now();")
+            .replacingOccurrences(of: "const startedAt=performance.now();", with: "Object.defineProperty(galleryData.shareColorReceipt,'base64Data',{get:()=> 'invalid-image',set:()=>{}});const startedAt=performance.now();")
         let (web, window) = hostedBrowser()
         defer { web.stopLoading(); window.isHidden = true }
         try await loadFixture(html, in: web)

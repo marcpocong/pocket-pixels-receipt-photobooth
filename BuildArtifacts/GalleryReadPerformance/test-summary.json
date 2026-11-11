@@ -1,0 +1,24 @@
+{
+  "galleryWorker": {
+    "passed": 45,
+    "failed": 0
+  },
+  "resumableContract": {
+    "passed": 6,
+    "failed": 0
+  },
+  "isolatedDriveContract": {
+    "passed": 1,
+    "failed": 0
+  },
+  "payments": {
+    "passed": 224,
+    "failed": 0
+  },
+  "monitoring": {
+    "passed": 57,
+    "failed": 0
+  },
+  "appsScript": "Pure validation, schemas 1-4, progressive byte/order, parallel REST fallback, signed byte Base64 all passed",
+  "iosBrowser": "Initial 9 passed / 2 failed; affected 4 passed after fixes. No runtime Swift changes."
+}

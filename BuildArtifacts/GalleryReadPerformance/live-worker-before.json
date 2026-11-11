@@ -1,0 +1,28 @@
+[
+  {
+    "http_code": 200,
+    "time_namelookup": 0.012625,
+    "time_connect": 0.08105,
+    "time_appconnect": 0.946702,
+    "time_starttransfer": 9.741663,
+    "time_total": 14.60658,
+    "size_download": 2061984,
+    "speed_download": 141168,
+    "exitcode": 0,
+    "name": "before-worker-cold",
+    "cache": "MISS"
+  },
+  {
+    "http_code": 200,
+    "time_namelookup": 0.004142,
+    "time_connect": 0.144519,
+    "time_appconnect": 0.322278,
+    "time_starttransfer": 9.902366,
+    "time_total": 12.367668,
+    "size_download": 2061984,
+    "speed_download": 166723,
+    "exitcode": 0,
+    "name": "before-worker-warm",
+    "cache": "MISS"
+  }
+]

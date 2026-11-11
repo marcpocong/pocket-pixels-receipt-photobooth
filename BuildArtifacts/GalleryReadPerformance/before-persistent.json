@@ -1,0 +1,41 @@
+[
+  {
+    "status": 200.0,
+    "dnsSeconds": 0.006241,
+    "connectSeconds": 0.081321,
+    "tlsSeconds": 0.230433,
+    "ttfbSeconds": 0.457757,
+    "totalSeconds": 1.404005,
+    "wireBytes": 2062156.0,
+    "newConnections": 1.0,
+    "cache": "HIT",
+    "colo": "SIN",
+    "serverTiming": "cacheLookupMs;dur=26.00, totalMs;dur=26.00"
+  },
+  {
+    "status": 200.0,
+    "dnsSeconds": 2.6e-05,
+    "connectSeconds": 0.0,
+    "tlsSeconds": 0.0,
+    "ttfbSeconds": 0.119287,
+    "totalSeconds": 0.302306,
+    "wireBytes": 2061924.0,
+    "newConnections": 0.0,
+    "cache": "HIT",
+    "colo": "SIN",
+    "serverTiming": "cacheLookupMs;dur=6.00, totalMs;dur=6.00"
+  },
+  {
+    "status": 200.0,
+    "dnsSeconds": 1.9e-05,
+    "connectSeconds": 0.0,
+    "tlsSeconds": 0.0,
+    "ttfbSeconds": 0.122607,
+    "totalSeconds": 0.273204,
+    "wireBytes": 2062052.0,
+    "newConnections": 0.0,
+    "cache": "HIT",
+    "colo": "SIN",
+    "serverTiming": "cacheLookupMs;dur=5.00, totalMs;dur=5.00"
+  }
+]

@@ -1,0 +1,17 @@
+{
+  "result": "Failed",
+  "passedTests": 9,
+  "failedTests": 2,
+  "skippedTests": 0,
+  "totalTestCount": 11,
+  "failures": [
+    {
+      "testIdentifierString": "GalleryBrowserLayoutTests/testSlowImageDecodeKeepsPlaceholdersAndTouchTargetsUntilLoad()",
+      "failureText": "XCTAssertTrue failed - All previews must reach the deliberately delayed image loader"
+    },
+    {
+      "testIdentifierString": "GalleryBrowserLayoutTests/testUnavailableShareFriendlyAssetNeverShowsOrSavesTheQRReceipt()",
+      "failureText": "XCTAssertEqual failed: (\"Optional(false)\") is not equal to (\"Optional(true)\") - No QR-bearing fallback or enabled wrong-file actions"
+    }
+  ]
+}

@@ -73,3 +73,16 @@ uploads keep their frozen URL. New uploads contain still photographs and both re
 Historical optional GIF assets remain accepted and stored.
 
 See [verified deployment targets, owner approval, validation and rollback](../../docs/gallery-redesign-deployment.md).
+
+## Progressive release / origin coordination
+
+The `made-to-keep-progressive-20261111` internal cache namespace invalidates the prior
+complete-document representation without changing QR URLs. One-hour completed-only
+caching and uncached readiness remain intact. `origin-coordination.js` shares pending
+origin work only within a Worker isolate, keyed by canonical gallery URL **and validated
+origin**. Its bounded transient map is released after the optional cache write, including
+failures. It is not a global/regional lock and does not promise cross-region coalescing.
+Readiness warming passes the existing execution context so cache writes stay background
+work; a scan racing the warm can join its origin request. `COALESCED` identifies a joined
+completed response; pending/error responses remain uncached. Numeric wait time is exposed
+through Server-Timing; capability keys are never logged. Preserve query-string redaction.

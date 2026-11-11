@@ -52,7 +52,7 @@ function harness() {
     LockService:{getScriptLock:()=>({tryLock:()=>true,releaseLock(){}})},
     DriveApp:{getFolderById:id=>folders.get(id),getFileById:id=>files.get(id)},
     ContentService:{MimeType:{JSON:'json'},createTextOutput:text=>({text,setMimeType(){return this;}})}});
-  for(const name of ['Code.gs','ResumableUploads.gs'])vm.runInContext(fs.readFileSync(path.join(__dirname,name),'utf8'),context);
+  for(const name of fs.readdirSync(__dirname).filter(name=>name.endsWith('.gs')).sort())vm.runInContext(fs.readFileSync(path.join(__dirname,name),'utf8'),context);
   const bytes=Buffer.from([255,216,255,1,2,3,4,5]);
   const asset=name=>({filename:name,mimeType:'image/jpeg',bytes:bytes.length,sha256:crypto.createHash('sha256').update(bytes).digest('hex')});
   const body={transport:'drive-resumable-v1',action:'initialize',deviceToken:'synthetic-only-device-credential',schemaVersion:4,

@@ -27,7 +27,9 @@ const context = vm.createContext({
     }),
   },
 });
-vm.runInContext(fs.readFileSync(path.join(__dirname, 'Code.gs'), 'utf8'), context);
+for (const name of fs.readdirSync(__dirname).filter(name => name.endsWith('.gs')).sort()) {
+  vm.runInContext(fs.readFileSync(path.join(__dirname, name), 'utf8'), context, {filename:name});
+}
 assert.equal(context.validateUploadToken_('').code, 'SERVER_NOT_CONFIGURED');
 scriptProperties.set('POCKET_PIXELS_DEVICE_TOKEN', 'correct-device-token-value');
 context.runPocketPixelsSelfTest();
@@ -363,7 +365,7 @@ if (process.argv.includes('--fixtures')) {
       const bytes = syntheticPNG(name.startsWith('receipt') ? 300 : 600, name.startsWith('receipt') ? 800 : 450, name === 'receipt-bw.png' ? 'gray' : 'color');
       file.getBlob = () => ({getBytes: () => Array.from(bytes)});
     }
-    fs.writeFileSync(path.join(output, `gallery-${count}.html`), context.renderGalleryPage_(fixture, {}, Date.now()).getContent());
+    fs.writeFileSync(path.join(output, `gallery-${count}.html`), context.renderGalleryPage_(fixture, {}, Date.now(), true).getContent());
   }
   const orientationFixture = galleryFixture(2);
   for (const [name, file] of Object.entries(orientationFixture.filesByName)) {
@@ -372,7 +374,7 @@ if (process.argv.includes('--fixtures')) {
     const bytes = syntheticPNG(receipt ? 576 : landscape ? 1408 : 1056, receipt ? 1112 : landscape ? 1056 : 1408, name === 'receipt-bw.png' ? 'gray' : 'color');
     file.getBlob = () => ({getBytes: () => Array.from(bytes)});
   }
-  fs.writeFileSync(path.join(output, 'gallery-orientations.html'), context.renderGalleryPage_(orientationFixture, {}, Date.now()).getContent());
+  fs.writeFileSync(path.join(output, 'gallery-orientations.html'), context.renderGalleryPage_(orientationFixture, {}, Date.now(), true).getContent());
   // Historical gallery: receipt-bw.png is a 1-bit printer raster; the page derives grayscale.
   const historicalFixture = galleryFixture(2);
   for (const [name, file] of Object.entries(historicalFixture.filesByName)) {
@@ -380,7 +382,7 @@ if (process.argv.includes('--fixtures')) {
     const bytes = syntheticPNG(receipt ? 576 : 1056, receipt ? 1112 : 1408, name === 'receipt-bw.png' ? 'raster' : 'color');
     file.getBlob = () => ({getBytes: () => Array.from(bytes)});
   }
-  fs.writeFileSync(path.join(output, 'gallery-historical-raster.html'), context.renderGalleryPage_(historicalFixture, {}, Date.now()).getContent());
+  fs.writeFileSync(path.join(output, 'gallery-historical-raster.html'), context.renderGalleryPage_(historicalFixture, {}, Date.now(), true).getContent());
   for (const footer of ['integratedGalleryQR','classicBarcodeAndGalleryQR','decorativeBarcodeOnly']) {
     for (const style of ['shareFriendly','asPrinted']) {
       const variant = galleryFixture(6, 4, false);
@@ -391,13 +393,13 @@ if (process.argv.includes('--fixtures')) {
         const bytes=syntheticPNG(isReceipt?576:1056,isReceipt?(name.includes('share')?950:1112):1408,name==='receipt-bw.png'?'gray':'color');
         file.getBlob=()=>({getBytes:()=>Array.from(bytes)});
       }
-      fs.writeFileSync(path.join(output, `gallery-styles-${footer}-${style}.html`),context.renderGalleryPage_(variant,{},Date.now()).getContent());
+      fs.writeFileSync(path.join(output, `gallery-styles-${footer}-${style}.html`),context.renderGalleryPage_(variant,{},Date.now(),true).getContent());
       if(footer==='integratedGalleryQR'&&style==='shareFriendly') {
         const before={manifest:{...variant.manifest,schemaVersion:2,thermalReceipt:'receipt-bw.png'},filesByName:{...variant.filesByName,
           'receipt-bw.png':{getBlob:()=>({getBytes:()=>Array.from(syntheticPNG(576,1112,'gray'))})}}};
         delete before.manifest.thermalReceiptDerivedFrom;
         delete before.manifest.receiptVariants;delete before.manifest.shareColorReceipt;delete before.filesByName['receipt-share-color.jpg'];
-        fs.writeFileSync(path.join(output,'gallery-styles-before.html'),context.renderGalleryPage_(before,{},Date.now()).getContent());
+        fs.writeFileSync(path.join(output,'gallery-styles-before.html'),context.renderGalleryPage_(before,{},Date.now(),true).getContent());
       }
     }
   }
@@ -589,3 +591,76 @@ console.log('Performance/index regression checks passed: bounded disposable inde
  assert.equal(JSON.parse(context.doPost(event).text).errorCode,'UPLOAD_SERVICE_BUSY');
 }
 console.log('POST performance contract passed: validation, lock ownership, individual writes, manifest, duplicate idempotency and malformed/busy responses.');
+
+// Progressive raw documents must retain exact bytes, per-asset order and bootstrap identity.
+for (const schema of [1,2,3,4]) {
+  for (const count of [1,3,6]) {
+    const source = galleryFixture(count, schema, schema === 2);
+    const inline = embeddedGalleryData(context.renderGalleryPage_(source, {}, Date.now()).getContent());
+    const progressive = context.renderGalleryPage_(source, {}, Date.now(), true).getContent();
+    const descriptors = embeddedGalleryData(progressive);
+    const records = [...progressive.matchAll(/<script>acceptGalleryAsset\(("[^"\n]+"),("[^"\n]*")\);<\/script>/g)].map(match=>[JSON.parse(match[1]),JSON.parse(match[2])]);
+    const originals = [...inline.photos,inline.receipt,inline.thermalReceipt,inline.shareColorReceipt].filter(item=>item?.base64Data);
+    assert.equal(records.length, originals.length);
+    assert.deepEqual(records, originals.map(item=>[item.filename,item.base64Data]));
+    assert.ok(progressive.indexOf('showEmbeddedImages();') < progressive.indexOf('<script>acceptGalleryAsset('));
+    for (const item of [...descriptors.photos,descriptors.receipt,descriptors.thermalReceipt,descriptors.shareColorReceipt].filter(Boolean)) {
+      if (!item.deriveFrom) { assert.equal(item.pending,true); assert.equal(item.base64Data,undefined); }
+    }
+    assert.doesNotMatch(progressive, /src=["']https?:|google\.script\.run/);
+  }
+}
+console.log('Progressive raw delivery passed: schemas 1–4, 1/3/6 photos, exact bytes/order, shell before media.');
+
+// Parallel reads use only inspected manifest assets, preserve bytes, and fall back per failure.
+{
+  const fixture = galleryFixture(3, 4, false);
+  const originals = new Map();
+  let driveReads = 0, fetches = 0, mode = 'success';
+  const names = Object.keys(fixture.filesByName);
+  names.forEach((name, index) => {
+    const file = fixture.filesByName[name], bytes = file.getBlob().getBytes();
+    originals.set(name, bytes);
+    file.getId = () => 'private-validated-file-' + index;
+    file.getSize = () => bytes.length;
+    file.getBlob = () => { driveReads++; return {getBytes:()=>bytes}; };
+  });
+  const oldScript = context.ScriptApp, oldFetch = context.UrlFetchApp, oldConsole = context.console;
+  const logs = [];
+  context.console = {log:value=>logs.push(value), error:value=>logs.push(value)};
+  context.ScriptApp = {getOAuthToken:()=> 'server-only-secret'};
+  context.UrlFetchApp = {fetchAll(requests) {
+    fetches++;
+    assert.equal(requests.length, names.length);
+    return Array.from(requests, (request, index) => {
+      assert.equal(request.headers.Authorization, 'Bearer server-only-secret');
+      assert.equal(request.url, 'https://www.googleapis.com/drive/v3/files/private-validated-file-' + index + '?alt=media');
+      assert.equal(request.followRedirects, false);
+      if (mode === 'throw') throw Error('server-only-secret private-validated-file-0');
+      return {getResponseCode:()=>mode==='partial' && index===0?503:200,
+        getContent:()=>mode==='partial' && index===1?[1]:originals.get(names[index])};
+    });
+  }};
+  try {
+    const timings = {};
+    const raw = context.renderGalleryPage_(fixture, timings, Date.now(), true).getContent();
+    assert.equal(fetches, 1); assert.equal(driveReads, 0);
+    assert.equal(timings.parallelMediaFiles, names.length);
+    assert.doesNotMatch(raw, /server-only-secret|private-validated-file-/);
+    mode='partial';driveReads=0;
+    context.renderGalleryPage_(fixture, {}, Date.now(), true);
+    assert.equal(driveReads,2,'Only failed/truncated REST assets use DriveApp fallback');
+    mode='throw';driveReads=0;
+    context.renderGalleryPage_(fixture, {}, Date.now(), true);
+    assert.equal(driveReads,names.length,'REST failure retains the established readable gallery');
+    assert.ok(logs.every(value=>!value.includes('server-only-secret')&&!value.includes('private-validated-file-')));
+  } finally { context.ScriptApp=oldScript;context.UrlFetchApp=oldFetch;context.console=oldConsole; }
+}
+console.log('Parallel media reads passed: validated IDs, original bytes, partial/error fallback and credential redaction.');
+
+for (const length of [...Array.from({length:257},(_,i)=>i),12287,12288,12289,300001]) {
+  const bytes=Buffer.alloc(length);for(let index=0;index<length;index++)bytes[index]=(index*73+length)%256;
+  const signed=Array.from(bytes,value=>value>127?value-256:value);
+  assert.equal(context.encodeGalleryBytes_(signed),bytes.toString('base64'),'Signed bytes/padding/chunk boundary '+length);
+}
+console.log('Gallery Base64 passed: all octets, signed bytes, padding and large/chunk boundaries.');

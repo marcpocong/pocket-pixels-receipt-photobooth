@@ -1,0 +1,39 @@
+[
+  {
+    "allPhotosMs": 11743,
+    "conversions": 1,
+    "downloadAllActionsMs": 11743,
+    "first-contentful-paint": 95,
+    "firstPhotoActionsMs": 2031,
+    "firstPhotoMs": 2031,
+    "galleryActionsMs": 260,
+    "heapBytes": null,
+    "lcpMs": 2040,
+    "maxHeartbeatGapMs": 108,
+    "navigation": [
+      {
+        "decodedBytes": 3335461,
+        "domContentLoadedMs": 12477,
+        "encodedBytes": 2490966,
+        "loadMs": 12508,
+        "ttfbMs": 13
+      }
+    ],
+    "receiptsMs": 12528,
+    "supportedEntries": [
+      "event",
+      "first-input",
+      "largest-contentful-paint",
+      "mark",
+      "measure",
+      "navigation",
+      "paint",
+      "resource"
+    ],
+    "profile": "slow",
+    "photos": 6,
+    "htmlBytes": 3335461,
+    "gzipBytes": 2490966,
+    "newWebContentPeakRssBytes": 58425344
+  }
+]

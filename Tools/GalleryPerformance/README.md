@@ -106,3 +106,40 @@ Only numeric results are logged. Remove the temporary diagnostic from HEAD after
 validation; never include its private wrapper/configuration in Git or an activated
 production version. Failed diagnostics retain private evidence and synthetic
 resources for review.
+
+## Public gallery read path (11 November 2026)
+
+The raw public document uses progressive inline originals: layout and handlers first,
+then one record per asset, photographs before receipts. All origin validation completes
+before any response is returned. This improves transfer/paint scheduling, not streaming
+from Drive. The direct HtmlService representation remains compatible.
+
+Run the browser diagnostic on macOS with Xcode installed, from the repository root:
+
+```sh
+PROGRESSIVE=1 node Tools/GalleryPerformance/browser-fixtures.cjs /tmp/gallery-read-after
+python3 Tools/GalleryPerformance/browser-benchmark.py /tmp/gallery-read-after
+```
+
+For a baseline, extract the baseline Apps Script directory into a separate temporary
+folder and pass `GALLERY_SOURCE=/absolute/path/to/Backend/GoogleAppsScript` to the
+fixture generator, with `PROGRESSIVE=0`. Run the **same** browser runner against it.
+The runner compiles a standalone Apple WebKit probe into each output directory.
+It paces gzip HTML over loopback at 8 Mbps and 1.6 Mbps, using a 390×844 viewport.
+Seeded 960×720 JPEGs are approximately 385 KB each; receipt originals are JPEGs too.
+The initial two 1600×1200 experiments exceeded the six-photo render budget and were
+excluded; the checked-in comparison uses the valid identical 960×720 fixtures.
+
+Metrics cover navigation, FCP/LCP, a decoded photograph in the viewport sampled on
+animation frames, all decoded photo previews, control availability, receipt readiness,
+and maximum 20 ms heartbeat gaps. They do not separately measure GPU presentation or
+image-decoder CPU time. Peak RSS samples only new macOS WebContent processes; it is
+process memory, not JS heap. WebKit provides no `performance.memory` here. RSS is noisy,
+includes caches, and is not a physical iPhone memory qualification. The runner rejects
+missing/failed photo results instead of accepting an error page as a fast gallery.
+
+These are controlled **browser/network simulations**, not mobile CPU, cellular radio,
+DNS, Google execution, or regional edge-cache simulations. Live samples and the source/
+deployment rollback references are in
+[the read-performance release record](../../docs/gallery-read-performance-2026-11-11.md).
+No new dependency, service, subscription or preview storage is required.

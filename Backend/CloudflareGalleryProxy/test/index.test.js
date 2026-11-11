@@ -163,7 +163,7 @@ test("completed cache uses an internal release version without changing the upst
       const response = await worker.fetch(new Request(customerURL), env);
       assert.equal(response.status, 200);
       assert.equal(calls[0].url, `https://script.google.com/macros/s/DEPLOYMENT_ID/exec?proxy=raw&g=${token}`);
-      assert.ok([...entries.keys()].some((key) => key.includes("gallery-cache=made-to-keep-fit-20261018")));
+      assert.ok([...entries.keys()].some((key) => key.includes("gallery-cache=made-to-keep-progressive-20261111")));
       assert.ok(!customerURL.includes("gallery-cache"));
     });
   });
@@ -274,7 +274,7 @@ test("diagnostic route expects raw proxy backend", async () => {
     const response = await worker.fetch(new Request("https://gallery.example.com/?diagnostic=proxy"), env);
     const body = await response.json();
     assert.equal(body.ok, true);
-    assert.equal(body.proxyVersion, "gallery-worker-readiness-20261020");
+    assert.equal(body.proxyVersion, "gallery-worker-progressive-20261111");
     assert.equal(body.backendVersion, "phase6c-worker-raw-html-proxy-20260831");
     assert.equal(body.rawProxyExpected, true);
   });
@@ -559,4 +559,56 @@ test('quoted, commented and truncated completion markers never enter completed c
   const response=await worker.fetch(new Request(`https://gallery.example.com/?g=${token}`),env);
   assert.equal(response.headers.get('X-Pocket-Pixels-Cache'),'BYPASS');assert.equal(entries.size,0);
  });});
+});
+
+test('simultaneous cold visitors share one origin render and independent response bodies', async () => {
+ await withMemoryCache(async()=>{
+  const original=globalThis.fetch,tasks=[];let release,calls=0;
+  const gate=new Promise(resolve=>{release=resolve;});
+  globalThis.fetch=async()=>{calls++;await gate;return completedGalleryResponse();};
+  try {
+   const request=new Request(`https://gallery.example.com/?g=${'c'.repeat(64)}`);
+   const requests=Array.from({length:8},()=>worker.fetch(request,env,{waitUntil:p=>tasks.push(p)}));
+   await new Promise(resolve=>setTimeout(resolve,0));assert.equal(calls,1);release();
+   const responses=await Promise.all(requests);
+   assert.equal(responses.filter(r=>r.headers.get('X-Pocket-Pixels-Cache')==='COALESCED').length,7);
+   const bodies=await Promise.all(responses.map(r=>r.text()));assert.ok(bodies.every(b=>b===bodies[0]));
+   await Promise.all(tasks);
+   assert.equal((await worker.fetch(request,env)).headers.get('X-Pocket-Pixels-Cache'),'HIT');assert.equal(calls,1);
+  }finally{release();await Promise.all(tasks);globalThis.fetch=original;}
+ });
+});
+
+test('warming, first scan and delayed cache write share work; tokens stay isolated', async()=>{
+ const original=globalThis.fetch,previous=globalThis.caches,tasks=[];let finishWrite;const entries=new Map(),seen=[];
+ const gate=new Promise(resolve=>{finishWrite=resolve;});
+ globalThis.caches={default:{match:async key=>entries.get(key.url)?.clone(),put:async(key,response)=>{await gate;entries.set(key.url,response.clone());}}};
+ globalThis.fetch=async raw=>{const url=new URL(raw),g=url.searchParams.get('g');seen.push([g,url.searchParams.get('galleryStatus')]);
+  if(url.searchParams.has('galleryStatus'))return new Response(JSON.stringify({statusVersion:1,ok:true,status:'complete',galleryToken:g,sessionID:'PP-20261111-120000',schemaVersion:4,fileCount:3}));
+  return new Response(`<main data-pocket-pixels-gallery-status="complete">Made to Keep Studios ${g[0]}</main>`);
+ };
+ try {
+  const g='d'.repeat(64),h='e'.repeat(64),url=`https://gallery.example.com/?g=${g}`,context={waitUntil:p=>tasks.push(p)};
+  assert.equal((await (await worker.fetch(new Request(url+'&galleryStatus=1'),env,context)).json()).status,'complete');
+  // Wait for warming to render while its optional cache write remains blocked.
+  await new Promise(resolve=>setTimeout(resolve,0));
+  const scan=await worker.fetch(new Request(url),env,context);assert.match(await scan.text(),/Studios d/);
+  const other=await worker.fetch(new Request(`https://gallery.example.com/?g=${h}`),env,context);assert.match(await other.text(),/Studios e/);
+  assert.equal(seen.filter(([t,s])=>t===g&&!s).length,1);assert.equal(seen.filter(([t,s])=>t===h&&!s).length,1);
+  finishWrite();await Promise.all(tasks);
+ }finally{finishWrite();await Promise.all(tasks);globalThis.fetch=original;globalThis.caches=previous;}
+});
+
+test('pending and failed coalesced requests are not cached and can become completed', async()=>{
+ await withMemoryCache(async entries=>{
+  const original=globalThis.fetch,tasks=[];let calls=0;
+  globalThis.fetch=async()=>++calls===1 ? new Response('Made to Keep Studios preparing') : completedGalleryResponse();
+  try {
+   const request=new Request(`https://gallery.example.com/?g=${'f'.repeat(64)}`),context={waitUntil:p=>tasks.push(p)};
+   const pending=await Promise.all([worker.fetch(request,env,context),worker.fetch(request,env,context)]);
+   assert.ok(pending.every(r=>r.headers.get('Cache-Control').includes('no-store')));assert.equal(entries.size,0);
+   await Promise.all(tasks);await new Promise(resolve=>setTimeout(resolve,0));
+   const complete=await worker.fetch(request,env,context);assert.match(await complete.text(),/your photos are ready/);await Promise.all(tasks);assert.equal(entries.size,1);assert.equal(calls,2);
+  }finally{globalThis.fetch=original;}
+ });
 });

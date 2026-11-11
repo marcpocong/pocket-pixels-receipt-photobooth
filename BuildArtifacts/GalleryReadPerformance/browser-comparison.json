@@ -1,0 +1,451 @@
+{
+  "environment": "390x844 macOS WebKit, gzip loopback at 8/1.6 Mbps; identical synthetic 960x720 JPEGs; no Google latency or mobile CPU emulation",
+  "before": [
+    {
+      "allPhotosMs": 555,
+      "conversions": 1,
+      "downloadAllActionsMs": 555,
+      "first-contentful-paint": 17,
+      "firstPhotoActionsMs": 555,
+      "firstPhotoMs": 555,
+      "galleryActionsMs": 555,
+      "heapBytes": null,
+      "lcpMs": 568.0000000000001,
+      "maxHeartbeatGapMs": 52,
+      "navigation": [
+        {
+          "decodedBytes": 757493,
+          "domContentLoadedMs": 551,
+          "encodedBytes": 547279,
+          "loadMs": 552,
+          "ttfbMs": 2
+        }
+      ],
+      "receiptsMs": 618,
+      "supportedEntries": [
+        "event",
+        "first-input",
+        "largest-contentful-paint",
+        "mark",
+        "measure",
+        "navigation",
+        "paint",
+        "resource"
+      ],
+      "profile": "typical",
+      "photos": 1,
+      "htmlBytes": 757493,
+      "gzipBytes": 547279,
+      "newWebContentPeakRssBytes": 57655296
+    },
+    {
+      "allPhotosMs": 1388,
+      "conversions": 1,
+      "downloadAllActionsMs": 1338,
+      "first-contentful-paint": 16,
+      "firstPhotoActionsMs": 1338,
+      "firstPhotoMs": 1338,
+      "galleryActionsMs": 1338,
+      "heapBytes": null,
+      "lcpMs": 1352,
+      "maxHeartbeatGapMs": 52,
+      "navigation": [
+        {
+          "decodedBytes": 1787256,
+          "domContentLoadedMs": 1329,
+          "encodedBytes": 1324457,
+          "loadMs": 1330,
+          "ttfbMs": 2
+        }
+      ],
+      "receiptsMs": 1405,
+      "supportedEntries": [
+        "event",
+        "first-input",
+        "largest-contentful-paint",
+        "mark",
+        "measure",
+        "navigation",
+        "paint",
+        "resource"
+      ],
+      "profile": "typical",
+      "photos": 3,
+      "htmlBytes": 1787256,
+      "gzipBytes": 1324457,
+      "newWebContentPeakRssBytes": 67485696
+    },
+    {
+      "allPhotosMs": 2568,
+      "conversions": 1,
+      "downloadAllActionsMs": 2506,
+      "first-contentful-paint": 16,
+      "firstPhotoActionsMs": 2514,
+      "firstPhotoMs": 2514,
+      "galleryActionsMs": 2506,
+      "heapBytes": null,
+      "lcpMs": 2528,
+      "maxHeartbeatGapMs": 51,
+      "navigation": [
+        {
+          "decodedBytes": 3331746,
+          "domContentLoadedMs": 2505,
+          "encodedBytes": 2490509,
+          "loadMs": 2507,
+          "ttfbMs": 2
+        }
+      ],
+      "receiptsMs": 2581,
+      "supportedEntries": [
+        "event",
+        "first-input",
+        "largest-contentful-paint",
+        "mark",
+        "measure",
+        "navigation",
+        "paint",
+        "resource"
+      ],
+      "profile": "typical",
+      "photos": 6,
+      "htmlBytes": 3331746,
+      "gzipBytes": 2490509,
+      "newWebContentPeakRssBytes": 78413824
+    },
+    {
+      "allPhotosMs": 2734,
+      "conversions": 1,
+      "downloadAllActionsMs": 2721,
+      "first-contentful-paint": 16,
+      "firstPhotoActionsMs": 2734,
+      "firstPhotoMs": 2734,
+      "galleryActionsMs": 2721,
+      "heapBytes": null,
+      "lcpMs": 2748,
+      "maxHeartbeatGapMs": 52,
+      "navigation": [
+        {
+          "decodedBytes": 757493,
+          "domContentLoadedMs": 2721,
+          "encodedBytes": 547279,
+          "loadMs": 2724,
+          "ttfbMs": 2
+        }
+      ],
+      "receiptsMs": 2784,
+      "supportedEntries": [
+        "event",
+        "first-input",
+        "largest-contentful-paint",
+        "mark",
+        "measure",
+        "navigation",
+        "paint",
+        "resource"
+      ],
+      "profile": "slow",
+      "photos": 1,
+      "htmlBytes": 757493,
+      "gzipBytes": 547279,
+      "newWebContentPeakRssBytes": 44367872
+    },
+    {
+      "allPhotosMs": 6670,
+      "conversions": 1,
+      "downloadAllActionsMs": 6611,
+      "first-contentful-paint": 17,
+      "firstPhotoActionsMs": 6622,
+      "firstPhotoMs": 6622,
+      "galleryActionsMs": 6611,
+      "heapBytes": null,
+      "lcpMs": 6636,
+      "maxHeartbeatGapMs": 53,
+      "navigation": [
+        {
+          "decodedBytes": 1787256,
+          "domContentLoadedMs": 6610,
+          "encodedBytes": 1324457,
+          "loadMs": 6613,
+          "ttfbMs": 2
+        }
+      ],
+      "receiptsMs": 6689,
+      "supportedEntries": [
+        "event",
+        "first-input",
+        "largest-contentful-paint",
+        "mark",
+        "measure",
+        "navigation",
+        "paint",
+        "resource"
+      ],
+      "profile": "slow",
+      "photos": 3,
+      "htmlBytes": 1787256,
+      "gzipBytes": 1324457,
+      "newWebContentPeakRssBytes": 68878336
+    },
+    {
+      "allPhotosMs": 12540,
+      "conversions": 1,
+      "downloadAllActionsMs": 12471,
+      "first-contentful-paint": 16,
+      "firstPhotoActionsMs": 12471,
+      "firstPhotoMs": 12471,
+      "galleryActionsMs": 12471,
+      "heapBytes": null,
+      "lcpMs": 12484,
+      "maxHeartbeatGapMs": 52,
+      "navigation": [
+        {
+          "decodedBytes": 3331746,
+          "domContentLoadedMs": 12467,
+          "encodedBytes": 2490509,
+          "loadMs": 12468,
+          "ttfbMs": 2
+        }
+      ],
+      "receiptsMs": 12541,
+      "supportedEntries": [
+        "event",
+        "first-input",
+        "largest-contentful-paint",
+        "mark",
+        "measure",
+        "navigation",
+        "paint",
+        "resource"
+      ],
+      "profile": "slow",
+      "photos": 6,
+      "htmlBytes": 3331746,
+      "gzipBytes": 2490509,
+      "newWebContentPeakRssBytes": 74629120
+    }
+  ],
+  "after": [
+    {
+      "allPhotosMs": 467,
+      "conversions": 1,
+      "downloadAllActionsMs": 467,
+      "first-contentful-paint": 112,
+      "firstPhotoActionsMs": 467,
+      "firstPhotoMs": 467,
+      "galleryActionsMs": 112,
+      "heapBytes": null,
+      "lcpMs": 480,
+      "maxHeartbeatGapMs": 95,
+      "navigation": [
+        {
+          "decodedBytes": 759835,
+          "domContentLoadedMs": 569,
+          "encodedBytes": 547324,
+          "loadMs": 593,
+          "ttfbMs": 30
+        }
+      ],
+      "receiptsMs": 603,
+      "supportedEntries": [
+        "event",
+        "first-input",
+        "largest-contentful-paint",
+        "mark",
+        "measure",
+        "navigation",
+        "paint",
+        "resource"
+      ],
+      "profile": "typical",
+      "photos": 1,
+      "htmlBytes": 759835,
+      "gzipBytes": 547324,
+      "newWebContentPeakRssBytes": 58818560
+    },
+    {
+      "allPhotosMs": 1188,
+      "conversions": 1,
+      "downloadAllActionsMs": 1188,
+      "first-contentful-paint": 16,
+      "firstPhotoActionsMs": 422,
+      "firstPhotoMs": 422,
+      "galleryActionsMs": 105,
+      "heapBytes": null,
+      "lcpMs": 436,
+      "maxHeartbeatGapMs": 53,
+      "navigation": [
+        {
+          "decodedBytes": 1790097,
+          "domContentLoadedMs": 1324,
+          "encodedBytes": 1324784,
+          "loadMs": 1339,
+          "ttfbMs": 2
+        }
+      ],
+      "receiptsMs": 1354,
+      "supportedEntries": [
+        "event",
+        "first-input",
+        "largest-contentful-paint",
+        "mark",
+        "measure",
+        "navigation",
+        "paint",
+        "resource"
+      ],
+      "profile": "typical",
+      "photos": 3,
+      "htmlBytes": 1790097,
+      "gzipBytes": 1324784,
+      "newWebContentPeakRssBytes": 60260352
+    },
+    {
+      "allPhotosMs": 2363,
+      "conversions": 1,
+      "downloadAllActionsMs": 2363,
+      "first-contentful-paint": 26,
+      "firstPhotoActionsMs": 413,
+      "firstPhotoMs": 413,
+      "galleryActionsMs": 26,
+      "heapBytes": null,
+      "lcpMs": 428,
+      "maxHeartbeatGapMs": 53,
+      "navigation": [
+        {
+          "decodedBytes": 3335334,
+          "domContentLoadedMs": 2497,
+          "encodedBytes": 2490925,
+          "loadMs": 2509,
+          "ttfbMs": 2
+        }
+      ],
+      "receiptsMs": 2522,
+      "supportedEntries": [
+        "event",
+        "first-input",
+        "largest-contentful-paint",
+        "mark",
+        "measure",
+        "navigation",
+        "paint",
+        "resource"
+      ],
+      "profile": "typical",
+      "photos": 6,
+      "htmlBytes": 3335334,
+      "gzipBytes": 2490925,
+      "newWebContentPeakRssBytes": 65503232
+    },
+    {
+      "allPhotosMs": 2023,
+      "conversions": 1,
+      "downloadAllActionsMs": 2023,
+      "first-contentful-paint": 26,
+      "firstPhotoActionsMs": 2023,
+      "firstPhotoMs": 2023,
+      "galleryActionsMs": 120,
+      "heapBytes": null,
+      "lcpMs": 2036,
+      "maxHeartbeatGapMs": 54,
+      "navigation": [
+        {
+          "decodedBytes": 759835,
+          "domContentLoadedMs": 2710,
+          "encodedBytes": 547324,
+          "loadMs": 2732,
+          "ttfbMs": 2
+        }
+      ],
+      "receiptsMs": 2738,
+      "supportedEntries": [
+        "event",
+        "first-input",
+        "largest-contentful-paint",
+        "mark",
+        "measure",
+        "navigation",
+        "paint",
+        "resource"
+      ],
+      "profile": "slow",
+      "photos": 1,
+      "htmlBytes": 759835,
+      "gzipBytes": 547324,
+      "newWebContentPeakRssBytes": 61751296
+    },
+    {
+      "allPhotosMs": 5921,
+      "conversions": 1,
+      "downloadAllActionsMs": 5921,
+      "first-contentful-paint": 16,
+      "firstPhotoActionsMs": 2022,
+      "firstPhotoMs": 2022,
+      "galleryActionsMs": 105,
+      "heapBytes": null,
+      "lcpMs": 2036,
+      "maxHeartbeatGapMs": 53,
+      "navigation": [
+        {
+          "decodedBytes": 1790097,
+          "domContentLoadedMs": 6603,
+          "encodedBytes": 1324784,
+          "loadMs": 6624,
+          "ttfbMs": 2
+        }
+      ],
+      "receiptsMs": 6636,
+      "supportedEntries": [
+        "event",
+        "first-input",
+        "largest-contentful-paint",
+        "mark",
+        "measure",
+        "navigation",
+        "paint",
+        "resource"
+      ],
+      "profile": "slow",
+      "photos": 3,
+      "htmlBytes": 1790097,
+      "gzipBytes": 1324784,
+      "newWebContentPeakRssBytes": 62750720
+    },
+    {
+      "allPhotosMs": 11723,
+      "conversions": 1,
+      "downloadAllActionsMs": 11723,
+      "first-contentful-paint": 22,
+      "firstPhotoActionsMs": 2023,
+      "firstPhotoMs": 2023,
+      "galleryActionsMs": 107,
+      "heapBytes": null,
+      "lcpMs": 2040,
+      "maxHeartbeatGapMs": 59,
+      "navigation": [
+        {
+          "decodedBytes": 3335334,
+          "domContentLoadedMs": 12458,
+          "encodedBytes": 2490925,
+          "loadMs": 12471,
+          "ttfbMs": 2
+        }
+      ],
+      "receiptsMs": 12490,
+      "supportedEntries": [
+        "event",
+        "first-input",
+        "largest-contentful-paint",
+        "mark",
+        "measure",
+        "navigation",
+        "paint",
+        "resource"
+      ],
+      "profile": "slow",
+      "photos": 6,
+      "htmlBytes": 3335334,
+      "gzipBytes": 2490925,
+      "newWebContentPeakRssBytes": 142917632
+    }
+  ]
+}
