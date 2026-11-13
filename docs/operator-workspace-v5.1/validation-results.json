@@ -1,0 +1,101 @@
+{
+  "date": "2026-11-13",
+  "timezone": "Asia/Manila",
+  "simulator": "iPad Pro (11-inch) (4th generation), iOS 26.5",
+  "runs": [
+    {
+      "name": "initial-regression",
+      "passed": 119,
+      "failed": 0,
+      "overallSuccess": true,
+      "unitPassed": 119,
+      "uiPassed": 0
+    },
+    {
+      "name": "additional-regression-and-initial-ui",
+      "passed": 51,
+      "failed": 3,
+      "overallSuccess": false,
+      "unitPassed": 51,
+      "uiPassed": 0
+    },
+    {
+      "name": "identifier-correction",
+      "passed": 11,
+      "failed": 0,
+      "overallSuccess": true,
+      "unitPassed": 8,
+      "uiPassed": 3
+    },
+    {
+      "name": "expanded-row-coverage",
+      "passed": 11,
+      "failed": 1,
+      "overallSuccess": false,
+      "unitPassed": 9,
+      "uiPassed": 2
+    },
+    {
+      "name": "row-correction-and-setup-regression",
+      "passed": 60,
+      "failed": 0,
+      "overallSuccess": true,
+      "unitPassed": 57,
+      "uiPassed": 3
+    },
+    {
+      "name": "keyboard-surface-experiment",
+      "passed": 1,
+      "failed": 0,
+      "overallSuccess": true,
+      "unitPassed": 0,
+      "uiPassed": 1
+    },
+    {
+      "name": "read-write-regression",
+      "passed": 73,
+      "failed": 1,
+      "overallSuccess": false,
+      "unitPassed": 71,
+      "uiPassed": 2
+    },
+    {
+      "name": "archived-editing-regression",
+      "passed": 12,
+      "failed": 1,
+      "overallSuccess": false,
+      "unitPassed": 10,
+      "uiPassed": 2
+    },
+    {
+      "name": "software-keyboard-restart-experiment",
+      "passed": 12,
+      "failed": 1,
+      "overallSuccess": false,
+      "unitPassed": 10,
+      "uiPassed": 2
+    },
+    {
+      "name": "preview-controls-and-stale-keyboard-assertion",
+      "passed": 12,
+      "failed": 1,
+      "overallSuccess": false,
+      "unitPassed": 10,
+      "uiPassed": 2
+    },
+    {
+      "name": "final-verified-source",
+      "passed": 13,
+      "failed": 0,
+      "overallSuccess": true,
+      "unitPassed": 10,
+      "uiPassed": 3
+    }
+  ],
+  "finalDebugBuild": "passed as part of test",
+  "signedReleaseBuild": "passed",
+  "strictCodeSignature": "passed",
+  "fullSuiteRun": false,
+  "carloInstallation": "Blocked: paired device locked; CoreDevice error 10003 / RemotePairing error 1016. No installation, uninstall or reset performed.",
+  "keyboardVisualLimitation": "Headless screenshots omit keyboard surface. Final stable UI checks keyboard presence and focused field/Done Editing hittability, not keyboard-surface hittability."
+}

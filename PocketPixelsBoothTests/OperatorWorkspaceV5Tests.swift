@@ -15,7 +15,7 @@ import XCTest
             .boothCheck, .receiptDesign, .stickers, .samplePrints, .equipment, .advanced, .printer, .recovery,
             .camera, .gallery, .waitingGalleries, .recentSessions, .storage, .printHistory, .serverEvent("original"),
             .sessionSetup, .branding, .sales, .eventReport("original"), .eventMaintenance("original"), .savedDrafts,
-            .draftReview(.regularBooth), .newEvent, .customizeEvent, .previousEvent, .savedEvent("design"),
+            .draftReview(.regularBooth), .newEvent, .customizeEvent, .previousEvent, .savedEvent("design"), .prepareEvent("design"),
             .eventHistory, .eventLibrary, .regularBooth, .regularFooter, .monitoring]
         XCTAssertEqual(try JSONDecoder().decode([OperatorWorkspaceRoute].self, from: JSONEncoder().encode(routes)), routes)
         let workspace = OperatorWorkspace(directory: root)

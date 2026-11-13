@@ -265,6 +265,9 @@ nonisolated struct EventDesignLibrary: Codable, Equatable, Sendable {
         }
     }
 
+    /// Read failures preserve the original file; write failures still allow editing and retry.
+    var libraryUnreadable: Bool { unreadableOriginal }
+
     func design(id: String?) -> SavedEventDesign? { library.design(id: id) }
 
     /// Inserts or replaces one event's saved design.

@@ -26,6 +26,7 @@ nonisolated enum OperatorWorkspaceRoute: Codable, Hashable, Sendable {
     case serverEvent(String)
     case sessionSetup, branding, sales, eventReport(String), eventMaintenance(String)
     case savedDrafts, draftReview(SavedDraftID)
+    case prepareEvent(String)
     case newEvent, customizeEvent, previousEvent, savedEvent(String), eventHistory, eventLibrary, regularBooth, regularFooter, monitoring
 
     var primaryDestination: OperatorPrimaryDestination {
@@ -45,6 +46,7 @@ nonisolated enum OperatorWorkspaceRoute: Codable, Hashable, Sendable {
         case .newEvent: "New Event"
         case .customizeEvent: "New Event"
         case .previousEvent: "Use Previous Event"
+        case .prepareEvent: "Prepare Event"
         case .savedEvent: "Event Setup"
         case .eventHistory: "Event History"
         case .eventLibrary: "Saved Events"

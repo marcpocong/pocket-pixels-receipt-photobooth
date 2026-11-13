@@ -388,6 +388,7 @@ struct EventReceiptComposerPreview: View {
     let profile: EventProfile
     var printOptions: ReceiptPrintOptions = .default
     var showsSamplePrintLink = true
+    var allowsPhotoExport = true
     var maximumPreviewWidth: CGFloat = 360
     var compact = false
     @State private var expanded = false
@@ -476,13 +477,17 @@ struct EventReceiptComposerPreview: View {
                     Button { expanded = true } label: { Label(editorFocus == nil ? "Expand Preview" : "Full Screen Preview", systemImage: "arrow.up.left.and.arrow.down.right").labelStyle(.iconOnly).frame(minWidth: 44, minHeight: 44) }
                         .accessibilityIdentifier("expand-receipt-preview")
                 }
+                if allowsPhotoExport || showsSamplePrintLink {
                 Menu {
-                    Button(savingPreview ? "Saving…" : "Save to Photos") { savePreview() }
-                        .disabled(savingPreview || (showsThermal ? thermalPNG : normalPNG) == nil)
+                    if allowsPhotoExport {
+                        Button(savingPreview ? "Saving…" : "Save to Photos") { savePreview() }
+                            .disabled(savingPreview || (showsThermal ? thermalPNG : normalPNG) == nil)
+                    }
                     if showsSamplePrintLink {
                         NavigationLink("Print Sample Using This Event Design") { SamplePrintStudioView(previewProfile: profile) }
                     }
                 } label: { Label("Preview Actions", systemImage: "ellipsis.circle").labelStyle(.iconOnly).frame(minWidth: 44, minHeight: 44) }
+                }
             }
             Picker("Preview Type", selection: selectionBinding.showsThermal) {
                 Text("Black & White").tag(false)

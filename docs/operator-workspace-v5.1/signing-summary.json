@@ -1,0 +1,14 @@
+{
+  "bundleID": "com.pocketpixels.PocketPixelsBooth",
+  "team": [
+    "PQ26682725"
+  ],
+  "profileExpirationUTC": "2026-11-18T11:28:56+00:00",
+  "profileExpirationManila": "2026-11-18T19:28:56+08:00",
+  "coversCarlo": true,
+  "iPadPortrait": [
+    "UIInterfaceOrientationPortrait"
+  ],
+  "strictCodeSignatureVerified": true,
+  "binarySHA256": "9f8d8c6b4bdf8a2834de69d8a841c243ed84f002b1ec3e6c79f7c92e7144fb5a"
+}

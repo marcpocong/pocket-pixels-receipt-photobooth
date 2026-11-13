@@ -1,0 +1,50 @@
+[
+  {
+    "file": "01-saved-overview.png",
+    "width": 1668,
+    "height": 2388,
+    "sha256": "41bde3354bb06aab4f4ff1e0fb2bad7b18550951841737e8011f2c7eb468ce0a"
+  },
+  {
+    "file": "02-staged-overview.png",
+    "width": 1668,
+    "height": 2388,
+    "sha256": "39455f7ae0504dd9960b653896e70f6cb53ca6f27c3b838aca304568c3f20929"
+  },
+  {
+    "file": "03-preparation-tools.png",
+    "width": 1668,
+    "height": 2388,
+    "sha256": "e3338a5dedda24c53d066400e2789d0e793a1a54988a15eb266c7de211258702"
+  },
+  {
+    "file": "04-accessibility-overview.png",
+    "width": 1668,
+    "height": 2388,
+    "sha256": "85317246fabe641569a81fbf22ee2ba25603aea6e9af2a0bf4c5005f9cf67bed"
+  },
+  {
+    "file": "05-accessibility-guest-preview.png",
+    "width": 1668,
+    "height": 2388,
+    "sha256": "f679757bb297eb8e19f39ce0d5410ba218c0c3f6ecfa112320112f90a6a4e2bf"
+  },
+  {
+    "file": "06-contextual-receipt-editor.png",
+    "width": 1668,
+    "height": 2388,
+    "sha256": "54a681e42799baaae1b4902ae9cd00961a194dbe3a8670945529077b686dc673"
+  },
+  {
+    "file": "07-existing-review.png",
+    "width": 1668,
+    "height": 2388,
+    "sha256": "d043cacd6d3c8cc8f10c0bfa923ea46fb29b348405c6b8f9383b8941b240fa38"
+  },
+  {
+    "file": "09-accessibility-editor-focus.png",
+    "width": 1668,
+    "height": 2388,
+    "sha256": "70afdc74b4d37d0fad51e558b70c4bf253337cf9a58c9bb5a50b4fbe55eb777a"
+  }
+]

@@ -2,6 +2,8 @@
 
 ## Current handoff
 
+- [13 November Prepare Event V5.1](operator-workspace-v5.1/README.md): read-only saved-event preparation, contextual tools, draft provenance and release validation.
+
 - [12 November Operator Workspace V5 release](operator-workspace-v5/release-report.md): unified portrait UI, route inventory, visual evidence, local validation and Carlo installation.
 
 - [27 October 2026 handoff](development-handoff-2026-10-27.md): accepted printer limitation, final printing/digital-image separation, empty sample previews, prepaid copy authorization, CI root causes and verification.

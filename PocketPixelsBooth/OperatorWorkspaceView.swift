@@ -34,12 +34,14 @@ struct OperatorWorkspaceView: View {
     @ObservedObject private var operations = EventOperationalState.shared
     @ObservedObject private var printer = PrinterCoordinator.shared
     @ObservedObject private var workspace: OperatorWorkspace
+    @ObservedObject private var library: EventDesignLibraryStore
     @StateObject private var sessions: RecentSessionsViewModel
     @StateObject private var lifecycle: EventLifecycleCoordinator
     private let loadsRemote: Bool
 
-    init(workspace: OperatorWorkspace? = nil, lifecycle: EventLifecycleCoordinator? = nil, loadsRemote: Bool = true, sessionsViewModel: RecentSessionsViewModel? = nil) {
+    init(workspace: OperatorWorkspace? = nil, lifecycle: EventLifecycleCoordinator? = nil, loadsRemote: Bool = true, sessionsViewModel: RecentSessionsViewModel? = nil, library: EventDesignLibraryStore = .shared) {
         _workspace = ObservedObject(wrappedValue: workspace ?? .shared)
+        _library = ObservedObject(wrappedValue: library)
         _lifecycle = StateObject(wrappedValue: lifecycle ?? EventLifecycleCoordinator())
         self.loadsRemote = loadsRemote
         _sessions = StateObject(wrappedValue: sessionsViewModel ?? RecentSessionsViewModel())
@@ -77,7 +79,11 @@ struct OperatorWorkspaceView: View {
                                         if route == .regularBooth || route == .recentSessions {
                                             Color.clear.task { workspace.navigate(to: route) }
                                         } else if route == .regularFooter { RegularBoothSettingsView(workspace: workspace, footerOnly: true) }
-                                        else { route.destination }
+                                        else if case .prepareEvent(let id) = route {
+                                            OperatorPrepareEventView(designID: id, workspace: workspace, library: library, runs: lifecycle.runs)
+                                        } else if case .savedEvent(let id) = route {
+                                            OperatorSavedEventSetupView(designID: id, workspace: workspace, library: library, runs: lifecycle.runs)
+                                        } else { route.destination }
                                     }
                                     .navigationTitle(route.title)
                                     .navigationBarTitleDisplayMode(.inline)
@@ -152,7 +158,7 @@ struct OperatorWorkspaceView: View {
         case .home: OperatorDashboardView(lifecycle: lifecycle, workspace: workspace, loadsRemote: loadsRemote)
         case .booth: RegularBoothSettingsView(workspace: workspace)
         case .sessions: RecentSessionsView(viewModel: sessions)
-        case .events: OperatorEventsView(workspace: workspace, runs: lifecycle.runs, lifecycle: lifecycle)
+        case .events: OperatorEventsView(workspace: workspace, runs: lifecycle.runs, library: library, lifecycle: lifecycle)
         case .reports: EventRunReportingView(store: lifecycle.runs, loadsRemote: loadsRemote, workspace: workspace)
         case .system: OperatorEquipmentView()
         }
@@ -391,13 +397,17 @@ struct OperatorEventsView: View {
                 Toggle("Show Archived Events", isOn: $showsArchived)
                 ForEach(library.library.events.filter { $0.removedAt == nil && (showsArchived || $0.archivedAt == nil) }.sorted { $0.updatedAt > $1.updatedAt }) { event in
                     HStack {
-                        NavigationLink(value: OperatorWorkspaceRoute.savedEvent(event.id)) {
+                        Button { workspace.path.append(.prepareEvent(event.id)) } label: {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(event.displayName).font(.headline)
                                 Text(event.archivedAt != nil ? "Archived local design" : (event.venue.isEmpty ? "Local saved design" : event.venue))
                                     .font(.callout).foregroundStyle(OperatorPalette.secondaryText)
+                                Text("Prepare Event").font(.caption).foregroundStyle(OperatorPalette.accent)
                             }.padding(.vertical, 4)
-                        }
+                        }.buttonStyle(.borderless).accessibilityIdentifier("prepare-event-" + event.id)
+                        Button("Edit") { workspace.path.append(.savedEvent(event.id)) }
+                            .font(.callout).buttonStyle(.borderless).frame(minWidth: 44, minHeight: 44)
+                            .accessibilityIdentifier("edit-event-" + event.id)
                         Button { managingDesignID = event.id } label: {
                             Label("Manage", systemImage: "ellipsis.circle").frame(minWidth: 44, minHeight: 44)
                         }
@@ -519,13 +529,37 @@ struct OperatorEventsView: View {
 /// Opens a reusable setup through the existing staging coordinator, without activation.
 struct OperatorSavedEventSetupView: View {
     let designID: String
-    @StateObject private var setup = SessionSetupCoordinator()
+    private let receiptOnly: Bool
+    @ObservedObject private var library: EventDesignLibraryStore
+    @StateObject private var setup: SessionSetupCoordinator
+    @State private var ready = false
+
+    init(designID: String, receiptOnly: Bool = false, workspace: OperatorWorkspace = .shared,
+         library: EventDesignLibraryStore = .shared, runs: EventRunStore = .shared) {
+        self.designID = designID; self.receiptOnly = receiptOnly
+        _library = ObservedObject(wrappedValue: library)
+        _setup = StateObject(wrappedValue: SessionSetupCoordinator(
+            editingLiveEvent: !runs.historyUnreadable && library.library.appliedEventModeEnabled && library.library.appliedEventID == designID
+                && runs.operational?.status == .active && runs.operational?.context.designID == designID,
+            draftTarget: receiptOnly ? .design(designID) : nil,
+            workspace: workspace, library: library, eventRuns: runs))
+    }
+
     var body: some View {
-        SessionSetupView(coordinator: setup)
-            .task(id: designID) {
-                // setEventMode may pick a default design; chooseDesign then selects the requested one.
+        Group {
+            if library.libraryUnreadable || library.design(id: designID) == nil || library.design(id: designID)?.removedAt != nil {
+                ContentUnavailableView("Saved event unavailable", systemImage: "calendar.badge.exclamationmark", description: Text(library.storageError ?? "Review or restore this design in Events before editing."))
+            } else if ready {
+                SessionSetupView(coordinator: setup, opensReceiptEditor: receiptOnly)
+            } else { ProgressView("Opening event setup…") }
+        }
+        .task(id: designID) {
+            guard !library.libraryUnreadable, let saved = library.design(id: designID), saved.removedAt == nil else { return }
+            if !setup.editingLiveEvent {
                 await setup.setEventMode(true)
                 await setup.chooseDesign(designID)
             }
+            ready = true
+        }
     }
 }

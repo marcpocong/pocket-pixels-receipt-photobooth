@@ -19,6 +19,8 @@ struct SessionSetupView: View {
     @State private var review = false
     @Environment(\.dismiss) private var dismiss
     private let opensNewEventDraft: Bool
+    private let opensReceiptEditor: Bool
+    @State private var openedInitialReceiptEditor = false
     @State private var previousEventPicker = false
     @State private var confirmDiscard = false
     @State private var paymentExpanded = false
@@ -28,7 +30,7 @@ struct SessionSetupView: View {
     @State private var reviewExpanded = false
     @State private var validationAttempt = false
     @FocusState private var eventNameFocused: Bool
-    init(eventID: String? = nil, coordinator: SessionSetupCoordinator? = nil, opensNewEventDraft: Bool = false, editingLiveEvent: Bool = false, usePreviousEvent: Bool = false) {
+    init(eventID: String? = nil, coordinator: SessionSetupCoordinator? = nil, opensNewEventDraft: Bool = false, editingLiveEvent: Bool = false, usePreviousEvent: Bool = false, opensReceiptEditor: Bool = false) {
         // StateObject owns construction: parent view updates must not recreate a coordinator
         // and reload configuration while its existing operation is still running.
         _setup = StateObject(wrappedValue: coordinator ?? SessionSetupCoordinator(eventID: eventID, editingLiveEvent: editingLiveEvent))
@@ -37,6 +39,7 @@ struct SessionSetupView: View {
         _acceptance = ObservedObject(wrappedValue: coordinator?.acceptanceForPresentation ?? .shared)
         self.opensNewEventDraft = opensNewEventDraft
         _previousEventPicker = State(initialValue: usePreviousEvent)
+        self.opensReceiptEditor = opensReceiptEditor
 
     }
 
@@ -103,6 +106,10 @@ struct SessionSetupView: View {
         .task {
             if opensNewEventDraft { await setup.prepareNewWorkspace() }
             else if setup.mode == .serverManaged { await setup.refresh() }
+            if opensReceiptEditor, !openedInitialReceiptEditor, setup.design != nil {
+                openedInitialReceiptEditor = true
+                receiptStudioPresented = true
+            }
         }
         .onDisappear { workspace.checkpoint() }
         .onAppear { setup.reloadDesignFromStorage() }
@@ -606,7 +613,7 @@ private struct SetupCopyControl: View {
     }
 }
 
-private struct SetupCard<Content: View>: View {
+struct SetupCard<Content: View>: View {
     @ViewBuilder let content: () -> Content
     var body: some View {
         VStack(alignment: .leading, spacing: 12) { content() }

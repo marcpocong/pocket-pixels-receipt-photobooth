@@ -12,7 +12,7 @@ struct OperatorWorkspaceUITestFixture: View {
         Group {
             if let fixture {
                 if ProcessInfo.processInfo.arguments.contains("--operator-v5-ui-fixture") {
-                    OperatorWorkspaceView(workspace: fixture.workspace, lifecycle: fixture.lifecycle, loadsRemote: false, sessionsViewModel: fixture.sessions)
+                    OperatorWorkspaceView(workspace: fixture.workspace, lifecycle: fixture.lifecycle, loadsRemote: false, sessionsViewModel: fixture.sessions, library: fixture.library)
                 } else {
                 VStack(spacing: 0) {
                     Picker("Synthetic validation screen", selection: $screen) {
@@ -127,6 +127,20 @@ struct OperatorWorkspaceUITestFixture: View {
                     if activeGuest { _ = try runs.startNewRun(context: .init(designID: used.id, commercialEventID: nil, serverBinding: nil, name: used.displayName)) }
                 }
                 try Data("synthetic fixture only".utf8).write(to: seedMarker)
+            }
+            if args.contains("--fixture-prepare-event"), let saved = library.library.events.first(where: { $0.name == "Garden Celebration" }) {
+                if !seeded {
+                    var design = saved
+                    design.prepaidPolicy = .legacyPrepaid
+                    design.prepaidPolicy?.defaultCopies = 2
+                    design.profile.stickerStudioEnabled = true
+                    try library.save(design)
+                    var draft = design
+                    draft.name = "Garden Celebration — staged changes"
+                    draft.guestScreensEnabled = true
+                    workspace.saveDesignDraft(draft, id: design.id)
+                }
+                if workspace.path.isEmpty { workspace.navigate(to: .prepareEvent(saved.id)) }
             }
             rejectsDesignWrites = true
             let acceptance = SessionAcceptanceStore(directory: root)

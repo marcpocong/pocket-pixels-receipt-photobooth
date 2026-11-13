@@ -401,6 +401,7 @@ extension OperatorWorkspaceRoute {
         case .liveEvent: SessionSetupView(editingLiveEvent: true)
         case .newEvent, .customizeEvent: SessionSetupView(opensNewEventDraft: true)
         case .previousEvent: SessionSetupView(opensNewEventDraft: true, usePreviousEvent: true)
+        case .prepareEvent(let id): OperatorPrepareEventView(designID: id)
         case .savedEvent(let id): OperatorSavedEventSetupView(designID: id)
         case .eventHistory: EventRunReportingView(initialTab: .history)
         case .eventLibrary: EventRunReportingView(initialTab: .manage)
