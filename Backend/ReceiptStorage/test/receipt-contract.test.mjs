@@ -9,3 +9,23 @@ test('the complete twice-base64 envelope accepts a 2 MiB image and signs its exa
 test('ACL verification rejects every public, group, domain and secondary-user grant',()=>{for(const extra of [{type:'anyone',role:'reader'},{type:'domain',role:'reader'},{type:'group',role:'reader'},{type:'user',role:'reader'}]){const {context:c}=fixture();c.receiptDrive_=p=>p.includes('permissions')?{permissions:[{type:'user',role:'owner'},extra]}:{trashed:false};assert.throws(()=>c.assertReceiptPrivate_('synthetic-private-root'),/unsafe_permissions/);}});
 test('retention is inert until explicitly established; eligible Trash remains recoverable and idempotent',()=>{const {context:c,properties}=fixture();c.receiptJournal_=()=>({value:{fileId:'synthetic-file-id',createdAt:Date.now()-2*86400000,parentId:'synthetic-parent'}});let mutations=0;c.assertReceiptPrivate_=()=>({parents:['synthetic-parent'],trashed:mutations>0});c.receiptDrive_=(p,o)=>{assert.equal(o.payload.trashed,true);mutations++;};assert.throws(()=>c.trashPrivateReceipt_('root','id',{fileId:'synthetic-file-id',retentionApproved:true}),/retention_not_approved/);assert.throws(()=>c.establishReceiptRetention_({days:1,approved:false}),/retention_not_approved/);c.establishReceiptRetention_({days:1,approved:true});assert.equal(properties.RECEIPT_RETENTION_DAYS,'1');for(let i=0;i<2;i++)assert.equal(c.trashPrivateReceipt_('root','id',{fileId:'synthetic-file-id',retentionApproved:true}).trashed,true);assert.equal(mutations,1);assert.ok(!source.includes('ScriptApp.newTrigger'));});
 test('canonical project has no secret initializer, gallery writes or sharing mutations',()=>{assert.ok(!source.includes('configureReceiptsForOwner'));assert.ok(!source.includes('.setSharing('));assert.ok(!/permissions[^\n]{0,80}method\s*:\s*['"]post/i.test(source));assert.equal(fixture().context.doGet().text,'Private receipt service.');});
+
+test('LIVE and TEST keys cannot cross receipt roots or retention settings', () => {
+    const {context,properties} = fixture();
+    const liveKey = 'separate-production-synthetic-secret-for-tests';
+    properties.RECEIPTS_HMAC_SECRET_LIVE = liveKey;
+    properties.RECEIPTS_ROOT_ID_LIVE = 'separate-live-root';
+    const checkedRoots = [];
+    context.assertReceiptPrivate_ = root => checkedRoots.push(root);
+    const request = sign({...envelope('retention',{approved:true,days:5}),keyId:'receipt-live-v1'});
+    assert.equal(invoke(context,request).code,'unauthorized');
+    assert.deepEqual(checkedRoots,[]);
+    request.signature = crypto.createHmac('sha256',liveKey)
+        .update(['v1',request.keyId,request.timestamp,request.nonce,request.operationId,request.operation,request.payloadB64].join('\n')).digest('hex');
+    assert.equal(invoke(context,request).operationId,request.operationId);
+    assert.deepEqual(checkedRoots,['separate-live-root']);
+    assert.equal(properties.RECEIPT_RETENTION_DAYS_LIVE,'5');
+    assert.equal(properties.RECEIPT_RETENTION_DAYS,undefined);
+    properties.RECEIPTS_ROOT_ID_LIVE = properties.RECEIPTS_ROOT_ID;
+    assert.equal(invoke(context,request).code,'invalid_private_root');
+});

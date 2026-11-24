@@ -179,6 +179,14 @@ import UIKit
                 await f.model.connectPaidCheckout()
                 f.model.policy.priceText = "25"
             }
+            if choice.acceptsQRPh {
+                let started = await f.model.startAccepting()
+                XCTAssertFalse(started, "Retired QR policies require an explicit replacement")
+                XCTAssertTrue(f.model.validation?.contains("retired") == true)
+                XCTAssertNil(f.api.events.values.first?.active)
+                XCTAssertTrue(f.applied.isEmpty, "Refused checkout must not apply the draft")
+                continue
+            }
             await start(f.model)
             XCTAssertFalse(f.applied.last!.isEventModeActive, "\(choice)")
             XCTAssertEqual(f.source, choice.isPaid ? .serverManaged : .localPrepaid)
@@ -365,7 +373,8 @@ import UIKit
         await f.model.choosePayment(.qrOnly)
         await f.model.connectPaidCheckout()
         f.model.policy.priceText = "0.50"
-        XCTAssertEqual(f.model.validation, "QR Ph needs a price of at least ₱1.00 per copy.")
+        XCTAssertEqual(f.model.policy.validationMessage(), "QR Ph needs a price of at least ₱1.00 per copy.")
+        XCTAssertTrue(f.model.validation?.contains("retired") == true)
         await f.model.choosePayment(.cashOnly)
         XCTAssertNil(f.model.validation, "Cash-only may charge under ₱1")
         f.model.policy.cashEnabled = false; f.model.policy.qrPhEnabled = false
@@ -374,7 +383,7 @@ import UIKit
 
     func testPaidToFreeEventPausesTheRemoteEventFirst() async {
         let f = MatrixFixture(); defer { f.cleanup() }
-        await f.model.choosePayment(.qrOnly)
+        await f.model.choosePayment(.cashOnly)
         await f.model.createEvent(name: "Expo", venue: "")
         f.model.policy.priceText = "25"
         await start(f.model)

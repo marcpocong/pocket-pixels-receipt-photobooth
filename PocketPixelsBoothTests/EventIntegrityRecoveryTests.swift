@@ -231,7 +231,7 @@ import XCTest
 @MainActor final class CommercialEventCreationRecoveryTests: XCTestCase {
     private func paidSetup(_ booth: Booth) async -> SessionSetupCoordinator {
         let setup = booth.setup()
-        await setup.choosePayment(.qrOnly)
+        await setup.choosePayment(.cashOnly)
         return setup
     }
     private func designCount(_ booth: Booth) -> Int { booth.library.library.events.count }
@@ -427,7 +427,7 @@ import XCTest
         let reuse = booth.setup()
         await reuse.setEventMode(true)
         await reuse.chooseDesign(try XCTUnwrap(runA.context.designID))
-        await reuse.choosePayment(.qrOnly)
+        await reuse.choosePayment(.cashOnly)
         await reuse.refresh()
         XCTAssertTrue(reuse.canStartNewPaidOccurrence)
         booth.server.loseCreateResponse = true
@@ -451,7 +451,7 @@ import XCTest
 @MainActor final class OccurrenceBoundaryTests: XCTestCase {
     private func startPaid(_ booth: Booth) async throws -> SessionSetupCoordinator {
         let setup = booth.setup()
-        await setup.choosePayment(.qrOnly)
+        await setup.choosePayment(.cashOnly)
         await setup.createEvent(name: "Gala Night", venue: "Ballroom")
         setup.policy.priceText = "50"
         let started = await setup.startAccepting()
@@ -489,7 +489,7 @@ import XCTest
         let next = booth.setup()
         await next.setEventMode(true)
         await next.chooseDesign(try XCTUnwrap(runA.context.designID))
-        await next.choosePayment(.qrOnly)
+        await next.choosePayment(.cashOnly)
         await next.refresh()
         XCTAssertEqual(next.occurrencePlan, .requiresNewOccurrence(previousRunID: runA.id))
         next.startsNewOccurrence = true

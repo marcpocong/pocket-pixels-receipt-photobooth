@@ -150,3 +150,37 @@ test('concurrent booth closure and mobile acknowledgment retain either original 
         const row=await h.one('SELECT acknowledged_at,late_acknowledged_at,closed_at FROM manual_checkouts WHERE id=?',c.status.id);assert.ok(row.closed_at);assert.ok(row.acknowledged_at||row.late_acknowledged_at,'No payment claim lost in closure race');
     }
 }));
+
+test('monitor reports repeated verified storage failures only to its own credential',()=>fixture(async(h,storage)=>{
+    const c = await checkout(h,'REQUIRED');
+    const monitorToken = 'synthetic-receipt-monitor-read-token';
+    const monitor = () => h.request('GET','/v1/monitor-health',{token:monitorToken});
+    assert.equal((await h.request('GET','/v1/monitor-health',c.auth)).status,401);
+    assert.equal((await monitor()).json.receiptStorageIncident,false);
+    const body = {snapshotHash:c.body.snapshotHash,mimeType:'image/png',base64:png};
+    storage.unsafe = true;
+    for(let failure=1;failure<=3;failure++){
+        assert.equal((await h.request('POST','/v2/guest/receipts',{...c.auth,body})).status,502);
+        assert.equal((await monitor()).json.receiptStorageIncident,failure===3);
+    }
+    const health = (await monitor()).json;
+    assert.equal(health.manualCheckoutReady,true);
+    assert.equal(health.receiptStorageConfigured,true);
+    assert.ok(!JSON.stringify(health).includes(c.status.id));
+},{MONITOR_READ_TOKEN:'synthetic-receipt-monitor-read-token'}));
+
+test('a full physical evidence batch stays within the D1 query budget and rejects one conflicting member atomically',()=>fixture(async h=>{
+    const c = await checkout(h);
+    const facts = '/v2/booth/checkouts/'+c.status.id+'/facts';
+    const entries = Array.from({length:100},(_,i)=>({
+        id:'print-'+i,batchID:'batch-'+i,sessionID:c.body.sessionId,copyIndex:1,
+        localState:'uncertain',receiptFingerprint:'a'.repeat(64),updatedAt:new Date().toISOString(),
+    }));
+    const submit = printEvidence => h.request('POST',facts,{body:{snapshotHash:c.body.snapshotHash,printEvidence}});
+    assert.equal((await submit(entries)).status,200);
+    assert.equal((await h.one('SELECT COUNT(*) n FROM manual_print_evidence')).n,100);
+    const changed = {...entries[0],localState:'inFlight'};
+    const newEntry = {...entries[0],id:'new'};
+    assert.equal((await submit([changed,newEntry])).status,409);
+    assert.equal((await h.one("SELECT COUNT(*) n FROM manual_print_evidence WHERE id='new'")).n,0);
+}));

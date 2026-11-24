@@ -58,8 +58,10 @@ jobs:
           xcrun simctl boot "$DEVICE_ID" || true
           xcrun simctl bootstatus "$DEVICE_ID" -b
 
-      - name: Generate synthetic gallery browser fixtures
-        run: node Backend/GoogleAppsScript/GridSixValidation.test.cjs --fixtures
+      - name: Generate synthetic browser fixtures
+        run: |
+          node Backend/GoogleAppsScript/GridSixValidation.test.cjs --fixtures
+          node Backend/PaymentsWorker/scripts/generate-manual-checkout-fixture.mjs
 
       - name: Build for testing
         run: |
@@ -165,3 +167,5 @@ jobs:
           node Backend/GoogleAppsScript/GridSixValidation.test.cjs
           node --test Backend/GoogleAppsScript/ResumableUploads.test.cjs
           node --test Tools/GalleryPerformance/isolated-drive-contract.test.cjs
+          node --test Backend/ReceiptStorage/test/*.test.mjs
+          python3 -m unittest discover -s Tools/BoothBackup -p "test_*.py"

@@ -54,6 +54,7 @@ import WebKit
             _ = try await web.evaluateJavaScript("document.getElementById('transferred').checked=true;document.getElementById('transferred').dispatchEvent(new Event('change'));document.getElementById('ack').click();true")
             try await wait(web,"document.getElementById('notice').textContent.includes('Acknowledgment saved')")
             try await expect(web,"requests.at(-1).body.snapshotHash","original-frozen-hash")
+            try await expect(web,"document.getElementById('receiving-details').hidden",true)
             if policy=="REQUIRED" {try await expect(web,"document.getElementById('notice').textContent.includes('Submit your receipt')",true)}
             else {try await expect(web,"document.getElementById('notice').textContent.includes('not been independently verified')",true)}
         }

@@ -6,7 +6,7 @@ import SwiftUI
     var lifecycle: CommercialEventLifecycle = .draft
     var version = 2
     var latest = OperatorPolicyRevision(id: "r1", revision: 1, commercialMode: .payPerPrint, unitPriceCentavos: 2500,
-        maxCopies: 3, defaultCopies: 1, cashEnabled: false, qrphEnabled: true, prepaidGuestCopyChoice: false,
+        maxCopies: 3, defaultCopies: 1, cashEnabled: true, qrphEnabled: false, prepaidGuestCopyChoice: false,
         supportedFormats: ["solo", "duo", "grid", "strip", "gridSix", "photoPass"], offlineValidUntil: nil, createdAt: Date(), activatedAt: nil)
     var active: OperatorPolicyRevision?
     var name = "Regular Sessions"
@@ -224,9 +224,11 @@ import SwiftUI
         let f = SetupFixture(); defer { f.cleanup() }
         await f.model.prepareNewWorkspace()
         f.model.design?.name = "Prepared paid event"
-        await f.model.choosePayment(.qrOnly); f.model.policy.priceText = "35.00"
+        await f.model.choosePayment(.cashOnly); f.model.policy.priceText = "35.00"
         await f.model.connectPaidCheckout()
+        XCTAssertEqual(f.model.targetServerEventID, "event", f.model.message)
         await f.model.saveOnly()
+        XCTAssertTrue(f.api.calls.contains("save"), f.model.message)
         var external = f.model.policy; external.priceText = "49.00"
         _ = try await f.api.saveDraft(eventID: "event", expectedVersion: f.api.version, name: "Prepared paid event", venue: "", policy: try XCTUnwrap(external.requestBody()))
         let reopened = f.makeModel(); await reopened.refresh()
@@ -238,7 +240,7 @@ import SwiftUI
         let f = SetupFixture(); defer { f.cleanup() }
         await f.model.prepareNewWorkspace()
         f.model.design?.name = "One paid identity"
-        await f.model.choosePayment(.qrOnly); f.model.policy.priceText = "30.00"
+        await f.model.choosePayment(.cashOnly); f.model.policy.priceText = "30.00"
         let other = f.makeModel()
         let started = await f.model.startAccepting(); XCTAssertTrue(started, f.model.message)
         await other.refresh()
@@ -255,7 +257,7 @@ import SwiftUI
         XCTAssertEqual(model.paymentChoice, .noPayment)
         XCTAssertTrue(model.eventModeEnabled)
         model.design?.name = "New Workspace"
-        await model.choosePayment(.qrAndCash)
+        await model.choosePayment(.cashOnly)
         model.policy.priceText = "42.00"
         model.policy.maxCopies = 4
         model.policy.defaultCopies = 2

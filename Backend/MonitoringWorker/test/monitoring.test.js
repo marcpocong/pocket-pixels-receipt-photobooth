@@ -13,7 +13,7 @@ const clean={mode:'regular',network:'online',payment:'ready',printer:'ready',sto
 async function withMonitor(body, paymentsHealth=false, options={}) {
     const messages=[],healthCalls=[];let heldResponse=null;let failTelegram=false,telegramRetryAfter=null,healthStatus=200,health={environment:'live',liveEnabled:true,reconciliationFresh:true};
     const persist=options.persist?mkdtempSync(join(tmpdir(),'mtk-monitor-v3-')):null;
-    const workerOptions={...(persist?{resourcePersistencePath:persist}:{}),modules:true,script:readFileSync(new URL('../src/index.js',import.meta.url),'utf8'),compatibilityDate:'2026-10-01',d1Databases:['DB'],bindings:{DEVICE_TOKEN:device,OWNER_READ_TOKEN:owner,TELEGRAM_BOT_TOKEN:'test-only',TELEGRAM_CHAT_ID:String(ownerChat),TELEGRAM_WEBHOOK_SECRET:webhook,STALE_SECONDS:'900',...(paymentsHealth?{PAYMENTS_HEALTH_URL:'https://payments.test/v1/monitor-health',PAYMENTS_HEALTH_TOKEN:'health-read-only'}:{})},outboundService:async request=>{
+    const workerOptions={...(persist?{resourcePersistencePath:persist}:{}),modules:true,script:readFileSync(new URL('../src/index.js',import.meta.url),'utf8'),compatibilityDate:'2026-10-01',d1Databases:['DB'],bindings:{DEVICE_TOKEN:device,OWNER_READ_TOKEN:owner,TELEGRAM_BOT_TOKEN:'test-only',TELEGRAM_CHAT_ID:String(ownerChat),TELEGRAM_WEBHOOK_SECRET:webhook,STALE_SECONDS:'900',...(options.expectsManual?{EXPECT_MANUAL_CHECKOUT:'true'}:{}),...(paymentsHealth?{PAYMENTS_HEALTH_URL:'https://payments.test/v1/monitor-health',PAYMENTS_HEALTH_TOKEN:'health-read-only'}:{})},outboundService:async request=>{
         if(new URL(request.url).hostname==='payments.test') {
             healthCalls.push({authorization:request.headers.get('authorization')});
             return Response.json(health,{status:healthStatus});
@@ -300,7 +300,7 @@ const printerState=(changes,other={})=>({printerObservation:{...readyPrinter,...
 test('V3 public release identity is explicit and non-sensitive',()=>withMonitor(async h=>{
     const health=await (await h.request('/health')).json();
     assert.equal(health.version,3);assert.equal(health.telemetryVersion,3);
-    assert.equal(health.release,'monitoring-v3-2026-11-12');
+    assert.equal(health.release,'monitoring-v3-2026-11-25');
     assert.deepEqual(Object.keys(health).sort(),['galleryActivityVersion','release','service','telemetryVersion','version']);
 }));
 
@@ -755,3 +755,21 @@ test('duplicate and stale observations preserve accepted server evidence and coo
     assert.equal((await stale.json()).accepted,false);
     assert.equal((await h.db.prepare('SELECT state_json FROM devices').first()).state_json,before.state_json);
 }));
+
+
+test('manual availability and receipt incidents reuse one health read and alert once per episode',()=>withMonitor(async h=>{
+    const time = Date.now();
+    const healthy={environment:'live',liveEnabled:true,reconciliationEnabled:false,reconciliationFresh:false,
+        manualCheckoutEnabled:true,manualCheckoutReady:true,receiptStorageConfigured:true,receiptStorageIncident:false};
+    h.health={...healthy,receiptStorageIncident:true};
+    await h.tick(time);
+    await h.tick(time+300000);
+    assert.equal(h.healthCalls.length,2);
+    assert.equal(h.messages.length,1);
+    assert.match(h.messages[0].text,/Private payment receipt storage/);
+    h.health=healthy;
+    await h.tick(time+600000);
+    assert.equal(h.messages.length,2);
+    assert.match(h.messages[1].text,/RECOVERED/);
+    assert.equal(await h.db.prepare("SELECT active FROM incidents WHERE code='reconciliation'").first(),null);
+},true,{expectsManual:true}));

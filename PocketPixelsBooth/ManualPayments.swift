@@ -227,7 +227,8 @@ nonisolated struct ManualCheckoutRecord: Codable, Equatable, Identifiable, Senda
     }
     private func update(_ id: String, _ body: (inout ManualCheckoutRecord) throws -> Void) throws {
         var next = payload; guard let index = next.records.firstIndex(where: { $0.id == id }) else { throw SetupFailure("Original manual checkout not found.") }
-        try body(&next.records[index]); try commit(next)
+        try body(&next.records[index])
+        if next.records[index] != payload.records[index] { try commit(next) }
     }
     private func commit(_ next: Payload) throws {
         if let storageError { throw SetupFailure(storageError) }
@@ -252,25 +253,55 @@ nonisolated struct ManualCheckoutStatus: Codable, Sendable {
 }
 
 @MainActor enum ManualPaymentSync {
-    private static var active: Set<String> = []
+    private static var creations: [String: Task<ManualCheckoutStatus, Error>] = [:]
+
+    private static func client(for id: String, store: ManualPaymentStore) throws -> PaymentsAPIClient {
+        guard let config = PaymentsConfiguration.current(), store.record(id) != nil else {
+            throw SetupFailure("Mobile checkout is unavailable. Your local payment claim is retained.")
+        }
+        try store.setBinding(id, config.environment + ":" + config.baseURL.absoluteString)
+        return PaymentsAPIClient(configuration: config)
+    }
+
+    private static func createIfNeeded(
+        _ id: String, store: ManualPaymentStore, client: PaymentsAPIClient
+    ) async throws -> Bool {
+        guard let record = store.record(id), record.serverID == nil else { return false }
+        if let creation = creations[id] {
+            try store.applyRemote(await creation.value, to: id)
+        } else {
+            let creation = Task { try await client.createManualCheckout(record) }
+            creations[id] = creation
+            defer { creations[id] = nil }
+            try store.applyRemote(await creation.value, to: id)
+        }
+        return true
+    }
+
+    /// Guest polling is a single read after initial registration. Facts and operator reviews
+    /// are submitted by their own actions, never by a recurring poll.
+    @discardableResult static func refresh(
+        _ id: String, store: ManualPaymentStore
+    ) async throws -> ManualCheckoutRecord {
+        let client = try client(for: id, store: store)
+        let created = try await createIfNeeded(id, store: store, client: client)
+        if !created, let serverID = store.record(id)?.serverID {
+            try store.applyRemote(await client.manualCheckoutStatus(serverID), to: id)
+        }
+        return store.record(id)!
+    }
+
     @discardableResult static func sync(_ id: String, store suppliedStore: ManualPaymentStore? = nil) async throws -> ManualCheckoutRecord {
         let store = suppliedStore ?? .shared
-        guard let config = PaymentsConfiguration.current(), var record = store.record(id) else { throw SetupFailure("Mobile checkout is unavailable. Your local payment claim is retained.") }
-        let binding = config.environment + ":" + config.baseURL.absoluteString
-        try store.setBinding(id, binding)
-        guard active.insert(id).inserted else { return store.record(id)! }
-        defer { active.remove(id) }
-        let client = PaymentsAPIClient(configuration: config)
+        let client = try client(for: id, store: store)
         do {
-            if record.serverID == nil { try store.applyRemote(await client.createManualCheckout(record), to: id) }
-            record = store.record(id)!
+            _ = try await createIfNeeded(id, store: store, client: client)
+            let record = store.record(id)!
             let evidence = Array((PrintOutcomeOutbox.shared?.entries.filter { $0.sessionID == record.sessionID && $0.isCustomerCopy } ?? []).suffix(100))
             try store.applyRemote(await client.syncManualFacts(record, printEvidence: evidence), to: id)
-            try store.applyRemote(await client.manualCheckoutStatus(store.record(id)!.serverID!), to: id)
             let reviews = store.record(id)!.reviews
             if !reviews.isEmpty {
-                // Administration may wait for Operator unlock; it never withholds an already
-                // received, exact-checkout guest acknowledgment/private storage proof.
+                // Operator authentication never withholds matching guest evidence.
                 if OperatorAccessPermit.shared.isAuthorized {
                     do { for review in reviews { try await client.syncManualReview(review, checkoutID: store.record(id)!.serverID!) } }
                     catch { store.setSyncError(id) }

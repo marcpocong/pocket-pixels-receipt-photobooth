@@ -7,20 +7,23 @@ function doPost(e) {
   try {
     if (!e || !e.postData || e.postData.contents.length > 4 * 1024 * 1024) throw Error('invalid');
     request = JSON.parse(e.postData.contents);
-    var secret = PropertiesService.getScriptProperties().getProperty('RECEIPTS_HMAC_SECRET');
+    var scope = request.keyId === 'receipt-live-v1' ? '_LIVE' : '';
+    var properties = PropertiesService.getScriptProperties();
+    var secret = properties.getProperty('RECEIPTS_HMAC_SECRET' + scope);
     if (!secret || secret.length < 32) throw Error('unconfigured');
-    if (request.v !== 1 || request.keyId !== 'receipt-v1' || !/^[a-f0-9-]{36}$/.test(request.operationId || '') || !/^[a-f0-9-]{36}$/.test(request.nonce || '')) throw Error('invalid_envelope');
+    if (request.v !== 1 || !['receipt-v1', 'receipt-live-v1'].includes(request.keyId) || !/^[a-f0-9-]{36}$/.test(request.operationId || '') || !/^[a-f0-9-]{36}$/.test(request.nonce || '')) throw Error('invalid_envelope');
     if (Math.abs(Date.now() - Date.parse(request.timestamp)) > 300000 || !isFinite(Date.parse(request.timestamp))) throw Error('request_expired');
     var signing = ['v1',request.keyId,request.timestamp,request.nonce,request.operationId,request.operation,request.payloadB64].join('\n');
     if (!receiptConstantTime_(request.signature, receiptHMAC_(signing, secret))) throw Error('unauthorized');
     var payload = JSON.parse(Utilities.newBlob(Utilities.base64Decode(request.payloadB64)).getDataAsString());
-    var rootId = PropertiesService.getScriptProperties().getProperty('RECEIPTS_ROOT_ID');
+    var rootId = properties.getProperty('RECEIPTS_ROOT_ID' + scope);
+    if (scope && rootId === properties.getProperty('RECEIPTS_ROOT_ID')) throw Error('invalid_private_root');
     assertReceiptPrivate_(rootId);
     var result;
     if (request.operation === 'store') result = storePrivateReceipt_(rootId, request.operationId, payload);
     else if (request.operation === 'read') result = readPrivateReceipt_(rootId, request.operationId, payload);
-    else if (request.operation === 'retention') result = establishReceiptRetention_(payload);
-    else if (request.operation === 'trash') result = trashPrivateReceipt_(rootId, request.operationId, payload);
+    else if (request.operation === 'retention') result = establishReceiptRetention_(payload, scope);
+    else if (request.operation === 'trash') result = trashPrivateReceipt_(rootId, request.operationId, payload, scope);
     else throw Error('invalid_operation');
     return receiptResponse_(request, result, secret);
   } catch (failure) {
@@ -106,8 +109,8 @@ function readPrivateReceipt_(root,id,p) {
   if(bytes.length!==record.bytes||receiptHex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,bytes))!==record.sha256)throw Error('changed');
   return {ok:true,base64:Utilities.base64Encode(bytes)};
 }
-function trashPrivateReceipt_(root,id,p) {
-  var days=Number(PropertiesService.getScriptProperties().getProperty('RECEIPT_RETENTION_DAYS')||0),record=receiptJournal_(root,id).value;
+function trashPrivateReceipt_(root,id,p,scope) {
+  var days=Number(PropertiesService.getScriptProperties().getProperty('RECEIPT_RETENTION_DAYS' + (scope || ''))||0),record=receiptJournal_(root,id).value;
   if(!days||days<1||p.retentionApproved!==true||!record||record.fileId!==p.fileId||Date.now()-record.createdAt<days*86400000)throw Error('retention_not_approved');
   assertReceiptPrivate_(record.parentId);var file=assertReceiptPrivate_(record.fileId,true);
   if(file.parents.length!==1||file.parents[0]!==record.parentId)throw Error('parent_changed');
@@ -116,8 +119,8 @@ function trashPrivateReceipt_(root,id,p) {
   return {ok:true,trashed:true}; // Recoverable Trash only; financial association/journal remain.
 }
 
-function establishReceiptRetention_(p) {
+function establishReceiptRetention_(p,scope) {
   if(p.approved!==true||!Number.isInteger(p.days)||p.days<1||p.days>3650)throw Error('retention_not_approved');
-  PropertiesService.getScriptProperties().setProperty('RECEIPT_RETENTION_DAYS',String(p.days));
+  PropertiesService.getScriptProperties().setProperty('RECEIPT_RETENTION_DAYS' + (scope || ''),String(p.days));
   return {ok:true,days:p.days}; // Deliberately creates no cleanup trigger.
 }

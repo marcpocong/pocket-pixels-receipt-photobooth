@@ -1,6 +1,6 @@
 # v1.0 release readiness — Phase 1
 
-> Current implementation and Phase 3 handoff: [Phase 2 delivery](PHASE2.md). The Phase 1 audit/proposal below is historical; the owner's Phase 2 request and implemented local acknowledgment architecture supersede its proposed online-only digital restriction and entitlement rebuild.
+> [Current Phase 3 release and rollout](PHASE3.md) · [Phase 2 payment architecture](PHASE2.md). The Phase 1 audit and proposal below are historical. The implemented local acknowledgment rules and additive schema are documented in Phase 2.
 
 Audit date: **24 November 2026, Asia/Manila**. Authoritative fetched baseline: **`8baadb77c53321c576d4fe160efc66def199b8b8`**. The clean local `main` matched `origin/main`; GitHub's default branch is `main`. A pre-existing October safety stash is retained privately, including historical bytes absent from main; it was not applied or dropped. This report records source inspection, authenticated infrastructure reads, private export/restore checks and the bounded validation below. It is not physical qualification or financial settlement certification.
 

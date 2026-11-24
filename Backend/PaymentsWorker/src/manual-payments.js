@@ -21,7 +21,35 @@ export async function digest(value){return [...new Uint8Array(await crypto.subtl
 export async function mac(secret,value){const k=await crypto.subtle.importKey('raw',encoder.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);return [...new Uint8Array(await crypto.subtle.sign('HMAC',k,encoder.encode(value)))].map(b=>b.toString(16).padStart(2,'0')).join('');}
 function equal(a,b){if(typeof a!=='string'||typeof b!=='string'||a.length!==b.length)return false;let d=0;for(let i=0;i<a.length;i++)d|=a.charCodeAt(i)^b.charCodeAt(i);return d===0;}
 function enabled(env){if(env.MANUAL_CHECKOUT_ENABLED!=='true')fail(503,'manual_checkout_disabled','Mobile checkout is not enabled on this service. Local acknowledgment remains available when allowed.');}
-async function rate(env,key,limit){const minute=Math.floor(Date.now()/60000);await env.DB.prepare('INSERT INTO request_rate_limits(key,minute_window,request_count) VALUES(?,?,1) ON CONFLICT(key,minute_window) DO UPDATE SET request_count=request_count+1').bind(key,minute).run();const row=await env.DB.prepare('SELECT request_count FROM request_rate_limits WHERE key=? AND minute_window=?').bind(key,minute).first();if(row.request_count>limit)fail(429,'rate_limited','Please wait a minute before retrying.');}
+async function incrementWindow(env, key, minute) {
+    return env.DB.prepare(`INSERT INTO request_rate_limits(key,minute_window,request_count) VALUES(?,?,1)
+      ON CONFLICT(key,minute_window) DO UPDATE SET request_count=request_count+1 RETURNING request_count`)
+        .bind(key,minute).first();
+}
+async function rate(env,key,limit) {
+    const row = await incrementWindow(env,key,Math.floor(Date.now()/60000));
+    if(row.request_count > limit) fail(429,'rate_limited','Please wait a minute before retrying.');
+}
+function receiptEndpoint(env) {
+    if (!env.RECEIPTS_SCRIPT_URL || env.RECEIPTS_HMAC_SECRET?.length < 32 || !env.RECEIPTS_HMAC_SECRET) return null;
+    try {
+        const url = new URL(env.RECEIPTS_SCRIPT_URL);
+        return url.protocol === 'https:' && url.hostname === 'script.google.com' &&
+            !url.username && !url.password && !url.port && !url.search && !url.hash &&
+            /^\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(url.pathname) ? url : null;
+    } catch { return null; }
+}
+export function manualCheckoutHealth(env) {
+    const enabled = env.MANUAL_CHECKOUT_ENABLED === 'true';
+    return {enabled, checkoutReady: enabled && env.MANUAL_TOKEN_SECRET?.length >= 32 || false,
+        receiptConfigured: enabled && receiptEndpoint(env) !== null};
+}
+export async function manualReceiptIncident(env) {
+    const window = Math.floor(Date.now()/60000);
+    const row = await env.DB.prepare(`SELECT COALESCE(SUM(request_count),0) AS failures FROM request_rate_limits
+        WHERE key=? AND minute_window BETWEEN ? AND ?`).bind('manual-receipt-service-failures',window-14,window).first();
+    return row.failures >= 3;
+}
 async function tokenFor(env,row){if(!env.MANUAL_TOKEN_SECRET||env.MANUAL_TOKEN_SECRET.length<32)fail(503,'manual_token_unconfigured','Checkout security is not configured.');return mac(env.MANUAL_TOKEN_SECRET,['manual-v1',row.environment,row.id,row.capability_nonce].join('\n'));}
 async function owned(env,p,checkoutId,operator=false){const row=await env.DB.prepare('SELECT * FROM manual_checkouts WHERE id=? AND account_id=?'+(operator?'':' AND device_id=?')).bind(checkoutId,p.accountId,...(operator?[]:[p.id])).first();if(!row)fail(404,'checkout_not_found','Original checkout not found.');return row;}
 async function receiptProof(env,row){const receipt=await env.DB.prepare("SELECT id,stored_at,trashed_at FROM manual_receipts WHERE checkout_id=? AND state='STORED_PRIVATE' ORDER BY stored_at DESC,id DESC LIMIT 1").bind(row.id).first();return receipt?{checkoutId:row.id,snapshotHash:row.snapshot_hash,receiptId:receipt.id,storedAt:receipt.stored_at,trashedAt:receipt.trashed_at}:null;}
@@ -36,7 +64,9 @@ async function guest(request,env){
     if(row.environment!==(env.PAYMENTS_ENVIRONMENT||'test'))fail(403,'environment_mismatch','Checkout environment mismatch.');
     if(Date.now()>Date.parse(row.receipt_expires_at))fail(410,'checkout_expired','This link has expired. Ask the attendant to review your original claim; do not pay again.');
     const origin=request.headers.get('origin');if(origin&&origin!==new URL(request.url).origin)fail(403,'origin_rejected','Open the original checkout page.');
-    await rate(env,'manual-checkout:'+row.id,request.url.endsWith('/status')?60:12);return row;
+    const statusRead = new URL(request.url).pathname === '/v2/guest/status';
+    await rate(env,'manual-checkout:'+(statusRead?'status:':'write:')+row.id,statusRead?60:12);
+    return row;
 }
 
 export async function manualPublic(request,env){
@@ -89,15 +119,44 @@ export async function manualAuthenticated(request,env,p){
             const b=await jsonBody(request);if(b.snapshotHash!==row.snapshot_hash)fail(409,'snapshot_mismatch','Original checkout snapshot mismatch.');
             if(b.printEvidence!==undefined){
                 if(!Array.isArray(b.printEvidence)||b.printEvidence.length>100)fail(422,'invalid_print_evidence','Invalid original print evidence.');
-                const writes=[];
-                for(const e of b.printEvidence){
-                    id(e.id);id(e.batchID);if(e.sessionID!==row.session_id||!Number.isInteger(e.copyIndex)||e.copyIndex<1||e.copyIndex>JSON.parse(row.snapshot_json).copies||!['inFlight','notStarted','delivered','uncertain'].includes(e.localState))fail(409,'print_evidence_mismatch','Print evidence must match the original session and frozen copies.');
-                    const updated=date(e.updatedAt);if(!updated)fail(422,'invalid_date','Print evidence needs its original recorded time.');
-                    const previous=await env.DB.prepare('SELECT payload_json FROM manual_print_evidence WHERE checkout_id=? AND id=?').bind(row.id,e.id).first();
-                    if(previous){const prior=JSON.parse(previous.payload_json);if(prior.batchID!==e.batchID||prior.copyIndex!==e.copyIndex||prior.receiptFingerprint!==e.receiptFingerprint||(['uncertain','delivered'].includes(prior.localState)&&e.localState==='notStarted'))fail(409,'print_evidence_conflict','Original physical evidence cannot be replaced.');}
-                    writes.push(env.DB.prepare('INSERT INTO manual_print_evidence(checkout_id,id,payload_json,updated_at) VALUES(?,?,?,?) ON CONFLICT(checkout_id,id) DO UPDATE SET payload_json=excluded.payload_json,updated_at=excluded.updated_at WHERE excluded.updated_at>=manual_print_evidence.updated_at').bind(row.id,e.id,JSON.stringify(e),updated));
+                const copies = JSON.parse(row.snapshot_json).copies;
+                const evidence = b.printEvidence.map(entry => {
+                    id(entry.id); id(entry.batchID);
+                    if (entry.sessionID !== row.session_id || !Number.isInteger(entry.copyIndex) ||
+                        entry.copyIndex < 1 || entry.copyIndex > copies ||
+                        !['inFlight','notStarted','delivered','uncertain'].includes(entry.localState)) {
+                        fail(409,'print_evidence_mismatch','Print evidence must match the original session and frozen copies.');
+                    }
+                    const updatedAt = date(entry.updatedAt);
+                    if (!updatedAt) fail(422,'invalid_date','Print evidence needs its original recorded time.');
+                    return {id:entry.id,batchID:entry.batchID,sessionID:entry.sessionID,copyIndex:entry.copyIndex,
+                        receiptFingerprint:text(entry.receiptFingerprint,128),localState:entry.localState,updatedAt};
+                });
+                if (new Set(evidence.map(entry=>entry.id)).size !== evidence.length) {
+                    fail(422,'duplicate_print_evidence','Each physical evidence ID may appear once.');
                 }
-                if(writes.length)await env.DB.batch(writes);
+                if (evidence.length) {
+                    const encoded = JSON.stringify(evidence);
+                    const matchingIdentity = `json_extract(current.payload_json,'$.batchID')=json_extract(incoming.value,'$.batchID')
+                        AND json_extract(current.payload_json,'$.copyIndex')=json_extract(incoming.value,'$.copyIndex')
+                        AND json_extract(current.payload_json,'$.receiptFingerprint')=json_extract(incoming.value,'$.receiptFingerprint')
+                        AND NOT (json_extract(current.payload_json,'$.localState') IN ('uncertain','delivered')
+                                 AND json_extract(incoming.value,'$.localState') IN ('notStarted','inFlight'))`;
+                    // One indexed batch for up to 100 entries, below the Free D1 query limit.
+                    // An all-or-nothing conditional insert also protects against a racing update.
+                    const conflict = `SELECT 1 FROM json_each(?1) incoming JOIN manual_print_evidence current
+                        ON current.checkout_id=?2 AND current.id=json_extract(incoming.value,'$.id')
+                        WHERE NOT (${matchingIdentity}) LIMIT 1`;
+                    const [, check] = await env.DB.batch([
+                        env.DB.prepare(`INSERT INTO manual_print_evidence(checkout_id,id,payload_json,updated_at)
+                          SELECT ?2,json_extract(value,'$.id'),value,json_extract(value,'$.updatedAt')
+                          FROM json_each(?1) WHERE NOT EXISTS (${conflict})
+                          ON CONFLICT(checkout_id,id) DO UPDATE SET payload_json=excluded.payload_json,updated_at=excluded.updated_at
+                          WHERE excluded.updated_at>=manual_print_evidence.updated_at`).bind(encoded,row.id),
+                        env.DB.prepare(conflict).bind(encoded,row.id)
+                    ]);
+                    if (check.results.length) fail(409,'print_evidence_conflict','Original physical evidence cannot be replaced.');
+                }
             }
             await env.DB.prepare('UPDATE manual_checkouts SET acknowledged_at=COALESCE(acknowledged_at,?),closed_at=COALESCE(closed_at,?),completed_at=COALESCE(completed_at,?) WHERE id=?').bind(date(b.acknowledgedAt),date(b.closedAt),date(b.completedAt),row.id).run();return reply(await status(env,await owned(env,p,row.id),url.origin,true));
         }
@@ -151,7 +210,7 @@ async function createCheckout(request,env,p,origin){
     if(b.method==='MANUAL_DIGITAL'){
         receiver=await env.DB.prepare('SELECT configuration_json FROM manual_receivers WHERE id=? AND account_id=? AND enabled=1').bind(b.receiverId||'',p.accountId).first();
         if(!receiver)fail(409,'receiving_account_unconfigured','Configure an authorized receiving account first.');
-        if(b.receiptPolicy==='REQUIRED'&&(!env.RECEIPTS_SCRIPT_URL||!env.RECEIPTS_HMAC_SECRET))fail(503,'receipt_storage_unavailable','Private receipt storage is unavailable. Local required-receipt policy remains enforced.');
+        if(b.receiptPolicy==='REQUIRED'&&!receiptEndpoint(env))fail(503,'receipt_storage_unavailable','Private receipt storage is unavailable. Local required-receipt policy remains enforced.');
     }
     const originalCreatedAt=date(b.createdAt)||timestamp();
     const now=timestamp(),originTime=Date.parse(originalCreatedAt),row={id:crypto.randomUUID(),environment:env.PAYMENTS_ENVIRONMENT||'test',capability_nonce:crypto.randomUUID()+crypto.randomUUID()};
@@ -175,15 +234,23 @@ async function storeReceipt(request,env,row){
     receipt=await env.DB.prepare('SELECT * FROM manual_receipts WHERE checkout_id=? AND request_hash=?').bind(row.id,requestHash).first();
     if(!receipt)fail(429,'receipt_limit','Three receipt versions are already retained. Ask the attendant.');
     const encoded=base64(image.bytes);
-    const stored=await receiptStorage(env,'store',receipt.id,{checkoutId:row.id,eventId:snapshot.eventId,runId:snapshot.runId,year:row.created_at.slice(0,4),month:row.created_at.slice(5,7),date:row.created_at.slice(0,10),sha256:hash,mimeType:image.mime,bytes:image.bytes.length,base64:encoded});
-    if(stored.private!==true||stored.sha256!==hash||stored.bytes!==image.bytes.length||!/^[A-Za-z0-9_-]{10,200}$/.test(stored.fileId||'')||!/^https:\/\/drive\.google\.com\/drive\/folders\/[A-Za-z0-9_-]{10,200}$/.test(stored.folderURL||''))fail(502,'receipt_storage_unverified','Private storage could not be verified. Retry the same image; do not pay again.');
+    let stored;
+    try {
+        stored=await receiptStorage(env,'store',receipt.id,{checkoutId:row.id,eventId:snapshot.eventId,runId:snapshot.runId,year:row.created_at.slice(0,4),month:row.created_at.slice(5,7),date:row.created_at.slice(0,10),sha256:hash,mimeType:image.mime,bytes:image.bytes.length,base64:encoded});
+        if(stored.private!==true||stored.sha256!==hash||stored.bytes!==image.bytes.length||!/^[A-Za-z0-9_-]{10,200}$/.test(stored.fileId||'')||!/^https:\/\/drive\.google\.com\/drive\/folders\/[A-Za-z0-9_-]{10,200}$/.test(stored.folderURL||''))fail(502,'receipt_storage_unverified','Private storage could not be verified. Retry the same image; do not pay again.');
+    } catch (error) {
+        // A fixed index key and minute bucket contain no payment or guest details.
+        try { await incrementWindow(env,'manual-receipt-service-failures',Math.floor(Date.now()/60000)); } catch { /* preserve the original storage response */ }
+        throw error;
+    }
     await env.DB.prepare("UPDATE manual_receipts SET state='STORED_PRIVATE',storage_json=?,stored_at=COALESCE(stored_at,?) WHERE id=? AND content_hash=?").bind(JSON.stringify({fileId:stored.fileId,folderURL:stored.folderURL}),timestamp(),receipt.id,hash).run();return reply({submitted:true,receiptId:receipt.id});
 }
 function base64(bytes){let result='';for(let i=0;i<bytes.length;i+=16384)result+=String.fromCharCode(...bytes.subarray(i,i+16384));return btoa(result);}
 export async function receiptStorage(env,operation,operationId,payload){
-    if(!env.RECEIPTS_SCRIPT_URL||!env.RECEIPTS_HMAC_SECRET||env.RECEIPTS_HMAC_SECRET.length<32)fail(503,'receipt_storage_unavailable','Private Drive receipt storage is unavailable.');
-    const url=new URL(env.RECEIPTS_SCRIPT_URL);if(url.protocol!=='https:'||url.hostname!=='script.google.com'||!/^\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(url.pathname))fail(503,'receipt_storage_unavailable','Receipt storage endpoint is invalid.');
-    const envelope={v:1,keyId:'receipt-v1',timestamp:timestamp(),nonce:crypto.randomUUID(),operationId,operation,payloadB64:base64(encoder.encode(JSON.stringify(payload)))};
+    const url = receiptEndpoint(env);
+    if (!url) fail(503,'receipt_storage_unavailable','Private Drive receipt storage is unavailable.');
+    const keyId = env.RECEIPTS_KEY_ID === 'receipt-live-v1' ? 'receipt-live-v1' : 'receipt-v1';
+    const envelope={v:1,keyId,timestamp:timestamp(),nonce:crypto.randomUUID(),operationId,operation,payloadB64:base64(encoder.encode(JSON.stringify(payload)))};
     envelope.signature=await mac(env.RECEIPTS_HMAC_SECRET,['v1',envelope.keyId,envelope.timestamp,envelope.nonce,operationId,operation,envelope.payloadB64].join('\n'));
     let response;try{response=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(envelope),redirect:'manual',signal:AbortSignal.timeout(45000)});
         for(let redirects=0;[301,302,303].includes(response.status)&&redirects<3;redirects++){

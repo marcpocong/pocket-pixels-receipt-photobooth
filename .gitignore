@@ -38,6 +38,7 @@ temp/
 *.tmp
 *.temp
 *.log
+__pycache__/
 
 # Local environment and secrets
 .env

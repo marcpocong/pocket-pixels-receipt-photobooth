@@ -33,3 +33,18 @@ test("retired creation still reads and reconciles original verified entitlement"
         assert.equal(h.provider.calls.length, before);
     } finally { await h.dispose(); }
 });
+
+test("retired provider cron still prunes throttle data and retains on-demand reconciliation", async () => {
+    const token = "synthetic-monitor-read-token-long-enough";
+    const h = await createHarness({ bindings: { LEGACY_RECONCILIATION_ENABLED: "false", MONITOR_READ_TOKEN: token } });
+    try {
+        await h.db.prepare("INSERT INTO request_rate_limits(key,minute_window,request_count) VALUES('expired',1,1)").run();
+        await h.scheduled();
+        assert.equal(await h.one("SELECT 1 FROM request_rate_limits WHERE key='expired'"), null);
+        assert.equal(await h.one("SELECT 1 FROM reconciliation_runs"), null);
+        const health = await h.request("GET", "/v1/monitor-health", { token });
+        assert.equal(health.json.reconciliationEnabled, false);
+        assert.equal(health.json.reconciliationFresh, false);
+        assert.equal(h.provider.calls.length, 0);
+    } finally { await h.dispose(); }
+});

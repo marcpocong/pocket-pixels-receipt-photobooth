@@ -372,16 +372,22 @@ final class EventOperationsUITests: XCTestCase {
         let customize = app.buttons["event-customize-receipt"]
         visible(customize, in: app); customize.tap()
         XCTAssertTrue(app.navigationBars["Receipt Studio"].waitForExistence(timeout: 10))
-        let preview = app.descendants(matching: .any)["operator-receipt-preview"].firstMatch
-        XCTAssertTrue(preview.waitForExistence(timeout: 30))
+        let receiptPane = app.segmentedControls.buttons["Receipt"]
+        let toolsPane = app.segmentedControls.buttons["Tools"]
+        XCTAssertTrue(toolsPane.waitForExistence(timeout: 5))
         studioSection("Footer & QR", in: app)
         let footer = app.buttons["receipt-footer-layout"]
         visible(footer, in: app)
-        XCTAssertTrue(preview.isHittable)
         XCTAssertGreaterThanOrEqual(footer.frame.height, 44)
-        XCTAssertGreaterThan(preview.frame.width, app.frame.width * 0.3, "Accessibility sizes retain a readable preview beside independently scrolling controls")
         XCTAssertLessThanOrEqual(footer.frame.maxX, app.frame.maxX)
+        receiptPane.tap()
+        let preview = app.descendants(matching: .any)["operator-receipt-preview"].firstMatch
+        XCTAssertTrue(preview.waitForExistence(timeout: 30))
+        XCTAssertTrue(preview.isHittable)
+        XCTAssertGreaterThan(preview.frame.width, app.frame.width * 0.3, "The dedicated accessibility pane keeps the receipt readable")
         capture("studio-accessibility-portrait")
+        toolsPane.tap()
+        visible(footer, in: app)
         app.buttons["receipt-studio-done"].tap()
         XCTAssertTrue(app.navigationBars["New Event"].waitForExistence(timeout: 10))
     }
@@ -596,10 +602,13 @@ final class EventOperationsUITests: XCTestCase {
         let payment = app.buttons["event-payment-prints"]
         visible(payment, in: app); payment.tap()
         XCTAssertEqual(payment.value as? String, "Expanded")
-        let cash = app.buttons["Cash Only"]
-        visible(cash, in: app); cash.tap()
-        let price = app.textFields["0.00"]
-        visible(price, in: app); price.tap(); price.typeText("25.00")
+        let paymentMode = app.buttons["manual-payment-mode"]
+        visible(paymentMode, in: app); paymentMode.tap()
+        try tapVisible(app.buttons.matching(identifier: "Cash Only"))
+        let price = app.textFields["manual-payment-price"]
+        visible(price, in: app); price.tap()
+        price.typeKey("a", modifierFlags: .command); price.typeText("25.00")
+        waitForText("25.00", in: price)
         capture("portrait-inline-paid-settings-keyboard")
         let reviewAction = app.buttons["review-setup"]
         XCTAssertTrue(app.frame.contains(reviewAction.frame), "Keyboard leaves the action bar visible")
@@ -612,8 +621,8 @@ final class EventOperationsUITests: XCTestCase {
         let keyboardActionBar = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: reviewAction)
         XCTAssertEqual(XCTWaiter.wait(for: [keyboardActionBar], timeout: 5), .completed, "The action bar is tappable after dismissing input")
         visible(payment, in: app)
-        let free = app.buttons["No Payment Required"]
-        visible(free, in: app); try tapVisible(app.buttons.matching(identifier: "No Payment Required"))
+        visible(paymentMode, in: app); paymentMode.tap()
+        try tapVisible(app.buttons.matching(identifier: "No Payment"))
         let copies = app.buttons["Increase included copies"]
         visible(copies, in: app)
         XCTAssertGreaterThanOrEqual(copies.frame.height, 44)

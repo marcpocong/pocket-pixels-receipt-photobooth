@@ -3397,7 +3397,7 @@ extension BoothSessionViewModel {
         guard let record = manualCheckout, checkoutEntitlement == nil else { return }
         let generation = customerSessionGeneration
         do {
-            let updated = try await ManualPaymentSync.sync(record.id, store: manualPaymentStore)
+            let updated = try await ManualPaymentSync.refresh(record.id, store: manualPaymentStore)
             guard isCurrentCustomerSession(generation), manualCheckout?.id == record.id, state == .awaitingQRPayment else { return }
             manualCheckout = updated; paymentNotice = nil
             try applySavedManualEvidence()

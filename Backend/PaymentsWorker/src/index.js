@@ -1,4 +1,4 @@
-import { manualPublic, manualAuthenticated } from "./manual-payments.js";
+import { manualPublic, manualAuthenticated, manualCheckoutHealth, manualReceiptIncident } from "./manual-payments.js";
 import {
     boundedLimit, csvRow, decodeCursor, encodeCursor, isoTimestamp, nextProviderState, providerIntentEvidence,
     reportCategory, supersedeDecision, SUPERSEDE_GRACE_MS
@@ -21,7 +21,13 @@ export default {
             return await route(request, env);
         } catch (error) {
             const status = error.status || 500;
-            if (status >= 500) console.error(JSON.stringify({ event: "request_failed", status, message: safeError(error) }));
+            if (status >= 500) {
+                const pathname = new URL(request.url).pathname;
+                const manual = pathname === "/checkout" || pathname.startsWith("/v2/");
+                // Manual inputs include private URLs and evidence. Log only a fixed failure class.
+                console.error(JSON.stringify({ event: manual ? "manual_request_failed" : "request_failed",
+                    status, ...(manual ? {} : {message:safeError(error)}) }));
+            }
             return json({ error: error.code || (status >= 500 ? "request_failed" : "rejected"), message: safePublicError(error), ...(error.details || {}) }, status);
         }
     },
@@ -35,13 +41,21 @@ export async function route(request, env) {
     const path = url.pathname;
     if (path === "/checkout" || path.startsWith("/v2/guest/")) return manualPublic(request, env);
     if (request.method === "GET" && path === "/v1/health") {
-        return json({ service: "pocket-pixels-payments", version: "3", environment: environment(env), liveEnabled: isLiveEnabled(env), newPaymongoCheckoutsEnabled: env.PAYMONGO_NEW_CHECKOUTS_ENABLED === "true" });
+        return json({ service: "pocket-pixels-payments", version: "3", environment: environment(env), liveEnabled: isLiveEnabled(env), newPaymongoCheckoutsEnabled: env.PAYMONGO_NEW_CHECKOUTS_ENABLED === "true", manualCheckoutEnabled: manualCheckoutHealth(env).enabled });
     }
     if (request.method === "GET" && path === "/v1/monitor-health") {
         const value = request.headers.get("authorization") || "";
         if (!env.MONITOR_READ_TOKEN || env.MONITOR_READ_TOKEN.length < 32 || await sha256Hex(value) !== await sha256Hex(`Bearer ${env.MONITOR_READ_TOKEN}`)) return json({error:"unauthorized"},401);
-        const run = await env.DB.prepare("SELECT finished_at FROM reconciliation_runs WHERE environment=? ORDER BY started_at DESC LIMIT 1").bind(environment(env)).first();
-        return json({environment:environment(env),liveEnabled:isLiveEnabled(env),reconciliationFresh:!!run?.finished_at && Date.now()-Date.parse(run.finished_at)<20*60_000});
+        const reconciliationEnabled = env.LEGACY_RECONCILIATION_ENABLED !== "false";
+        const run = reconciliationEnabled
+            ? await env.DB.prepare("SELECT finished_at FROM reconciliation_runs WHERE environment=? ORDER BY started_at DESC LIMIT 1").bind(environment(env)).first()
+            : null;
+        const manual = manualCheckoutHealth(env);
+        return json({environment:environment(env),liveEnabled:isLiveEnabled(env),
+            reconciliationEnabled, reconciliationFresh:!!run?.finished_at && Date.now()-Date.parse(run.finished_at)<20*60_000,
+            manualCheckoutEnabled:manual.enabled, manualCheckoutReady:manual.checkoutReady,
+            receiptStorageConfigured:manual.receiptConfigured,
+            receiptStorageIncident:manual.enabled && await manualReceiptIncident(env)});
     }
     if (request.method === "POST" && path === "/v1/webhooks/paymongo/test") return paymongoWebhook(request, env, false);
     if (request.method === "POST" && path === "/v1/webhooks/paymongo/live") return paymongoWebhook(request, env, true);
@@ -941,6 +955,9 @@ async function applyCanonicalProviderEvidence(env, attempt, evidence, paymentId)
 }
 
 export async function runScheduledReconciliation(env, scheduledTime = Date.now()) {
+    // Keep shared checkout throttling maintenance after retiring periodic provider lookups.
+    await env.DB.prepare("DELETE FROM request_rate_limits WHERE minute_window<?").bind(Math.floor(scheduledTime / 60000) - 60).run();
+    if (env.LEGACY_RECONCILIATION_ENABLED === "false") return { skipped: "legacy_reconciliation_retired" };
     if (environment(env) === "live" && !isLiveEnabled(env)) return { skipped: "live_disabled" };
     const live = environment(env) === "live";
     const runId = crypto.randomUUID(), started = new Date(scheduledTime).toISOString(), limit = boundedLimit(env.RECONCILIATION_BATCH_SIZE, 25, 100);
@@ -966,7 +983,6 @@ export async function runScheduledReconciliation(env, scheduledTime = Date.now()
                 .bind(safeError(error), new Date(Date.now() + delay * 1000).toISOString(), now(), attempt.id).run();
         }
     }
-    await env.DB.prepare("DELETE FROM request_rate_limits WHERE minute_window<?").bind(Math.floor(scheduledTime / 60000) - 60).run();
     await env.DB.prepare("UPDATE reconciliation_runs SET finished_at=?,inspected_count=?,resolved_count=?,conflict_count=?,failure_summary=? WHERE id=?")
         .bind(now(), (rows.results || []).length, resolved, conflicts, failures ? `${failures} provider lookups failed` : null, runId).run();
     return { runId, inspected: (rows.results || []).length, resolved, conflicts, failures };

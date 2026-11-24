@@ -1,10 +1,11 @@
 const HEADERS = { 'content-type': 'application/json', 'cache-control': 'no-store' };
-const RELEASE = 'monitoring-v3-2026-11-12';
+const RELEASE = 'monitoring-v3-2026-11-25';
 const CODES = {
     offline: 'Carlo heartbeat missing', backend: 'Payment backend unavailable', verification: 'Payment confirmation repeatedly failing',
     review: 'Payment requires owner review', paid_blocked: 'Verified payment waiting before camera', printer: 'Printer readiness needs attention',
     uncertain_print: 'Physical print outcome uncertain', printer_attention: 'Printer needs attention',
     storage: 'Critical local storage issue', paused: 'Booth paused or event recovery required',
+    manual_checkout: 'Mobile checkout configuration unavailable', receipt_storage: 'Private payment receipt storage needs attention',
     reconciliation: 'Backend reconciliation stale', uploads: 'Gallery delivery needs attention', camera: 'Camera needs attention'
 };
 const VALID = { mode: ['regular','event','paused','recovery'], network: ['online','offline','unknown'], payment: ['ready','unavailable','review'], printer: ['ready','recovery','uncertain','unavailable'], storage: ['ready','error'] };
@@ -237,9 +238,15 @@ export async function check(env,time=Date.now()) {
                 if(!r.ok) throw new Error('unavailable');
                 const h=await r.json();
                 if(h.environment!=='live' || h.liveEnabled!==true || typeof h.reconciliationFresh!=='boolean') throw new Error('wrong_environment');
-                await recordBackendHealth(env,time,true,h.reconciliationFresh,lock);
-                await syncIncidents(env,{backend:false,reconciliation:!h.reconciliationFresh},time,3,{},lock);
-            } catch { await recordBackendHealth(env,time,false,null,lock); await syncIncidents(env,{backend:true,reconciliation:null},time,3,{},lock); }
+                await recordBackendHealth(env,time,true,h.reconciliationEnabled === false ? null : h.reconciliationFresh,lock);
+                const expectsManual = env.EXPECT_MANUAL_CHECKOUT === 'true';
+                const manual = {
+                    manual_checkout: expectsManual ? h.manualCheckoutEnabled !== true || h.manualCheckoutReady !== true : null,
+                    receipt_storage: expectsManual && h.manualCheckoutEnabled === true
+                        ? h.receiptStorageConfigured !== true || h.receiptStorageIncident === true : null
+                };
+                await syncIncidents(env,{backend:false,reconciliation:h.reconciliationEnabled !== false && !h.reconciliationFresh,...manual},time,3,{},lock);
+            } catch { await recordBackendHealth(env,time,false,null,lock); await syncIncidents(env,{backend:true,reconciliation:null,manual_checkout:null,receipt_storage:null},time,3,{},lock); }
         }
     } finally { await releaseLock(env,'state',lock); }
     await deliver(env,time,2);
@@ -287,7 +294,7 @@ export async function deliver(env,time=Date.now(),limit=3) {
             if(item.code!=='owner_test' && ((item.episode_revision!=null && current?.revision!==item.episode_revision) || (!item.active && !(sent || priorPrinter)?.active))) {
                 await env.DB.prepare(`UPDATE ${table} SET superseded_at=? WHERE id=? AND delivered_at IS NULL`).bind(time,item.id).run();continue;
             }
-            const requiresDevice=!['owner_test','backend','reconciliation'].includes(item.code) && !(item.code==='offline' && item.active);
+            const requiresDevice=!['owner_test','backend','reconciliation','manual_checkout','receipt_storage'].includes(item.code) && !(item.code==='offline' && item.active);
             const known=item.code==='owner_test' || episodeKnown(snapshot[3].results,item.code,item.active,current?.components,time);
             if(!known || (requiresDevice && !fresh(env,device,state,time))) {
                 await env.DB.prepare(`UPDATE ${table} SET next_at=? WHERE id=?`).bind(time+300000,item.id).run();continue;
@@ -314,6 +321,8 @@ function episodeKnown(observations,code,active,components,time) {
 }
 function action(code) {
     if(['printer','uncertain_print','printer_attention'].includes(code)) return 'Open Equipment & Recovery on Carlo. Inspect the original receipt before deciding whether to reprint.';
+    if(code==='manual_checkout') return 'Check the LIVE checkout configuration. Free, cash and permitted local acknowledgment remain available.';
+    if(code==='receipt_storage') return 'Check the private receipt bridge. Ask the guest to retain the original checkout and retry the same evidence.';
     if(code==='uploads') return 'Open Waiting Galleries on Carlo. Media remains saved pending public verification.';
     if(code==='offline') return 'Check Carlo is foregrounded and has network access. Missing contact does not diagnose equipment failure.';
     if(code==='camera') return 'Check the camera on Carlo; use existing local recovery. Monitoring does not restart capture.';

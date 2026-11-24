@@ -1,5 +1,7 @@
 # Phase 2 — implemented manual payments
 
+For the current LIVE rollout and signed candidate, see the [Phase 3 release record](PHASE3.md).
+
 Implementation and focused validation: 24–25 November 2026, Asia/Manila. Baseline `7cee3a5c31e6248ee2dd0fe444bf6d86bdaa8bf3`; archive `legacy-paymongo-final` remains at `8baadb77c53321c576d4fe160efc66def199b8b8`. Origin/main was fetched before delivery; the original safety stash and auxiliary preservation ref remain untouched. This document supersedes Phase 1's proposed payment implementation, including its online-only digital rule and proposed entitlement-table rebuild. Phase 1 findings remain historical evidence.
 
 **Implemented and staged; not a production release.** LIVE has only the protective PayMongo creation retirement. Full manual checkout runs on TEST. No real receiving details, financial transfers, charges or customer receipts were used. No dependency, bundle identifier, signing, Keychain identifier, app version, portrait setting, gallery source, camera/renderer/transport implementation or paper-gap behavior was changed.

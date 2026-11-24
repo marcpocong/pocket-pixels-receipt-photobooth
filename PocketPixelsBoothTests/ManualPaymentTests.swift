@@ -32,6 +32,28 @@ import XCTest
             let restarted=ManualPaymentStore(directory:root);XCTAssertEqual(restarted.record(record.id)?.entitlement,entitlement)
         }
     }
+    func testUnchangedCheckoutStatusDoesNotRewriteTheDurableJournal() throws {
+        let directory = root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var writes = 0
+        let store = ManualPaymentStore(directory: directory) { data, url in
+            writes += 1
+            try DurableFileWriter.write(data, to: url)
+        }
+        try receiver(store)
+        let record = try begin(store)
+        let status = ManualCheckoutStatus(id: UUID().uuidString, localCheckoutId: record.id,
+            sessionId: record.sessionID, snapshotHash: record.snapshotHash, copies: record.copies,
+            totalCentavos: record.totalCentavos, acknowledgedAt: nil, receipt: nil, checkoutURL: nil)
+        try store.setBinding(record.id, "test:fixture")
+        try store.applyRemote(status, to: record.id)
+        let afterFirstStatus = writes
+        try store.setBinding(record.id, "test:fixture")
+        try store.applyRemote(status, to: record.id)
+        XCTAssertEqual(writes, afterFirstStatus)
+        XCTAssertEqual(store.record(record.id)?.serverID, status.id)
+    }
+
     func testReceiverModePriceQuantityAndSessionAreFrozenAcrossConfigurationChanges() throws {
         let root=root();defer { try? FileManager.default.removeItem(at:root) };let store=ManualPaymentStore(directory:root);try receiver(store)
         let record=try begin(store,session:"original",event:"stable-event");let oldReceiver=record.receiver

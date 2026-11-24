@@ -109,8 +109,13 @@ struct ManualDigitalCheckoutView: View {
                     if let url = record.checkoutURL, let qr = try? GalleryQRCodeGenerator.makeQRCodeImage(for: url) {
                         Image(uiImage: qr).interpolation(.none).resizable().scaledToFit().frame(maxWidth: 260)
                         Text("Scan to open your mobile checkout and privately submit a receipt.").font(.callout)
-                    } else { Text("Mobile checkout is connecting. You may use the receiving details below.").font(.callout) }
-                    if let receiver = record.receiver {
+                    } else if record.policy.receiptPolicy == .required {
+                        Text("Wait for the checkout QR before sending payment. You need that page to submit your receipt. If you already paid, ask the attendant about this checkout.")
+                            .font(.callout)
+                    } else if record.acknowledgedAt == nil {
+                        Text("Mobile checkout is connecting. You may use the receiving details below.").font(.callout)
+                    }
+                    if record.policy.receiptPolicy != .required, record.acknowledgedAt == nil, let receiver = record.receiver {
                         VStack(spacing: 8) {
                             Text(receiver.provider).font(.headline); Text(receiver.recipient); Text(receiver.identifier).textSelection(.enabled)
                             Text(receiver.instructions).font(.callout)
