@@ -1,14 +1,286 @@
-export function mobileCheckoutPage() { return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Made to Keep Studios · Payment</title><style>
-:root{color-scheme:light;--ink:#672b39;--paper:#faf6ee}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.5 system-ui,sans-serif}main{max-width:520px;margin:auto;padding:28px 20px 48px}header{text-align:center;letter-spacing:.14em;font-size:12px}h1{font:32px/1.15 Georgia,serif;text-align:center}h2{font:22px Georgia,serif}section{background:#fffdf8;border:1px solid #e5d8cd;border-radius:16px;padding:20px;margin:18px 0}strong.amount{display:block;font:42px Georgia,serif;text-align:center}button,a.button{display:block;width:100%;min-height:48px;border:1px solid var(--ink);border-radius:10px;padding:12px;background:var(--ink);color:white;font:inherit;text-align:center;text-decoration:none;margin:10px 0;cursor:pointer}button.secondary{background:transparent;color:var(--ink)}button:disabled{opacity:.5;cursor:wait}input{font:inherit;max-width:100%}img{display:block;max-width:100%;height:auto;margin:14px auto;border-radius:8px}#receiverQR{max-width:260px}#preview{max-height:300px}#notice{white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;border-radius:8px;background:#efe5dc}#account{font-weight:600;overflow-wrap:anywhere}progress{width:100%;height:22px}small,.muted{color:#75665e}label{display:block;margin:12px 0}p{overflow-wrap:anywhere}[hidden]{display:none!important}
-</style></head><body><main><header>MADE TO KEEP STUDIOS<br>MADE TO KEEP. MADE FOR YOU.</header><h1>Your photo keepsake</h1><div id="notice" role="status" aria-live="polite">Opening your original checkout…</div><section id="checkout" hidden><strong class="amount" id="amount"></strong><p style="text-align:center" id="quantity"></p><div id="receiving-details" hidden><h2>Send payment to</h2><p id="provider"></p><p id="recipient"></p><p id="account"></p><button class="secondary" id="copy">Copy account details</button><p id="instructions"></p><img id="receiverQR" alt="Receiving-account payment QR" hidden><a class="button" id="download" download="receiving-account-qr.jpg" hidden>Download payment QR</a><p class="muted">This is the receiving account's payment QR. The QR on the iPad opens this checkout page.</p></div></section><section id="evidence" hidden><h2>Payment receipt</h2><p id="policy"></p><label>Select a saved JPEG or PNG receipt<input id="file" type="file" accept="image/jpeg,image/png"></label><img id="preview" alt="Your selected payment receipt" hidden><progress id="progress" max="100" value="0" hidden></progress><button id="upload" disabled>Submit receipt privately</button><p id="receiptState"></p><small>Your receipt is stored privately for the operator. It is never added to your photo gallery.</small></section><section id="acknowledgment" hidden><label><input id="transferred" type="checkbox"> I have transferred the exact amount shown above.</label><button id="ack" disabled>I've sent the payment</button><p class="muted">Your acknowledgment and receipt are evidence. They do not independently verify that funds reached the recipient. If you already paid, do not pay again.</p></section><button class="secondary" id="retry">Check original status</button><small>Keep this page open while submitting. If interrupted, reopen the same iPad checkout QR and check status before retrying the same receipt.</small></main><script>
-(()=>{'use strict';const byId=id=>document.getElementById(id);const capability=location.hash.slice(1).match(/^c=([a-f0-9-]{36}\\.[a-f0-9]{64})$/)?.[1];let checkout=null,image=null,busy=false;
-const notice=text=>byId('notice').textContent=text;const lock=value=>{busy=value;byId('ack').disabled=value||!byId('transferred').checked||!!checkout?.closedAt||Date.parse(checkout?.expiresAt||'9999-01-01')<Date.now();byId('upload').disabled=value||!image;byId('retry').disabled=value;byId('file').disabled=value;};
-async function api(path,body={}){const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),30000);let r;try{r=await fetch('/v2/guest/'+path,{signal:controller.signal,method:'POST',cache:'no-store',credentials:'omit',headers:{'content-type':'application/json','authorization':'Checkout '+capability},body:JSON.stringify(body)});}finally{clearTimeout(timeout);}const j=await r.json();if(!r.ok)throw Error(j.message||'Unable to confirm. Check the original status before retrying; do not pay again.');return j;}
-function render(c){checkout=c;byId('checkout').hidden=false;byId('receiving-details').hidden=!!(c.closedAt||c.acknowledgedAt||Date.parse(c.expiresAt)<=Date.now());byId('evidence').hidden=c.receiptPolicy==='ACK_ONLY';byId('acknowledgment').hidden=!!c.closedAt;byId('amount').textContent=new Intl.NumberFormat('en-PH',{style:'currency',currency:'PHP'}).format(c.totalCentavos/100);byId('quantity').textContent=c.copies+' identical '+(c.copies===1?'copy':'copies');const r=c.receiver||{};byId('provider').textContent=r.provider||'';byId('recipient').textContent=r.recipient||'';byId('account').textContent=r.identifier||'';byId('instructions').textContent=r.instructions||'';if(r.qrJPEG){const url='data:image/jpeg;base64,'+r.qrJPEG;byId('receiverQR').src=url;byId('receiverQR').hidden=false;byId('download').href=url;byId('download').hidden=false;}byId('policy').textContent=c.receiptPolicy==='REQUIRED'?'A matching receipt must be stored privately before photos can start.':'Receipt submission is optional. You may acknowledge your payment without uploading.';byId('receiptState').textContent=c.receipt?.submitted?'Receipt stored privately.':'';
-notice((c.closedAt||Date.parse(c.expiresAt)<Date.now())?'This checkout is closed. Your original evidence is retained for the attendant. Do not pay again.':c.acknowledgedAt?(c.receiptPolicy==='REQUIRED'&&!c.receipt?'Acknowledgment saved. Submit your receipt to continue.':'Acknowledgment saved. Return to the iPad to continue. Funds have not been independently verified.'):'Check the recipient and amount carefully before transferring.');}
-async function refresh(){if(!capability){notice('Scan the checkout QR displayed by the iPad. No checkout identifier needs to be entered.');return;}lock(true);try{render(await api('status'));}catch(e){notice(e.message);}finally{lock(false);}}
-byId('retry').onclick=refresh;byId('transferred').onchange=()=>lock(busy);byId('copy').onclick=async()=>{try{await navigator.clipboard.writeText(checkout.receiver.identifier);notice('Account details copied. Check the recipient before sending.');}catch{notice('Select and copy the account details shown above.');}};
-byId('file').onchange=async()=>{image=null;byId('preview').hidden=true;const file=byId('file').files[0];if(!file)return;lock(true);try{if(!['image/jpeg','image/png'].includes(file.type)||file.size>20*1024*1024)throw Error('Select a JPEG or PNG image under 20 MiB.');const source=URL.createObjectURL(file);const img=new Image();await new Promise((ok,no)=>{img.onload=ok;img.onerror=no;img.src=source;});URL.revokeObjectURL(source);if(img.naturalWidth*img.naturalHeight>25000000)throw Error('Choose an image under 25 megapixels.');const scale=Math.min(1,1600/Math.max(img.naturalWidth,img.naturalHeight));const canvas=document.createElement('canvas');canvas.width=Math.round(img.naturalWidth*scale);canvas.height=Math.round(img.naturalHeight*scale);const ctx=canvas.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(img,0,0,canvas.width,canvas.height);const encoded=canvas.toDataURL('image/jpeg',.85);if(encoded.length>2796204)throw Error('This receipt is too large. Select a smaller image.');image=encoded.split(',')[1];byId('preview').src=encoded;byId('preview').hidden=false;notice('Preview your receipt, then submit it privately.');}catch(e){notice(e.message||'This image could not be opened. Choose JPEG or PNG.');}finally{lock(false);}};
-byId('upload').onclick=()=>{if(!checkout||!image||busy)return;lock(true);byId('progress').hidden=false;byId('progress').value=0;const xhr=new XMLHttpRequest();xhr.open('POST','/v2/guest/receipts');xhr.timeout=90000;xhr.setRequestHeader('Content-Type','application/json');xhr.setRequestHeader('Authorization','Checkout '+capability);xhr.upload.onprogress=e=>{if(e.lengthComputable)byId('progress').value=Math.round(100*e.loaded/e.total);if(e.loaded===e.total)notice('Image sent. Waiting for verified private storage confirmation…');};xhr.onload=async()=>{try{const j=JSON.parse(xhr.responseText);if(xhr.status<200||xhr.status>=300)throw Error(j.message||'Private storage could not be confirmed.');notice('Receipt stored privately. Checking your acknowledgment…');await refresh();}catch(e){notice(e.message);}finally{lock(false);}};xhr.onerror=xhr.ontimeout=()=>{lock(false);notice('Upload confirmation was interrupted. Check original status, then retry this same image if needed. Do not pay again.');};xhr.send(JSON.stringify({snapshotHash:checkout.snapshotHash,mimeType:'image/jpeg',base64:image}));};
-byId('ack').onclick=async()=>{if(!checkout||busy||!byId('transferred').checked)return;lock(true);try{render(await api('acknowledgments',{snapshotHash:checkout.snapshotHash}));}catch(e){notice(e.message);}finally{lock(false);}};refresh();})();
-</script></body></html>`; }
+export function mobileCheckoutPage() {
+    return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Made to Keep Studios · Upload your receipt</title>
+<style>
+:root{color-scheme:light;--wine:#70060b;--paper:#f7f1e9;--light:#fbf7f1;--shade:#eee6dc;--ink:#2b2422;--muted:#6b5f57;--line:#d9ccbf;--serif:"Bodoni 72",Didot,Georgia,serif}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:1rem/1.5 system-ui,sans-serif}
+main{max-width:460px;margin:auto;padding:clamp(30px,8vw,48px) clamp(18px,6.4vw,32px) 36px}
+header{text-align:center;color:var(--wine);margin-bottom:clamp(24px,7vw,36px)}
+.wordmark{display:block;font:italic 2.5rem/.92 var(--serif);letter-spacing:-.065em}
+.studios{display:block;margin-top:7px;font: .65rem/1.2 var(--serif);letter-spacing:.42em;text-indent:.42em}
+header::after{display:block;content:"";width:36px;height:1px;margin:22px auto 0;background:var(--wine)}
+h1{color:var(--wine);font:italic clamp(2rem,10vw,2.95rem)/1.04 var(--serif);letter-spacing:-.04em;text-align:center;margin:0}
+h2{color:var(--wine);font:1.4rem/1.15 var(--serif);margin:0 0 12px}
+p{margin:0;overflow-wrap:anywhere}
+.summary{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:10px;margin:16px 0 27px;color:var(--muted)}
+.amount{font:1.38rem/1.3 var(--serif);font-variant-numeric:lining-nums;color:var(--wine)}
+.summary .divider{width:1px;height:16px;background:var(--line)}
+section{margin:20px 0}
+button,a.button,.picker{display:block;width:100%;min-height:48px;padding:11px 14px;border-radius:999px;border:1px solid var(--wine);background:var(--wine);color:var(--light);font:600 .96rem/1.45 system-ui,sans-serif;text-align:center;text-decoration:none;cursor:pointer}
+button.secondary,a.secondary{background:transparent;color:var(--wine);margin-top:12px}
+button:disabled{background:var(--shade);border-color:var(--line);color:var(--muted);cursor:default}
+:focus-visible,.picker:has(input:focus-visible){outline:2px solid var(--wine);outline-offset:4px}
+.picker{position:relative;display:flex;align-items:center;justify-content:center;gap:8px;background:var(--light);color:var(--wine);border-style:dashed;min-height:68px;border-radius:12px}
+.picker:has(input:disabled){opacity:.65;cursor:default}
+.picker input{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.picker svg{width:19px;height:19px;flex:none}
+#preview{display:block;width:100%;max-height:260px;object-fit:contain;margin-top:12px;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--light)}
+.consent,.privacy{font-size:.84rem;color:var(--muted)}
+.consent{margin:17px 0 11px;text-align:center}
+.privacy{margin-top:22px;padding-top:14px;border-top:1px solid var(--line);text-align:center}
+#notice{margin:18px 0;color:var(--wine);text-align:center}
+#notice.success{padding:18px 14px;border-block:1px solid var(--line);font:1.35rem/1.3 var(--serif)}
+progress{display:block;width:100%;height:12px;accent-color:var(--wine);margin-top:14px}
+.legacy{padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--light)}
+#receiverQR{display:block;width:min(210px,100%);height:auto;margin:12px auto;background:white;padding:8px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+<header aria-label="Made to Keep Studios"><span class="wordmark" aria-hidden="true">made to keep</span><span class="studios" aria-hidden="true">STUDIOS</span></header>
+<h1 id="title">Upload your receipt</h1>
+<div class="summary" id="checkout" hidden><span class="amount" id="amount"></span><span class="divider" aria-hidden="true"></span><span id="quantity"></span></div>
+<section class="legacy" id="receiving-details" hidden>
+<h2>Send payment</h2><p id="recipient"></p><p id="account"></p><p id="instructions"></p>
+<button class="secondary" id="copy" type="button">Copy account details</button>
+<img id="receiverQR" alt="Receiving-account payment QR" hidden>
+<a class="button secondary" id="download" download="receiving-account-qr.jpg" hidden>Download payment QR</a>
+</section>
+<section id="evidence" hidden>
+<label class="picker">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="1.5"/><path d="m4 18 5-5 3 3 4-5 5 6"/></svg>
+<span id="file-label">Choose a payment screenshot</span>
+<input id="file" type="file" accept="image/jpeg,image/png">
+</label>
+<img id="preview" alt="Selected payment screenshot" hidden>
+<p class="consent">By submitting, you confirm that you’ve transferred the amount shown.</p>
+<button id="upload" type="button" disabled>Submit receipt</button>
+<progress id="progress" max="100" value="0" aria-label="Receipt upload progress" hidden></progress>
+</section>
+<button class="secondary" id="ack" type="button" hidden>I’ve paid</button>
+<p id="notice" role="status" aria-live="polite">Opening your checkout…</p>
+<button class="secondary" id="retry" type="button" hidden>Check receipt status</button>
+<p class="privacy" id="privacy" hidden>Your screenshot is stored privately for the booth operator. It stays out of your photo gallery.</p>
+</main>
+<script>
+(() => {
+    'use strict';
+    const byId = id => document.getElementById(id);
+    const link = location.hash.slice(1).match(/^c=([a-f0-9-]{36}\\.[a-f0-9]{64})(&receipt=1)?$/);
+    const capability = link?.[1];
+    const receiptOnly = Boolean(link?.[2]);
+    let checkout = null;
+    let image = null;
+    let busy = false;
+
+    function notice(message, { retry = false, success = false } = {}) {
+        byId('notice').textContent = message;
+        byId('notice').classList.toggle('success', success);
+        byId('retry').hidden = !retry;
+    }
+
+    function lock(value) {
+        busy = value;
+        byId('file').disabled = value;
+        byId('upload').disabled = value || !image;
+        byId('ack').disabled = value;
+        byId('retry').disabled = value;
+    }
+
+    async function api(path, body = {}) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 30000);
+        try {
+            const response = await fetch('/v2/guest/' + path, {
+                method: 'POST', cache: 'no-store', credentials: 'omit', signal: controller.signal,
+                headers: { 'Content-Type': 'application/json', Authorization: 'Checkout ' + capability },
+                body: JSON.stringify(body)
+            });
+            const data = await response.json();
+            if (!response.ok) throw Error(data.message || 'Couldn’t open this checkout. Try again.');
+            return data;
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    function canContinueOnBooth(c) {
+        return !c.closedAt && !c.completedAt && Date.parse(c.expiresAt) > Date.now();
+    }
+
+    function showReceiptReceived() {
+        byId('evidence').hidden = true;
+        byId('receiving-details').hidden = true;
+        byId('ack').hidden = true;
+        byId('privacy').hidden = false;
+        notice('Receipt received. Return to the photobooth.', { success: true });
+    }
+
+    function render(c) {
+        checkout = c;
+        const legacyActive = !receiptOnly && canContinueOnBooth(c) && !c.acknowledgedAt && !c.receipt?.submitted;
+        const acceptsImage = c.method === 'MANUAL_DIGITAL' && c.receiptPolicy !== 'ACK_ONLY';
+        byId('title').textContent = acceptsImage ? 'Upload your receipt' : 'Your checkout';
+        byId('amount').textContent = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(c.totalCentavos / 100);
+        byId('quantity').textContent = c.copies + (c.copies === 1 ? ' copy' : ' copies');
+        byId('checkout').hidden = false;
+        byId('evidence').hidden = !acceptsImage || Boolean(c.receipt?.submitted);
+        byId('privacy').hidden = !acceptsImage;
+        byId('ack').hidden = !legacyActive || c.receiptPolicy === 'REQUIRED';
+        byId('receiving-details').hidden = !legacyActive || !c.receiver;
+        if (legacyActive && c.receiver) {
+            const receiver = c.receiver;
+            byId('recipient').textContent = [receiver.recipient, receiver.provider].filter(Boolean).join(' · ');
+            byId('account').textContent = receiver.identifier || '';
+            byId('instructions').textContent = receiver.instructions || '';
+            if (receiver.qrJPEG) {
+                const source = 'data:image/jpeg;base64,' + receiver.qrJPEG;
+                byId('receiverQR').src = source;
+                byId('download').href = source;
+            }
+            byId('receiverQR').hidden = !receiver.qrJPEG;
+            byId('download').hidden = !receiver.qrJPEG;
+        }
+        if (c.receipt?.submitted) showReceiptReceived();
+        else if (!canContinueOnBooth(c)) {
+            notice(acceptsImage ? 'This session has ended. You can still send the receipt to the attendant.' : 'This session has ended. Ask the attendant for help.');
+        } else if (!acceptsImage && c.acknowledgedAt) {
+            notice('Payment acknowledgment saved. Return to the photobooth.', { success: true });
+        } else {
+            notice('');
+        }
+    }
+
+    async function readStatus() {
+        return api(receiptOnly ? 'status?receipt=1' : 'status');
+    }
+
+    async function refresh() {
+        if (!capability) {
+            notice('Scan the receipt QR on the photobooth to open your checkout.');
+            return;
+        }
+        lock(true);
+        try { render(await readStatus()); }
+        catch (error) {
+            const message = error instanceof TypeError || error.name === 'AbortError' ? 'Couldn’t connect. Check your connection and try again.' : error.message;
+            notice(message, { retry: true });
+        } finally { lock(false); }
+    }
+
+    byId('retry').onclick = refresh;
+    byId('copy').onclick = async () => {
+        try {
+            await navigator.clipboard.writeText(checkout.receiver.identifier);
+            notice('Account details copied.');
+        } catch { notice('Copy the account details shown above.'); }
+    };
+    byId('ack').onclick = async () => {
+        if (!checkout || busy || receiptOnly) return;
+        lock(true);
+        try { render(await api('acknowledgments', { snapshotHash: checkout.snapshotHash })); }
+        catch (error) { notice(error.message, { retry: true }); }
+        finally { lock(false); }
+    };
+
+    async function prepareImage(file) {
+        if (!['image/jpeg', 'image/png'].includes(file.type) || file.size > 20 * 1024 * 1024) {
+            throw Error('Choose a JPEG or PNG under 20 MB.');
+        }
+        const source = URL.createObjectURL(file);
+        const picture = new Image();
+        try {
+            await new Promise((resolve, reject) => {
+                picture.onload = resolve;
+                picture.onerror = () => reject(Error('This image couldn’t be opened. Choose another screenshot.'));
+                picture.src = source;
+            });
+            if (picture.naturalWidth * picture.naturalHeight > 25000000) throw Error('Choose an image under 25 megapixels.');
+            const scale = Math.min(1, 1600 / Math.max(picture.naturalWidth, picture.naturalHeight));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(picture.naturalWidth * scale));
+            canvas.height = Math.max(1, Math.round(picture.naturalHeight * scale));
+            const context = canvas.getContext('2d');
+            context.fillStyle = 'white';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+            context.drawImage(picture, 0, 0, canvas.width, canvas.height);
+            const encoded = canvas.toDataURL('image/jpeg', .85);
+            if (encoded.length > 2796227) throw Error('This receipt is too large. Choose a smaller image.');
+            return encoded;
+        } finally {
+            URL.revokeObjectURL(source);
+        }
+    }
+
+    byId('file').onchange = async () => {
+        image = null;
+        byId('preview').hidden = true;
+        byId('file-label').textContent = 'Choose a payment screenshot';
+        const file = byId('file').files[0];
+        lock(true);
+        try {
+            if (!file) return;
+            const encoded = await prepareImage(file);
+            image = encoded.split(',')[1];
+            byId('preview').src = encoded;
+            byId('preview').hidden = false;
+            byId('file-label').textContent = 'Choose a different screenshot';
+            notice('');
+        } catch (error) { notice(error.message); }
+        finally { lock(false); }
+    };
+
+    function upload() {
+        return new Promise((resolve, reject) => {
+            const request = new XMLHttpRequest();
+            request.open('POST', '/v2/guest/receipts');
+            request.timeout = 90000;
+            request.setRequestHeader('Content-Type', 'application/json');
+            request.setRequestHeader('Authorization', 'Checkout ' + capability);
+            request.upload.onprogress = event => {
+                if (event.lengthComputable) byId('progress').value = Math.round(100 * event.loaded / event.total);
+                if (event.lengthComputable && event.loaded === event.total) notice('Finishing your upload…');
+            };
+            request.onload = () => {
+                let response;
+                try { response = JSON.parse(request.responseText); } catch { /* Treat an unreadable response as uncertain. */ }
+                if (request.status >= 200 && request.status < 300 && response?.submitted === true) resolve();
+                else reject(Error(response?.message || 'We couldn’t confirm the upload.'));
+            };
+            request.onerror = request.ontimeout = () => reject(Error('We couldn’t confirm the upload.'));
+            request.send(JSON.stringify({ snapshotHash: checkout.snapshotHash, mimeType: 'image/jpeg', base64: image, confirmsTransfer: true }));
+        });
+    }
+
+    byId('upload').onclick = async () => {
+        if (!checkout || !image || busy) return;
+        lock(true);
+        byId('progress').value = 0;
+        byId('progress').hidden = false;
+        notice('Uploading your receipt…');
+        try {
+            await upload();
+            showReceiptReceived();
+        } catch (error) {
+            try { checkout = await readStatus(); } catch { /* The original image stays available for retry. */ }
+            if (checkout.receipt?.submitted) showReceiptReceived();
+            else notice(error.message + ' Check status or retry the same screenshot.', { retry: true });
+        } finally {
+            byId('progress').hidden = true;
+            lock(false);
+        }
+    };
+
+    refresh();
+})();
+</script>
+</body>
+</html>`;
+}

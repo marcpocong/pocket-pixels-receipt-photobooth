@@ -1,5 +1,7 @@
 # Phase 3 release record
 
+See the [Phase 3.2 checkout and RC 2 release record](PHASE3.2.md) for the current candidate.
+
 The release starts from Phase 2 commit `fb8c0763e4c1fdaf5ad380e05e3eb73303ed938a` and uses marketing version **1.0.0**, build **4**. The legacy archive remains at `8baadb77c53321c576d4fe160efc66def199b8b8`. See the [payment transitions and API contract](PHASE2.md), [device recovery instructions](DEVICE-RECOVERY.md), and [PayMongo decommissioning inventory](DECOMMISSION.md).
 
 ## Release hardening

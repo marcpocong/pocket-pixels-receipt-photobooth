@@ -4,6 +4,21 @@ function fixture(){const properties={RECEIPTS_HMAC_SECRET:secret,RECEIPTS_ROOT_I
 function envelope(operation='store',payload={}){const e={v:1,keyId:'receipt-v1',timestamp:new Date().toISOString(),nonce:crypto.randomUUID(),operationId:crypto.randomUUID(),operation,payloadB64:Buffer.from(JSON.stringify(payload)).toString('base64')};return sign(e);}
 function sign(e){e.signature=crypto.createHmac('sha256',secret).update(['v1',e.keyId,e.timestamp,e.nonce,e.operationId,e.operation,e.payloadB64].join('\n')).digest('hex');return e;}
 const invoke=(c,e)=>JSON.parse(c.doPost({postData:{contents:JSON.stringify(e)}}).text);
+test('readiness signs only an owner-private folder that can receive files and performs no write',()=>{
+    const {context:c}=fixture();
+    let writable=true, ownerOnly=true;
+    c.receiptDrive_=(p,options)=>{
+        assert.equal(options,undefined);
+        return p.includes('/permissions?') ? {permissions:ownerOnly?[{type:'user',role:'owner'}]:[]}
+            : {mimeType:'application/vnd.google-apps.folder',capabilities:{canAddChildren:writable}};
+    };
+    const request=envelope('ready');
+    const result=invoke(c,request);
+    assert.deepEqual(JSON.parse(Buffer.from(result.payloadB64,'base64')),{ok:true,ready:true});
+    assert.equal(result.signature,crypto.createHmac('sha256',secret).update(request.operationId+'\nready\n'+result.payloadB64).digest('hex'));
+    writable=false;assert.equal(invoke(c,request).code,'invalid_private_root');
+    ownerOnly=false;assert.equal(invoke(c,request).code,'unsafe_permissions');
+});
 test('unsigned, stale and modified envelopes cannot touch Drive',()=>{const {context:c}=fixture();c.assertReceiptPrivate_=()=>assert.fail('unauthorized Drive access');const unsigned=envelope();delete unsigned.signature;assert.equal(invoke(c,unsigned).code,'unauthorized');const expired=sign({...envelope(),timestamp:'2000-01-01T00:00:00.000Z'});assert.equal(invoke(c,expired).code,'request_expired');const altered={...envelope(),payloadB64:'e30='};altered.signature='0'.repeat(64);assert.equal(invoke(c,altered).code,'unauthorized');});
 test('the complete twice-base64 envelope accepts a 2 MiB image and signs its exact response',()=>{const {context:c}=fixture();let calls=0;c.assertReceiptPrivate_=()=>{};c.storePrivateReceipt_=(_root,id,p)=>{calls++;assert.equal(p.base64.length,2796204);return {ok:true,fileId:'private-file',private:true};};const e=envelope('store',{base64:Buffer.alloc(2097152).toString('base64')});assert.ok(JSON.stringify(e).length>3000000);const r=invoke(c,e);assert.equal(calls,1);assert.equal(r.operationId,e.operationId);assert.equal(r.signature,crypto.createHmac('sha256',secret).update(e.operationId+'\nstore\n'+r.payloadB64).digest('hex'));});
 test('ACL verification rejects every public, group, domain and secondary-user grant',()=>{for(const extra of [{type:'anyone',role:'reader'},{type:'domain',role:'reader'},{type:'group',role:'reader'},{type:'user',role:'reader'}]){const {context:c}=fixture();c.receiptDrive_=p=>p.includes('permissions')?{permissions:[{type:'user',role:'owner'},extra]}:{trashed:false};assert.throws(()=>c.assertReceiptPrivate_('synthetic-private-root'),/unsafe_permissions/);}});

@@ -8,6 +8,8 @@ Publish a **versioned** Web App executing as the owner, accessible anonymously. 
 
 `store` reserves one generated Drive file ID in a private journal before media mutation. `ScriptLock` serializes folder/reservation creation. Replays of the same operation retain the same file ID and verify MIME, size, SHA-256, parent and owner-only permissions. `read` verifies the journal, parent, ACL and current bytes. No operation sets sharing permissions. Changed permissions fail closed, including on the root and journals.
 
+The signed `ready` operation verifies that the configured owner-private root is a Drive folder that can receive files. It performs only reads. The Payments Worker combines that check with the authenticated original checkout before the iPad displays required-receipt payment instructions. Each actual upload still needs its own storage proof.
+
 `retention` establishes explicitly approved 1–3650 days. No cleanup trigger is created. `trash` also requires explicit approval, matching original identity and eligible age; it moves only that image to recoverable Trash, retaining its journal. A lost response can be retried without permanently deleting anything. The Worker independently checks the account's established period, records actor/reason and preserves the association/storage proof. Normal guest capabilities cannot read or trash receipts.
 
 Run bridge contract checks with `node --test Backend/ReceiptStorage/test/*.test.mjs`. Phase 2's actual private staging resource identifiers, keys and signed synthetic proofs are in the owner's restricted `~/.codex/private/manual-payments-phase2/` ledger. See [Phase 2 implementation and deployment handoff](../../docs/release-v1.0/PHASE2.md).

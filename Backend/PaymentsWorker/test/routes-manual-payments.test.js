@@ -18,7 +18,7 @@ class PrivateStorage {
             else assert.equal(this.files.get(e.operationId).sha256,p.sha256);
             if(this.loseNext){this.loseNext=false;throw Error('lost acknowledgment after storing');}
         }
-        const result=e.operation==='retention'?{ok:true,days:p.days}:e.operation==='trash'?{ok:true,trashed:true}:e.operation==='read'?{ok:true,base64:this.files.get(e.operationId).base64}:{ok:true,private:!this.unsafe,sha256:p.sha256,bytes:p.bytes,fileId:'private-'+e.operationId,folderURL:'https://drive.google.com/drive/folders/private-fixture'};
+        const result=e.operation==='ready'?{ok:true,ready:!this.unsafe}:e.operation==='retention'?{ok:true,days:p.days}:e.operation==='trash'?{ok:true,trashed:true}:e.operation==='read'?{ok:true,base64:this.files.get(e.operationId).base64}:{ok:true,private:!this.unsafe,sha256:p.sha256,bytes:p.bytes,fileId:'private-'+e.operationId,folderURL:'https://drive.google.com/drive/folders/private-fixture'};
         const payloadB64=Buffer.from(JSON.stringify(result)).toString('base64');return Response.json({operationId:e.operationId,operation:e.operation,payloadB64,signature:this.badSignature?'0'.repeat(64):signing(e.operationId+'\n'+e.operation+'\n'+payloadB64)});
     }
 }
@@ -50,12 +50,50 @@ test('immutable replay returns the same capability; changed amount/copies/sessio
     assert.equal((await h.request('GET','/v2/booth/checkouts/'+c.status.id,{token:TOKENS.booth2})).status,404);
     assert.equal((await h.request('GET','/v2/admin/checkouts/'+c.status.id,{token:TOKENS.otherAccount})).status,404);
 }));
+test('required payment readiness verifies the active original capability and signed storage connection',()=>fixture(async(h,storage)=>{
+    const c=await checkout(h,'REQUIRED');
+    const path='/v2/booth/checkouts/'+c.status.id+'/receipt-readiness';
+    assert.equal(c.status.receiptSubmissionReady,undefined);
+    assert.equal((await h.request('GET',path,{token:TOKENS.booth2})).status,404);
+    storage.badSignature=true;
+    assert.equal((await h.request('GET',path)).status,503);
+    storage.badSignature=false;storage.unsafe=true;
+    assert.equal((await h.request('GET',path)).status,503);
+    storage.unsafe=false;
+    const ready=await h.request('GET',path);
+    assert.equal(ready.status,200,ready.text);
+    assert.equal(ready.json.receiptSubmissionReady,true);
+    assert.equal(ready.json.checkoutURL,c.status.checkoutURL);
+    assert.equal(ready.json.snapshotHash,c.body.snapshotHash);
+    assert.equal(storage.files.size,0);
+    const focused=await h.request('POST','/v2/guest/status?receipt=1',{...c.auth,body:{}});
+    assert.equal(focused.json.receiver,null);
+    assert.ok((await h.request('POST','/v2/guest/status',{...c.auth,body:{}})).json.receiver);
+    await h.request('POST','/v2/booth/checkouts/'+c.status.id+'/facts',{body:{snapshotHash:c.body.snapshotHash,closedAt:new Date().toISOString()}});
+    assert.equal((await h.request('GET',path)).status,409);
+}));
 test('lost storage acknowledgment and concurrent duplicate submissions retain one file and receipt identity',()=>fixture(async(h,storage)=>{
-    const c=await checkout(h,'REQUIRED');storage.loseNext=true;const request={...c.auth,body:{snapshotHash:c.body.snapshotHash,mimeType:'image/png',base64:png}};
+    const c=await checkout(h,'REQUIRED');storage.loseNext=true;const request={...c.auth,body:{snapshotHash:c.body.snapshotHash,mimeType:'image/png',base64:png,confirmsTransfer:true}};
     assert.equal((await h.request('POST','/v2/guest/receipts',request)).status,503);
+    const pending=await h.request('GET','/v2/booth/checkouts/'+c.status.id);
+    assert.equal(pending.json.acknowledgedAt,null);assert.equal(pending.json.receipt,null);
     const replies=await Promise.all([h.request('POST','/v2/guest/receipts',request),h.request('POST','/v2/guest/receipts',request)]);
     assert.ok(replies.every(r=>r.status===200));assert.equal(replies[0].json.receiptId,replies[1].json.receiptId);
     assert.equal(storage.files.size,1);assert.equal((await h.all('SELECT id FROM manual_receipts')).length,1);
+    const received=await h.request('GET','/v2/booth/checkouts/'+c.status.id);
+    assert.equal(received.json.receipt.receiptId,replies[0].json.receiptId);
+    assert.ok(received.json.acknowledgedAt);
+    assert.equal((await h.all('SELECT id FROM entitlements')).length,0);
+}));
+test('one-step receipt after closure, completion or expiry only records late original evidence',()=>fixture(async h=>{
+    for(const field of ['closed_at','completed_at','expires_at']){
+        const c=await checkout(h,'REQUIRED');
+        await h.db.prepare('UPDATE manual_checkouts SET '+field+'=? WHERE id=?').bind('2000-01-01T00:00:00.000Z',c.status.id).run();
+        const result=await h.request('POST','/v2/guest/receipts',{...c.auth,body:{snapshotHash:c.body.snapshotHash,mimeType:'image/png',base64:png,confirmsTransfer:true}});
+        assert.equal(result.status,200,result.text);
+        const row=await h.one('SELECT acknowledged_at,late_acknowledged_at,session_id FROM manual_checkouts WHERE id=?',c.status.id);
+        assert.equal(row.acknowledged_at,null);assert.ok(row.late_acknowledged_at);assert.equal(row.session_id,c.body.sessionId);
+    }
 }));
 test('closed or expired acknowledgment is review only; late optional receipt stays with the original session',()=>fixture(async h=>{
     const c=await checkout(h);await h.request('POST','/v2/booth/checkouts/'+c.status.id+'/facts',{body:{snapshotHash:c.body.snapshotHash,closedAt:new Date().toISOString()}});

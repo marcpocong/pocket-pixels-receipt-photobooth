@@ -14,7 +14,7 @@ struct ManualPolicyEditor: View {
             if value.wrappedValue.mode.acceptsDigital {
                 Picker("Payment receipt", selection: value.receiptPolicy) { ForEach(PaymentReceiptPolicy.allCases) { Text($0.title).tag($0) } }
                 NavigationLink("Receiving Account & Authorized QR") { ManualReceivingAccountView() }
-                Text(ManualPaymentStore.shared.receiver?.isReady == true ? "Acknowledgment is a guest claim. Independent review is optional after the session." : "Digital payments are disabled until a permitted receiving account is configured and enabled.")
+                Text(ManualPaymentStore.shared.receiver?.isReady == true ? "Guests pay using the receiving QR or account details on the iPad. Optional and required receipts are submitted in a separate step. Review funds independently after the session." : "Digital payments are disabled until a permitted receiving account is configured and enabled.")
                     .font(.footnote).foregroundStyle(OperatorPalette.secondaryText)
             }
             if let issue = value.wrappedValue.validationMessage { Text(issue).foregroundStyle(OperatorPalette.danger) }
@@ -97,52 +97,247 @@ struct ManualReceivingAccountView: View {
 struct ManualDigitalCheckoutView: View {
     @ObservedObject var viewModel: BoothSessionViewModel
     var onHelp: () -> Void
-    @State private var confirmingAcknowledgment = false
+    @State private var showingHelp = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .largeTitle) private var headingSize = 55.0
+    @ScaledMetric(relativeTo: .title) private var amountSize = 62.0
+
     var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                MadeToKeepLockup(scale: .compact)
-                Text("Digital payment").font(MadeToKeepTheme.Typography.serif(size: 38))
+        GeometryReader { geometry in
+            let compact = geometry.size.height < 950
+            let codeSize = min(compact ? 252.0 : 304.0, max(100, geometry.size.width - 106))
+            ScrollView {
                 if let record = viewModel.manualCheckout {
-                    Text(PHPPriceFormatter.string(centavos: record.totalCentavos)).font(.largeTitle)
-                    Text("\(record.copies) identical \(record.copies == 1 ? "copy" : "copies")")
-                    if let url = record.checkoutURL, let qr = try? GalleryQRCodeGenerator.makeQRCodeImage(for: url) {
-                        Image(uiImage: qr).interpolation(.none).resizable().scaledToFit().frame(maxWidth: 260)
-                        Text("Scan to open your mobile checkout and privately submit a receipt.").font(.callout)
-                    } else if record.policy.receiptPolicy == .required {
-                        Text("Wait for the checkout QR before sending payment. You need that page to submit your receipt. If you already paid, ask the attendant about this checkout.")
-                            .font(.callout)
-                    } else if record.acknowledgedAt == nil {
-                        Text("Mobile checkout is connecting. You may use the receiving details below.").font(.callout)
+                    VStack(spacing: compact ? 21 : 30) {
+                        MadeToKeepLockup(scale: .compact)
+                            .padding(.bottom, compact ? 2 : 12)
+                        switch viewModel.manualCheckoutStep {
+                        case .pay:
+                            payment(record, codeSize: codeSize)
+                        case .receipt:
+                            receipt(record, codeSize: codeSize)
+                        case .continuing:
+                            MadeToKeepEditorialHeader(eyebrow: nil, title: "Continuing to photos", titleSize: headingSize)
+                            checkoutNotice
+                            primaryAction("Try again", identifier: "manual-acknowledgment-retry") { viewModel.retryManualAcknowledgment() }
+                        case .preparing, .expired:
+                            availability
+                        }
+                        secondaryAction("Need help?", identifier: "manual-checkout-help") { showingHelp = true }
                     }
-                    if record.policy.receiptPolicy != .required, record.acknowledgedAt == nil, let receiver = record.receiver {
-                        VStack(spacing: 8) {
-                            Text(receiver.provider).font(.headline); Text(receiver.recipient); Text(receiver.identifier).textSelection(.enabled)
-                            Text(receiver.instructions).font(.callout)
-                            if let data = receiver.qrJPEG, let image = UIImage(data: data) {
-                                Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 200)
-                                Text("Receiving-account payment QR").font(.caption)
-                            }
-                        }.padding().background(OperatorPalette.surface, in: RoundedRectangle(cornerRadius: 14))
+                    .frame(maxWidth: 580)
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, compact ? 24 : 38)
+                    .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+                    .task(id: record.acknowledgmentDeadline) {
+                        do {
+                            try await Task.sleep(for: .seconds(max(0, record.acknowledgmentDeadline.timeIntervalSinceNow) + 0.1))
+                            viewModel.expireManualCheckoutIfNeeded()
+                        } catch { }
                     }
-                    Text(record.policy.receiptPolicy.title).font(.headline)
-                    if record.receipt != nil { Label("Receipt stored privately", systemImage: "lock.doc") }
-                    if record.acknowledgedAt != nil { Text("Payment acknowledged · funds not independently verified").font(.callout) }
-                    if let notice = viewModel.paymentNotice { Text(notice).font(.callout).accessibilityIdentifier("manual-checkout-notice") }
-                    Button("I've sent the payment") { confirmingAcknowledgment = true }
-                        .buttonStyle(MadeToKeepPrimaryButtonStyle()).disabled(viewModel.isCheckoutTransitionActive)
-                        .accessibilityIdentifier("manual-local-acknowledgment")
-                    Button("Check Receipt & Mobile Acknowledgment") { Task { await viewModel.refreshManualPayment() } }.buttonStyle(.bordered)
-                    Text("A receipt or acknowledgment is not independent verification of funds. If you already paid, do not pay again.").font(.footnote)
                 }
-                Button("Call Attendant / Get Help", action: onHelp).buttonStyle(.bordered)
-                Button("Close & Keep My Claim") { viewModel.cancelSession() }.buttonStyle(.bordered)
-            }.multilineTextAlignment(.center).padding(24).frame(maxWidth: 600).frame(maxWidth: .infinity)
-        }.tint(OperatorPalette.accent)
-        .confirmationDialog("Acknowledge this payment?", isPresented: $confirmingAcknowledgment, titleVisibility: .visible) {
-            Button("I've transferred the exact amount") { viewModel.acknowledgeManualPayment() }
-            Button("Not yet", role: .cancel) { }
-        } message: { Text("Tap only after transferring to the receiving account shown for this checkout. No second payment will be requested automatically.") }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+        .multilineTextAlignment(.center)
+        .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
+        .tint(MadeToKeepTheme.ColorPalette.burgundy)
+        .confirmationDialog("Checkout help", isPresented: $showingHelp, titleVisibility: .visible) {
+            Button("Ask the attendant", action: onHelp)
+            if viewModel.manualCheckoutStep == .receipt {
+                Button("Check receipt status") { Task { await viewModel.refreshManualPayment() } }
+            }
+            Button("End this checkout", role: .destructive) { viewModel.cancelSession() }
+            Button("Keep this checkout open", role: .cancel) { }
+        } message: {
+            if viewModel.manualCheckout?.acknowledgedAt != nil || viewModel.manualCheckoutStep == .pay || viewModel.manualCheckoutStep == .expired {
+                Text("If you’ve already paid, ask the attendant to help with this checkout.")
+            }
+        }
+    }
+
+    private func payment(_ record: ManualCheckoutRecord, codeSize: CGFloat) -> some View {
+        VStack(spacing: 21) {
+            heading("Pay for your keepsake", record: record, isReceipt: false)
+            if let receiver = record.receiver {
+                let qr = receiver.qrJPEG.flatMap { UIImage(data: $0) }
+                if let qr {
+                    checkoutQR(qr, size: codeSize, label: "Receiving-account payment QR", identifier: "manual-payment-qr")
+                }
+                VStack(spacing: 7) {
+                    Text(receiver.recipient)
+                        .font(.headline)
+                        .foregroundStyle(MadeToKeepTheme.ColorPalette.ink)
+                    Text(receiver.provider)
+                        .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
+                    if qr == nil {
+                        Text(receiver.identifier)
+                            .font(.title3.weight(.semibold).monospacedDigit())
+                            .textSelection(.enabled)
+                            .padding(.vertical, 5)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+                VStack(spacing: 4) {
+                    Text(qr == nil ? "Use these account details in your payment app and enter the exact amount shown."
+                         : "Scan using your payment app and enter the exact amount shown.")
+                    if qr == nil, !receiver.instructions.isEmpty,
+                       receiver.instructions != ManualReceivingAccount().instructions,
+                       receiver.instructions != "Transfer the exact amount, then acknowledge your payment. Please do not pay twice." {
+                        Text(receiver.instructions)
+                    }
+                    if record.policy.receiptPolicy != .acknowledgmentOnly {
+                        Text("Save a screenshot of your payment receipt.")
+                    }
+                }
+                .font(.body)
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
+                .frame(maxWidth: 430)
+            }
+            checkoutNotice
+            primaryAction("I've paid", identifier: "manual-local-acknowledgment") { viewModel.acknowledgeManualPayment() }
+        }
+    }
+
+    private func receipt(_ record: ManualCheckoutRecord, codeSize: CGFloat) -> some View {
+        VStack(spacing: 21) {
+            heading("Upload your receipt", record: record, isReceipt: true)
+            if let url = record.receiptSubmissionURL,
+               (record.receiptLinkExpiresAt ?? record.createdAt.addingTimeInterval(86400)) > Date(),
+               let qr = try? GalleryQRCodeGenerator.makeQRCodeImage(for: url) {
+                checkoutQR(qr, size: codeSize, label: "Receipt submission QR", identifier: "manual-receipt-qr")
+                Text("Scan with your phone’s camera and upload your payment screenshot.")
+                    .font(.body)
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
+                    .frame(maxWidth: 390)
+                if viewModel.paymentNotice == nil {
+                    HStack(spacing: 10) {
+                        ProgressView().controlSize(.small).accessibilityHidden(true)
+                        Text("Waiting for your receipt…").font(.callout.weight(.medium))
+                    }
+                    .accessibilityIdentifier("manual-receipt-waiting")
+                }
+            } else if viewModel.paymentNotice == nil {
+                ProgressView("Opening receipt upload…")
+            }
+            checkoutNotice
+            if viewModel.paymentNotice != nil {
+                secondaryAction("Check again", identifier: "manual-receipt-refresh") {
+                    Task { await viewModel.refreshManualPayment() }
+                }
+                .disabled(viewModel.manualCheckoutIsRefreshing)
+            }
+            if record.policy.receiptPolicy == .optional {
+                Button("Skip for now") { viewModel.skipOptionalManualReceipt() }
+                    .buttonStyle(MadeToKeepSecondaryButtonStyle())
+                    .accessibilityIdentifier("manual-optional-skip")
+            }
+        }
+    }
+
+    private var availability: some View {
+        let title = viewModel.manualCheckoutStep == .expired ? "Checkout expired"
+            : viewModel.paymentNotice == nil ? "Getting checkout ready" : "Receipt upload is unavailable"
+        return VStack(spacing: 22) {
+            MadeToKeepEditorialHeader(eyebrow: nil, title: title, titleSize: headingSize)
+            if viewModel.manualCheckoutStep == .preparing {
+                if viewModel.paymentNotice == nil {
+                    ProgressView("Checking receipt upload…")
+                        .accessibilityIdentifier("manual-receipt-readiness")
+                } else {
+                    checkoutNotice
+                    primaryAction("Try again", identifier: "manual-readiness-retry") {
+                        Task { await viewModel.refreshManualPayment() }
+                    }
+                    .disabled(viewModel.manualCheckoutIsRefreshing)
+                    if viewModel.canSwitchManualCheckoutToCash {
+                        secondaryAction("Pay with cash", identifier: "manual-cash-fallback") { viewModel.switchManualCheckoutToCash() }
+                    }
+                }
+            } else {
+                checkoutNotice
+            }
+        }
+        .padding(.vertical, 32)
+    }
+
+    private func heading(_ title: String, record: ManualCheckoutRecord, isReceipt: Bool) -> some View {
+        VStack(spacing: 9) {
+            if record.policy.receiptPolicy != .acknowledgmentOnly {
+                HStack(spacing: 11) {
+                    Capsule().fill(MadeToKeepTheme.ColorPalette.burgundy).frame(width: 26, height: 2)
+                    MadeToKeepLabel(text: isReceipt
+                        ? (record.policy.receiptPolicy == .optional ? "2 OF 2 · OPTIONAL" : "2 OF 2 · RECEIPT")
+                        : "1 OF 2 · PAYMENT", size: 12)
+                    Capsule().fill(isReceipt ? MadeToKeepTheme.ColorPalette.burgundy : MadeToKeepTheme.ColorPalette.hairline)
+                        .frame(width: 26, height: 2)
+                }
+                .animation(reduceMotion ? nil : MadeToKeepTheme.Motion.standardAnimation, value: isReceipt)
+            }
+            MadeToKeepEditorialHeader(eyebrow: nil, title: title, titleSize: headingSize)
+            if isReceipt {
+                Text("\(PHPPriceFormatter.string(centavos: record.totalCentavos))  ·  \(copyCount(record.copies))")
+                    .font(.body)
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
+            } else {
+                Text(PHPPriceFormatter.string(centavos: record.totalCentavos))
+                    .font(MadeToKeepTheme.Typography.serif(size: amountSize))
+                    .monospacedDigit()
+                    .minimumScaleFactor(0.62)
+                    .lineLimit(1)
+                    .accessibilityLabel("Total \(PHPPriceFormatter.string(centavos: record.totalCentavos))")
+                Text(copyCount(record.copies))
+                    .font(.body)
+                    .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)
+            }
+        }
+    }
+
+    private func copyCount(_ count: Int) -> String { count == 1 ? "1 copy" : "\(count) copies" }
+
+    private func checkoutQR(_ image: UIImage, size: CGFloat, label: String, identifier: String) -> some View {
+        Image(uiImage: image)
+            .interpolation(.none)
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .padding(24)
+            .background(.white, in: RoundedRectangle(cornerRadius: 16))
+            .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(MadeToKeepTheme.ColorPalette.hairline) }
+            .accessibilityLabel(label)
+            .accessibilityIdentifier(identifier)
+    }
+
+    @ViewBuilder private var checkoutNotice: some View {
+        if let notice = viewModel.paymentNotice {
+            Text(notice)
+                .font(.callout)
+                .foregroundStyle(MadeToKeepTheme.ColorPalette.burgundy)
+                .frame(maxWidth: 410)
+                .accessibilityIdentifier("manual-checkout-notice")
+        }
+    }
+
+    private func primaryAction(_ title: String, identifier: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).frame(maxWidth: .infinity)
+        }
+        .buttonStyle(MadeToKeepFilledButtonStyle())
+        .frame(maxWidth: 340)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func secondaryAction(_ title: String, identifier: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.callout.weight(.semibold))
+                .underline()
+                .padding(.horizontal, 12)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
     }
 }
 
@@ -261,16 +456,25 @@ struct ManualPaymentRecordView: View {
                 }
                 if record.completedAt == nil {
                     Section("Original guest recovery") {
+                        if record.acknowledgedAt != nil, record.policy.receiptPolicy != .acknowledgmentOnly,
+                           let url = record.receiptSubmissionURL, (record.receiptLinkExpiresAt ?? .distantPast) > Date(),
+                           let qr = try? GalleryQRCodeGenerator.makeQRCodeImage(for: url) {
+                            DisclosureGroup("Show original receipt submission QR") {
+                                Image(uiImage: qr).interpolation(.none).resizable().scaledToFit().frame(width: 240, height: 240)
+                                    .accessibilityLabel("Original receipt submission QR")
+                                Text("Late receipts stay with the original claim for review.").font(.footnote)
+                            }
+                        }
                         Button("Accept Original Guest's Payment Claim") {
                             do { try store.acceptOriginalClaimForRecovery(id, note: note); message = "Original claim retained as unverified. Required receipt rules remain in force." }
                             catch { message = error.localizedDescription }
                         }
-                        Button("Prepare Original Authorization to Resume") {
+                        Button("Prepare Original Checkout to Resume") {
                             do {
                                 guard ActiveGuestInteraction.model.map({ $0.state == .welcome || $0.state == .thankYou }) ?? true else { throw SetupFailure("Close the current guest before preparing original recovery.") }
                                 guard record.printingBeganAt == nil, PrintOutcomeOutbox.shared?.copiesThatMayHavePrinted(sessionID: record.sessionID).isEmpty == true else { throw SetupFailure("A copy may have printed. Use the existing physical receipt recovery; no automatic resend is allowed.") }
                                 try store.reopenForRecovery(id); store.armedResumeID = id
-                                message = "Return to the booth and tap Start to resume this exact authorization. No new payment or copy quantity is created."
+                                message = "Return to the booth and tap Start to resume this guest’s original checkout."
                             } catch { message = error.localizedDescription }
                         }
                     }

@@ -18,9 +18,13 @@ function doPost(e) {
     var payload = JSON.parse(Utilities.newBlob(Utilities.base64Decode(request.payloadB64)).getDataAsString());
     var rootId = properties.getProperty('RECEIPTS_ROOT_ID' + scope);
     if (scope && rootId === properties.getProperty('RECEIPTS_ROOT_ID')) throw Error('invalid_private_root');
-    assertReceiptPrivate_(rootId);
+    var root = assertReceiptPrivate_(rootId);
     var result;
-    if (request.operation === 'store') result = storePrivateReceipt_(rootId, request.operationId, payload);
+    if (request.operation === 'ready') {
+      if (root.mimeType !== 'application/vnd.google-apps.folder' || root.capabilities?.canAddChildren !== true) throw Error('invalid_private_root');
+      result = {ok:true, ready:true};
+    }
+    else if (request.operation === 'store') result = storePrivateReceipt_(rootId, request.operationId, payload);
     else if (request.operation === 'read') result = readPrivateReceipt_(rootId, request.operationId, payload);
     else if (request.operation === 'retention') result = establishReceiptRetention_(payload, scope);
     else if (request.operation === 'trash') result = trashPrivateReceipt_(rootId, request.operationId, payload, scope);
@@ -49,7 +53,7 @@ function receiptDrive_(path, options) {
 }
 function assertReceiptPrivate_(id,allowTrashed) {
   if(!/^[A-Za-z0-9_-]{10,200}$/.test(id||''))throw Error('invalid_private_root');
-  var item=receiptDrive_('drive/v3/files/'+id+'?fields=id,trashed,parents,mimeType');
+  var item=receiptDrive_('drive/v3/files/'+id+'?fields=id,trashed,parents,mimeType,capabilities(canAddChildren)');
   if(item.trashed&&!allowTrashed)throw Error('trashed');
   var permissions=receiptDrive_('drive/v3/files/'+id+'/permissions?fields=permissions(type,role)').permissions||[];
   if(permissions.length!==1||permissions[0].type!=='user'||permissions[0].role!=='owner')throw Error('unsafe_permissions');

@@ -53,8 +53,15 @@ export async function manualReceiptIncident(env) {
 async function tokenFor(env,row){if(!env.MANUAL_TOKEN_SECRET||env.MANUAL_TOKEN_SECRET.length<32)fail(503,'manual_token_unconfigured','Checkout security is not configured.');return mac(env.MANUAL_TOKEN_SECRET,['manual-v1',row.environment,row.id,row.capability_nonce].join('\n'));}
 async function owned(env,p,checkoutId,operator=false){const row=await env.DB.prepare('SELECT * FROM manual_checkouts WHERE id=? AND account_id=?'+(operator?'':' AND device_id=?')).bind(checkoutId,p.accountId,...(operator?[]:[p.id])).first();if(!row)fail(404,'checkout_not_found','Original checkout not found.');return row;}
 async function receiptProof(env,row){const receipt=await env.DB.prepare("SELECT id,stored_at,trashed_at FROM manual_receipts WHERE checkout_id=? AND state='STORED_PRIVATE' ORDER BY stored_at DESC,id DESC LIMIT 1").bind(row.id).first();return receipt?{checkoutId:row.id,snapshotHash:row.snapshot_hash,receiptId:receipt.id,storedAt:receipt.stored_at,trashedAt:receipt.trashed_at}:null;}
-async function status(env,row,origin,booth=false){const snapshot=JSON.parse(row.snapshot_json),receipt=await receiptProof(env,row);return {id:row.id,localCheckoutId:row.local_id,sessionId:row.session_id,snapshotHash:row.snapshot_hash,copies:snapshot.copies,totalCentavos:snapshot.copies*snapshot.unitPriceCentavos,acknowledgedAt:row.acknowledged_at,receipt,closedAt:row.closed_at,expiresAt:row.expires_at,receiptExpiresAt:row.receipt_expires_at,
-    ...(booth?{checkoutURL:origin+'/checkout#c='+row.id+'.'+await tokenFor(env,row)}:{receiver:row.receiving_json?JSON.parse(row.receiving_json):null,method:snapshot.method,receiptPolicy:snapshot.receiptPolicy,receipt:receipt?{submitted:true}:null})};}
+async function status(env,row,origin,booth=false,receiptOnly=false){const snapshot=JSON.parse(row.snapshot_json),receipt=await receiptProof(env,row);return {id:row.id,localCheckoutId:row.local_id,sessionId:row.session_id,snapshotHash:row.snapshot_hash,copies:snapshot.copies,totalCentavos:snapshot.copies*snapshot.unitPriceCentavos,acknowledgedAt:row.acknowledged_at,receipt,closedAt:row.closed_at,completedAt:row.completed_at,expiresAt:row.expires_at,receiptExpiresAt:row.receipt_expires_at,
+    ...(booth?{checkoutURL:origin+'/checkout#c='+row.id+'.'+await tokenFor(env,row)}:{receiver:!receiptOnly&&row.receiving_json?JSON.parse(row.receiving_json):null,method:snapshot.method,receiptPolicy:snapshot.receiptPolicy,receipt:receipt?{submitted:true}:null})};}
+function mobileAcknowledgment(env, checkoutId, at) {
+    // Resolve the claim against closure and expiry at write time, including an upload racing a close.
+    return env.DB.prepare(`UPDATE manual_checkouts SET
+      acknowledged_at=CASE WHEN closed_at IS NULL AND completed_at IS NULL AND expires_at>=?1 THEN COALESCE(acknowledged_at,?1) ELSE acknowledged_at END,
+      late_acknowledged_at=CASE WHEN acknowledged_at IS NULL AND (closed_at IS NOT NULL OR completed_at IS NOT NULL OR expires_at<?1) THEN COALESCE(late_acknowledged_at,?1) ELSE late_acknowledged_at END
+      WHERE id=?2`).bind(at,checkoutId);
+}
 async function guest(request,env){
     enabled(env);const auth=request.headers.get('authorization')||'',match=auth.match(/^Checkout ([a-f0-9-]{36})\.([a-f0-9]{64})$/);
     const address=request.headers.get('cf-connecting-ip')||'unknown';await rate(env,'manual-address:'+await digest(address),120);
@@ -74,18 +81,13 @@ export async function manualPublic(request,env){
     if(path==='/checkout'&&request.method==='GET')return new Response(mobileCheckoutPage(),{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer','x-content-type-options':'nosniff','x-frame-options':'DENY','content-security-policy':"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"}});
     const row=await guest(request,env);
     if(request.method!=='POST')fail(405,'method_not_allowed','Use POST.');
-    if(path==='/v2/guest/status')return reply(await status(env,row,url.origin));
+    if(path==='/v2/guest/status')return reply(await status(env,row,url.origin,false,url.searchParams.get('receipt')==='1'));
     if(path==='/v2/guest/acknowledgments'){
         const body=await jsonBody(request);if(body.snapshotHash!==row.snapshot_hash)fail(409,'snapshot_mismatch','The amount or checkout changed. Ask the attendant.');
         const at=timestamp();
-        // Decide acknowledgment versus late claim in the same SQL write as the closure check.
-        // A booth close racing a mobile submission must retain the original claim either way.
-        await env.DB.prepare(`UPDATE manual_checkouts SET
-          acknowledged_at=CASE WHEN closed_at IS NULL AND expires_at>=? THEN COALESCE(acknowledged_at,?) ELSE acknowledged_at END,
-          late_acknowledged_at=CASE WHEN closed_at IS NOT NULL OR expires_at<? THEN COALESCE(late_acknowledged_at,?) ELSE late_acknowledged_at END
-          WHERE id=?`).bind(at,at,at,at,row.id).run();
+        await mobileAcknowledgment(env,row.id,at).run();
         const current=await env.DB.prepare('SELECT * FROM manual_checkouts WHERE id=?').bind(row.id).first();
-        if(current.closed_at||Date.now()>Date.parse(current.expires_at))fail(409,'claim_retained_for_review','Your claim is retained for the attendant. This checkout is closed; do not pay again.');
+        if(current.closed_at||current.completed_at||Date.now()>Date.parse(current.expires_at))fail(409,'claim_retained_for_review','Your claim is retained for the attendant. This checkout is closed; do not pay again.');
         return reply(await status(env,current,url.origin));
     }
     if(path==='/v2/guest/receipts')return storeReceipt(request,env,row);
@@ -111,10 +113,21 @@ export async function manualAuthenticated(request,env,p){
         return reply({accepted:true});
     }
     if(path==='/v2/booth/checkouts'&&request.method==='POST')return createCheckout(request,env,p,url.origin);
-    const match=path.match(/^\/v2\/(booth|admin)\/checkouts\/([a-f0-9-]{36})(?:\/(facts|reviews))?$/);
+    const match=path.match(/^\/v2\/(booth|admin)\/checkouts\/([a-f0-9-]{36})(?:\/(facts|reviews|receipt-readiness))?$/);
     if(match){
         const row=await owned(env,p,match[2],isAdmin);
         if(request.method==='GET'&&!match[3])return reply(await status(env,row,url.origin,true));
+        if(request.method==='GET'&&match[3]==='receipt-readiness'&&!isAdmin){
+            const snapshot=JSON.parse(row.snapshot_json);
+            if(snapshot.method!=='MANUAL_DIGITAL'||snapshot.receiptPolicy!=='REQUIRED')fail(409,'receipt_readiness_unavailable','This checkout does not require a receipt.');
+            if(row.closed_at||row.completed_at||Date.now()>=Date.parse(row.expires_at))fail(409,'checkout_expired','The original checkout is closed or expired.');
+            await rate(env,'manual-checkout:ready:'+row.id,6);
+            const result=await receiptStorage(env,'ready',row.id,{});
+            if(result.ready!==true)fail(503,'receipt_storage_unavailable','Receipt upload is unavailable.');
+            const current=await owned(env,p,row.id);
+            const ready=!current.closed_at&&!current.completed_at&&Date.now()<Date.parse(current.expires_at);
+            return reply({...await status(env,current,url.origin,true),receiptSubmissionReady:ready});
+        }
         if(request.method==='POST'&&match[3]==='facts'&&!isAdmin){
             const b=await jsonBody(request);if(b.snapshotHash!==row.snapshot_hash)fail(409,'snapshot_mismatch','Original checkout snapshot mismatch.');
             if(b.printEvidence!==undefined){
@@ -225,9 +238,13 @@ async function storeReceipt(request,env,row){
     const snapshot=JSON.parse(row.snapshot_json);if(snapshot.method!=='MANUAL_DIGITAL')fail(409,'digital_receipt_only','This checkout does not accept digital receipts.');
     const b=await jsonBody(request,3*1024*1024);if(b.snapshotHash!==row.snapshot_hash)fail(409,'snapshot_mismatch','Receipt belongs to a different checkout.');
     let bytes;try{if(typeof b.base64!=='string'||b.base64.length>Math.ceil(RECEIPT_MAX_BYTES*4/3)+4)throw Error();bytes=Uint8Array.from(atob(b.base64),c=>c.charCodeAt(0));}catch{fail(422,'invalid_receipt_image','Choose a JPEG or PNG under 2 MiB.');}
+    const confirmsTransfer=b.confirmsTransfer===true;
     const image=normalizeReceipt(bytes,b.mimeType),hash=await digest(image.bytes),requestHash=hash;
     let receipt=await env.DB.prepare('SELECT * FROM manual_receipts WHERE checkout_id=? AND request_hash=?').bind(row.id,requestHash).first();
-    if(receipt?.state==='STORED_PRIVATE')return reply({submitted:true,receiptId:receipt.id});
+    if(receipt?.state==='STORED_PRIVATE'){
+        if(confirmsTransfer)await mobileAcknowledgment(env,row.id,timestamp()).run();
+        return reply({submitted:true,receiptId:receipt.id});
+    }
     const count=await env.DB.prepare('SELECT COUNT(*) count FROM manual_receipts WHERE checkout_id=?').bind(row.id).first();if(!receipt&&count.count>=3)fail(429,'receipt_limit','Three receipt versions are already retained. Ask the attendant.');
     const receiptId=receipt?.id||crypto.randomUUID();
     await env.DB.prepare("INSERT OR IGNORE INTO manual_receipts(id,checkout_id,request_hash,content_hash,mime_type,bytes,state,created_at) SELECT ?,?,?,?,?,?,'RESERVED',? WHERE (SELECT COUNT(*) FROM manual_receipts WHERE checkout_id=?)<3").bind(receiptId,row.id,requestHash,hash,image.mime,image.bytes.length,timestamp(),row.id).run();
@@ -243,7 +260,12 @@ async function storeReceipt(request,env,row){
         try { await incrementWindow(env,'manual-receipt-service-failures',Math.floor(Date.now()/60000)); } catch { /* preserve the original storage response */ }
         throw error;
     }
-    await env.DB.prepare("UPDATE manual_receipts SET state='STORED_PRIVATE',storage_json=?,stored_at=COALESCE(stored_at,?) WHERE id=? AND content_hash=?").bind(JSON.stringify({fileId:stored.fileId,folderURL:stored.folderURL}),timestamp(),receipt.id,hash).run();return reply({submitted:true,receiptId:receipt.id});
+    const at=timestamp();
+    const confirmStorage=env.DB.prepare("UPDATE manual_receipts SET state='STORED_PRIVATE',storage_json=?,stored_at=COALESCE(stored_at,?) WHERE id=? AND content_hash=?")
+        .bind(JSON.stringify({fileId:stored.fileId,folderURL:stored.folderURL}),at,receipt.id,hash);
+    if(confirmsTransfer)await env.DB.batch([confirmStorage,mobileAcknowledgment(env,row.id,at)]);
+    else await confirmStorage.run();
+    return reply({submitted:true,receiptId:receipt.id});
 }
 function base64(bytes){let result='';for(let i=0;i<bytes.length;i+=16384)result+=String.fromCharCode(...bytes.subarray(i,i+16384));return btoa(result);}
 export async function receiptStorage(env,operation,operationId,payload){
@@ -252,10 +274,11 @@ export async function receiptStorage(env,operation,operationId,payload){
     const keyId = env.RECEIPTS_KEY_ID === 'receipt-live-v1' ? 'receipt-live-v1' : 'receipt-v1';
     const envelope={v:1,keyId,timestamp:timestamp(),nonce:crypto.randomUUID(),operationId,operation,payloadB64:base64(encoder.encode(JSON.stringify(payload)))};
     envelope.signature=await mac(env.RECEIPTS_HMAC_SECRET,['v1',envelope.keyId,envelope.timestamp,envelope.nonce,operationId,operation,envelope.payloadB64].join('\n'));
-    let response;try{response=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(envelope),redirect:'manual',signal:AbortSignal.timeout(45000)});
+    const signal=operation==='ready'?AbortSignal.timeout(8000):null;
+    let response;try{response=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(envelope),redirect:'manual',signal:signal||AbortSignal.timeout(45000)});
         for(let redirects=0;[301,302,303].includes(response.status)&&redirects<3;redirects++){
             const next=new URL(response.headers.get('location'));if(next.protocol!=='https:'||!['script.googleusercontent.com','script.google.com'].includes(next.hostname))throw Error('redirect');
-            response=await fetch(next,{redirect:'manual',signal:AbortSignal.timeout(45000)});
+            response=await fetch(next,{redirect:'manual',signal:signal||AbortSignal.timeout(45000)});
         }
         const body=await response.json();if(!response.ok||body.operationId!==operationId||body.operation!==operation||!equal(body.signature,await mac(env.RECEIPTS_HMAC_SECRET,operationId+'\n'+operation+'\n'+body.payloadB64)))throw Error('unverified');
         const result=JSON.parse(atob(body.payloadB64));if(result.ok!==true)throw Error('storage');return result;

@@ -30,7 +30,7 @@ nonisolated struct ManualReceivingAccount: Codable, Equatable, Sendable, Identif
     var provider = ""
     var recipient = ""
     var identifier = ""
-    var instructions = "Transfer the exact amount, then acknowledge your payment. Please do not pay twice."
+    var instructions = "Transfer the exact amount shown on the iPad."
     var qrJPEG: Data? = nil
     var enabled = false
     var permittedUseConfirmed = false
@@ -60,6 +60,10 @@ nonisolated struct ManualReceiptProof: Codable, Equatable, Sendable {
     var trashedAt: Date? = nil
 }
 
+nonisolated enum OptionalReceiptChoice: String, Codable, Sendable {
+    case pending, uploaded, skipped
+}
+
 nonisolated struct ManualCheckoutRecord: Codable, Equatable, Identifiable, Sendable {
     let id: String
     let sessionID: String
@@ -81,12 +85,35 @@ nonisolated struct ManualCheckoutRecord: Codable, Equatable, Identifiable, Senda
     var receipt: ManualReceiptProof?
     var serverID: String?
     var checkoutURL: URL?
+    var serverAcknowledgmentDeadline: Date?
+    var receiptLinkExpiresAt: Date?
+    var serverInteractionEnded: Bool?
     var backendBinding: String?
+    // Older records did not wait on an optional receipt choice.
+    var optionalReceiptChoice: OptionalReceiptChoice?
     var reviews: [ManualPaymentReview] = []
     var syncError: String?
     var totalCentavos: Int { policy.unitPriceCentavos * copies }
     var isDigital: Bool { method == "MANUAL_DIGITAL" }
-    var canAuthorize: Bool { acknowledgedAt != nil && (method == "CASH" || policy.receiptPolicy != .required || receipt != nil) }
+    var acknowledgmentDeadline: Date { min(createdAt.addingTimeInterval(1800), serverAcknowledgmentDeadline ?? .distantFuture) }
+    var canAuthorize: Bool {
+        guard acknowledgedAt != nil else { return false }
+        if !isDigital { return true }
+        switch policy.receiptPolicy {
+        case .acknowledgmentOnly: return true
+        case .required: return receipt != nil
+        case .optional: return optionalReceiptChoice == nil || optionalReceiptChoice == .skipped || (optionalReceiptChoice == .uploaded && receipt != nil)
+        }
+    }
+    var receiptSubmissionURL: URL? {
+        guard let serverID, UUID(uuidString: serverID) != nil, let checkoutURL,
+              var components = URLComponents(url: checkoutURL, resolvingAgainstBaseURL: false),
+              components.scheme == "https", components.host != nil, components.path == "/checkout",
+              components.user == nil, components.password == nil, components.query == nil,
+              components.fragment?.range(of: "^c=" + serverID + "\\.[a-f0-9]{64}$", options: .regularExpression) != nil else { return nil }
+        components.fragment = components.fragment.map { $0 + "&receipt=1" }
+        return components.url
+    }
     var verification: String { reviews.last?.outcome.rawValue ?? "AWAITING_REVIEW" }
     /// Stable canonical snapshot shared by the kiosk and Worker. No customer media/receipt URL.
     var snapshotHash: String {
@@ -149,14 +176,22 @@ nonisolated struct ManualCheckoutRecord: Codable, Equatable, Identifiable, Senda
         }
         let record = ManualCheckoutRecord(id: UUID().uuidString.lowercased(), sessionID: sessionID, eventID: eventID, eventName: eventName,
             runID: runID, format: format, copies: copies, policy: policy, receiver: method == "CASH" ? nil : receiver,
-            method: method, createdAt: now, eventProfile: profile)
+            method: method, createdAt: now, eventProfile: profile,
+            optionalReceiptChoice: method == "MANUAL_DIGITAL" && policy.receiptPolicy == .optional ? .pending : nil)
         var next = payload; next.records.append(record); try commit(next); return record
     }
     func acknowledge(_ id: String, now: Date = Date()) throws {
         try update(id) { r in
             guard r.closedAt == nil, r.completedAt == nil else { throw SetupFailure("This checkout is closed. Ask the attendant to review the original claim; do not pay again.") }
-            guard r.acknowledgedAt != nil || now.timeIntervalSince(r.createdAt) <= 1800 else { throw SetupFailure("This checkout expired. Ask the attendant to recover the original payment claim; do not pay again.") }
+            guard r.acknowledgedAt != nil || now <= r.acknowledgmentDeadline else { throw SetupFailure("This checkout expired. Ask the attendant to recover the original payment claim; do not pay again.") }
             r.acknowledgedAt = r.acknowledgedAt ?? now
+        }
+    }
+    func chooseOptionalReceipt(_ choice: OptionalReceiptChoice, for id: String) throws {
+        try update(id) { r in
+            guard r.optionalReceiptChoice == .pending, r.acknowledgedAt != nil, r.closedAt == nil,
+                  r.completedAt == nil, choice == .skipped || (choice == .uploaded && r.receipt != nil) else { return }
+            r.optionalReceiptChoice = choice
         }
     }
     @discardableResult func authorize(_ id: String, now: Date = Date()) throws -> CheckoutEntitlement {
@@ -172,6 +207,9 @@ nonisolated struct ManualCheckoutRecord: Codable, Equatable, Identifiable, Senda
                   status.copies == r.copies, status.totalCentavos == r.totalCentavos,
                   r.serverID == nil || r.serverID == status.id else { throw SetupFailure("The checkout reply belongs to a different payment snapshot.") }
             r.serverID = status.id; r.checkoutURL = status.checkoutURL ?? r.checkoutURL
+            r.serverAcknowledgmentDeadline = status.expiresAt ?? r.serverAcknowledgmentDeadline
+            r.receiptLinkExpiresAt = status.receiptExpiresAt ?? r.receiptLinkExpiresAt
+            if status.closedAt != nil || status.completedAt != nil { r.serverInteractionEnded = true }
             r.acknowledgedAt = r.acknowledgedAt ?? status.acknowledgedAt
             if let proof = status.receipt {
                 guard proof.checkoutId == status.id, proof.snapshotHash == r.snapshotHash else { throw SetupFailure("Receipt confirmation does not match this guest.") }
@@ -184,7 +222,11 @@ nonisolated struct ManualCheckoutRecord: Codable, Equatable, Identifiable, Senda
     func reopenForRecovery(_ id: String) throws {
         guard OperatorAccessPermit.shared.isAuthorized else { throw SetupFailure("Unlock Operator to resume an original payment claim.") }
         try update(id) { r in
-            guard r.authorizedAt != nil, r.completedAt == nil, r.printingBeganAt == nil else { throw SetupFailure("This claim has no unused authorization.") }
+            let waitingForReceipt = r.isDigital && r.acknowledgedAt != nil && r.closedAt == nil
+                && r.serverInteractionEnded != true && r.policy.receiptPolicy != .acknowledgmentOnly && Date() <= r.acknowledgmentDeadline
+            guard (r.authorizedAt != nil || waitingForReceipt), r.completedAt == nil, r.printingBeganAt == nil else {
+                throw SetupFailure("This claim has no unused authorization or active receipt step.")
+            }
             r.closedAt = nil
         }
     }
@@ -193,6 +235,9 @@ nonisolated struct ManualCheckoutRecord: Codable, Equatable, Identifiable, Senda
         try update(id) { r in
             guard r.completedAt == nil else { throw SetupFailure("This original authorization was already completed.") }
             r.acknowledgedAt = r.acknowledgedAt ?? now
+            if r.optionalReceiptChoice == .pending {
+                r.optionalReceiptChoice = r.receipt == nil ? .skipped : .uploaded
+            }
             r.reviews.append(.init(id: UUID().uuidString.lowercased(), outcome: .unresolved, confirmedCentavos: nil, note: "Original guest claim accepted for recovery: " + String(note.prefix(800)), createdAt: now))
             if r.canAuthorize { r.authorizedAt = r.authorizedAt ?? now }
         }
@@ -250,6 +295,11 @@ nonisolated struct ManualCheckoutStatus: Codable, Sendable {
     let acknowledgedAt: Date?
     let receipt: ManualReceiptProof?
     let checkoutURL: URL?
+    var expiresAt: Date? = nil
+    var receiptExpiresAt: Date? = nil
+    var receiptSubmissionReady: Bool? = nil
+    var closedAt: Date? = nil
+    var completedAt: Date? = nil
 }
 
 @MainActor enum ManualPaymentSync {
@@ -281,12 +331,21 @@ nonisolated struct ManualCheckoutStatus: Codable, Sendable {
     /// Guest polling is a single read after initial registration. Facts and operator reviews
     /// are submitted by their own actions, never by a recurring poll.
     @discardableResult static func refresh(
-        _ id: String, store: ManualPaymentStore
+        _ id: String, store: ManualPaymentStore, verifyReceiptReadiness: Bool = false,
+        using injectedClient: PaymentsAPIClient? = nil
     ) async throws -> ManualCheckoutRecord {
-        let client = try client(for: id, store: store)
+        let client = try injectedClient ?? client(for: id, store: store)
         let created = try await createIfNeeded(id, store: store, client: client)
-        if !created, let serverID = store.record(id)?.serverID {
-            try store.applyRemote(await client.manualCheckoutStatus(serverID), to: id)
+        if (!created || verifyReceiptReadiness), let serverID = store.record(id)?.serverID {
+            let status = try await client.manualCheckoutStatus(serverID, verifyReceiptReadiness: verifyReceiptReadiness)
+            try store.applyRemote(status, to: id)
+            if verifyReceiptReadiness {
+                guard status.receiptSubmissionReady == true, let expiresAt = status.expiresAt, expiresAt > Date(),
+                      let linkExpiresAt = status.receiptExpiresAt, linkExpiresAt > expiresAt,
+                      store.record(id)?.receiptSubmissionURL != nil else {
+                    throw SetupFailure("Receipt upload isn't available yet.")
+                }
+            }
         }
         return store.record(id)!
     }

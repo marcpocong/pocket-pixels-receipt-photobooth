@@ -15,6 +15,8 @@ import UIKit
 final class BoothSessionViewModel: ObservableObject {
     private let manualPaymentStore: ManualPaymentStore
     @Published private(set) var manualCheckout: ManualCheckoutRecord?
+    @Published private(set) var manualCheckoutStep: ManualCheckoutStep = .pay
+    @Published private(set) var manualCheckoutIsRefreshing = false
     @Published private(set) var activeManualPolicy: ManualPaymentPolicy?
     var isManualPaymentSession: Bool { activeManualPolicy.map { $0.mode != .none } ?? false }
 
@@ -1545,6 +1547,7 @@ final class BoothSessionViewModel: ObservableObject {
         } else if let snapshot {
             _ = try OperatorRecoveryAcknowledgement.retainAndAcknowledge(snapshot, store: recoveryStore)
         }
+        if let manualCheckout { syncManualFactsInBackground(manualCheckout.id) }
         resetToWelcome()
         operationalState.customerSessionActive = false
         operationalState.refresh()
@@ -2737,6 +2740,8 @@ final class BoothSessionViewModel: ObservableObject {
         selectedBoothFormat = nil
         checkoutEntitlement = nil
         manualCheckout = nil
+        manualCheckoutStep = .pay
+        manualCheckoutIsRefreshing = false
         activeManualPolicy = nil
         paymentOrder = nil
         paymentAttempt = nil
@@ -3355,70 +3360,205 @@ extension BoothSessionViewModel {
             eventName: sessionIsRegularBooth == true ? "Regular Booth" : commercialEvent.name, runID: sessionRunID, format: format.rawValue,
             copies: selectedCheckoutCopies, policy: policy, method: method, profile: sessionEventProfile)
     }
+    enum ManualCheckoutStep { case preparing, pay, receipt, continuing, expired }
+
     private func beginManualDigitalPayment() {
         guard state == .choosingPayment, !isTransitionActive, canChooseQRPh else { return }
         do {
-            manualCheckout = try makeManualCheckout(method: "MANUAL_DIGITAL")
-            paymentNotice = nil; state = .awaitingQRPayment; startManualPolling()
+            let record = try makeManualCheckout(method: "MANUAL_DIGITAL")
+            manualCheckout = record
+            manualCheckoutStep = record.policy.receiptPolicy == .required ? .preparing : .pay
+            if record.acknowledgedAt != nil { manualCheckoutStep = .receipt }
+            paymentNotice = nil
+            state = .awaitingQRPayment
+            startManualPolling()
         } catch { paymentNotice = error.localizedDescription }
     }
+
     func acknowledgeManualPayment(method: String = "MANUAL_DIGITAL") {
         guard !isTransitionActive, checkoutEntitlement == nil, isManualPaymentSession else { return }
+        let isCash = method == "CASH"
+        guard isCash ? state == .cashAttestation : (state == .awaitingQRPayment && manualCheckoutStep == .pay) else { return }
+        if !isCash, let record = manualCheckout {
+            guard Date() <= record.acknowledgmentDeadline else { expireManualCheckoutIfNeeded(); return }
+            manualCheckoutStep = .continuing
+        }
+        commitManualAcknowledgment(method: method)
+    }
+
+    func retryManualAcknowledgment() {
+        guard state == .awaitingQRPayment, manualCheckoutStep == .continuing, checkoutEntitlement == nil else { return }
+        commitManualAcknowledgment(method: "MANUAL_DIGITAL")
+    }
+
+    private func commitManualAcknowledgment(method: String) {
+        let isCash = method == "CASH"
         do {
             let record = try manualCheckout ?? makeManualCheckout(method: method)
-            guard record.method == method else { throw SetupFailure("The original payment method is frozen. Ask the attendant; do not pay again.") }
+            guard record.method == method else { throw SetupFailure("Ask the attendant to help with this payment.") }
             try manualPaymentStore.acknowledge(record.id)
             manualCheckout = manualPaymentStore.record(record.id)
-            if manualCheckout?.canAuthorize == true { try authorizeManualCheckout(record.id) }
-            else { paymentNotice = "Acknowledgment saved. This policy still requires the matching receipt in private Drive storage."; startManualPolling() }
-            Task { if environment.recordsCustomerSessionMetrics { _ = try? await ManualPaymentSync.sync(record.id, store: manualPaymentStore) } }
-        } catch { paymentNotice = error.localizedDescription }
+            paymentNotice = nil
+            if !isCash, record.policy.receiptPolicy != .acknowledgmentOnly {
+                manualCheckoutStep = .receipt
+                try applySavedManualEvidence()
+                startManualPolling()
+            } else {
+                try authorizeManualCheckout(record.id)
+            }
+        } catch {
+            paymentNotice = "We couldn’t continue. Please try again or ask the attendant."
+        }
+        if let manualCheckout, manualCheckout.acknowledgedAt != nil {
+            syncManualFactsInBackground(manualCheckout.id)
+        }
     }
+
+    func skipOptionalManualReceipt() {
+        guard state == .awaitingQRPayment, manualCheckoutStep == .receipt, let record = manualCheckout,
+              record.policy.receiptPolicy == .optional, record.acknowledgedAt != nil, checkoutEntitlement == nil else { return }
+        do {
+            try manualPaymentStore.chooseOptionalReceipt(.skipped, for: record.id)
+            try applySavedManualEvidence()
+        } catch { paymentNotice = "We couldn’t continue. Please try again or ask the attendant." }
+    }
+
     func applySavedManualEvidence() throws {
         guard let id = manualCheckout?.id, let updated = manualPaymentStore.record(id), updated.sessionID == sessionIdentifier,
               state == .awaitingQRPayment, checkoutEntitlement == nil else { return }
         manualCheckout = updated
-        if updated.canAuthorize && updated.closedAt == nil { try authorizeManualCheckout(updated.id) }
+        guard updated.closedAt == nil, updated.completedAt == nil, updated.serverInteractionEnded != true,
+              updated.acknowledgedAt != nil else { return }
+        let policy = updated.policy.receiptPolicy
+        if policy != .acknowledgmentOnly { manualCheckoutStep = .receipt }
+        if policy == .optional, updated.optionalReceiptChoice == .pending, updated.receipt != nil,
+           Date() <= updated.acknowledgmentDeadline {
+            try manualPaymentStore.chooseOptionalReceipt(.uploaded, for: id)
+        }
+        let record = manualPaymentStore.record(id) ?? updated
+        manualCheckout = record
+        if record.canAuthorize && (policy != .required || Date() <= record.acknowledgmentDeadline) {
+            try authorizeManualCheckout(id)
+        } else {
+            expireManualCheckoutIfNeeded()
+        }
     }
+
+    func expireManualCheckoutIfNeeded() {
+        guard state == .awaitingQRPayment, let record = manualCheckout, checkoutEntitlement == nil,
+              Date() > record.acknowledgmentDeadline else { return }
+        if record.acknowledgedAt != nil && record.policy.receiptPolicy == .optional {
+            paymentNotice = "Your receipt can still be sent to the attendant. You can also continue to photos."
+        } else {
+            manualCheckoutStep = .expired
+            paymentNotice = record.acknowledgedAt == nil
+                ? "This checkout has expired. Ask the attendant for help."
+                : "Your payment acknowledgment is saved. Ask the attendant to help with your receipt."
+        }
+        stopPaymentPolling()
+    }
+
+    var canSwitchManualCheckoutToCash: Bool {
+        state == .awaitingQRPayment && manualCheckoutStep == .preparing && paymentNotice != nil
+            && !manualCheckoutIsRefreshing && manualCheckout?.policy.mode.acceptsCash == true
+            && manualCheckout?.acknowledgedAt == nil
+    }
+
+    func switchManualCheckoutToCash() {
+        guard canSwitchManualCheckoutToCash, let record = manualCheckout,
+              let format = selectedBoothFormat, let originalDate = sessionCreatedAt else { return }
+        do {
+            try manualPaymentStore.close(record.id)
+            stopPaymentPolling()
+            manualCheckout = nil
+            paymentNotice = nil
+            // The digital details were never shown. Retain that unused claim and carry the
+            // frozen quote into a distinct cash session, without replaying the digital identity.
+            let newSessionID = environment.makeSessionIdentifier(Date())
+            guard newSessionID != record.sessionID,
+                  prepareSessionContext(format: format, sessionIdentifier: newSessionID, createdAt: originalDate) else {
+                state = .error("Please ask the attendant to prepare cash payment.")
+                return
+            }
+            state = .cashAttestation
+            if record.serverID != nil { syncManualFactsInBackground(record.id) }
+        } catch { paymentNotice = "We couldn’t switch to cash. Please ask the attendant." }
+    }
+
     private func authorizeManualCheckout(_ id: String) throws {
         guard checkoutEntitlement == nil, let record = manualPaymentStore.record(id), record.sessionID == sessionIdentifier,
-              record.id == manualCheckout?.id, record.closedAt == nil, record.copies == selectedCheckoutCopies,
-              record.format == selectedBoothFormat?.rawValue else { throw SetupFailure("This confirmation does not belong to the current guest.") }
+              record.id == manualCheckout?.id, record.closedAt == nil, record.completedAt == nil, record.printingBeganAt == nil,
+              record.copies == selectedCheckoutCopies, record.format == selectedBoothFormat?.rawValue else {
+            throw SetupFailure("This confirmation does not belong to the current guest.")
+        }
         let entitlement = try manualPaymentStore.authorize(id)
         try persistCriticalRecoverySnapshot(stage: .formatSelected)
         checkoutEntitlement = entitlement
         manualCheckout = manualPaymentStore.record(id)
         selectedPrintCopies = record.copies
-        paymentPollTask?.cancel(); paymentPollTask = nil
+        stopPaymentPolling()
         prepareCameraAfterAuthorization()
     }
+
     func refreshManualPayment() async {
-        guard environment.recordsCustomerSessionMetrics else { return }
-        guard let record = manualCheckout, checkoutEntitlement == nil else { return }
+        guard state == .awaitingQRPayment, !manualCheckoutIsRefreshing, let record = manualCheckout,
+              checkoutEntitlement == nil, manualCheckoutStep == .preparing || manualCheckoutStep == .receipt else { return }
+        expireManualCheckoutIfNeeded()
+        guard manualCheckoutStep != .expired else { return }
         let generation = customerSessionGeneration
+        let checkingReadiness = manualCheckoutStep == .preparing
+        manualCheckoutIsRefreshing = true
+        defer {
+            if isCurrentCustomerSession(generation), manualCheckout?.id == record.id { manualCheckoutIsRefreshing = false }
+        }
         do {
-            let updated = try await ManualPaymentSync.refresh(record.id, store: manualPaymentStore)
-            guard isCurrentCustomerSession(generation), manualCheckout?.id == record.id, state == .awaitingQRPayment else { return }
-            manualCheckout = updated; paymentNotice = nil
+            guard environment.recordsCustomerSessionMetrics || injectedPaymentsClient != nil else { throw PaymentsAPIError.unavailable }
+            let updated = try await ManualPaymentSync.refresh(record.id, store: manualPaymentStore,
+                verifyReceiptReadiness: checkingReadiness, using: injectedPaymentsClient)
+            guard !Task.isCancelled, isCurrentCustomerSession(generation), manualCheckout?.id == record.id,
+                  state == .awaitingQRPayment else { return }
+            manualCheckout = updated
+            paymentNotice = nil
+            if checkingReadiness && manualCheckoutStep == .preparing { manualCheckoutStep = .pay }
             try applySavedManualEvidence()
+            expireManualCheckoutIfNeeded()
         } catch {
-            guard isCurrentCustomerSession(generation), manualCheckout?.id == record.id else { return }
+            guard !Task.isCancelled, isCurrentCustomerSession(generation), manualCheckout?.id == record.id,
+                  state == .awaitingQRPayment else { return }
+            // A successful registration alone cannot reveal payment instructions.
             manualCheckout = manualPaymentStore.record(record.id)
-            paymentNotice = record.policy.receiptPolicy == .required
-                ? "Mobile or private storage is unavailable. Your original claim is saved. Ask the attendant; do not pay again."
-                : "Mobile receipt upload is unavailable. You can still acknowledge payment here; your claim is saved locally."
+            paymentNotice = checkingReadiness ? "Try again before paying."
+                : record.policy.receiptPolicy == .optional ? "Receipt upload is temporarily unavailable. You can skip this step."
+                : "We couldn’t check your receipt. If you’ve uploaded it, check again or ask the attendant."
         }
     }
+
     private func startManualPolling() {
-        paymentPollTask?.cancel()
+        guard manualCheckoutStep == .preparing || manualCheckoutStep == .receipt, paymentPollTask == nil else { return }
+        let owner = UUID()
+        let generation = customerSessionGeneration
+        paymentPollOwner = owner
         paymentPollTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if self.paymentPollOwner == owner { self.stopPaymentPolling() }
+            }
+            let checksReceipt = self.manualCheckoutStep == .receipt
             for attempt in 0..<120 {
-                guard let self, !Task.isCancelled, self.state == .awaitingQRPayment, self.isManualPaymentSession else { return }
+                guard self.ownsPaymentPolling(owner, generation: generation), !Task.isCancelled else { return }
                 await self.refreshManualPayment()
+                guard checksReceipt, self.manualCheckoutStep == .receipt,
+                      self.manualCheckout.map({ Date() <= $0.acknowledgmentDeadline }) == true else { return }
                 try? await Task.sleep(for: .seconds(attempt < 3 ? 2 : (attempt < 12 ? 5 : 15)))
             }
         }
     }
+
+    private func syncManualFactsInBackground(_ id: String) {
+        guard environment.recordsCustomerSessionMetrics else { return }
+        Task { _ = try? await ManualPaymentSync.sync(id, store: manualPaymentStore) }
+    }
+
     private func closeManualGuest() {
         guard !isTransitionActive, !printerState.isWorking, !isPrintBatchActive,
               !printerCoordinator.requiresRecovery, !operationalState.hasUnresolvedPrint, let record = manualCheckout else { return }
@@ -3429,12 +3569,13 @@ extension BoothSessionViewModel {
             }
             try manualPaymentStore.close(record.id)
             resetToWelcome(); operationalState.customerSessionActive = false; operationalState.refresh()
-            Task { if environment.recordsCustomerSessionMetrics { _ = try? await ManualPaymentSync.sync(record.id, store: manualPaymentStore) } }
+            syncManualFactsInBackground(record.id)
         } catch { paymentNotice = "Could not retain this claim safely: \(error.localizedDescription)" }
     }
     private func resumeManualCheckout(_ id: String) {
         guard let record = manualPaymentStore.record(id), record.completedAt == nil, record.printingBeganAt == nil,
-              let format = BoothFormat(rawValue: record.format), record.entitlement != nil,
+              let format = BoothFormat(rawValue: record.format), record.acknowledgedAt != nil, record.closedAt == nil,
+              record.entitlement != nil || Date() <= record.acknowledgmentDeadline,
               printOutbox?.copiesThatMayHavePrinted(sessionID: record.sessionID).isEmpty == true else {
             state = .error("This original claim needs operator review. A copy that may have printed cannot be sent again automatically."); return
         }
@@ -3450,7 +3591,14 @@ extension BoothSessionViewModel {
             guard prepareSessionContext(format: format, sessionIdentifier: record.sessionID, createdAt: record.createdAt) else { return }
             manualCheckout = manualPaymentStore.record(id);checkoutEntitlement = record.entitlement
             selectedCheckoutCopies = record.copies;selectedPrintCopies = record.copies
-            prepareCameraAfterAuthorization()
+            if checkoutEntitlement != nil {
+                prepareCameraAfterAuthorization()
+            } else {
+                manualCheckoutStep = .receipt
+                state = .awaitingQRPayment
+                try applySavedManualEvidence()
+                startManualPolling()
+            }
         } catch { state = .error(error.localizedDescription) }
     }
 }

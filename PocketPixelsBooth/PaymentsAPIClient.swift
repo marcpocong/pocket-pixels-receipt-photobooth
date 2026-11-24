@@ -792,8 +792,9 @@ extension PaymentsAPIClient {
     func createManualCheckout(_ record: ManualCheckoutRecord) async throws -> ManualCheckoutStatus {
         try await send("v2/booth/checkouts", method: "POST", body: ManualCreate(record))
     }
-    func manualCheckoutStatus(_ id: String) async throws -> ManualCheckoutStatus {
-        try await send("v2/booth/checkouts/\(id)", method: "GET", body: Optional<String>.none)
+    func manualCheckoutStatus(_ id: String, verifyReceiptReadiness: Bool = false) async throws -> ManualCheckoutStatus {
+        let suffix = verifyReceiptReadiness ? "/receipt-readiness" : ""
+        return try await send("v2/booth/checkouts/\(id)\(suffix)", method: "GET", body: Optional<String>.none)
     }
     func syncManualFacts(_ record: ManualCheckoutRecord, printEvidence: [PrintOutboxEntry] = []) async throws -> ManualCheckoutStatus {
         guard let id = record.serverID else { throw PaymentsAPIError.invalidResponse }
