@@ -8,6 +8,7 @@ nonisolated struct RegularBoothSettings: Codable, Equatable, Sendable {
     var defaultCopies = 1
     var maxCopies = 10
     var guestCopyChoice = true
+    var manualPayment: ManualPaymentPolicy? = nil
 
     /// Optional for backwards compatibility with existing copy/format defaults.
     var receiptProfile: EventProfile?
@@ -39,6 +40,7 @@ nonisolated struct RegularBoothSettings: Codable, Equatable, Sendable {
     var policy: PaymentPolicySnapshot {
         var value = PaymentPolicySnapshot.legacyPrepaid
         value.revisionID = "regular-booth-v1"
+        value.manualPayment = manualPayment
         value.supportedFormatRawValues = formats
         value.defaultCopies = defaultCopies; value.maxCopies = maxCopies
         value.prepaidGuestCopyChoice = guestCopyChoice

@@ -1,5 +1,7 @@
 # Implementation handoff and release gates
 
+> Current implementation and Phase 3 handoff: [Phase 2 delivery](PHASE2.md). The Phase 1 audit/proposal below is historical; the owner's Phase 2 request and implemented local acknowledgment architecture supersede its proposed online-only digital restriction and entitlement rebuild.
+
 **Phase 1 complete, 24 November 2026, Asia/Manila. Phase 2 may begin; stable release remains blocked.** Baseline `8baadb77c53321c576d4fe160efc66def199b8b8`; only preservation/documentation changed. Start with [readiness](README.md), [preservation](PRESERVATION.md) and the [concrete contract](PAYMENT-TRANSITION.md). Those documents replace another broad re-audit unless fresh repository/deployment state differs.
 
 ## Ordered backlog

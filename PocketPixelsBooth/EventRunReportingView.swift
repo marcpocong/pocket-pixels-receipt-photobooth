@@ -35,7 +35,7 @@ nonisolated struct EventRunFinancialTotals: Equatable, Sendable {
 
 /// One reporting home: Overview, Activity, Sales, History and Manage share a single run picker.
 /// Operational numbers come from this iPad's exact session journal; money comes only from the
-/// authoritative server orders and is never inferred from names, dates or local guesses.
+/// authoritative server orders or the separate manual acknowledgment journal, never names/dates.
 struct EventRunReportingView: View {
     enum Tab: String, CaseIterable, Identifiable {
         case overview = "Overview", activity = "Sessions", sales = "Sales", printing = "Printing", galleries = "Galleries", history = "History", manage = "Manage"
@@ -43,6 +43,7 @@ struct EventRunReportingView: View {
         var id: String { rawValue }
     }
 
+    @ObservedObject private var manualPayments = ManualPaymentStore.shared
     @ObservedObject private var workspace: OperatorWorkspace
     @ObservedObject private var store: EventRunStore
     @ObservedObject private var library: EventDesignLibraryStore
@@ -378,6 +379,17 @@ struct EventRunReportingView: View {
     // MARK: Sales
 
     @ViewBuilder private var salesTab: some View {
+        let manual = manualPayments.records.filter { $0.runID == selected?.id && selected != nil }
+        if !manual.isEmpty {
+            Section("Manual payments · original run") {
+                money("Cash acknowledged", manual.filter { $0.method == "CASH" && $0.acknowledgedAt != nil }.reduce(0) { $0 + $1.totalCentavos })
+                money("Digital acknowledged", manual.filter { $0.isDigital && $0.acknowledgedAt != nil }.reduce(0) { $0 + $1.totalCentavos })
+                money("Independently confirmed", manual.reduce(0) { $0 + ($1.reviews.last?.outcome == .fundsConfirmed ? ($1.reviews.last?.confirmedCentavos ?? 0) : 0) })
+                Text("Overlapping views of the same payments; do not add confirmed and acknowledged amounts. Receipt submission alone does not verify funds.").font(.footnote)
+                ForEach(manual) { record in NavigationLink("\(record.method == "CASH" ? "Cash" : "Digital") · \(PHPPriceFormatter.string(centavos: record.totalCentavos)) · \(record.verification)") { ManualPaymentRecordView(id: record.id) } }
+                NavigationLink("Filter & Export Manual Payment Records") { ManualPaymentHistoryView() }
+            }
+        }
         if let run = selected, let eventID = run.context.commercialEventID {
             Section {
                 LabeledContent("Environment", value: run.context.serverBinding?.hasPrefix("live:") == true ? "LIVE" : "TEST · excluded from revenue")
@@ -420,8 +432,8 @@ struct EventRunReportingView: View {
                     }
                 }
             }
-        } else if selected != nil {
-            Section { Text("This run didn't collect payments (prepaid or free). Its sessions and prints are under Sessions.").foregroundStyle(OperatorPalette.secondaryText) }
+        } else if selected != nil && manual.isEmpty {
+            Section { Text("No manual payment records are saved for this run. Prepaid/free sessions and prints are under Sessions.").foregroundStyle(OperatorPalette.secondaryText) }
         }
         if selected == nil { Section { Text("Select an event run above, or open an authoritative whole-event report below.").foregroundStyle(OperatorPalette.secondaryText) } }
         Section {

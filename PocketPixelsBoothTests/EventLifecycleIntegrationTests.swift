@@ -368,7 +368,7 @@ import SwiftUI
     }
     private func startPaid(_ booth: Booth, price: String = "50", file: StaticString = #filePath, line: UInt = #line) async -> SessionSetupCoordinator {
         let setup = booth.setup()
-        await setup.choosePayment(.qrOnly)
+        await setup.choosePayment(.cashOnly)
         await setup.createEvent(name: "Gala Night", venue: "Ballroom")
         setup.policy.priceText = price
         let started = await setup.startAccepting()
@@ -647,7 +647,7 @@ import SwiftUI
 
         let reuse = booth.setup()
         await reuse.setEventMode(true)
-        await reuse.choosePayment(.qrOnly)
+        await reuse.choosePayment(.cashOnly)
         await reuse.chooseDesign(try XCTUnwrap(booth.runs.runs.last?.context.designID))
         await reuse.refresh()
         XCTAssertTrue(reuse.validation?.contains("Start New Paid Occurrence") == true, reuse.validation ?? "")
@@ -690,7 +690,7 @@ import SwiftUI
         _ = await booth.lifecycle().end(scope: .thisBoothAndCommercialEvent)
         let reuse = booth.setup()
         await reuse.setEventMode(true)
-        await reuse.choosePayment(.qrOnly)
+        await reuse.choosePayment(.cashOnly)
         await reuse.chooseDesign(try XCTUnwrap(booth.runs.runs.last?.context.designID))
         await reuse.refresh()
         let designID = try XCTUnwrap(reuse.design?.id)

@@ -261,7 +261,8 @@ struct BoothSessionView: View {
         case .choosingPayment:
             CheckoutPaymentMethodView(viewModel: viewModel)
         case .awaitingQRPayment:
-            QRPhPaymentView(viewModel: viewModel, onGetHelp: { openAdminAccess() })
+            if viewModel.isManualPaymentSession { ManualDigitalCheckoutView(viewModel: viewModel, onHelp: { openAdminAccess() }) }
+            else { QRPhPaymentView(viewModel: viewModel, onGetHelp: { openAdminAccess() }) }
         case .cashAttestation:
             CashAttestationView(viewModel: viewModel)
         case .paymentReconciliation:

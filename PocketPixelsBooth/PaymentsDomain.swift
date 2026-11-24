@@ -39,6 +39,7 @@ nonisolated struct PaymentPolicySnapshot: Codable, Equatable, Sendable {
     var prepaidGuestCopyChoice: Bool
     var supportedFormatRawValues: [String]
     var offlineValidUntil: Date?
+    var manualPayment: ManualPaymentPolicy? = nil
 
     static var legacyPrepaid: PaymentPolicySnapshot {
         PaymentPolicySnapshot(
@@ -57,6 +58,7 @@ nonisolated struct PaymentPolicySnapshot: Codable, Equatable, Sendable {
     }
 
     var validationMessage: String? {
+        if let message = manualPayment?.validationMessage { return message }
         guard Self.copyRange.contains(maxCopies),
               Self.copyRange.contains(defaultCopies),
               defaultCopies <= maxCopies,
@@ -65,7 +67,7 @@ nonisolated struct PaymentPolicySnapshot: Codable, Equatable, Sendable {
         }
         if commercialMode == .payPerPrint {
             guard unitPriceCentavos > 0 else { return "Pay-per-print events need a positive price." }
-            guard cashEnabled || qrPhEnabled else { return "Enable Cash or QR Ph." }
+            guard cashEnabled || qrPhEnabled || manualPayment?.mode.acceptsDigital == true else { return "Enable Cash or QR Ph." }
         } else if unitPriceCentavos != 0 {
             return "Private/prepaid events cannot charge guests."
         }
@@ -122,6 +124,8 @@ nonisolated enum CheckoutAuthorizationSource: String, Codable, Sendable {
     case verifiedQRPh = "VERIFIED_QRPH"
     case unverifiedCashDeclared = "UNVERIFIED_CASH_DECLARED"
     case localUnsyncedCashDeclared = "LOCAL_UNSYNCED_CASH_DECLARED"
+    case manualCashAcknowledged = "MANUAL_CASH_ACKNOWLEDGED"
+    case manualDigitalAcknowledged = "MANUAL_DIGITAL_ACKNOWLEDGED"
 }
 
 nonisolated struct CheckoutEntitlement: Codable, Equatable, Sendable, Identifiable {

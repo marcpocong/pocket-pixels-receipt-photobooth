@@ -81,6 +81,9 @@ struct RegularBoothSettingsView: View {
     }
     private var settingsForm: some View {
         Form {
+            Section("Payment") { ManualPolicyEditor(policy: $settings.manualPayment)
+                NavigationLink("Payment Records & Receipts") { ManualPaymentHistoryView() }
+            }
             Section { OperatorSectionHeading(title: "Next guest defaults", detail: "Formats, quantities and receipt settings for Regular Booth. Event settings stay with each event.") }
                 .listRowBackground(OperatorPalette.canvas)
             if !message.isEmpty { Section { Text(message).accessibilityIdentifier("regular-defaults-save-result") } }

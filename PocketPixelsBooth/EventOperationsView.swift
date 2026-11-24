@@ -137,6 +137,10 @@ struct OperatorRecoveryView: View {
                     }
                 }
             }
+            Section("Manual payment claims") {
+                NavigationLink("Original Claims, Private Receipts & Review") { ManualPaymentHistoryView() }
+                Text("A past claim or unreviewed receipt does not block other guests. Recover only the original authorization; inspect paper before any reprint.").font(.footnote)
+            }
             CheckoutRecoverySection()
             Section("Continue operation") {
                 Button("End Event & Retain Follow-ups") { showsEndEvent = true }

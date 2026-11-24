@@ -450,6 +450,11 @@ nonisolated struct EventSetupRequests: SessionSetupAPI {
     // MARK: Payment choice
 
     /// "How will guests pay?" as one choice, mapped onto the existing policy model.
+    var manualPaymentSummary: String {
+        if mode == .localPrepaid { return prepaid.activePolicy.manualPayment?.mode.title ?? "No Payment" }
+        return paymentChoice.methodSummary + (policy.qrPhEnabled ? " — replacement required" : " — existing cash policy")
+    }
+
     var paymentChoice: GuestPaymentChoice {
         guard mode == .serverManaged else { return .noPayment }
         if detail != nil { return GuestPaymentChoice(qrPhEnabled: policy.qrPhEnabled, cashEnabled: policy.cashEnabled) }
@@ -757,6 +762,7 @@ nonisolated struct EventSetupRequests: SessionSetupAPI {
             return "This paid event has ended. Use Start New Paid Occurrence to reuse this design with a fresh paid event; the ended event keeps its sales."
         }
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Enter an event name." }
+        if policy.qrPhEnabled { return "New QR Ph checkout is retired. Choose an explicit replacement payment mode for future guests." }
         if policy.commercialMode != .payPerPrint { return "This saved event is prepaid. Choose a pay-per-print event." }
         return policy.validationMessage()
     }

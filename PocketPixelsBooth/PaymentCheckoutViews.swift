@@ -59,7 +59,7 @@ struct CheckoutCopySelectionView: View {
 
     private var continueTitle: String {
         switch viewModel.soleOfferedPaymentMethod {
-        case .qrPh?: "Continue to QR Ph Payment"
+        case .qrPh?: viewModel.isManualPaymentSession ? "Continue to Digital Payment" : "Continue to QR Ph Payment"
         case .cash?: "Continue to Cash Payment"
         case nil: "Continue to Payment"
         }
@@ -238,14 +238,14 @@ struct CheckoutPaymentMethodView: View {
                         .font(MadeToKeepTheme.Typography.serif(size: 32))
                 }
                 CheckoutNoticeView(message: viewModel.paymentNotice)
-                if viewModel.commercialEvent.activePolicy.qrPhEnabled {
+                if viewModel.commercialEvent.activePolicy.qrPhEnabled || viewModel.activeManualPolicy?.mode.acceptsDigital == true {
                     Button { viewModel.chooseQRPh() } label: {
-                        Label("Pay with QR Ph", systemImage: "qrcode")
+                        Label(viewModel.isManualPaymentSession ? "Digital Payment" : "Pay with QR Ph", systemImage: "qrcode")
                             .frame(maxWidth: .infinity, minHeight: 48)
                     }
                     .buttonStyle(MadeToKeepPrimaryButtonStyle())
                     .disabled(!viewModel.canChooseQRPh || viewModel.isCheckoutTransitionActive)
-                    if operations.networkPathStatus != "Online" {
+                    if operations.networkPathStatus != "Online" && !viewModel.isManualPaymentSession {
                         Text("QR Ph is unavailable while this iPad is offline. A pending QR payment is never switched to cash automatically.")
                             .font(.callout)
                             .foregroundStyle(MadeToKeepTheme.ColorPalette.mutedInk)

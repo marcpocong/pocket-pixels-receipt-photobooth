@@ -6,6 +6,7 @@ struct OperatorDashboardView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @ObservedObject private var workspace: OperatorWorkspace
     @ObservedObject private var lifecycle: EventLifecycleCoordinator
+    @ObservedObject private var manualPayments = ManualPaymentStore.shared
     @ObservedObject private var operations = EventOperationalState.shared
     @ObservedObject private var printer = PrinterCoordinator.shared
     @ObservedObject private var bluetooth = PrinterBluetoothService.shared
@@ -99,6 +100,9 @@ struct OperatorDashboardView: View {
                 if CommercialPolicySource.load() == .serverManaged {
                     link("Payments", detail: lifecycle.lastCheckedAt.map { "Event server last checked \($0.formatted(date: .omitted, time: .shortened)). Provider availability is not checked here." } ?? "Event server not checked this visit. Provider availability is unknown.", symbol: "creditcard", route: .payments)
                 }
+                if CommercialPolicySource.load() != .serverManaged {
+                    link("Payments", detail: "Local acknowledgment · \(manualPayments.records.filter { $0.syncError != nil }.count) cloud sync pending. Review does not block other guests.", symbol: "creditcard", route: .payments)
+                }
                 TimelineView(.periodic(from: .now, by: 60)) { context in
                     link("Monitoring V3", detail: OperatorEvidence.monitoringDetail(lastAccepted: monitoring.lastHeartbeat, configured: !monitoring.endpoint.isEmpty, now: context.date), symbol: "antenna.radiowaves.left.and.right", route: .monitoring)
                 }
@@ -172,6 +176,7 @@ struct OperatorEquipmentView: View {
 
             Section("Connections") {
                 NavigationLink("Payments Connection & Maintenance", value: OperatorWorkspaceRoute.payments)
+                NavigationLink("Private Receipt Storage & Retention") { ManualReceivingAccountView() }
                 LabeledContent("Network path", value: operations.networkPathStatus)
                 Text("A network path does not verify internet, a payment provider or gallery delivery.")
                     .font(OperatorStyle.TypeScale.metadata).foregroundStyle(OperatorPalette.secondaryText)

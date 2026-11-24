@@ -155,6 +155,7 @@ nonisolated struct ProductionHealthReport: Equatable, Sendable {
 /// Operator sheet showing the report, with a read-only Check Now and a privacy-safe export.
 struct ProductionHealthSheet: View {
     @ObservedObject var lifecycle: EventLifecycleCoordinator
+    @ObservedObject private var manualPayments = ManualPaymentStore.shared
     @ObservedObject private var recovery = PaymentRecoveryCoordinator.shared
     @ObservedObject private var operations = EventOperationalState.shared
     @ObservedObject private var printer = PrinterCoordinator.shared
@@ -199,6 +200,13 @@ struct ProductionHealthSheet: View {
                     Label(report.overall.rawValue, systemImage: report.overall.systemImage).font(.headline)
                     Text("Observed \(report.generatedAt.formatted(date: .omitted, time: .standard)). Nothing here changes payments, prints or the event.")
                         .font(.footnote).foregroundStyle(.secondary)
+                }
+                Section("Manual payment service") {
+                    LabeledContent("Digital receiving account", value: manualPayments.receiver?.isReady == true ? "Configured · not a funds check" : "Disabled / not configured")
+                    LabeledContent("Cloud sync pending", value: String(manualPayments.records.filter { $0.syncError != nil }.count))
+                    if let issue = manualPayments.storageError { Text(issue).foregroundStyle(OperatorPalette.danger) }
+                    Text("Free, cash and permitted local acknowledgments work without this service. Required receipts wait for matching private storage proof. Past review and sync do not lock other guests.").font(.footnote)
+                    NavigationLink("Payment Records & Original Claim Recovery") { ManualPaymentHistoryView() }
                 }
                 Section("Health") {
                     ForEach(report.items) { item in

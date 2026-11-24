@@ -487,9 +487,10 @@ actor PaymentsAPIClient {
     }
 
     private func perform(_ path: String, method: String, bodyData: Data?, idempotencyKey: String?, ifMatch: Int?) async throws -> (Data, HTTPURLResponse) {
-        let selectedCredentials = path.hasPrefix("v1/admin/") ? operatorCredentials : credentials
+        let operatorPath = path.hasPrefix("v1/admin/") || path.hasPrefix("v2/admin/")
+        let selectedCredentials = operatorPath ? operatorCredentials : credentials
         guard let token = try selectedCredentials.load() else {
-            throw PaymentsAPIError.configuration(path.hasPrefix("v1/admin/") ? "Separate operator pairing is required for LIVE administration." : "Payment device pairing is required.")
+            throw PaymentsAPIError.configuration(operatorPath ? "Separate operator pairing is required for administration." : "Payment device pairing is required.")
         }
         guard let url = configuration.url(for: path) else {
             throw PaymentsAPIError.configuration("The payments URL is invalid.")
@@ -765,5 +766,55 @@ nonisolated struct ServerPolicyDraft: Codable, Equatable, Sendable {
             features: [:],
             offlineValidUntil: paid && cashEnabled && offlineCashEnabled ? offlineValidUntil : nil
         )
+    }
+}
+
+extension PaymentsAPIClient {
+    nonisolated struct ManualAccepted: Codable, Sendable { let accepted: Bool }
+    nonisolated struct ManualCreate: Encodable, Sendable {
+        let localCheckoutId: String; let sessionId: String; let eventId: String; let eventName: String; let runId: String?
+        let format: String; let copies: Int; let unitPriceCentavos: Int; let method: String; let receiptPolicy: String
+        let receiverId: String?; let snapshotHash: String; let mode: String; let createdAt: Date
+        init(_ r: ManualCheckoutRecord) {
+            localCheckoutId=r.id;sessionId=r.sessionID;eventId=r.eventID;eventName=r.eventName;runId=r.runID
+            format=r.format;copies=r.copies;unitPriceCentavos=r.policy.unitPriceCentavos;method=r.method
+            receiptPolicy=r.policy.receiptPolicy.rawValue;receiverId=r.receiver?.id;snapshotHash=r.snapshotHash;mode=r.policy.mode.rawValue;createdAt=r.createdAt
+        }
+    }
+    nonisolated struct ManualFacts: Encodable, Sendable {
+        let snapshotHash: String; let acknowledgedAt: Date?; let closedAt: Date?; let completedAt: Date?; let printEvidence: [PrintOutboxEntry]
+    }
+    nonisolated struct ManualReceiptPreview: Decodable, Sendable { let mimeType: String; let base64: String; let folderURL: URL }
+    func registerManualReceiver(_ value: ManualReceivingAccount) async throws {
+        let result: ManualAccepted = try await send("v2/admin/receiving-accounts", method: "POST", body: value)
+        guard result.accepted else { throw PaymentsAPIError.invalidResponse }
+    }
+    func createManualCheckout(_ record: ManualCheckoutRecord) async throws -> ManualCheckoutStatus {
+        try await send("v2/booth/checkouts", method: "POST", body: ManualCreate(record))
+    }
+    func manualCheckoutStatus(_ id: String) async throws -> ManualCheckoutStatus {
+        try await send("v2/booth/checkouts/\(id)", method: "GET", body: Optional<String>.none)
+    }
+    func syncManualFacts(_ record: ManualCheckoutRecord, printEvidence: [PrintOutboxEntry] = []) async throws -> ManualCheckoutStatus {
+        guard let id = record.serverID else { throw PaymentsAPIError.invalidResponse }
+        return try await send("v2/booth/checkouts/\(id)/facts", method: "POST",
+            body: ManualFacts(snapshotHash: record.snapshotHash, acknowledgedAt: record.acknowledgedAt, closedAt: record.closedAt, completedAt: record.completedAt, printEvidence: printEvidence))
+    }
+    func syncManualReview(_ review: ManualPaymentReview, checkoutID: String) async throws {
+        let result: ManualAccepted = try await send("v2/admin/checkouts/\(checkoutID)/reviews", method: "POST", body: review)
+        guard result.accepted else { throw PaymentsAPIError.invalidResponse }
+    }
+    nonisolated struct ManualRetention: Encodable, Sendable { let days: Int; let approved = true }
+    nonisolated struct ManualTrash: Encodable, Sendable { let reason: String; let approved = true }
+    func establishManualRetention(days: Int) async throws {
+        let result: ManualAccepted = try await send("v2/admin/retention", method: "POST", body: ManualRetention(days: days))
+        guard result.accepted else { throw PaymentsAPIError.invalidResponse }
+    }
+    func trashManualReceipt(_ id: String, reason: String) async throws {
+        let result: ManualAccepted = try await send("v2/admin/receipts/\(id)/trash", method: "POST", body: ManualTrash(reason: reason))
+        guard result.accepted else { throw PaymentsAPIError.invalidResponse }
+    }
+    func privateManualReceipt(_ id: String) async throws -> ManualReceiptPreview {
+        try await send("v2/admin/receipts/\(id)", method: "GET", body: Optional<String>.none)
     }
 }

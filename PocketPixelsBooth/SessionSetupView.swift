@@ -184,7 +184,7 @@ struct SessionSetupView: View {
     }
 
     @ViewBuilder private var workspacePanels: some View {
-        inlineSection("Payment & Prints", summary: "\(setup.paymentChoice.title) · \(copiesSummary)", id: "event-payment-prints", expanded: $paymentExpanded) {
+        inlineSection("Payment & Prints", summary: "\(setup.manualPaymentSummary) · \(copiesSummary)", id: "event-payment-prints", expanded: $paymentExpanded) {
             paymentSection
         }
         SetupCard {
@@ -298,22 +298,20 @@ struct SessionSetupView: View {
     @ViewBuilder private var paymentSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("How will guests pay?").font(.title3.weight(.semibold))
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: typeSize.isAccessibilitySize ? 1 : 2), spacing: 10) {
-                ForEach(GuestPaymentChoice.allCases.filter { !setup.editingLiveEvent || $0.isPaid == (setup.mode == .serverManaged) }) { choice in
-                    PaymentOptionCard(choice: choice, selected: setup.paymentChoice == choice) { endEditing(); Task { await setup.choosePayment(choice) } }
-                }
-            }
-            Divider()
-            if setup.mode == .localPrepaid { freeSettings } else { paidSettings }
-            if setup.paymentChoice == .qrOnly {
-                Toggle("Unattended · QR Ph only", isOn: $setup.unattendedQR)
-                Text("Checks camera, printer, connection and checkout storage before issuing a payment QR. Guests can save an unresolved checkout for owner-assisted recovery.").font(.footnote).foregroundStyle(OperatorPalette.secondaryText)
+            if setup.mode == .serverManaged {
+                Label(setup.policy.qrPhEnabled ? "Historical QR setup needs an explicit replacement" : "Existing Cash Only policy", systemImage: setup.policy.qrPhEnabled ? "exclamationmark.triangle" : "banknote")
+                Text(setup.policy.qrPhEnabled ? "Original PayMongo policies and records are retained. Choose a new local payment mode for future guests; old QR payments are never reclassified as cash." : "The original cash configuration and recovery rules are retained. You can explicitly choose a local payment configuration for future guests.").font(.callout)
+                Button(setup.policy.qrPhEnabled ? "Choose Replacement Payment Mode" : "Choose Local Payment Configuration") { Task { await setup.choosePayment(.noPayment) } }
+            } else {
+                ManualPolicyEditor(policy: $setup.prepaid.activePolicy.manualPayment)
+                Divider()
+                freeSettings
             }
         }
     }
 
     @ViewBuilder private var freeSettings: some View {
-        Label("No guest payment required.", systemImage: "gift").font(.headline)
+        Label(setup.prepaid.activePolicy.manualPayment?.mode.title ?? "No guest payment required.", systemImage: "gift").font(.headline)
         SetupCopyControl(title: "Included copies", value: $setup.prepaid.activePolicy.defaultCopies, range: 1...setup.prepaid.activePolicy.maxCopies)
         SetupCopyControl(title: "Maximum copies", value: Binding(get: { setup.prepaid.activePolicy.maxCopies }, set: {
             setup.prepaid.activePolicy.maxCopies = $0; setup.prepaid.activePolicy.defaultCopies = min(setup.prepaid.activePolicy.defaultCopies, $0)
@@ -495,7 +493,11 @@ struct SetupSummaryRows: View {
         let design = setup.design
         LabeledContent("Session", value: setup.eventModeEnabled ? "Event" : "Regular Booth")
         if setup.eventModeEnabled { LabeledContent("Event", value: design?.displayName ?? "None selected") }
-        LabeledContent("Payment", value: setup.paymentChoice.methodSummary)
+        LabeledContent("Payment", value: setup.manualPaymentSummary)
+        if let manual = setup.prepaid.activePolicy.manualPayment, setup.mode == .localPrepaid, manual.mode != .none {
+            LabeledContent("Price per copy", value: PHPPriceFormatter.string(centavos: manual.unitPriceCentavos))
+            if manual.mode.acceptsDigital { LabeledContent("Receipt policy", value: manual.receiptPolicy.title) }
+        }
         if setup.mode == .serverManaged {
             LabeledContent("Price per copy", value: setup.policy.unitPriceCentavos.map { PHPPriceFormatter.string(centavos: $0) } ?? "Invalid price")
             LabeledContent("Copies", value: "Default \(setup.policy.defaultCopies) · maximum \(setup.policy.maxCopies)")

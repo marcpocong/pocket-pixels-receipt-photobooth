@@ -76,7 +76,7 @@ struct CurrentEventCard: View {
                     .accessibilityIdentifier("current-event-status")
                 if busy { ProgressView() }
             }
-            Text(regular ? "Regular Booth defaults · no payment required" : status.detail).font(.callout).foregroundStyle(OperatorPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+            Text(regular ? "Regular Booth defaults · \(paymentLine)" : status.detail).font(.callout).foregroundStyle(OperatorPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -237,9 +237,10 @@ struct CurrentEventCard: View {
         return "Needs operator attention"
     }
     private var paymentLine: String {
-        if regular { return "No payment required" }
+        if regular { return RegularBoothSettings.load().manualPayment?.mode.title ?? "No payment required" }
         if !paid {
             let policy = local.activePolicy
+            if let manual = policy.manualPayment, manual.mode != .none { return "\(manual.mode.title) · \(PHPPriceFormatter.string(centavos: manual.unitPriceCentavos))/copy" }
             return "No payment · \(policy.defaultCopies) included, up to \(policy.maxCopies)"
         }
         if let event = server?.event {
@@ -351,7 +352,7 @@ struct EndEventSheet: View {
                     } header: { Text("What ends") } footer: {
                         Text(closesCommercial
                              ? "Ends the paid event for every booth. It cannot be restarted; reuse the design with a new paid occurrence."
-                             : "This iPad switches to Regular Booth with no payment required. Other booths keep the paid event. The original server connection must be reachable to verify the switch.")
+                             : "This iPad switches to Regular Booth with its saved payment policy. Other booths keep the paid event. The original server connection must be reachable to verify the switch.")
                     }
                 }
                 Section("Before ending") {
@@ -361,7 +362,7 @@ struct EndEventSheet: View {
                     if operations.pendingUploadCount > 0 { Text("Keep the app open online afterwards; waiting galleries keep uploading.").font(.footnote) }
                 }
                 Section("Kept after ending") {
-                    Text("Sessions, receipts, photos, galleries, print history, payment orders and entitlements, and this run's reports. This iPad returns to Regular Booth with your saved defaults and no payment required.")
+                    Text("Sessions, receipts, photos, galleries, print history, payment orders and entitlements, and this run's reports. This iPad returns to Regular Booth with your saved defaults and payment policy.")
                         .font(.callout)
                 }
                 Section {

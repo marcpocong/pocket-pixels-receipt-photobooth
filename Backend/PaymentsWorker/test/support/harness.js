@@ -96,12 +96,12 @@ export async function generateSigningKey() {
     return { pkcs8, publicKey: pair.publicKey, publicRaw: raw };
 }
 
-export async function createHarness({ bindings = {}, migrateUpTo = Infinity, seedDevices = true, fixedTime } = {}) {
+export async function createHarness({ bindings = {}, migrateUpTo = Infinity, seedDevices = true, fixedTime, receiptService } = {}) {
     const provider = new ProviderStub();
     const signing = await generateSigningKey();
     const mf = new Miniflare(convertV4MiniflareOptions({
         modulesRoot: root,
-        modules: ["src/index.js", "src/domain.js"].map(file => {
+        modules: ["src/index.js", "src/domain.js", "src/manual-payments.js", "src/mobile-checkout.js", "src/receipt-image.js"].map(file => {
             const module = { type: "ESModule", path: path.join(root, file) };
             // Opt-in clock override exists only inside this test isolate. Production source is
             // loaded verbatim after the prefix and is never edited or deployed by the harness.
@@ -114,13 +114,16 @@ export async function createHarness({ bindings = {}, migrateUpTo = Infinity, see
         compatibilityDate: "2026-10-01",
         d1Databases: ["DB"],
         bindings: {
-            PAYMENTS_ENVIRONMENT: "test", LIVE_PAYMENTS_ENABLED: "false", PAYMONGO_API_BASE: "https://paymongo.stub/v1",
+            PAYMENTS_ENVIRONMENT: "test", LIVE_PAYMENTS_ENABLED: "false", PAYMONGO_NEW_CHECKOUTS_ENABLED: "true", PAYMONGO_API_BASE: "https://paymongo.stub/v1",
             QR_EXPIRY_SECONDS: "300", RECONCILIATION_BATCH_SIZE: "25", PROVIDER_TIMEOUT_MS: "2000",
             PAYMONGO_SECRET_KEY_TEST: "sk_test_harnessSecretValue", PAYMONGO_PUBLIC_KEY_TEST: "pk_test_harnessPublicValue",
             PAYMONGO_WEBHOOK_SECRET_TEST: WEBHOOK_SECRET, OFFLINE_POLICY_SIGNING_KEY: signing.pkcs8, OFFLINE_POLICY_KEY_ID: "test-k1",
             ...bindings
         },
-        outboundService: request => provider.handle(request)
+        outboundService: async request => {
+            if (receiptService) { const response = await receiptService.handle(request); if (response) return response; }
+            return provider.handle(request);
+        }
     }));
     const db = await mf.getD1Database("DB");
     await applyMigrations(db, migrationFiles(migrateUpTo));

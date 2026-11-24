@@ -320,6 +320,7 @@ struct BoothMonitoringView: View {
                 if let date=monitor.lastHeartbeat { LabeledContent("Last received",value:date.formatted()) }
                 if !message.isEmpty { Text(message) }
             }
+            Section("Manual payment privacy") { Text("Receipt images, receiving details, checkout links, claim notes and amounts are excluded from monitoring. Use Payment Records for original claims and sync status; receipt review is not a global admission gate.") }
             Section("Timing") { Text("A heartbeat is sent every five minutes while the app runs in the foreground. The server checks for overdue contact after ten minutes during a last-reported active event or fifteen minutes while idle, on its next five-minute scheduled check. iPadOS may suspend background apps; keep Carlo open for booth operation.") }
         }.operatorScreen().navigationTitle("Remote Monitoring").onAppear { endpoint=monitor.endpoint }
     }

@@ -13,6 +13,11 @@ import UIKit
 
 @MainActor
 final class BoothSessionViewModel: ObservableObject {
+    private let manualPaymentStore: ManualPaymentStore
+    @Published private(set) var manualCheckout: ManualCheckoutRecord?
+    @Published private(set) var activeManualPolicy: ManualPaymentPolicy?
+    var isManualPaymentSession: Bool { activeManualPolicy.map { $0.mode != .none } ?? false }
+
     @Published var state: BoothSessionState = .welcome
     @Published var sessionIdentifier: String?
     @Published var statusMessage = "Ready."
@@ -308,7 +313,8 @@ final class BoothSessionViewModel: ObservableObject {
         paymentsClient: PaymentsAPIClient? = nil,
         eventRunStore: EventRunStore? = .shared,
         checkpointStore: CheckoutCheckpointStore? = .shared,
-        captureConfirmationPause: (@MainActor () async -> Void)? = nil
+        captureConfirmationPause: (@MainActor () async -> Void)? = nil,
+        manualPaymentStore: ManualPaymentStore? = nil
     ) {
         let environment = environment ?? .customer
         self.environment = environment
@@ -316,6 +322,7 @@ final class BoothSessionViewModel: ObservableObject {
         self.eventRunStore = eventRunStore
         self.checkpointStore = checkpointStore
         self.recoveryStore = try? AppRecoveryStore(directoryURL: environment.recoveryDirectory)
+        self.manualPaymentStore = manualPaymentStore ?? .shared
         self.captureConfirmationPause = captureConfirmationPause ?? {
             try? await Task.sleep(for: .seconds(BoothConfiguration.capturedPhotoDisplayDuration))
         }
@@ -358,6 +365,12 @@ final class BoothSessionViewModel: ObservableObject {
         guard !printerCoordinator.requiresRecovery, !operationalState.hasUnresolvedPrint else {
             logGuestAction("start_tap", result: "rejected_print_recovery")
             state = .recoveryRequired("Printer needs operator attention.")
+            return
+        }
+
+        if let id = manualPaymentStore.armedResumeID {
+            manualPaymentStore.armedResumeID = nil
+            resumeManualCheckout(id)
             return
         }
 
@@ -429,6 +442,17 @@ final class BoothSessionViewModel: ObservableObject {
         }
         sessionIsRegularBooth = regularBooth
         commercialEvent = run
+        if let manual = run.activePolicy.manualPayment, manual.mode != .none {
+            if let issue = manualPaymentStore.storageError { state = .error(issue); return }
+            guard manual.mode.acceptsCash || manualPaymentStore.receiver?.isReady == true else {
+                state = .error("Digital payment is disabled until an appropriate receiving account is configured. Please see the attendant."); return
+            }
+            activeManualPolicy = manual
+            commercialEvent.activePolicy.commercialMode = .payPerPrint
+            commercialEvent.activePolicy.unitPriceCentavos = manual.unitPriceCentavos
+            commercialEvent.activePolicy.cashEnabled = manual.mode.acceptsCash
+            commercialEvent.activePolicy.qrPhEnabled = false
+        }
         policyAuthority = authority
         serverEventPolicy = serverPolicy
         offlinePolicyPayload = offlinePolicy
@@ -475,6 +499,7 @@ final class BoothSessionViewModel: ObservableObject {
                     return .failure(PolicyResolutionFailure(message: "This event needs operator review. Please see the attendant."))
                 }
                 let run = event.eventRun
+                guard !run.activePolicy.qrPhEnabled else { return .failure(PolicyResolutionFailure(message: "This historical QR Ph setup needs an explicit replacement in Event Setup. Your original payment records remain in Help & Recovery.")) }
                 guard run.activePolicy.validationMessage == nil else {
                     return .failure(PolicyResolutionFailure(message: "This event needs operator setup."))
                 }
@@ -580,7 +605,7 @@ final class BoothSessionViewModel: ObservableObject {
 
     /// Navigation is permitted only before any checkout request or paid authorization exists.
     var canLeaveCopySelection: Bool {
-        state == .choosingCopies && !isTransitionActive && paymentOrder == nil
+        state == .choosingCopies && !isTransitionActive && manualCheckout == nil && paymentOrder == nil
             && paymentAttempt == nil && checkoutEntitlement == nil
             && !checkoutGuard.serverCheckoutStarted && !checkoutGuard.qrAttemptUnresolved
     }
@@ -613,6 +638,11 @@ final class BoothSessionViewModel: ObservableObject {
     /// The only method this event offers, or nil when the guest chooses between QR Ph and cash.
     var soleOfferedPaymentMethod: GuestPaymentMethod? {
         let policy = commercialEvent.activePolicy
+        if let manual = activeManualPolicy {
+            if manual.mode.acceptsCash && !manual.mode.acceptsDigital { return .cash }
+            if manual.mode.acceptsDigital && !manual.mode.acceptsCash { return .qrPh }
+            return nil
+        }
         guard policy.commercialMode == .payPerPrint else { return nil }
         if policy.qrPhEnabled && !policy.cashEnabled && !policyAuthority.isOfflineCashOnly { return .qrPh }
         if policy.cashEnabled && (!policy.qrPhEnabled || policyAuthority.isOfflineCashOnly) { return .cash }
@@ -620,11 +650,13 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     var canChooseCash: Bool {
-        checkoutGuard.canChooseCash(authority: policyAuthority, cashEnabled: commercialEvent.activePolicy.cashEnabled)
+        if let manual = activeManualPolicy { return manual.mode.acceptsCash && manualCheckout == nil && checkoutEntitlement == nil }
+        return checkoutGuard.canChooseCash(authority: policyAuthority, cashEnabled: commercialEvent.activePolicy.cashEnabled)
     }
 
     var canChooseQRPh: Bool {
-        checkoutGuard.canChooseQR(authority: policyAuthority, qrEnabled: commercialEvent.activePolicy.qrPhEnabled, online: operationalState.networkPathStatus == "Online")
+        if let manual = activeManualPolicy { return manual.mode.acceptsDigital && manualPaymentStore.receiver?.isReady == true && manualCheckout == nil && checkoutEntitlement == nil }
+        return checkoutGuard.canChooseQR(authority: policyAuthority, qrEnabled: commercialEvent.activePolicy.qrPhEnabled, online: operationalState.networkPathStatus == "Online")
     }
 
     var canStartNewCheckout: Bool {
@@ -634,7 +666,7 @@ final class BoothSessionViewModel: ObservableObject {
     /// Neither screen may abandon a checkout request that may have reached the server.
     var canLeavePaymentSelection: Bool {
         (state == .choosingPayment || state == .cashAttestation) && !isTransitionActive
-            && paymentOrder == nil && paymentAttempt == nil && checkoutEntitlement == nil
+            && manualCheckout == nil && paymentOrder == nil && paymentAttempt == nil && checkoutEntitlement == nil
             && !checkoutGuard.serverCheckoutStarted && !checkoutGuard.qrAttemptUnresolved
     }
 
@@ -662,6 +694,7 @@ final class BoothSessionViewModel: ObservableObject {
 
     /// Online customer declaration stays SELF_REPORTED; it never records staff confirmation.
     func declareCashPaidByGuest() {
+        if isManualPaymentSession { acknowledgeManualPayment(method: "CASH"); return }
         completeCashPayment(requireAttendant: false)
     }
 
@@ -763,6 +796,7 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     func chooseQRPh() {
+        if isManualPaymentSession { beginManualDigitalPayment(); return }
         guard state == .choosingPayment, !isTransitionActive, canChooseQRPh, let format = selectedBoothFormat, let sessionIdentifier,
               let event = serverEventPolicy, let client = paymentsClient else { return }
         isTransitionActive = true
@@ -1181,6 +1215,7 @@ final class BoothSessionViewModel: ObservableObject {
                 return
             }
         }
+        if isManualPaymentSession { try? manualPaymentStore.complete(sessionID: sessionID); if let record = manualCheckout { Task { if environment.recordsCustomerSessionMetrics { _ = try? await ManualPaymentSync.sync(record.id, store: manualPaymentStore) } } } }
         checkpointStore?.update(id: sessionID) { $0.phase = .completed }
         checkpointStore?.resolve(id: sessionID, reason: "completed")
         syncPrintOutboxInBackground()
@@ -1411,6 +1446,13 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     /// A paid session at copy selection with the given methods, without touching the server.
+    func configureManualCheckoutForTesting(_ policy: ManualPaymentPolicy, regular: Bool = true) {
+        var run = CommercialEventRun(id: regular ? "" : "test-event", name: regular ? "Regular Booth" : "Synthetic event", venue: "", lifecycle: .active,
+            activePolicy: .legacyPrepaid, startsAt: nil, endsAt: nil, updatedAt: Date())
+        run.activePolicy.manualPayment = policy
+        beginChoosingFormat(run: run, authority: .localPrepaid, serverPolicy: nil, offlinePolicy: nil, regularBooth: regular)
+    }
+
     func configurePaidCheckoutForTesting(qrPhEnabled: Bool, cashEnabled: Bool, authority: PolicyAuthority = .serverConfirmed(fetchedAt: Date())) {
         var run = CommercialEventRun.legacy
         run.activePolicy.commercialMode = .payPerPrint
@@ -1487,6 +1529,7 @@ final class BoothSessionViewModel: ObservableObject {
         if let reason = operatorCloseBlockReason { throw SetupFailure(reason) }
         guard let recoveryStore else { throw AppRecoveryStoreError.unavailable }
         let saved = try recoveryStore.loadChecked()
+        if let manualCheckout { try manualPaymentStore.close(manualCheckout.id) }
         let snapshot: AppRecoverySnapshot?
         if let saved, saved.sessionIdentifier == sessionIdentifier, saved.stage == .printStatusUnknown {
             snapshot = saved
@@ -1508,6 +1551,7 @@ final class BoothSessionViewModel: ObservableObject {
     }
 
     func cancelSession() {
+        if manualCheckout != nil { closeManualGuest(); return }
         if isTransitionActive && (state == .choosingPayment || state == .cashAttestation || state == .paymentReconciliation) { return }
         if checkoutEntitlement == nil && (checkoutGuard.serverCheckoutStarted || checkoutGuard.qrAttemptUnresolved || paymentOrder != nil || paymentAttempt != nil) {
             statusMessage = "Please ask the attendant to check this payment. Do not pay again."
@@ -2294,7 +2338,7 @@ final class BoothSessionViewModel: ObservableObject {
             operationalState.handleScenePhaseActive()
             refreshPendingUploads()
             if (state == .paymentReconciliation || state == .awaitingQRPayment), !isTransitionActive {
-                pollQRStatus(orderID: paymentOrder?.id, generation: customerSessionGeneration)
+                if isManualPaymentSession { startManualPolling() } else { pollQRStatus(orderID: paymentOrder?.id, generation: customerSessionGeneration) }
             }
             if state == .preparingCamera || state == .cameraReady {
                 restartCameraForOperator()
@@ -2692,6 +2736,8 @@ final class BoothSessionViewModel: ObservableObject {
         samplePhotoCount = 0
         selectedBoothFormat = nil
         checkoutEntitlement = nil
+        manualCheckout = nil
+        activeManualPolicy = nil
         paymentOrder = nil
         paymentAttempt = nil
         checkoutGuard = CheckoutGuard()
@@ -2883,6 +2929,7 @@ final class BoothSessionViewModel: ObservableObject {
                         throw PrintCheckpointError.persistenceFailed("Customer session changed before printing.")
                     }
                     try self.persistCriticalRecoverySnapshot(stage: .printStatusUnknown)
+                    if self.isManualPaymentSession { try self.manualPaymentStore.recordPrintIntent(sessionID: envelope.sessionIdentifier) }
                     try self.journalCopyIntent(envelope)
                 }, selectTransport: { [weak self] envelope, transport in
                     guard let self, self.isCurrentCustomerSession(sessionGeneration) else {
@@ -3298,4 +3345,112 @@ nonisolated private func debugLog(_ message: String) {
 #if DEBUG
     print("[BoothSessionViewModel] \(message)")
 #endif
+}
+
+// Manual authority reuses the local entitlement and physical outbox. No mobile callback prints.
+extension BoothSessionViewModel {
+    private func makeManualCheckout(method: String) throws -> ManualCheckoutRecord {
+        guard let policy = activeManualPolicy, let sessionIdentifier, let format = selectedBoothFormat else { throw SetupFailure("Original checkout context is unavailable.") }
+        return try manualPaymentStore.begin(sessionID: sessionIdentifier, eventID: sessionIsRegularBooth == true ? "" : commercialEvent.id,
+            eventName: sessionIsRegularBooth == true ? "Regular Booth" : commercialEvent.name, runID: sessionRunID, format: format.rawValue,
+            copies: selectedCheckoutCopies, policy: policy, method: method, profile: sessionEventProfile)
+    }
+    private func beginManualDigitalPayment() {
+        guard state == .choosingPayment, !isTransitionActive, canChooseQRPh else { return }
+        do {
+            manualCheckout = try makeManualCheckout(method: "MANUAL_DIGITAL")
+            paymentNotice = nil; state = .awaitingQRPayment; startManualPolling()
+        } catch { paymentNotice = error.localizedDescription }
+    }
+    func acknowledgeManualPayment(method: String = "MANUAL_DIGITAL") {
+        guard !isTransitionActive, checkoutEntitlement == nil, isManualPaymentSession else { return }
+        do {
+            let record = try manualCheckout ?? makeManualCheckout(method: method)
+            guard record.method == method else { throw SetupFailure("The original payment method is frozen. Ask the attendant; do not pay again.") }
+            try manualPaymentStore.acknowledge(record.id)
+            manualCheckout = manualPaymentStore.record(record.id)
+            if manualCheckout?.canAuthorize == true { try authorizeManualCheckout(record.id) }
+            else { paymentNotice = "Acknowledgment saved. This policy still requires the matching receipt in private Drive storage."; startManualPolling() }
+            Task { if environment.recordsCustomerSessionMetrics { _ = try? await ManualPaymentSync.sync(record.id, store: manualPaymentStore) } }
+        } catch { paymentNotice = error.localizedDescription }
+    }
+    func applySavedManualEvidence() throws {
+        guard let id = manualCheckout?.id, let updated = manualPaymentStore.record(id), updated.sessionID == sessionIdentifier,
+              state == .awaitingQRPayment, checkoutEntitlement == nil else { return }
+        manualCheckout = updated
+        if updated.canAuthorize && updated.closedAt == nil { try authorizeManualCheckout(updated.id) }
+    }
+    private func authorizeManualCheckout(_ id: String) throws {
+        guard checkoutEntitlement == nil, let record = manualPaymentStore.record(id), record.sessionID == sessionIdentifier,
+              record.id == manualCheckout?.id, record.closedAt == nil, record.copies == selectedCheckoutCopies,
+              record.format == selectedBoothFormat?.rawValue else { throw SetupFailure("This confirmation does not belong to the current guest.") }
+        let entitlement = try manualPaymentStore.authorize(id)
+        try persistCriticalRecoverySnapshot(stage: .formatSelected)
+        checkoutEntitlement = entitlement
+        manualCheckout = manualPaymentStore.record(id)
+        selectedPrintCopies = record.copies
+        paymentPollTask?.cancel(); paymentPollTask = nil
+        prepareCameraAfterAuthorization()
+    }
+    func refreshManualPayment() async {
+        guard environment.recordsCustomerSessionMetrics else { return }
+        guard let record = manualCheckout, checkoutEntitlement == nil else { return }
+        let generation = customerSessionGeneration
+        do {
+            let updated = try await ManualPaymentSync.sync(record.id, store: manualPaymentStore)
+            guard isCurrentCustomerSession(generation), manualCheckout?.id == record.id, state == .awaitingQRPayment else { return }
+            manualCheckout = updated; paymentNotice = nil
+            try applySavedManualEvidence()
+        } catch {
+            guard isCurrentCustomerSession(generation), manualCheckout?.id == record.id else { return }
+            manualCheckout = manualPaymentStore.record(record.id)
+            paymentNotice = record.policy.receiptPolicy == .required
+                ? "Mobile or private storage is unavailable. Your original claim is saved. Ask the attendant; do not pay again."
+                : "Mobile receipt upload is unavailable. You can still acknowledge payment here; your claim is saved locally."
+        }
+    }
+    private func startManualPolling() {
+        paymentPollTask?.cancel()
+        paymentPollTask = Task { [weak self] in
+            for attempt in 0..<120 {
+                guard let self, !Task.isCancelled, self.state == .awaitingQRPayment, self.isManualPaymentSession else { return }
+                await self.refreshManualPayment()
+                try? await Task.sleep(for: .seconds(attempt < 3 ? 2 : (attempt < 12 ? 5 : 15)))
+            }
+        }
+    }
+    private func closeManualGuest() {
+        guard !isTransitionActive, !printerState.isWorking, !isPrintBatchActive,
+              !printerCoordinator.requiresRecovery, !operationalState.hasUnresolvedPrint, let record = manualCheckout else { return }
+        do {
+            guard let recoveryStore else { throw AppRecoveryStoreError.unavailable }
+            if let snapshot = makeRecoverySnapshot(stage: receiptImage != nil ? .receiptComposed : (capturedPhotos.isEmpty ? .formatSelected : .photosCaptured)) {
+                _ = try OperatorRecoveryAcknowledgement.retainAndAcknowledge(snapshot, store: recoveryStore)
+            }
+            try manualPaymentStore.close(record.id)
+            resetToWelcome(); operationalState.customerSessionActive = false; operationalState.refresh()
+            Task { if environment.recordsCustomerSessionMetrics { _ = try? await ManualPaymentSync.sync(record.id, store: manualPaymentStore) } }
+        } catch { paymentNotice = "Could not retain this claim safely: \(error.localizedDescription)" }
+    }
+    private func resumeManualCheckout(_ id: String) {
+        guard let record = manualPaymentStore.record(id), record.completedAt == nil, record.printingBeganAt == nil,
+              let format = BoothFormat(rawValue: record.format), record.entitlement != nil,
+              printOutbox?.copiesThatMayHavePrinted(sessionID: record.sessionID).isEmpty == true else {
+            state = .error("This original claim needs operator review. A copy that may have printed cannot be sent again automatically."); return
+        }
+        do {
+            cancelTasks(); clearCustomerData()
+            activeManualPolicy = record.policy
+            commercialEvent = CommercialEventRun(id: record.eventID, name: record.eventName, venue: "", lifecycle: .active,
+                activePolicy: .legacyPrepaid, startsAt: nil, endsAt: nil, updatedAt: record.createdAt)
+            commercialEvent.activePolicy.commercialMode = .payPerPrint;commercialEvent.activePolicy.unitPriceCentavos = record.policy.unitPriceCentavos
+            commercialEvent.activePolicy.maxCopies = record.copies;commercialEvent.activePolicy.manualPayment = record.policy
+            sessionRunID = record.runID;sessionIsRegularBooth = record.eventID.isEmpty;sessionEventProfile = record.eventProfile
+            customerEventProfile = record.eventProfile ?? .pocketPixelsDefault
+            guard prepareSessionContext(format: format, sessionIdentifier: record.sessionID, createdAt: record.createdAt) else { return }
+            manualCheckout = manualPaymentStore.record(id);checkoutEntitlement = record.entitlement
+            selectedCheckoutCopies = record.copies;selectedPrintCopies = record.copies
+            prepareCameraAfterAuthorization()
+        } catch { state = .error(error.localizedDescription) }
+    }
 }

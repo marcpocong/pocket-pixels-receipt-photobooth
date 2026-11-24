@@ -1,3 +1,4 @@
+import { manualPublic, manualAuthenticated } from "./manual-payments.js";
 import {
     boundedLimit, csvRow, decodeCursor, encodeCursor, isoTimestamp, nextProviderState, providerIntentEvidence,
     reportCategory, supersedeDecision, SUPERSEDE_GRACE_MS
@@ -32,8 +33,9 @@ export default {
 export async function route(request, env) {
     const url = new URL(request.url);
     const path = url.pathname;
+    if (path === "/checkout" || path.startsWith("/v2/guest/")) return manualPublic(request, env);
     if (request.method === "GET" && path === "/v1/health") {
-        return json({ service: "pocket-pixels-payments", version: "3", environment: environment(env), liveEnabled: isLiveEnabled(env) });
+        return json({ service: "pocket-pixels-payments", version: "3", environment: environment(env), liveEnabled: isLiveEnabled(env), newPaymongoCheckoutsEnabled: env.PAYMONGO_NEW_CHECKOUTS_ENABLED === "true" });
     }
     if (request.method === "GET" && path === "/v1/monitor-health") {
         const value = request.headers.get("authorization") || "";
@@ -46,6 +48,7 @@ export async function route(request, env) {
 
     const principal = await authenticateWithThrottle(request, env);
     await enforceRateLimit(env, principal.id, request.method === "GET" ? 240 : 60);
+    if (path.startsWith("/v2/")) return manualAuthenticated(request, env, principal);
     if (request.method === "GET" && path === "/v1/device") return deviceInfo(env, principal);
 
     if (/^\/v1\/(events\/active|orders|checkouts|entitlements|prints|sync)(\/|$)/.test(path)) requireScope(principal, "booth");
@@ -440,6 +443,10 @@ async function createQR(request, env, principal, orderId) {
     const live = environment(env) === "live";
     assertPaymentsEnvironment(env, live);
     const order = await ownedOrder(env, principal.id, orderId);
+    // Retirement stops new provider mutations, not reads/replay of original obligations.
+    const previous = await env.DB.prepare("SELECT * FROM payment_attempts WHERE order_id=?").bind(orderId).first();
+    if (previous && order.payment_method === "QRPH") return existingLockResponse(env, principal.id, orderId, "QRPH");
+    if (env.PAYMONGO_NEW_CHECKOUTS_ENABLED !== "true") throw http(410, "New PayMongo checkouts are retired. Ask the attendant; do not pay again.", "paymongo_creation_retired");
     const policy = await env.DB.prepare("SELECT qrph_enabled FROM event_policy_revisions WHERE id=?").bind(order.policy_revision_id).first();
     if (!policy?.qrph_enabled) throw http(409, "QR Ph is disabled for this event.", "qrph_disabled");
     const secretKey = live ? env.PAYMONGO_SECRET_KEY_LIVE : env.PAYMONGO_SECRET_KEY_TEST;

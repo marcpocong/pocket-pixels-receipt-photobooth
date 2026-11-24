@@ -60,7 +60,11 @@ nonisolated struct EventPreparationPresentation {
         guard let design = design(for: source) else { return [] }
         var rows: [(String, String)] = []
         if let prepaid = design.prepaidPolicy {
-            rows.append(("No-payment policy", GuestPaymentChoice.noPayment.title))
+            rows.append(("Payment policy", prepaid.manualPayment?.mode.title ?? GuestPaymentChoice.noPayment.title))
+            if let manual = prepaid.manualPayment, manual.mode != .none {
+                rows.append(("Price per copy", PHPPriceFormatter.string(centavos: manual.unitPriceCentavos)))
+                if manual.mode.acceptsDigital { rows.append(("Receipt submission", manual.receiptPolicy.title)) }
+            }
             rows.append(("Included / maximum copies", "\(prepaid.defaultCopies) / \(prepaid.maxCopies)"))
             rows.append(("No-payment formats", Self.formats(prepaid.supportedFormatRawValues)))
         }

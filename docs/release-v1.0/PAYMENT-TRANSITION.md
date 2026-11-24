@@ -1,5 +1,7 @@
 # Payment transition — implementation specification
 
+> Current implementation and Phase 3 handoff: [Phase 2 delivery](PHASE2.md). The Phase 1 audit/proposal below is historical; the owner's Phase 2 request and implemented local acknowledgment architecture supersede its proposed online-only digital restriction and entitlement rebuild.
+
 Proposed Phase 2 contract, based on `8baadb77c53321c576d4fe160efc66def199b8b8`, 24 November 2026. **No redesign is implemented by this document.** The architecture is deliberately incremental: retain guest/camera/receipt/printer/gallery services and Operator Workspace V5.1; replace the authority for new paid sessions, while preserving legacy evidence/recovery.
 
 ## Service boundaries

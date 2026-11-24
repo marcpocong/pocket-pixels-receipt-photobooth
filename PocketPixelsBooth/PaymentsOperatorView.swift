@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Specialized payment maintenance and read-only sales. Everyday setup lives in Session Setup.
-struct PaymentsOperatorView: View {
+struct LegacyPaymentsOperatorView: View {
     var salesOnly = false
     var allowsEventMaintenance = false
     @State private var configuration = PaymentsConfiguration.current()
