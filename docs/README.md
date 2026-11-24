@@ -2,6 +2,8 @@
 
 ## Current handoff
 
+- [24 November v1.0 Phase 1 audit](release-v1.0/README.md): permanent PayMongo preservation, branch consolidation, current infrastructure findings, manual payment specification and release gates.
+
 - [13 November Prepare Event V5.1](operator-workspace-v5.1/README.md): read-only saved-event preparation, contextual tools, draft provenance and release validation.
 
 - [12 November Operator Workspace V5 release](operator-workspace-v5/release-report.md): unified portrait UI, route inventory, visual evidence, local validation and Carlo installation.
