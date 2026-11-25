@@ -240,16 +240,17 @@ async function storeReceipt(request,env,row){
     let bytes;try{if(typeof b.base64!=='string'||b.base64.length>Math.ceil(RECEIPT_MAX_BYTES*4/3)+4)throw Error();bytes=Uint8Array.from(atob(b.base64),c=>c.charCodeAt(0));}catch{fail(422,'invalid_receipt_image','Choose a JPEG or PNG under 2 MiB.');}
     const confirmsTransfer=b.confirmsTransfer===true;
     const image=normalizeReceipt(bytes,b.mimeType),hash=await digest(image.bytes),requestHash=hash;
-    let receipt=await env.DB.prepare('SELECT * FROM manual_receipts WHERE checkout_id=? AND request_hash=?').bind(row.id,requestHash).first();
-    if(receipt?.state==='STORED_PRIVATE'){
+    const reserve=env.DB.prepare(`INSERT OR IGNORE INTO manual_receipts(id,checkout_id,request_hash,content_hash,mime_type,bytes,state,created_at)
+      SELECT ?,?,?,?,?,?,'RESERVED',? WHERE (SELECT COUNT(*) FROM manual_receipts WHERE checkout_id=?)<3`)
+        .bind(crypto.randomUUID(),row.id,requestHash,hash,image.mime,image.bytes.length,timestamp(),row.id);
+    const lookup=env.DB.prepare('SELECT * FROM manual_receipts WHERE checkout_id=? AND request_hash=?').bind(row.id,requestHash);
+    const [, found]=await env.DB.batch([reserve,lookup]);
+    const receipt=found.results[0];
+    if(!receipt)fail(429,'receipt_limit','Three receipt versions are already retained. Ask the attendant.');
+    if(receipt.state==='STORED_PRIVATE'){
         if(confirmsTransfer)await mobileAcknowledgment(env,row.id,timestamp()).run();
         return reply({submitted:true,receiptId:receipt.id});
     }
-    const count=await env.DB.prepare('SELECT COUNT(*) count FROM manual_receipts WHERE checkout_id=?').bind(row.id).first();if(!receipt&&count.count>=3)fail(429,'receipt_limit','Three receipt versions are already retained. Ask the attendant.');
-    const receiptId=receipt?.id||crypto.randomUUID();
-    await env.DB.prepare("INSERT OR IGNORE INTO manual_receipts(id,checkout_id,request_hash,content_hash,mime_type,bytes,state,created_at) SELECT ?,?,?,?,?,?,'RESERVED',? WHERE (SELECT COUNT(*) FROM manual_receipts WHERE checkout_id=?)<3").bind(receiptId,row.id,requestHash,hash,image.mime,image.bytes.length,timestamp(),row.id).run();
-    receipt=await env.DB.prepare('SELECT * FROM manual_receipts WHERE checkout_id=? AND request_hash=?').bind(row.id,requestHash).first();
-    if(!receipt)fail(429,'receipt_limit','Three receipt versions are already retained. Ask the attendant.');
     const encoded=base64(image.bytes);
     let stored;
     try {

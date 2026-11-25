@@ -47,62 +47,151 @@ function receiptConstantTime_(a,b) { if(typeof a!=='string'||a.length!==b.length
 function receiptDrive_(path, options) {
   options=options||{};options.headers={Authorization:'Bearer '+ScriptApp.getOAuthToken()};options.muteHttpExceptions=true;
   if(options.payload && typeof options.payload !== 'string' && !(options.payload instanceof Array)) {options.payload=JSON.stringify(options.payload);options.contentType='application/json';}
-  var response=UrlFetchApp.fetch('https://www.googleapis.com/'+path,options),code=response.getResponseCode();
+  return receiptDriveResponse_(UrlFetchApp.fetch('https://www.googleapis.com/'+path,options));
+}
+function receiptDriveResponse_(response) {
+  var code=response.getResponseCode();
   if(code<200||code>=300)throw Error('drive_http_'+code);
   return JSON.parse(response.getContentText()||'{}');
 }
-function assertReceiptPrivate_(id,allowTrashed) {
-  if(!/^[A-Za-z0-9_-]{10,200}$/.test(id||''))throw Error('invalid_private_root');
-  var item=receiptDrive_('drive/v3/files/'+id+'?fields=id,trashed,parents,mimeType,capabilities(canAddChildren)');
+var receiptFolderFields_ = 'id,trashed,parents,mimeType,permissions(type,role)';
+var receiptMediaFields_ = receiptFolderFields_ + ',size,sha256Checksum';
+function assertReceiptOwnerOnly_(item,allowTrashed) {
   if(item.trashed&&!allowTrashed)throw Error('trashed');
-  var permissions=receiptDrive_('drive/v3/files/'+id+'/permissions?fields=permissions(type,role)').permissions||[];
+  // My Drive can return the full ACL with file metadata. Keep an explicit ACL read
+  // when the response omits it, and fail closed on a paginated permission set.
+  var permissions=item.permissions;
+  if(!Array.isArray(permissions)){
+    var acl=receiptDrive_('drive/v3/files/'+item.id+'/permissions?pageSize=2&fields=nextPageToken,permissions(type,role)');
+    if(acl.nextPageToken)throw Error('unsafe_permissions');
+    permissions=acl.permissions||[];
+  }
   if(permissions.length!==1||permissions[0].type!=='user'||permissions[0].role!=='owner')throw Error('unsafe_permissions');
   return item;
 }
-function receiptFolder_(parent,name) {
-  var folders=parent.getFoldersByName(name),folder=folders.hasNext()?folders.next():null;
-  if(folders.hasNext())throw Error('duplicate_private_folder');
-  folder=folder||parent.createFolder(name);assertReceiptPrivate_(folder.getId());return folder;
+function assertReceiptPrivate_(id,allowTrashed,fields) {
+  if(!/^[A-Za-z0-9_-]{10,200}$/.test(id||''))throw Error('invalid_private_root');
+  var item=receiptDrive_('drive/v3/files/'+id+'?fields='+(fields||receiptFolderFields_+',capabilities(canAddChildren)'));
+  if(item.id!==id)throw Error('storage_mismatch');
+  return assertReceiptOwnerOnly_(item,allowTrashed);
+}
+var receiptFolderMime_ = 'application/vnd.google-apps.folder';
+function receiptFolderLookup_(parentId,name) {
+  var query="'"+parentId+"' in parents and name='"+name+"' and mimeType='"+receiptFolderMime_+"' and trashed=false";
+  var fields='nextPageToken,incompleteSearch,files('+receiptFolderFields_+')';
+  return 'drive/v3/files?q='+encodeURIComponent(query)+'&pageSize=2&fields='+fields;
+}
+function receiptFolderMatch_(search) {
+  var folders=search.files||[];
+  if(search.nextPageToken||search.incompleteSearch||folders.length>1)throw Error('duplicate_private_folder');
+  return folders[0];
+}
+function privateReceiptFolderId_(folder,parentId) {
+  if(folder.mimeType!==receiptFolderMime_||!folder.parents||folder.parents.length!==1||folder.parents[0]!==parentId)throw Error('parent_changed');
+  return assertReceiptOwnerOnly_(folder).id;
+}
+function receiptFolder_(parentId,name) {
+  var matched=receiptFolderMatch_(receiptDrive_(receiptFolderLookup_(parentId,name)));
+  var folder=matched||receiptDrive_('drive/v3/files?fields='+receiptFolderFields_,{method:'post',payload:{name:name,mimeType:receiptFolderMime_,parents:[parentId]}});
+  return privateReceiptFolderId_(folder,parentId);
+}
+function receiptDestination_(root,p) {
+  var names=[p.year,p.month,p.eventId?'Events':'Regular Booth',p.eventId||p.date];
+  var key='receipt-path:'+receiptHex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,JSON.stringify([root,names])));
+  var cache;
+  try {
+    cache=CacheService.getScriptCache();
+    var known=JSON.parse(cache.get(key)||'null');
+    if(Array.isArray(known)&&known.length===names.length&&known.every(function(id){return /^[A-Za-z0-9_-]{10,200}$/.test(id);})){
+      // The cache supplies lookup locations. Each level still gets a fresh unique-folder,
+      // parent and owner-only check from Drive, this time in parallel.
+      var parentIds=[root].concat(known.slice(0,-1));
+      var headers={Authorization:'Bearer '+ScriptApp.getOAuthToken()};
+      var requests=names.map(function(name,index){return {
+        url:'https://www.googleapis.com/'+receiptFolderLookup_(parentIds[index],name),headers:headers,muteHttpExceptions:true
+      };});
+      var results=UrlFetchApp.fetchAll(requests);
+      if(results.length===names.length&&results.every(function(response,index){
+        var matched=receiptFolderMatch_(receiptDriveResponse_(response));
+        return matched&&privateReceiptFolderId_(matched,parentIds[index])===known[index];
+      }))return known[known.length-1];
+    }
+  } catch (_) { /* Rediscover the path when cache or parallel lookup is unavailable. */ }
+  var resolved=[],parentId=root;
+  names.forEach(function(name){parentId=receiptFolder_(parentId,name);resolved.push(parentId);});
+  try {if(cache)cache.put(key,JSON.stringify(resolved),1800);} catch (_) { /* The verified path is enough. */ }
+  return parentId;
 }
 function receiptJournal_(root,id) {
-  var folder=receiptFolder_(DriveApp.getFolderById(root),'.receipt-journals');
+  var folder=DriveApp.getFolderById(receiptFolder_(root,'.receipt-journals'));
   var files=folder.getFilesByName(id+'.json'),file=files.hasNext()?files.next():null;
   if(files.hasNext())throw Error('duplicate_private_journal');
   if(file)assertReceiptPrivate_(file.getId());
   return {folder:folder,file:file,value:file?JSON.parse(file.getBlob().getDataAsString()):null};
 }
+function withReceiptLock_(action) {
+  var lock=LockService.getScriptLock();
+  if(!lock.tryLock(10000))throw Error('busy');
+  try {return action();}finally{lock.releaseLock();}
+}
+function reservePrivateReceipt_(root,id,p) {
+  return withReceiptLock_(function(){
+    var journal=receiptJournal_(root,id),record=journal.value;
+    if(record){
+      if(record.sha256!==p.sha256||record.checkoutId!==p.checkoutId||record.bytes!==p.bytes||record.mimeType!==p.mimeType)throw Error('identity_conflict');
+      return journal;
+    }
+    var parent=receiptDestination_(root,p);
+    var fileId=receiptDrive_('drive/v3/files/generateIds?count=1&space=drive').ids[0];
+    record={id:id,checkoutId:p.checkoutId,fileId:fileId,parentId:parent,sha256:p.sha256,bytes:p.bytes,mimeType:p.mimeType,createdAt:Date.now()};
+    // The reserved file ID is durable before any media write.
+    journal.file=journal.folder.createFile(id+'.json',JSON.stringify(record),'application/json');
+    journal.value=record;
+    assertReceiptPrivate_(journal.file.getId());
+    return journal;
+  });
+}
+function uploadPrivateReceipt_(record,bytes) {
+  var fileId=record.fileId, name=record.checkoutId+'-'+record.id+(record.mimeType==='image/png'?'.png':'.jpg');
+  var blob=Utilities.newBlob(bytes,record.mimeType,name);
+  var proof;
+  try {
+    proof=Drive.Files.create({id:fileId,name:name,mimeType:record.mimeType,parents:[record.parentId]},blob,{fields:receiptMediaFields_});
+  } catch (_) {
+    // A retry after a lost response or a concurrent create sees the same reserved file.
+    proof=assertReceiptPrivate_(fileId,false,receiptMediaFields_);
+    if(proof.mimeType===record.mimeType&&proof.parents?.length===1&&proof.parents[0]===record.parentId&&proof.size==='0'){
+      // Older deployments reserved an empty file before patching its media.
+      proof=Drive.Files.update({},fileId,blob,{fields:receiptMediaFields_});
+    }
+  }
+  // Upload responses can omit checksums or timestamps while metadata catches up.
+  if(!proof.sha256Checksum||!Array.isArray(proof.permissions))return assertReceiptPrivate_(fileId,false,receiptMediaFields_);
+  return assertReceiptOwnerOnly_(proof);
+}
 function storePrivateReceipt_(root,id,p) {
   if(!/^[a-f0-9-]{36}$/.test(p.checkoutId||'')||!/^\d{4}$/.test(p.year)||!/^\d{2}$/.test(p.month)||!/^\d{4}-\d{2}-\d{2}$/.test(p.date)||
     !/^[a-f0-9]{64}$/.test(p.sha256||'')||['image/jpeg','image/png'].indexOf(p.mimeType)<0||p.bytes>2097152||p.bytes<24)throw Error('invalid_image');
+  if(p.eventId&&!/^[A-Za-z0-9._:-]{1,100}$/.test(p.eventId))throw Error('event');
   var bytes=Utilities.base64Decode(p.base64);
   if(bytes.length!==p.bytes||receiptHex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,bytes))!==p.sha256)throw Error('checksum_mismatch');
-  var lock=LockService.getScriptLock();if(!lock.tryLock(10000))throw Error('busy');
-  try {
-    var journal=receiptJournal_(root,id),record=journal.value;
-    if(record&&(record.sha256!==p.sha256||record.checkoutId!==p.checkoutId||record.bytes!==p.bytes))throw Error('identity_conflict');
-    if(!record){
-      var parent=receiptFolder_(DriveApp.getFolderById(root),p.year);parent=receiptFolder_(parent,p.month);
-      if(p.eventId){if(!/^[A-Za-z0-9._:-]{1,100}$/.test(p.eventId))throw Error('event');parent=receiptFolder_(receiptFolder_(parent,'Events'),p.eventId);}
-      else parent=receiptFolder_(receiptFolder_(parent,'Regular Booth'),p.date);
-      var generated=receiptDrive_('drive/v3/files/generateIds?count=1&space=drive').ids[0];
-      record={id:id,checkoutId:p.checkoutId,fileId:generated,parentId:parent.getId(),sha256:p.sha256,bytes:p.bytes,mimeType:p.mimeType,createdAt:Date.now()};
-      // Persist reserved identity before the first media mutation. Retrying reuses the same ID.
-      journal.file=journal.folder.createFile(id+'.json',JSON.stringify(record),'application/json');journal.value=record;assertReceiptPrivate_(journal.file.getId());
-    }
-    assertReceiptPrivate_(record.parentId);
-    var existing;
-    try {existing=receiptDrive_('drive/v3/files/'+record.fileId+'?fields=id,size,sha256Checksum');}catch(_){existing=null;}
-    if(!existing){receiptDrive_('drive/v3/files?fields=id',{method:'post',payload:{id:record.fileId,name:p.checkoutId+'-'+id+(p.mimeType==='image/png'?'.png':'.jpg'),mimeType:p.mimeType,parents:[record.parentId]}});}
-    if(!existing||Number(existing.size)!==p.bytes||existing.sha256Checksum!==p.sha256){
-      var response=UrlFetchApp.fetch('https://www.googleapis.com/upload/drive/v3/files/'+record.fileId+'?uploadType=media',{method:'patch',headers:{Authorization:'Bearer '+ScriptApp.getOAuthToken()},contentType:p.mimeType,payload:bytes,muteHttpExceptions:true});
-      if(response.getResponseCode()<200||response.getResponseCode()>=300)throw Error('upload_unconfirmed');
-    }
-    var stored=assertReceiptPrivate_(record.fileId);
-    var proof=receiptDrive_('drive/v3/files/'+record.fileId+'?fields=id,name,mimeType,size,sha256Checksum,parents,trashed');
-    if(proof.trashed||Number(proof.size)!==p.bytes||proof.mimeType!==p.mimeType||proof.sha256Checksum!==p.sha256||proof.parents.length!==1||proof.parents[0]!==record.parentId)throw Error('storage_mismatch');
-    record.storedAt=record.storedAt||Date.now();journal.file.setContent(JSON.stringify(record));
-    return {ok:true,private:true,fileId:record.fileId,folderURL:'https://drive.google.com/drive/folders/'+record.parentId,sha256:p.sha256,bytes:p.bytes};
-  }finally{lock.releaseLock();}
+  var journal=reservePrivateReceipt_(root,id,p),record=journal.value;
+  assertReceiptPrivate_(record.parentId);
+  // Uploads for different receipts need not wait for each other once their IDs are reserved.
+  var proof=record.storedAt?assertReceiptPrivate_(record.fileId,false,receiptMediaFields_):uploadPrivateReceipt_(record,bytes);
+  if(proof.id!==record.fileId||Number(proof.size)!==p.bytes||proof.mimeType!==p.mimeType||proof.sha256Checksum!==p.sha256||
+    !proof.parents||proof.parents.length!==1||proof.parents[0]!==record.parentId)throw Error('storage_mismatch');
+  if(!record.storedAt){
+    withReceiptLock_(function(){
+      var current=JSON.parse(journal.file.getBlob().getDataAsString());
+      if(current.fileId!==record.fileId||current.sha256!==record.sha256)throw Error('identity_conflict');
+      if(!current.storedAt){
+        current.storedAt=Date.now();
+        journal.file.setContent(JSON.stringify(current));
+      }
+    });
+  }
+  return {ok:true,private:true,fileId:record.fileId,folderURL:'https://drive.google.com/drive/folders/'+record.parentId,sha256:p.sha256,bytes:p.bytes};
 }
 function readPrivateReceipt_(root,id,p) {
   var journal=receiptJournal_(root,id),record=journal.value;

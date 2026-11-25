@@ -12,7 +12,7 @@ import WebKit
         window.original={id:'11111111-1111-4111-8111-111111111111',snapshotHash:'original-frozen-hash',copies:3,totalCentavos:7500,receiptPolicy:'\(policy)',method:'MANUAL_DIGITAL',receiver:{provider:'Synthetic test only',recipient:'Example recipient',identifier:'TEST-ONLY-LONG-IDENTIFIER-1234567890',instructions:'Do not send money. Synthetic browser test.'},receipt:null,acknowledgedAt:null,closedAt:null,expiresAt:new Date(Date.now()+1800000).toISOString()};
         window.requests=[];window.offline=\(offline);window.uploads=0;window.loseUpload=true;
         window.fetch=async(path,options)=>{requests.push({path,body:JSON.parse(options.body),authorization:options.headers.Authorization});if(offline)throw Error('Connection interrupted. Check your connection.');if(path.endsWith('acknowledgments'))original.acknowledgedAt=new Date().toISOString();return {ok:true,json:async()=>JSON.parse(JSON.stringify(original))};};
-        window.XMLHttpRequest=class {constructor(){this.upload={};}open(){}setRequestHeader(){}send(body){uploads++;window.lastUpload=JSON.parse(body);setTimeout(()=>{this.upload.onprogress?.({lengthComputable:true,loaded:1,total:1});original.receipt={submitted:true};if(loseUpload){loseUpload=false;this.ontimeout();}else{this.status=200;this.responseText='{"submitted":true}';this.onload();}},30);}};
+        window.XMLHttpRequest=class {constructor(){this.upload={};}open(){}setRequestHeader(){}send(body){uploads++;window.lastUpload=JSON.parse(body);this.upload.onprogress?.({lengthComputable:true,loaded:1,total:1});this.upload.onload?.();window.finishUpload=()=>{original.receipt={submitted:true};if(loseUpload){loseUpload=false;this.ontimeout();}else{this.status=200;this.responseText='{"submitted":true}';this.onload();}};}};
         """
         config.userContentController.addUserScript(WKUserScript(source:mock,injectionTime:.atDocumentStart,forMainFrameOnly:true))
         let web=WKWebView(frame:CGRect(x:0,y:0,width:width,height:844),configuration:config)
@@ -82,6 +82,9 @@ import WebKit
         try await wait(web,"!document.getElementById('preview').hidden && !document.getElementById('upload').disabled")
         try await web.takeSnapshot(configuration:nil).pngData()?.write(to:fixtureRoot.appendingPathComponent("mobile-preview-375.png"))
         _ = try await web.evaluateJavaScript("document.getElementById('upload').click();document.getElementById('upload').click();true")
+        try await expect(web,"document.getElementById('notice').textContent","Saving your receipt…")
+        try await expect(web,"document.getElementById('progress').hasAttribute('value')",false)
+        _ = try await web.evaluateJavaScript("finishUpload();true")
         try await wait(web,"document.getElementById('notice').textContent==='Receipt received. Return to the photobooth.'")
         try await expect(web,"uploads",1)
         try await expect(web,"lastUpload.snapshotHash","original-frozen-hash")

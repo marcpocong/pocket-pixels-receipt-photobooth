@@ -211,9 +211,15 @@ progress{display:block;width:100%;height:12px;accent-color:var(--wine);margin-to
             context.fillStyle = 'white';
             context.fillRect(0, 0, canvas.width, canvas.height);
             context.drawImage(picture, 0, 0, canvas.width, canvas.height);
-            const encoded = canvas.toDataURL('image/jpeg', .85);
-            if (encoded.length > 2796227) throw Error('This receipt is too large. Choose a smaller image.');
-            return encoded;
+            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', .85));
+            if (!blob) throw Error('This image couldn’t be prepared. Choose another screenshot.');
+            if (blob.size > 2 * 1024 * 1024) throw Error('This receipt is too large. Choose a smaller image.');
+            return await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(Error('This image couldn’t be opened. Choose another screenshot.'));
+                reader.readAsDataURL(blob);
+            });
         } finally {
             URL.revokeObjectURL(source);
         }
@@ -227,6 +233,7 @@ progress{display:block;width:100%;height:12px;accent-color:var(--wine);margin-to
         lock(true);
         try {
             if (!file) return;
+            notice('Preparing your screenshot…');
             const encoded = await prepareImage(file);
             image = encoded.split(',')[1];
             byId('preview').src = encoded;
@@ -246,7 +253,10 @@ progress{display:block;width:100%;height:12px;accent-color:var(--wine);margin-to
             request.setRequestHeader('Authorization', 'Checkout ' + capability);
             request.upload.onprogress = event => {
                 if (event.lengthComputable) byId('progress').value = Math.round(100 * event.loaded / event.total);
-                if (event.lengthComputable && event.loaded === event.total) notice('Finishing your upload…');
+            };
+            request.upload.onload = () => {
+                byId('progress').removeAttribute('value');
+                notice('Saving your receipt…');
             };
             request.onload = () => {
                 let response;
