@@ -18,17 +18,19 @@ function doPost(e) {
     var payload = JSON.parse(Utilities.newBlob(Utilities.base64Decode(request.payloadB64)).getDataAsString());
     var rootId = properties.getProperty('RECEIPTS_ROOT_ID' + scope);
     if (scope && rootId === properties.getProperty('RECEIPTS_ROOT_ID')) throw Error('invalid_private_root');
-    var root = assertReceiptPrivate_(rootId);
     var result;
-    if (request.operation === 'ready') {
-      if (root.mimeType !== 'application/vnd.google-apps.folder' || root.capabilities?.canAddChildren !== true) throw Error('invalid_private_root');
-      result = {ok:true, ready:true};
+    if (request.operation === 'store') result = storePrivateReceipt_(rootId, request.operationId, payload);
+    else {
+      var root = assertReceiptPrivate_(rootId);
+      if (request.operation === 'ready') {
+        if (root.mimeType !== 'application/vnd.google-apps.folder' || root.capabilities?.canAddChildren !== true) throw Error('invalid_private_root');
+        result = {ok:true, ready:true};
+      }
+      else if (request.operation === 'read') result = readPrivateReceipt_(rootId, request.operationId, payload);
+      else if (request.operation === 'retention') result = establishReceiptRetention_(payload, scope);
+      else if (request.operation === 'trash') result = trashPrivateReceipt_(rootId, request.operationId, payload, scope);
+      else throw Error('invalid_operation');
     }
-    else if (request.operation === 'store') result = storePrivateReceipt_(rootId, request.operationId, payload);
-    else if (request.operation === 'read') result = readPrivateReceipt_(rootId, request.operationId, payload);
-    else if (request.operation === 'retention') result = establishReceiptRetention_(payload, scope);
-    else if (request.operation === 'trash') result = trashPrivateReceipt_(rootId, request.operationId, payload, scope);
-    else throw Error('invalid_operation');
     return receiptResponse_(request, result, secret);
   } catch (failure) {
     // Fixed messages only. Never log envelopes, image bytes, receiving details or secrets.
@@ -54,6 +56,12 @@ function receiptDriveResponse_(response) {
   if(code<200||code>=300)throw Error('drive_http_'+code);
   return JSON.parse(response.getContentText()||'{}');
 }
+function receiptDriveParallel_(paths) {
+  var headers={Authorization:'Bearer '+ScriptApp.getOAuthToken()};
+  return UrlFetchApp.fetchAll(paths.map(function(path){return {
+    url:'https://www.googleapis.com/'+path,headers:headers,muteHttpExceptions:true
+  };})).map(receiptDriveResponse_);
+}
 var receiptFolderFields_ = 'id,trashed,parents,mimeType,permissions(type,role)';
 var receiptMediaFields_ = receiptFolderFields_ + ',size,sha256Checksum';
 function assertReceiptOwnerOnly_(item,allowTrashed) {
@@ -72,6 +80,9 @@ function assertReceiptOwnerOnly_(item,allowTrashed) {
 function assertReceiptPrivate_(id,allowTrashed,fields) {
   if(!/^[A-Za-z0-9_-]{10,200}$/.test(id||''))throw Error('invalid_private_root');
   var item=receiptDrive_('drive/v3/files/'+id+'?fields='+(fields||receiptFolderFields_+',capabilities(canAddChildren)'));
+  return verifyPrivateReceiptItem_(item,id,allowTrashed);
+}
+function verifyPrivateReceiptItem_(item,id,allowTrashed) {
   if(item.id!==id)throw Error('storage_mismatch');
   return assertReceiptOwnerOnly_(item,allowTrashed);
 }
@@ -95,39 +106,92 @@ function receiptFolder_(parentId,name) {
   var folder=matched||receiptDrive_('drive/v3/files?fields='+receiptFolderFields_,{method:'post',payload:{name:name,mimeType:receiptFolderMime_,parents:[parentId]}});
   return privateReceiptFolderId_(folder,parentId);
 }
-function receiptDestination_(root,p) {
+function receiptDestinationPlan_(root,p) {
   var names=[p.year,p.month,p.eventId?'Events':'Regular Booth',p.eventId||p.date];
   var key='receipt-path:'+receiptHex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,JSON.stringify([root,names])));
-  var cache;
+  var cache,known;
   try {
     cache=CacheService.getScriptCache();
-    var known=JSON.parse(cache.get(key)||'null');
-    if(Array.isArray(known)&&known.length===names.length&&known.every(function(id){return /^[A-Za-z0-9_-]{10,200}$/.test(id);})){
-      // The cache supplies lookup locations. Each level still gets a fresh unique-folder,
-      // parent and owner-only check from Drive, this time in parallel.
-      var parentIds=[root].concat(known.slice(0,-1));
-      var headers={Authorization:'Bearer '+ScriptApp.getOAuthToken()};
-      var requests=names.map(function(name,index){return {
-        url:'https://www.googleapis.com/'+receiptFolderLookup_(parentIds[index],name),headers:headers,muteHttpExceptions:true
-      };});
-      var results=UrlFetchApp.fetchAll(requests);
-      if(results.length===names.length&&results.every(function(response,index){
-        var matched=receiptFolderMatch_(receiptDriveResponse_(response));
-        return matched&&privateReceiptFolderId_(matched,parentIds[index])===known[index];
-      }))return known[known.length-1];
-    }
-  } catch (_) { /* Rediscover the path when cache or parallel lookup is unavailable. */ }
+    known=JSON.parse(cache.get(key)||'null');
+  } catch (_) { /* The path can be resolved without the cache. */ }
+  if(!Array.isArray(known)||known.length!==names.length||!known.every(function(id){return /^[A-Za-z0-9_-]{10,200}$/.test(id);}))known=null;
+  return {names:names,key:key,cache:cache,known:known,parents:known?[root].concat(known.slice(0,-1)):null};
+}
+function receiptDestinationLookups_(plan) {
+  return plan.names.map(function(name,index){return receiptFolderLookup_(plan.parents[index],name);});
+}
+function verifyReceiptDestination_(plan,results) {
+  if(results.length!==plan.names.length||!results.every(function(result,index){
+    var matched=receiptFolderMatch_(result);
+    return matched&&privateReceiptFolderId_(matched,plan.parents[index])===plan.known[index];
+  }))return null;
+  return plan.known[plan.known.length-1];
+}
+function receiptDestination_(root,p) {
+  var plan=receiptDestinationPlan_(root,p);
+  if(plan.known){
+    try {
+      var destination=verifyReceiptDestination_(plan,receiptDriveParallel_(receiptDestinationLookups_(plan)));
+      if(destination)return destination;
+    } catch (_) { /* Rediscover the current path below. */ }
+  }
   var resolved=[],parentId=root;
-  names.forEach(function(name){parentId=receiptFolder_(parentId,name);resolved.push(parentId);});
-  try {if(cache)cache.put(key,JSON.stringify(resolved),1800);} catch (_) { /* The verified path is enough. */ }
+  plan.names.forEach(function(name){parentId=receiptFolder_(parentId,name);resolved.push(parentId);});
+  try {if(plan.cache)plan.cache.put(plan.key,JSON.stringify(resolved),1800);} catch (_) { /* The verified path is enough. */ }
   return parentId;
 }
+function receiptJournalLookup_(folderId,id) {
+  var query="'"+folderId+"' in parents and name='"+id+".json' and trashed=false";
+  return 'drive/v3/files?q='+encodeURIComponent(query)+'&pageSize=2&fields=nextPageToken,incompleteSearch,files('+receiptFolderFields_+')';
+}
 function receiptJournal_(root,id) {
-  var folder=DriveApp.getFolderById(receiptFolder_(root,'.receipt-journals'));
-  var files=folder.getFilesByName(id+'.json'),file=files.hasNext()?files.next():null;
-  if(files.hasNext())throw Error('duplicate_private_journal');
-  if(file)assertReceiptPrivate_(file.getId());
-  return {folder:folder,file:file,value:file?JSON.parse(file.getBlob().getDataAsString()):null};
+  var cache,key='receipt-journals:'+root,folderId,search;
+  try {
+    cache=CacheService.getScriptCache();
+    var known=cache.get(key);
+    if(/^[A-Za-z0-9_-]{10,200}$/.test(known||'')){
+      var results=receiptDriveParallel_([receiptFolderLookup_(root,'.receipt-journals'),receiptJournalLookup_(known,id)]);
+      var match=receiptFolderMatch_(results[0]);
+      if(match&&privateReceiptFolderId_(match,root)===known){folderId=known;search=results[1];}
+    }
+  } catch (_) { /* Resolve the current path below. */ }
+  if(!search){
+    folderId=receiptFolder_(root,'.receipt-journals');
+    search=receiptDrive_(receiptJournalLookup_(folderId,id));
+    try {if(cache)cache.put(key,folderId,1800);} catch (_) { /* The verified path is enough. */ }
+  }
+  return receiptJournalFromSearch_(folderId,search);
+}
+function receiptJournalFromSearch_(folderId,search) {
+  var files=search.files||[];
+  if(search.nextPageToken||search.incompleteSearch||files.length>1)throw Error('duplicate_private_journal');
+  if(!files.length)return {folderId:folderId,value:null};
+  var file=assertReceiptOwnerOnly_(files[0]);
+  if(file.mimeType!=='application/json'||file.parents?.length!==1||file.parents[0]!==folderId)throw Error('parent_changed');
+  return {folderId:folderId,value:receiptDrive_('drive/v3/files/'+file.id+'?alt=media')};
+}
+function prepareWarmReceipt_(root,id,p) {
+  if(!/^[A-Za-z0-9_-]{10,200}$/.test(root||''))throw Error('invalid_private_root');
+  try {
+    var plan=receiptDestinationPlan_(root,p),folderId=plan.cache?.get('receipt-journals:'+root);
+    if(!plan.known||!/^[A-Za-z0-9_-]{10,200}$/.test(folderId||''))return null;
+    // Cached IDs are only lookup hints. Verify root, namespace and every destination
+    // folder from fresh Drive results before creating any journal or uploading bytes.
+    var paths=[
+      'drive/v3/files/'+root+'?fields='+receiptFolderFields_,
+      receiptFolderLookup_(root,'.receipt-journals'),
+      receiptJournalLookup_(folderId,id),
+      'drive/v3/files/generateIds?count=1&space=drive'
+    ].concat(receiptDestinationLookups_(plan));
+    var results=receiptDriveParallel_(paths);
+    verifyPrivateReceiptItem_(results[0],root);
+    var journalFolder=receiptFolderMatch_(results[1]);
+    if(!journalFolder||privateReceiptFolderId_(journalFolder,root)!==folderId)return null;
+    var parentId=verifyReceiptDestination_(plan,results.slice(4));
+    var fileId=results[3].ids?.[0];
+    if(!parentId||!/^[A-Za-z0-9_-]{10,200}$/.test(fileId||''))return null;
+    return {journal:receiptJournalFromSearch_(folderId,results[2]),parentId:parentId,fileId:fileId};
+  } catch (_) { return null; }
 }
 function withReceiptLock_(action) {
   var lock=LockService.getScriptLock();
@@ -136,19 +200,23 @@ function withReceiptLock_(action) {
 }
 function reservePrivateReceipt_(root,id,p) {
   return withReceiptLock_(function(){
-    var journal=receiptJournal_(root,id),record=journal.value;
+    var warm=prepareWarmReceipt_(root,id,p);
+    if(!warm)assertReceiptPrivate_(root);
+    var journal=warm?warm.journal:receiptJournal_(root,id),record=journal.value;
     if(record){
       if(record.sha256!==p.sha256||record.checkoutId!==p.checkoutId||record.bytes!==p.bytes||record.mimeType!==p.mimeType)throw Error('identity_conflict');
-      return journal;
+      return record;
     }
-    var parent=receiptDestination_(root,p);
-    var fileId=receiptDrive_('drive/v3/files/generateIds?count=1&space=drive').ids[0];
+    var parent=warm?warm.parentId:receiptDestination_(root,p);
+    var fileId=warm?warm.fileId:receiptDrive_('drive/v3/files/generateIds?count=1&space=drive').ids[0];
     record={id:id,checkoutId:p.checkoutId,fileId:fileId,parentId:parent,sha256:p.sha256,bytes:p.bytes,mimeType:p.mimeType,createdAt:Date.now()};
     // The reserved file ID is durable before any media write.
-    journal.file=journal.folder.createFile(id+'.json',JSON.stringify(record),'application/json');
-    journal.value=record;
-    assertReceiptPrivate_(journal.file.getId());
-    return journal;
+    var name=id+'.json';
+    var file=Drive.Files.create({name:name,mimeType:'application/json',parents:[journal.folderId]},
+      Utilities.newBlob(JSON.stringify(record),'application/json',name),{fields:receiptFolderFields_});
+    var verified=assertReceiptOwnerOnly_(file);
+    if(verified.id==null||verified.mimeType!=='application/json'||verified.parents?.length!==1||verified.parents[0]!==journal.folderId)throw Error('storage_mismatch');
+    return record;
   });
 }
 function uploadPrivateReceipt_(record,bytes) {
@@ -165,9 +233,13 @@ function uploadPrivateReceipt_(record,bytes) {
       proof=Drive.Files.update({},fileId,blob,{fields:receiptMediaFields_});
     }
   }
-  // Upload responses can omit checksums or timestamps while metadata catches up.
+  // Upload responses can omit checksums while metadata catches up.
   if(!proof.sha256Checksum||!Array.isArray(proof.permissions))return assertReceiptPrivate_(fileId,false,receiptMediaFields_);
   return assertReceiptOwnerOnly_(proof);
+}
+function verifyReceiptMedia_(proof,record) {
+  if(proof.id!==record.fileId||Number(proof.size)!==record.bytes||proof.mimeType!==record.mimeType||proof.sha256Checksum!==record.sha256)throw Error('storage_mismatch');
+  if(proof.parents?.length!==1||proof.parents[0]!==record.parentId)throw Error('parent_changed');
 }
 function storePrivateReceipt_(root,id,p) {
   if(!/^[a-f0-9-]{36}$/.test(p.checkoutId||'')||!/^\d{4}$/.test(p.year)||!/^\d{2}$/.test(p.month)||!/^\d{4}-\d{2}-\d{2}$/.test(p.date)||
@@ -175,29 +247,20 @@ function storePrivateReceipt_(root,id,p) {
   if(p.eventId&&!/^[A-Za-z0-9._:-]{1,100}$/.test(p.eventId))throw Error('event');
   var bytes=Utilities.base64Decode(p.base64);
   if(bytes.length!==p.bytes||receiptHex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,bytes))!==p.sha256)throw Error('checksum_mismatch');
-  var journal=reservePrivateReceipt_(root,id,p),record=journal.value;
+  var record=reservePrivateReceipt_(root,id,p);
   assertReceiptPrivate_(record.parentId);
   // Uploads for different receipts need not wait for each other once their IDs are reserved.
   var proof=record.storedAt?assertReceiptPrivate_(record.fileId,false,receiptMediaFields_):uploadPrivateReceipt_(record,bytes);
-  if(proof.id!==record.fileId||Number(proof.size)!==p.bytes||proof.mimeType!==p.mimeType||proof.sha256Checksum!==p.sha256||
-    !proof.parents||proof.parents.length!==1||proof.parents[0]!==record.parentId)throw Error('storage_mismatch');
-  if(!record.storedAt){
-    withReceiptLock_(function(){
-      var current=JSON.parse(journal.file.getBlob().getDataAsString());
-      if(current.fileId!==record.fileId||current.sha256!==record.sha256)throw Error('identity_conflict');
-      if(!current.storedAt){
-        current.storedAt=Date.now();
-        journal.file.setContent(JSON.stringify(current));
-      }
-    });
-  }
+  verifyReceiptMedia_(proof,record);
+  // The Worker durably records the signed storage proof. The Drive journal
+  // remains an immutable reservation used to reconcile the same file on retry.
   return {ok:true,private:true,fileId:record.fileId,folderURL:'https://drive.google.com/drive/folders/'+record.parentId,sha256:p.sha256,bytes:p.bytes};
 }
 function readPrivateReceipt_(root,id,p) {
   var journal=receiptJournal_(root,id),record=journal.value;
-  if(!record||record.fileId!==p.fileId||record.sha256!==p.sha256||!record.storedAt)throw Error('not_found');
-  assertReceiptPrivate_(record.parentId);var file=assertReceiptPrivate_(record.fileId);
-  if(file.parents.length!==1||file.parents[0]!==record.parentId)throw Error('parent_changed');
+  if(!record||record.fileId!==p.fileId||record.sha256!==p.sha256)throw Error('not_found');
+  assertReceiptPrivate_(record.parentId);
+  verifyReceiptMedia_(assertReceiptPrivate_(record.fileId,false,receiptMediaFields_),record);
   var blob=DriveApp.getFileById(record.fileId).getBlob(),bytes=blob.getBytes();
   if(bytes.length!==record.bytes||receiptHex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,bytes))!==record.sha256)throw Error('changed');
   return {ok:true,base64:Utilities.base64Encode(bytes)};

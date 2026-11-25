@@ -50,6 +50,8 @@ const ownerACL = [{type:'user',role:'owner'}];
 const privateRoot = 'synthetic-private-root';
 const parentID = 'synthetic-parent';
 const mediaID = 'synthetic-drive-media';
+const journalID = 'synthetic-receipt-journal';
+const journalFolderID = 'synthetic-journal-folder';
 const mediaBytes = Buffer.from('fictional image bytes for the bridge test');
 const mediaHash = crypto.createHash('sha256').update(mediaBytes).digest('hex');
 const fileProof = {id:mediaID,trashed:false,mimeType:'image/png',parents:[parentID],
@@ -67,11 +69,6 @@ function mediaFixture({loseCreateResponse=false, existingProof=null}={}) {
         mimeType:uploadPayload.mimeType,sha256:mediaHash,bytes:mediaBytes.length,createdAt:1}:null;
     c.Utilities.DigestAlgorithm={SHA_256:'sha256'};
     c.Utilities.computeDigest=(algorithm,bytes)=>[...crypto.createHash(algorithm).update(Buffer.from(bytes)).digest()];
-    const file={
-        getId:()=> 'synthetic-journal-file',
-        getBlob:()=>({getDataAsString:()=>JSON.stringify(value)}),
-        setContent:encoded=>{assert.ok(locked);value=JSON.parse(encoded);calls.push('confirmation');}
-    };
     c.LockService={getScriptLock:()=>({
         tryLock:()=>{assert.equal(locked,false);locked=true;return true;},
         releaseLock:()=>{assert.equal(locked,true);locked=false;}
@@ -79,9 +76,7 @@ function mediaFixture({loseCreateResponse=false, existingProof=null}={}) {
     c.receiptFolder_=()=>{assert.ok(locked);return parentID;};
     c.receiptJournal_=()=> {
         assert.ok(locked);
-        return {file:value?file:null,value,folder:{createFile:(_name,encoded)=>{
-            assert.ok(locked);value=JSON.parse(encoded);calls.push('reservation');return file;
-        }}};
+        return {value,folderId:journalFolderID};
     };
     c.receiptDrive_=(route)=>{
         assert.match(route,/generateIds/);assert.ok(locked);return {ids:[mediaID]};
@@ -92,11 +87,17 @@ function mediaFixture({loseCreateResponse=false, existingProof=null}={}) {
             return c.assertReceiptOwnerOnly_(media);
         }
         if(id===parentID) assert.equal(locked,false);
-        if(id==='synthetic-journal-file') assert.equal(locked,true);
         return {id,permissions:ownerACL};
     };
     c.Drive={Files:{
         create:(metadata,blob,query)=>{
+            if(metadata.mimeType==='application/json'){
+                assert.equal(locked,true);
+                assert.equal(metadata.parents[0],journalFolderID);
+                calls.push('reservation');
+                value=JSON.parse(blob.getDataAsString());
+                return {id:journalID,mimeType:metadata.mimeType,parents:[journalFolderID],permissions:ownerACL};
+            }
             calls.push('create');
             assert.equal(locked,false);
             assert.equal(value.fileId,mediaID);
@@ -109,8 +110,9 @@ function mediaFixture({loseCreateResponse=false, existingProof=null}={}) {
             return media;
         },
         update:(_metadata,id)=>{
+            assert.equal(locked,false);
             calls.push('update');
-            assert.equal(locked,false);assert.equal(id,mediaID);
+            assert.equal(id,mediaID);
             media=fileProof;return media;
         }
     }};
@@ -121,26 +123,26 @@ test('new media uses one Drive create and its returned proof outside the reserva
     const {context,operation,calls,journal}=mediaFixture();
     const result=invoke(context,operation);
     assert.equal(JSON.parse(Buffer.from(result.payloadB64,'base64')).fileId,mediaID);
-    assert.deepEqual(calls,['reservation','create','confirmation']);
-    const first=journal().storedAt;
+    assert.deepEqual(calls,['reservation','create']);
+    const first={...journal()};
     const replay=invoke(context,operation);
     assert.equal(JSON.parse(Buffer.from(replay.payloadB64,'base64')).fileId,mediaID);
-    assert.deepEqual(calls,['reservation','create','confirmation','readback']);
-    assert.equal(journal().storedAt,first);
+    assert.deepEqual(calls,['reservation','create','create','readback']);
+    assert.deepEqual(journal(),first);
 });
 
 test('a lost create response reads the reserved file and completes the same journal',()=>{
     const {context,operation,calls,journal}=mediaFixture({loseCreateResponse:true});
     const stored=invoke(context,operation);
     assert.equal(JSON.parse(Buffer.from(stored.payloadB64,'base64')).fileId,mediaID);
-    assert.deepEqual(calls,['reservation','create','readback','confirmation']);
-    assert.ok(journal().storedAt);
+    assert.deepEqual(calls,['reservation','create','readback']);
+    assert.equal(journal().fileId,mediaID);
 });
 
 test('an old empty private reservation can finish, while mismatched or shared media stays unconfirmed',()=>{
     const legacy=mediaFixture({existingProof:{...fileProof,size:'0',sha256Checksum:undefined}});
     assert.ok(invoke(legacy.context,legacy.operation).signature);
-    assert.deepEqual(legacy.calls,['create','readback','update','confirmation']);
+    assert.deepEqual(legacy.calls,['create','readback','update']);
     const mismatch=mediaFixture({existingProof:{...fileProof,sha256Checksum:'f'.repeat(64)}});
     assert.equal(invoke(mismatch.context,mismatch.operation).code,'storage_mismatch');
     assert.deepEqual(mismatch.calls,['create','readback']);
@@ -221,4 +223,91 @@ test('a cached destination cannot bypass unsafe Drive permissions',()=>{
     c.receiptDrive_=()=>({files:[makeFile(coldLookups++)]});
     assert.throws(()=>c.receiptDestination_(privateRoot,uploadPayload),/unsafe_permissions/);
     assert.equal(coldLookups,3);
+});
+
+test('the warm journal lookup validates its folder and record together before reading the reservation', () => {
+    const {context:c}=fixture();
+    const operation=crypto.randomUUID();
+    let shared=false,mediaReads=0;
+    c.CacheService={getScriptCache:()=>({get:()=>journalFolderID})};
+    c.receiptDriveParallel_=paths=>{
+        assert.equal(paths.length,2);
+        assert.match(decodeURIComponent(paths[1]),new RegExp(operation+'\\.json'));
+        return [{files:[{id:journalFolderID,mimeType:'application/vnd.google-apps.folder',
+            parents:[privateRoot],permissions:ownerACL}]},
+            {files:[{id:journalID,mimeType:'application/json',parents:[journalFolderID],
+                permissions:shared?[...ownerACL,{type:'anyone',role:'reader'}]:ownerACL}]}];
+    };
+    c.receiptDrive_=route=>{
+        assert.equal(route,'drive/v3/files/'+journalID+'?alt=media');
+        mediaReads++;
+        return {fileId:mediaID,sha256:mediaHash};
+    };
+    const journal=c.receiptJournal_(privateRoot,operation);
+    assert.equal(journal.value.fileId,mediaID);
+    assert.equal(mediaReads,1);
+    shared=true;
+    assert.throws(()=>c.receiptJournal_(privateRoot,operation),/unsafe_permissions/);
+    assert.equal(mediaReads,1);
+});
+
+test('warm reservation batches the root, journal, destination and ID request with current Drive checks',()=>{
+    const {context:c}=fixture();
+    const ids=['synthetic-year','synthetic-month','synthetic-events',parentID];
+    const folder=(id,parent)=>({id,mimeType:'application/vnd.google-apps.folder',parents:[parent],permissions:ownerACL});
+    let privateRootNow=true,uniqueJournal=true,batches=0;
+    c.Utilities.DigestAlgorithm={SHA_256:'sha256'};
+    c.Utilities.computeDigest=(algorithm,text)=>[...crypto.createHash(algorithm).update(text).digest()];
+    c.CacheService={getScriptCache:()=>({get:key=>key.startsWith('receipt-journals:')?journalFolderID:JSON.stringify(ids)})};
+    c.receiptDriveParallel_=paths=>{
+        batches++;
+        assert.equal(paths.length,8);
+        assert.ok(paths[0].startsWith('drive/v3/files/'+privateRoot+'?fields='));
+        assert.match(paths[3],/generateIds/);
+        const root=folder(privateRoot,'my-drive');
+        if(!privateRootNow)root.permissions=[...ownerACL,{type:'anyone',role:'reader'}];
+        return [root,{files:[folder(journalFolderID,privateRoot)]},{files:[],nextPageToken:uniqueJournal?undefined:'another-page'},
+            {ids:[mediaID]},...ids.map((id,index)=>({files:[folder(id,index?ids[index-1]:privateRoot)]}))];
+    };
+    const warm=c.prepareWarmReceipt_(privateRoot,crypto.randomUUID(),uploadPayload);
+    assert.equal(warm.fileId,mediaID);
+    assert.equal(warm.parentId,parentID);
+    assert.equal(warm.journal.folderId,journalFolderID);
+    assert.equal(batches,1);
+    uniqueJournal=false;
+    assert.equal(c.prepareWarmReceipt_(privateRoot,crypto.randomUUID(),uploadPayload),null);
+    uniqueJournal=true;
+    privateRootNow=false;
+    assert.equal(c.prepareWarmReceipt_(privateRoot,crypto.randomUUID(),uploadPayload),null);
+});
+
+test('operator preview verifies the exact media for both immutable and stamped journals',()=>{
+    const {context:c}=fixture();
+    let journal={fileId:mediaID,parentId:parentID,sha256:mediaHash,bytes:mediaBytes.length,mimeType:'image/png'};
+    let proof=fileProof, fileReads=0, savedBytes=mediaBytes;
+    c.receiptJournal_=()=>({value:journal});
+    c.assertReceiptPrivate_=id=>id===mediaID?proof:{id,permissions:ownerACL};
+    c.DriveApp={getFileById:id=>{
+        assert.equal(id,mediaID);
+        fileReads++;
+        return {getBlob:()=>({getBytes:()=>[...savedBytes]})};
+    }};
+    c.Utilities.base64Encode=bytes=>Buffer.from(bytes).toString('base64');
+    c.Utilities.DigestAlgorithm={SHA_256:'sha256'};
+    c.Utilities.computeDigest=(algorithm,bytes)=>[...crypto.createHash(algorithm).update(Buffer.from(bytes)).digest()];
+    const request=envelope('read',{fileId:mediaID,sha256:mediaHash});
+    for(const record of [journal,{...journal,storedAt:1}]){
+        journal=record;
+        const result=invoke(c,request);
+        assert.equal(JSON.parse(Buffer.from(result.payloadB64,'base64')).base64,mediaBytes.toString('base64'));
+    }
+    proof={...fileProof,parents:['wrong-parent']};
+    assert.equal(invoke(c,request).code,'parent_changed');
+    proof={...fileProof,sha256Checksum:'f'.repeat(64)};
+    assert.equal(invoke(c,request).code,'storage_mismatch');
+    assert.equal(fileReads,2);
+    proof=fileProof;
+    savedBytes=Buffer.from('changed bytes in the original file');
+    assert.equal(invoke(c,request).code,'changed');
+    assert.equal(fileReads,3);
 });
